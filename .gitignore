@@ -1,0 +1,41 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Swift / SwiftPM
+.build/
+.swiftpm/
+Packages/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Build output (release artifacts)
+build/
+*.app
+*.dmg
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs / temp
+*.log
+tmp/
+
+# Local secrets / env
+.env
+.env.local
+*.local

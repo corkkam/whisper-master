@@ -1,0 +1,116 @@
+@preconcurrency import AVFoundation
+import Foundation
+
+final class MicrophoneCaptureService {
+    enum CaptureError: Error {
+        case microphoneUnavailable
+        case engineStartFailed
+    }
+
+    typealias BufferHandler = @Sendable (AVAudioPCMBuffer) -> Void
+    typealias LevelHandler = @Sendable (Float) -> Void
+
+    private let engine = AVAudioEngine()
+    private var bufferHandler: BufferHandler?
+    private var levelHandler: LevelHandler?
+    private var isCapturing = false
+
+    func ensurePermission() async -> Bool {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            return true
+        case .notDetermined:
+            return await AVCaptureDevice.requestAccess(for: .audio)
+        case .denied, .restricted:
+            return false
+        @unknown default:
+            return false
+        }
+    }
+
+    func start(
+        bufferHandler: @escaping BufferHandler,
+        levelHandler: @escaping LevelHandler
+    ) throws {
+        guard !isCapturing else { return }
+
+        self.bufferHandler = bufferHandler
+        self.levelHandler = levelHandler
+
+        let inputNode = engine.inputNode
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+
+        inputNode.removeTap(onBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
+            guard let self else { return }
+            guard let copied = Self.copy(buffer: buffer) else { return }
+            self.levelHandler?(Self.rmsLevel(from: copied))
+            self.bufferHandler?(copied)
+        }
+
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            inputNode.removeTap(onBus: 0)
+            self.bufferHandler = nil
+            self.levelHandler = nil
+            throw CaptureError.engineStartFailed
+        }
+
+        isCapturing = true
+    }
+
+    func stop() {
+        guard isCapturing else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        bufferHandler = nil
+        levelHandler = nil
+        isCapturing = false
+    }
+
+    private static func copy(buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let clone = AVAudioPCMBuffer(
+            pcmFormat: buffer.format,
+            frameCapacity: buffer.frameCapacity
+        ) else {
+            return nil
+        }
+
+        clone.frameLength = buffer.frameLength
+
+        let channelCount = Int(buffer.format.channelCount)
+        let frameLength = Int(buffer.frameLength)
+
+        if let source = buffer.floatChannelData, let destination = clone.floatChannelData {
+            for channel in 0..<channelCount {
+                destination[channel].update(from: source[channel], count: frameLength)
+            }
+            return clone
+        }
+
+        if let source = buffer.int16ChannelData, let destination = clone.int16ChannelData {
+            for channel in 0..<channelCount {
+                destination[channel].update(from: source[channel], count: frameLength)
+            }
+            return clone
+        }
+
+        return nil
+    }
+
+    private static func rmsLevel(from buffer: AVAudioPCMBuffer) -> Float {
+        guard let channel = buffer.floatChannelData?[0] else { return 0 }
+        let frameLength = Int(buffer.frameLength)
+        guard frameLength > 0 else { return 0 }
+
+        var sumSquares: Float = 0
+        for index in 0..<frameLength {
+            let sample = channel[index]
+            sumSquares += sample * sample
+        }
+
+        return sqrtf(sumSquares / Float(frameLength))
+    }
+}
