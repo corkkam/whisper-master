@@ -13,6 +13,9 @@ final class PrototypeViewModel {
     private let slidingWindowTranscriber: FluidAudioStreamingTranscriber
     private let eouTranscriber: FluidAudioEouStreamingTranscriber
     private let textInjector: TextInjector
+    private let notesService: NotesService
+    private let remindersService: RemindersService
+    private let intentClassifier: IntentClassifier
     private var pendingAppendTasks: [UUID: Task<Void, Never>] = [:]
     private var preparationTask: Task<Void, Never>?
     private let releaseTailNanoseconds: UInt64 = 80_000_000
@@ -24,7 +27,10 @@ final class PrototypeViewModel {
         hotkeyUpdater: @escaping (HotkeyManager.HotkeyOption) -> Void = { _ in },
         slidingWindowTranscriber: FluidAudioStreamingTranscriber,
         eouTranscriber: FluidAudioEouStreamingTranscriber,
-        textInjector: TextInjector
+        textInjector: TextInjector,
+        notesService: NotesService,
+        remindersService: RemindersService,
+        intentClassifier: IntentClassifier
     ) {
         self.state = state
         self.microphoneCapture = microphoneCapture
@@ -33,6 +39,9 @@ final class PrototypeViewModel {
         self.slidingWindowTranscriber = slidingWindowTranscriber
         self.eouTranscriber = eouTranscriber
         self.textInjector = textInjector
+        self.notesService = notesService
+        self.remindersService = remindersService
+        self.intentClassifier = intentClassifier
     }
 
     convenience init() {
@@ -49,7 +58,10 @@ final class PrototypeViewModel {
             hotkeyUpdater: hotkeyUpdater,
             slidingWindowTranscriber: FluidAudioStreamingTranscriber(),
             eouTranscriber: FluidAudioEouStreamingTranscriber(),
-            textInjector: TextInjector()
+            textInjector: TextInjector(),
+            notesService: NotesService(),
+            remindersService: RemindersService(),
+            intentClassifier: IntentClassifier()
         )
     }
 
@@ -69,6 +81,7 @@ final class PrototypeViewModel {
         state.audioLevel = 0
         state.resetTranscript()
         state.statusMessage = "Getting voice engine ready..."
+        state.log("Recording started — mode: \(state.outputMode.shortName)", level: .info, category: .recording)
 
         Task {
             do {
@@ -122,6 +135,7 @@ final class PrototypeViewModel {
         state.phase = .stopping
         state.audioLevel = 0
         state.statusMessage = "Catching final words..."
+        state.log("Recording stopped, processing…", level: .info, category: .recording)
 
         Task {
             do {
@@ -135,12 +149,29 @@ final class PrototypeViewModel {
                 if !final.isEmpty {
                     state.transcript.latestConfirmed = final
                     state.transcript.latestPartial = ""
-                    state.appendHistory(text: final, engine: state.selectedEngine)
-                    if state.autoPasteEnabled {
-                        await injectFinalTextIfPossible(final)
+                    let mode = state.outputMode
+                    state.appendHistory(text: final, engine: state.selectedEngine, outputMode: mode)
+                    let preview = String(final.prefix(80)) + (final.count > 80 ? "…" : "")
+                    state.log("Transcription: \(preview)", level: .success, category: .transcription)
+
+                    switch mode {
+                    case .auto:
+                        await routeWithSmartClassifier(final)
+                    case .dictate:
+                        if state.autoPasteEnabled {
+                            await injectFinalTextIfPossible(final)
+                        } else {
+                            state.statusMessage = "Finished local transcription."
+                        }
+                    case .createNote:
+                        await createNoteFromTranscript(final)
+                    case .createReminder:
+                        await createReminderFromTranscript(final)
                     }
+                } else {
+                    state.statusMessage = "Finished — no speech detected."
+                    state.log("No speech detected in recording.", level: .warning, category: .transcription)
                 }
-                state.statusMessage = "Finished local transcription."
             } catch {
                 await handleFailure(error)
             }
@@ -149,6 +180,7 @@ final class PrototypeViewModel {
 
     func cancelSession() {
         microphoneCapture.stop()
+        state.log("Session cancelled.", level: .info, category: .recording)
         Task {
             await transcriber.cancel()
             await MainActor.run {
@@ -167,6 +199,7 @@ final class PrototypeViewModel {
             state.preparingEngine = nil
             state.download = nil
             state.statusMessage = "\(preparingEngine.userFacingName) setup cancelled."
+            state.log("Model preparation cancelled for \(preparingEngine.userFacingName).", level: .warning, category: .system)
         }
 
         if case .preparingModels = state.phase {
@@ -198,7 +231,6 @@ final class PrototypeViewModel {
     private func drainPendingAudioBuffers() async {
         let tasks = Array(pendingAppendTasks.values)
         pendingAppendTasks.removeAll()
-
         for task in tasks {
             await task.value
         }
@@ -273,6 +305,9 @@ final class PrototypeViewModel {
     func prepareDefaultEngineOnLaunch() {
         state.statusMessage = "Getting voice engine ready..."
         prepareSelectedEngineInBackground()
+        // Request Reminders access early so the system dialog appears at launch
+        // rather than mid-dictation when the user says "remind me to…".
+        Task { await remindersService.requestAccessIfNeeded() }
     }
 
     func prepareSelectedEngineInBackground() {
@@ -298,6 +333,80 @@ final class PrototypeViewModel {
         }
     }
 
+    // MARK: - Smart auto-routing
+
+    private func routeWithSmartClassifier(_ text: String) async {
+        state.statusMessage = "Classifying intent…"
+        state.log("Smart mode: classifying intent…", level: .info, category: .system)
+
+        let result = await intentClassifier.classify(text, useAI: true)
+
+        let sourceLabel: String = {
+            switch result.source {
+            case .foundationModel: return "ai"
+            case .keywordRules:    return "rules"
+            }
+        }()
+
+        switch result.action {
+        case .note:
+            state.log("Smart (\(sourceLabel)): → Note", level: .info, category: .system)
+            await createNoteFromTranscript(result.content)
+        case .reminder:
+            state.log("Smart (\(sourceLabel)): → Reminder", level: .info, category: .system)
+            await createReminderFromTranscript(result.content)
+        case .dictate:
+            state.log("Smart (\(sourceLabel)): → Dictate", level: .info, category: .system)
+            if state.autoPasteEnabled {
+                await injectFinalTextIfPossible(result.content)
+            } else {
+                state.statusMessage = "Finished local transcription."
+            }
+        }
+    }
+
+    // MARK: - Notes integration
+
+    private func createNoteFromTranscript(_ text: String) async {
+        state.statusMessage = "Creating note in Apple Notes…"
+        state.log("Creating note in Apple Notes…", level: .info, category: .notes)
+        do {
+            try await notesService.createNote(body: text)
+            state.statusMessage = "Note created in Apple Notes."
+            state.log("Note created successfully.", level: .success, category: .notes)
+            // Notes is already brought to front by the AppleScript `activate` call.
+        } catch {
+            let msg = error.localizedDescription
+            state.statusMessage = "Couldn't create note: \(msg)"
+            state.log("Failed to create note: \(msg)", level: .error, category: .notes)
+        }
+    }
+
+    // MARK: - Reminders integration
+
+    private func createReminderFromTranscript(_ text: String) async {
+        state.statusMessage = "Adding reminder…"
+        state.log("Adding to Reminders…", level: .info, category: .reminders)
+        do {
+            try await remindersService.createReminder(title: text)
+            state.statusMessage = "Reminder added."
+            state.log("Reminder created successfully.", level: .success, category: .reminders)
+            openApp(bundleId: "com.apple.reminders")
+        } catch {
+            let msg = error.localizedDescription
+            state.statusMessage = "Couldn't add reminder: \(msg)"
+            state.log("Failed to create reminder: \(msg)", level: .error, category: .reminders)
+        }
+    }
+
+    private func openApp(bundleId: String) {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    // MARK: - Failure handling
+
     private func handleFailure(_ error: Error) async {
         microphoneCapture.stop()
         await transcriber.cancel()
@@ -305,6 +414,7 @@ final class PrototypeViewModel {
             self.state.phase = .failed(error.localizedDescription)
             self.state.audioLevel = 0
             self.state.statusMessage = "Prototype failed: \(error.localizedDescription)"
+            self.state.log("Error: \(error.localizedDescription)", level: .error, category: .system)
         }
     }
 
@@ -316,6 +426,7 @@ final class PrototypeViewModel {
             }
             self.state.phase = .failed(error.localizedDescription)
             self.state.statusMessage = "Couldn't get the voice engine ready. Check your connection and try again."
+            self.state.log("Engine preparation failed (\(engine.displayName)): \(error.localizedDescription)", level: .error, category: .system)
         }
     }
 
@@ -347,6 +458,10 @@ final class PrototypeViewModel {
         state.statusMessage = engine.isInstalled
             ? "Loading voice engine..."
             : "Downloading voice engine..."
+        state.log(engine.isInstalled
+            ? "Loading \(engine.displayName) engine…"
+            : "Downloading \(engine.displayName) engine…",
+            level: .info, category: .system)
 
         let selectedTranscriber = transcriber(for: engine)
         try await selectedTranscriber.prepareModels { [weak self] snapshot in
@@ -366,6 +481,7 @@ final class PrototypeViewModel {
         state.preparingEngine = nil
         state.download = nil
         state.statusMessage = "Voice engine ready."
+        state.log("\(engine.displayName) engine ready.", level: .success, category: .system)
     }
 
     private func transcriber(for engine: TranscriberEngine) -> any LocalStreamingTranscriber {
@@ -455,16 +571,20 @@ final class PrototypeViewModel {
     }
 
     private func injectFinalTextIfPossible(_ text: String) async {
+        // Always land on clipboard first — guaranteed fallback regardless of permissions.
+        copyToClipboard(text)
+
         guard permissionsManager.accessibilityGranted() else {
             await MainActor.run {
-                self.state.statusMessage = "Transcript ready. Enable Accessibility for auto-paste."
+                self.state.statusMessage = "Copied to clipboard — grant Accessibility in Settings to auto-paste."
+                self.state.log("Accessibility not granted; text copied to clipboard.", level: .warning, category: .system)
             }
             return
         }
 
         await textInjector.inject(text)
         await MainActor.run {
-            self.state.statusMessage = "Finished local transcription and pasted at cursor."
+            self.state.statusMessage = "Pasted at cursor."
         }
     }
 }

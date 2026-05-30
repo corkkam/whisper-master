@@ -5,6 +5,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     case recording
     case engine
     case history
+    case logs
     case permissions
     case about
 
@@ -21,6 +22,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .recording: return "Recording"
         case .engine: return "Voice engine"
         case .history: return "History"
+        case .logs: return "Logs"
         case .permissions: return "Permissions"
         case .about: return "About"
         }
@@ -31,6 +33,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .recording: return "mic"
         case .engine: return "waveform"
         case .history: return "clock.arrow.circlepath"
+        case .logs: return "doc.text.magnifyingglass"
         case .permissions: return "shield"
         case .about: return "info.circle"
         }
@@ -41,6 +44,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .recording: return "How dictation starts, stops, and lands where you're typing."
         case .engine: return "Everything runs on-device — your audio never leaves this Mac."
         case .history: return "Your recent transcriptions, kept locally and searchable."
+        case .logs: return "Activity log — what Whisper Master has been doing."
         case .permissions: return "Whisper Master only asks for what it needs to work."
         case .about: return "Voice dictation that stays on your Mac."
         }
@@ -59,6 +63,8 @@ struct PrototypeView: View {
     @State private var micGranted = false
     @State private var micDenied = false
     @State private var accessibilityGranted = false
+    @State private var remindersGranted = false
+    @State private var remindersDenied = false
     private let permissions = PermissionsManager()
 
     var body: some View {
@@ -162,6 +168,11 @@ struct PrototypeView: View {
                     .font(StudioFont.mono)
                     .tracking(1.5)
                     .foregroundStyle(Studio.cream)
+                Spacer()
+                Image(systemName: state.outputMode.systemImage)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(outputModeTint)
+                    .help("Output: \(state.outputMode.displayName)")
             }
             Text("V0.1.0 · \(state.hotkey.compactName) TO DICTATE")
                 .font(StudioFont.monoSmall)
@@ -215,6 +226,7 @@ struct PrototypeView: View {
         case .recording: recordingPanel
         case .engine: enginePanel
         case .history: historyPanel
+        case .logs: logsPanel
         case .permissions: permissionsPanel
         case .about: aboutPanel
         }
@@ -224,6 +236,19 @@ struct PrototypeView: View {
 
     private var recordingPanel: some View {
         VStack(alignment: .leading, spacing: 22) {
+            sectionLabel("OUTPUT MODE")
+            StudioCard {
+                VStack(spacing: 0) {
+                    ForEach(OutputMode.allCases, id: \.self) { mode in
+                        outputModeButton(mode)
+                        if mode != OutputMode.allCases.last {
+                            rowDivider
+                        }
+                    }
+                }
+            }
+
+            sectionLabel("HOTKEY & BEHAVIOR")
             StudioCard {
                 SettingRow(code: "A1", title: "Push-to-talk key",
                            detail: "Press and hold to dictate from anywhere on your Mac.") {
@@ -234,15 +259,22 @@ struct PrototypeView: View {
                            detail: "Hold the key while you speak. Off makes it a toggle.") {
                     Toggle("", isOn: $state.holdToTalkEnabled).toggleStyle(StudioToggleStyle())
                 }
-                rowDivider
-                SettingRow(code: "A3", title: "Auto-paste at cursor",
-                           detail: "Insert the transcription wherever you're typing.") {
-                    Toggle("", isOn: $state.autoPasteEnabled).toggleStyle(StudioToggleStyle())
+                if state.outputMode == .dictate {
+                    rowDivider
+                    SettingRow(code: "A3", title: "Auto-paste at cursor",
+                               detail: "Insert the transcription wherever you're typing.") {
+                        Toggle("", isOn: $state.autoPasteEnabled).toggleStyle(StudioToggleStyle())
+                    }
                 }
                 rowDivider
                 SettingRow(code: "A4", title: "Play start / stop sound",
                            detail: "Subtle click when recording begins or ends.") {
                     Toggle("", isOn: $state.soundEnabled).toggleStyle(StudioToggleStyle())
+                }
+                rowDivider
+                SettingRow(code: "A5", title: "Always use built-in mic",
+                           detail: "Ignore external audio devices.") {
+                    Toggle("", isOn: $state.preferBuiltInMic).toggleStyle(StudioToggleStyle())
                 }
             }
 
@@ -293,6 +325,47 @@ struct PrototypeView: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+    }
+
+    private func outputModeButton(_ mode: OutputMode) -> some View {
+        let isSelected = state.outputMode == mode
+        return Button {
+            state.outputMode = mode
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(isSelected ? Studio.red : Studio.inkTertiary)
+                    .font(.system(size: 14))
+
+                Image(systemName: mode.systemImage)
+                    .foregroundStyle(outputModeTintFor(mode))
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 18)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(mode.displayName)
+                        .font(StudioFont.cardTitle)
+                        .foregroundStyle(Studio.ink)
+                    Text(outputModeDescription(mode))
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(Studio.inkSecondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func outputModeDescription(_ mode: OutputMode) -> String {
+        switch mode {
+        case .auto:           return "Agent detects intent — note, reminder, or dictation."
+        case .dictate:        return "Types transcribed text at the cursor."
+        case .createNote:     return "Creates a new note in Apple Notes."
+        case .createReminder: return "Adds the transcription as a new Reminder."
+        }
     }
 
     // MARK: - Engine
@@ -535,6 +608,139 @@ struct PrototypeView: View {
         return f
     }()
 
+    // MARK: - Logs
+
+    private var logsPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            logsToolbar
+            if state.logEntries.isEmpty {
+                emptyLogs
+            } else {
+                logsList
+            }
+        }
+    }
+
+    private var logsToolbar: some View {
+        HStack {
+            Text("\(state.logEntries.count) entries")
+                .font(.caption)
+                .foregroundStyle(Studio.inkSecondary)
+            Spacer()
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([PrototypeAppState.logFileURL])
+            } label: {
+                Label("Show file", systemImage: "folder")
+            }
+            .controlSize(.small)
+
+            Button(role: .destructive) {
+                state.clearLogs()
+            } label: {
+                Label("Clear", systemImage: "trash")
+            }
+            .controlSize(.small)
+        }
+    }
+
+    private var emptyLogs: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.system(size: 34))
+                .foregroundStyle(Studio.inkTertiary)
+            Text("No log entries yet")
+                .font(StudioFont.sans(17, .bold))
+                .foregroundStyle(Studio.ink)
+            Text("Activity will appear here as you record, transcribe, and use output modes.")
+                .font(StudioFont.cardBody)
+                .foregroundStyle(Studio.inkSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(44)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Studio.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Studio.cardBorder, lineWidth: 1)
+        )
+    }
+
+    private var logsList: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(state.logEntries.prefix(200).enumerated()), id: \.element.id) { idx, entry in
+                logRow(entry)
+                if idx < min(state.logEntries.count, 200) - 1 {
+                    Divider().padding(.leading, 40)
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Studio.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Studio.cardBorder, lineWidth: 1)
+        )
+    }
+
+    private func logRow(_ entry: LogEntry) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: logIcon(for: entry.level))
+                .foregroundStyle(logColor(for: entry.level))
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 16, alignment: .center)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.message)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(Studio.ink)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+                HStack(spacing: 4) {
+                    Text(Self.logTimeFormatter.string(from: entry.timestamp))
+                        .font(.caption2)
+                        .foregroundStyle(Studio.inkTertiary)
+                    Text("·")
+                        .foregroundStyle(Studio.inkTertiary.opacity(0.6))
+                    Text(entry.category.rawValue)
+                        .font(.caption2)
+                        .foregroundStyle(Studio.inkTertiary)
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+
+    private func logIcon(for level: LogEntry.Level) -> String {
+        switch level {
+        case .info:    return "info.circle"
+        case .success: return "checkmark.circle.fill"
+        case .warning: return "exclamationmark.triangle"
+        case .error:   return "xmark.circle.fill"
+        }
+    }
+
+    private func logColor(for level: LogEntry.Level) -> Color {
+        switch level {
+        case .info:    return Studio.inkSecondary
+        case .success: return Color(red: 0.18, green: 0.55, blue: 0.30)
+        case .warning: return Color(red: 0.78, green: 0.50, blue: 0.10)
+        case .error:   return Studio.red
+        }
+    }
+
+    private static let logTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
     // MARK: - Permissions
 
     private var permissionsPanel: some View {
@@ -553,12 +759,22 @@ struct PrototypeView: View {
                 permissionRow(
                     code: "P2",
                     title: "Accessibility",
-                    detail: "Lets Whisper paste text at your cursor.",
+                    detail: "Required for auto-paste at the cursor (Dictate mode).",
                     granted: accessibilityGranted,
                     denied: false
                 ) {
                     permissions.promptAccessibility()
                     permissions.openAccessibilitySettings()
+                }
+                rowDivider
+                permissionRow(
+                    code: "P3",
+                    title: "Reminders",
+                    detail: "Required when output mode is set to Add Reminder.",
+                    granted: remindersGranted,
+                    denied: remindersDenied
+                ) {
+                    permissions.openRemindersSettings()
                 }
             }
 
@@ -771,6 +987,9 @@ struct PrototypeView: View {
         micGranted = micStatus == .granted
         micDenied = micStatus == .denied
         accessibilityGranted = permissions.accessibilityGranted()
+        let remStatus = permissions.remindersStatus()
+        remindersGranted = remStatus == .granted
+        remindersDenied = remStatus == .denied
     }
 
     private var engineSelectionEnabled: Bool {
@@ -810,6 +1029,19 @@ struct PrototypeView: View {
         case .idle:
             if !micGranted || !accessibilityGranted { return "Needs setup" }
             return "Ready"
+        }
+    }
+
+    private var outputModeTint: Color {
+        outputModeTintFor(state.outputMode)
+    }
+
+    private func outputModeTintFor(_ mode: OutputMode) -> Color {
+        switch mode {
+        case .auto:           return .mint
+        case .dictate:        return .secondary
+        case .createNote:     return .yellow
+        case .createReminder: return .purple
         }
     }
 }
