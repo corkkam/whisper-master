@@ -28,6 +28,20 @@ final class HotkeyManager {
             }
         }
 
+        /// Short key-cap style label, e.g. "⌥ R-OPT".
+        var compactName: String {
+            switch self {
+            case .rightOption:
+                return "⌥ R-OPT"
+            case .leftOption:
+                return "⌥ L-OPT"
+            case .rightCommand:
+                return "⌘ R-CMD"
+            case .rightControl:
+                return "⌃ R-CTL"
+            }
+        }
+
         var keyCode: UInt16 {
             switch self {
             case .rightOption:

@@ -34,13 +34,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupHotkey()
         startStatusRefreshLoop()
 
+        // Start downloading/loading the voice engine immediately, in parallel
+        // with onboarding. Model preparation only needs the network, not the
+        // mic/accessibility permissions the wizard collects — so by the time
+        // the user reaches the last step it's ideally already ready.
+        viewModel.prepareDefaultEngineOnLaunch()
+
         if needsOnboarding {
             showOnboarding()
-        } else {
-            viewModel.prepareDefaultEngineOnLaunch()
-            if !viewModel.state.selectedEngine.isInstalled {
-                showWindow()
-            }
+        } else if !viewModel.state.selectedEngine.isInstalled {
+            showWindow()
         }
     }
 
@@ -316,8 +319,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.title = "Whisper Master"
-        window.titlebarAppearsTransparent = false
-        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
         window.center()
         window.contentViewController = host
         window.isReleasedWhenClosed = false
@@ -350,12 +354,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         onboardingWindow = OnboardingWindow(
+            state: viewModel.state,
             permissions: permissionsManager,
-            microphoneCapture: onboardingMic
+            microphoneCapture: onboardingMic,
+            retryEngine: { [weak self] in self?.viewModel.prepareDefaultEngineOnLaunch() }
         ) { [weak self] in
             guard let self else { return }
             self.onboardingWindow?.close()
             self.onboardingWindow = nil
+            // Engine prep was kicked off at launch; retry here only if it
+            // never started or previously failed (the call is idempotent).
             self.viewModel.prepareDefaultEngineOnLaunch()
             self.showWindow()
         }

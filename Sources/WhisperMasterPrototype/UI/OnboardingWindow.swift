@@ -7,13 +7,17 @@ final class OnboardingWindow {
     private let window: NSWindow
 
     init(
+        state: PrototypeAppState,
         permissions: PermissionsManager,
         microphoneCapture: MicrophoneCaptureService,
+        retryEngine: @escaping () -> Void,
         onComplete: @escaping () -> Void
     ) {
         let root = OnboardingView(
+            state: state,
             permissions: permissions,
             microphoneCapture: microphoneCapture,
+            retryEngine: retryEngine,
             onComplete: onComplete
         )
         let host = NSHostingController(rootView: root)
@@ -61,8 +65,10 @@ private enum OnboardingStep: Int, CaseIterable {
 }
 
 private struct OnboardingView: View {
+    let state: PrototypeAppState
     let permissions: PermissionsManager
     let microphoneCapture: MicrophoneCaptureService
+    let retryEngine: () -> Void
     let onComplete: () -> Void
 
     @State private var step: OnboardingStep = .welcome
@@ -287,14 +293,103 @@ private struct OnboardingView: View {
                 Text("You're ready")
                     .font(Typography.display)
                     .foregroundStyle(Palette.textPrimary)
-                Text("Hold your push-to-talk key and start dictating. The voice engine will download in the background on first use.")
+                Text(engineReady
+                     ? "The voice engine is downloaded and loaded. Hold your push-to-talk key and start dictating."
+                     : "Hold your push-to-talk key and start dictating. We're finishing the voice engine in the background.")
                     .font(Typography.body)
                     .foregroundStyle(Palette.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 420)
             }
+
+            voiceEngineStatusCard
+                .frame(maxWidth: 420)
+
             Spacer()
         }
+    }
+
+    // MARK: Voice engine status
+
+    private var engineReady: Bool {
+        state.preparedEngine == state.selectedEngine
+    }
+
+    private var enginePreparing: Bool {
+        state.preparingEngine != nil
+    }
+
+    private var engineFailed: Bool {
+        guard !engineReady, !enginePreparing else { return false }
+        if case .failed = state.phase { return true }
+        return false
+    }
+
+    private var voiceEngineStatusCard: some View {
+        HStack(spacing: 12) {
+            statusIcon
+                .frame(width: 22, height: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(engineStatusTitle)
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.textPrimary)
+                if let detail = engineStatusDetail {
+                    Text(detail)
+                        .font(Typography.caption)
+                        .foregroundStyle(Palette.textSecondary)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            if engineFailed {
+                Button("Retry") { retryEngine() }
+                    .controlSize(.small)
+            } else if enginePreparing {
+                Text("\(Int((state.download?.fractionCompleted ?? 0) * 100))%")
+                    .font(Typography.body)
+                    .foregroundStyle(Palette.textSecondary)
+                    .monospacedDigit()
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Palette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(engineReady ? Palette.success.opacity(0.5) : Palette.stroke, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        if engineReady {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Palette.success)
+        } else if engineFailed {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(Palette.danger)
+        } else {
+            ProgressView()
+                .controlSize(.small)
+                .tint(Palette.accent)
+        }
+    }
+
+    private var engineStatusTitle: String {
+        if engineReady { return "Voice engine ready" }
+        if engineFailed { return "Voice engine setup failed" }
+        return "Setting up \(state.selectedEngine.displayName) voice engine…"
+    }
+
+    private var engineStatusDetail: String? {
+        if engineReady { return state.selectedEngine.userFacingName }
+        if engineFailed { return "Check your connection and try again." }
+        return state.download?.detail ?? "Downloading \(state.selectedEngine.estimatedDownloadSize)…"
     }
 
     private var footer: some View {

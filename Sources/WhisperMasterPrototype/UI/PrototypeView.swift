@@ -10,6 +10,12 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
+    var index: Int { (SettingsSection.allCases.firstIndex(of: self) ?? 0) + 1 }
+
+    var trackLabel: String {
+        String(format: "TRACK %02d / %02d", index, SettingsSection.allCases.count)
+    }
+
     var title: String {
         switch self {
         case .recording: return "Recording"
@@ -22,21 +28,21 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 
     var icon: String {
         switch self {
-        case .recording: return "mic.fill"
+        case .recording: return "mic"
         case .engine: return "waveform"
         case .history: return "clock.arrow.circlepath"
-        case .permissions: return "lock.shield.fill"
-        case .about: return "info.circle.fill"
+        case .permissions: return "shield"
+        case .about: return "info.circle"
         }
     }
 
-    var tint: Color {
+    var subtitle: String {
         switch self {
-        case .recording: return .orange
-        case .engine: return .purple
-        case .history: return .blue
-        case .permissions: return .green
-        case .about: return .gray
+        case .recording: return "How dictation starts, stops, and lands where you're typing."
+        case .engine: return "Everything runs on-device — your audio never leaves this Mac."
+        case .history: return "Your recent transcriptions, kept locally and searchable."
+        case .permissions: return "Whisper Master only asks for what it needs to work."
+        case .about: return "Voice dictation that stays on your Mac."
         }
     }
 }
@@ -56,14 +62,12 @@ struct PrototypeView: View {
     private let permissions = PermissionsManager()
 
     var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
             sidebar
-                .navigationSplitViewColumnWidth(min: 210, ideal: 220, max: 260)
-        } detail: {
             detail
-                .navigationSplitViewColumnWidth(min: 460, ideal: 540)
         }
-        .frame(minWidth: 720, minHeight: 540)
+        .frame(minWidth: 900, minHeight: 640)
+        .background(Studio.bg)
         .onAppear {
             refreshPermissions()
             autoFocusSetupIfNeeded()
@@ -76,244 +80,327 @@ struct PrototypeView: View {
     // MARK: - Sidebar
 
     private var sidebar: some View {
-        List(selection: $selection) {
-            Section {
+        VStack(alignment: .leading, spacing: 0) {
+            brand
+                .padding(.horizontal, 22)
+                .padding(.top, 48)
+
+            WaveformStrip(barCount: 44, height: 26, accent: Studio.waveBarSoft, base: Studio.waveBarSoft.opacity(0.4))
+                .frame(height: 26)
+                .padding(.horizontal, 22)
+                .padding(.top, 22)
+
+            VStack(spacing: 4) {
                 ForEach(SettingsSection.allCases) { section in
-                    NavigationLink(value: section) {
-                        Label {
-                            Text(section.title)
-                        } icon: {
-                            Image(systemName: section.icon)
-                                .foregroundStyle(section.tint)
-                        }
-                    }
+                    navRow(section)
                 }
-            } header: {
-                HStack(spacing: 8) {
-                    Image(systemName: "waveform")
-                        .foregroundStyle(.orange)
-                    Text("Whisper Master")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .padding(.bottom, 2)
             }
-        }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
+            .padding(.horizontal, 14)
+            .padding(.top, 26)
+
+            Spacer(minLength: 0)
+
             sidebarFooter
+                .padding(.horizontal, 22)
+                .padding(.bottom, 20)
+        }
+        .frame(width: 250)
+        .frame(maxHeight: .infinity)
+        .background(Studio.sidebar)
+    }
+
+    private var brand: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(Studio.red)
+                .frame(width: 44, height: 44)
+                .overlay(
+                    Text("W")
+                        .font(StudioFont.sans(24, .heavy))
+                        .foregroundStyle(.white)
+                )
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Whisper Master")
+                    .font(StudioFont.sans(17, .bold))
+                    .foregroundStyle(Studio.cream)
+                Text("STUDIO")
+                    .font(StudioFont.monoSmall)
+                    .tracking(3)
+                    .foregroundStyle(Studio.red)
+            }
         }
     }
 
+    private func navRow(_ section: SettingsSection) -> some View {
+        let isSelected = selection == section
+        return Button {
+            selection = section
+        } label: {
+            HStack(spacing: 14) {
+                Text(String(format: "%02d", section.index))
+                    .font(StudioFont.monoSmall)
+                    .foregroundStyle(isSelected ? Studio.cream.opacity(0.7) : Studio.creamTertiary)
+                Text(section.title)
+                    .font(StudioFont.sans(15, .semibold))
+                    .foregroundStyle(isSelected ? .white : Studio.creamSecondary)
+                Spacer()
+                Image(systemName: section.icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isSelected ? .white : Studio.creamTertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isSelected ? Studio.red : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private var sidebarFooter: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
                 Circle()
                     .fill(statusColor)
-                    .frame(width: 7, height: 7)
-                Text(statusLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .frame(width: 8, height: 8)
+                Text(statusLabel.uppercased())
+                    .font(StudioFont.mono)
+                    .tracking(1.5)
+                    .foregroundStyle(Studio.cream)
             }
-            Text("v0.1.0")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            Text("V0.1.0 · \(state.hotkey.compactName) TO DICTATE")
+                .font(StudioFont.monoSmall)
+                .tracking(1)
+                .foregroundStyle(Studio.creamTertiary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
     }
 
     // MARK: - Detail
 
     private var detail: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 26) {
                 detailHeader
-                if shouldShowSetupBanner {
+                WaveformStrip(barCount: 96, height: 78, accent: Studio.red, base: Studio.waveBar)
+                    .frame(height: 78)
+                if shouldShowSetupBanner, selection != .engine {
                     setupBanner
                 }
                 panelContent
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 22)
+            .padding(.horizontal, 44)
+            .padding(.vertical, 36)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(.background)
+        .background(Studio.bg)
     }
 
     private var detailHeader: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(selection.title)
-                .font(.system(size: 22, weight: .bold))
-            Text(headerSubtitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var headerSubtitle: String {
-        switch selection {
-        case .recording: return "How recording starts, stops, and pastes."
-        case .engine: return "Pick the on-device transcription engine."
-        case .history: return "Recent transcripts, ready to paste again."
-        case .permissions: return "Whisper Master needs these to listen and type."
-        case .about: return "Version info and helpful resets."
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(selection.trackLabel)
+                    .font(StudioFont.mono)
+                    .tracking(2)
+                    .foregroundStyle(Studio.red)
+                Text(selection.title)
+                    .font(StudioFont.display)
+                    .foregroundStyle(Studio.ink)
+                Text(selection.subtitle)
+                    .font(StudioFont.subtitle)
+                    .foregroundStyle(Studio.inkSecondary)
+            }
+            Spacer(minLength: 16)
+            InputLevelMeter(level: state.audioLevel)
         }
     }
 
     @ViewBuilder
     private var panelContent: some View {
         switch selection {
-        case .recording: recordingForm
-        case .engine: engineForm
+        case .recording: recordingPanel
+        case .engine: enginePanel
         case .history: historyPanel
-        case .permissions: permissionsForm
-        case .about: aboutForm
+        case .permissions: permissionsPanel
+        case .about: aboutPanel
         }
     }
 
     // MARK: - Recording
 
-    private var recordingForm: some View {
-        Form {
-            Section {
-                LabeledContent("Push-to-talk key") {
-                    Picker("", selection: hotkeyBinding) {
-                        ForEach(HotkeyManager.HotkeyOption.allCases) { option in
-                            Text(option.displayName).tag(option)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 190)
+    private var recordingPanel: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            StudioCard {
+                SettingRow(code: "A1", title: "Push-to-talk key",
+                           detail: "Press and hold to dictate from anywhere on your Mac.") {
+                    hotkeyMenu
                 }
-
-                Toggle(isOn: $state.holdToTalkEnabled) {
-                    Text("Hold-to-talk")
-                    Text("Hold the key while you speak. Off makes it a toggle.")
+                rowDivider
+                SettingRow(code: "A2", title: "Hold-to-talk",
+                           detail: "Hold the key while you speak. Off makes it a toggle.") {
+                    Toggle("", isOn: $state.holdToTalkEnabled).toggleStyle(StudioToggleStyle())
                 }
-
-                Toggle(isOn: $state.autoPasteEnabled) {
-                    Text("Auto-paste at cursor")
-                    Text("Insert the transcription wherever you're typing.")
+                rowDivider
+                SettingRow(code: "A3", title: "Auto-paste at cursor",
+                           detail: "Insert the transcription wherever you're typing.") {
+                    Toggle("", isOn: $state.autoPasteEnabled).toggleStyle(StudioToggleStyle())
                 }
-
-                Toggle(isOn: $state.soundEnabled) {
-                    Text("Play start / stop sound")
-                    Text("Subtle click when recording begins or ends.")
+                rowDivider
+                SettingRow(code: "A4", title: "Play start / stop sound",
+                           detail: "Subtle click when recording begins or ends.") {
+                    Toggle("", isOn: $state.soundEnabled).toggleStyle(StudioToggleStyle())
                 }
-
-                Toggle(isOn: $state.preferBuiltInMic) {
-                    Text("Always use built-in mic")
-                    Text("Ignore external audio devices.")
+                rowDivider
+                SettingRow(code: "A5", title: "Always use built-in mic",
+                           detail: "Ignore external audio devices.") {
+                    Toggle("", isOn: $state.preferBuiltInMic).toggleStyle(StudioToggleStyle())
                 }
             }
 
-            Section("Appearance") {
-                Toggle(isOn: $state.hidePillWhenIdle) {
-                    Text("Hide pill when idle")
-                    Text("Floating dictation pill is hidden between recordings.")
+            sectionLabel("APPEARANCE")
+
+            StudioCard {
+                SettingRow(code: "B1", title: "Hide pill when idle",
+                           detail: "The floating dictation pill stays hidden between recordings.") {
+                    Toggle("", isOn: $state.hidePillWhenIdle).toggleStyle(StudioToggleStyle())
                 }
             }
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
-        .frame(minHeight: 420)
+    }
+
+    private var hotkeyMenu: some View {
+        Menu {
+            ForEach(HotkeyManager.HotkeyOption.allCases) { option in
+                Button {
+                    viewModel.updateHotkey(option)
+                } label: {
+                    if option == state.hotkey {
+                        Label(option.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(option.displayName)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Text(state.hotkey.compactName)
+                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Studio.ink)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Studio.inkSecondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Studio.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Studio.ink.opacity(0.55), lineWidth: 1.5)
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 
     // MARK: - Engine
 
-    private var engineForm: some View {
+    private var enginePanel: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(spacing: 10) {
-                ForEach(TranscriberEngine.allCases) { engine in
-                    engineCard(engine)
-                }
+            ForEach(TranscriberEngine.allCases) { engine in
+                engineCard(engine)
             }
 
-            Form {
-                Section("Engine status") {
-                    LabeledContent("Status") {
-                        HStack(spacing: 8) {
-                            if state.preparingEngine == state.selectedEngine {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Circle()
-                                    .fill(modelStatusColor)
-                                    .frame(width: 8, height: 8)
-                            }
-                            Text(modelStatusText)
-                                .foregroundStyle(.primary)
-                        }
-                    }
+            sectionLabel("ENGINE STATUS")
+                .padding(.top, 6)
 
-                    LabeledContent("Stored at") {
-                        HStack(spacing: 8) {
-                            Text(state.selectedEngine.localModelsRoot.path)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .textSelection(.enabled)
-                            Button("Show in Finder") {
-                                NSWorkspace.shared.activateFileViewerSelecting([state.selectedEngine.localModelURL])
-                            }
-                            .controlSize(.small)
+            StudioCard {
+                SettingRow(code: "S1", title: "Status", detail: nil) {
+                    engineStatusBadge
+                }
+                rowDivider
+                SettingRow(code: "S2", title: "Model location", detail: nil) {
+                    HStack(spacing: 12) {
+                        Text("~/Library/…/FluidAudio/Models")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Studio.inkSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        StudioButton(title: "Reveal", icon: "folder", filled: false) {
+                            NSWorkspace.shared.activateFileViewerSelecting([state.selectedEngine.localModelURL])
                         }
                     }
                 }
             }
-            .formStyle(.grouped)
-            .scrollDisabled(true)
-            .frame(minHeight: 160)
+        }
+    }
+
+    @ViewBuilder
+    private var engineStatusBadge: some View {
+        if state.preparingEngine == state.selectedEngine {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(modelStatusText.uppercased())
+                    .font(StudioFont.mono)
+                    .foregroundStyle(Studio.inkSecondary)
+            }
+        } else {
+            let ready = state.selectedEngine.isInstalled
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(ready ? Studio.green : Studio.inkTertiary)
+                    .frame(width: 9, height: 9)
+                Text((ready ? "READY" : "SETUP NEEDED"))
+                    .font(StudioFont.mono)
+                    .tracking(1)
+                    .foregroundStyle(ready ? Studio.green : Studio.inkSecondary)
+            }
         }
     }
 
     private func engineCard(_ engine: TranscriberEngine) -> some View {
         let isSelected = state.selectedEngine == engine
-        let isInstalled = engine.isInstalled
         return Button {
             viewModel.selectEngine(engine)
         } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                    .padding(.top, 1)
-
+            HStack(spacing: 18) {
+                RadialKnob(selected: isSelected)
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(engine.displayName)
-                            .font(.system(size: 14, weight: .semibold))
-                        if isInstalled {
-                            Text("Installed")
-                                .font(.caption2.bold())
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 2)
-                                .background(Color.green.opacity(0.18))
-                                .foregroundStyle(Color.green)
-                                .clipShape(Capsule())
-                        }
-                        Spacer()
-                        Text(engine.estimatedDownloadSize)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
+                    Text(engine.displayName)
+                        .font(StudioFont.cardTitle)
+                        .foregroundStyle(isSelected ? Studio.cream : Studio.ink)
                     Text(engine.subtitle)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .font(StudioFont.cardBody)
+                        .foregroundStyle(isSelected ? Studio.creamSecondary : Studio.inkSecondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(engine.estimatedDownloadSize)
+                        .font(StudioFont.sans(22, .bold))
+                        .foregroundStyle(isSelected ? Studio.cream : Studio.ink)
+                    Text(engine.isInstalled ? "INSTALLED" : "NOT INSTALLED")
+                        .font(StudioFont.monoSmall)
+                        .tracking(1)
+                        .foregroundStyle(isSelected ? Studio.creamSecondary : Studio.inkTertiary)
                 }
             }
-            .padding(14)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
+            .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.08) : Color(nsColor: .controlBackgroundColor))
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? Studio.dark : Studio.surface)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.6) : Color.gray.opacity(0.18), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Studio.cardBorder, lineWidth: 1)
             )
+            .shadow(color: Studio.cardShadow, radius: 10, y: 5)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!engineSelectionEnabled)
@@ -323,239 +410,254 @@ struct PrototypeView: View {
     // MARK: - History
 
     private var historyPanel: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 18) {
+                statCard(value: "\(wordsDictatedToday)", label: "Words dictated today", accent: true)
+                statCard(value: "\(state.history.count)", label: "Transcripts saved", accent: false)
+            }
+
             if state.history.isEmpty {
                 emptyHistory
             } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    historyToolbar
-                    historyList
+                HStack {
+                    sectionLabel("RECENT")
+                    Spacer()
+                    Button("Clear all") { viewModel.clearAllHistory() }
+                        .buttonStyle(.plain)
+                        .font(StudioFont.monoSmall)
+                        .tracking(1)
+                        .foregroundStyle(Studio.red)
+                }
+                StudioCard(padding: 0) {
+                    let entries = Array(state.history.prefix(12))
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { idx, entry in
+                        historyRow(entry)
+                        if idx < entries.count - 1 { rowDivider }
+                    }
                 }
             }
         }
+    }
+
+    private func statCard(value: String, label: String, accent: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(value)
+                .font(StudioFont.stat)
+                .foregroundStyle(accent ? Studio.red : Studio.ink)
+            Text(label)
+                .font(StudioFont.sans(14, .medium))
+                .foregroundStyle(Studio.inkSecondary)
+        }
+        .padding(.horizontal, 26)
+        .padding(.vertical, 24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Studio.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Studio.cardBorder, lineWidth: 1)
+        )
+        .shadow(color: Studio.cardShadow, radius: 10, y: 5)
+    }
+
+    private func historyRow(_ entry: TranscriptHistoryEntry) -> some View {
+        let engine = TranscriberEngine(rawValue: entry.engineRawValue)
+        let words = entry.text.split(whereSeparator: { $0 == " " || $0 == "\n" }).count
+        return HStack(alignment: .top, spacing: 18) {
+            Text(Self.historyTimeFormatter.string(from: entry.createdAt).uppercased())
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Studio.inkTertiary)
+                .frame(width: 78, alignment: .leading)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(entry.text)
+                    .font(StudioFont.sans(15, .regular))
+                    .foregroundStyle(Studio.ink)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                HStack(spacing: 10) {
+                    Text("\(words) WORDS")
+                        .foregroundStyle(Studio.inkTertiary)
+                    if let engine {
+                        Text(engine.displayName.uppercased())
+                            .foregroundStyle(Studio.red)
+                    }
+                }
+                .font(StudioFont.monoSmall)
+                .tracking(1)
+            }
+            Spacer(minLength: 8)
+            HStack(spacing: 6) {
+                iconButton("doc.on.doc", help: "Copy") { viewModel.copyToClipboard(entry.text) }
+                iconButton("arrow.up.doc.on.clipboard", help: "Paste at cursor") { viewModel.pasteText(entry.text) }
+                iconButton("trash", help: "Delete") { viewModel.deleteHistoryEntry(entry.id) }
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 18)
+    }
+
+    private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Studio.inkSecondary)
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Studio.bg)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private var emptyHistory: some View {
         VStack(spacing: 12) {
             Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 36))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 34))
+                .foregroundStyle(Studio.inkTertiary)
             Text("No transcripts yet")
-                .font(.headline)
-            Text("Hold your push-to-talk key and dictate. Finished transcripts will land here, ready to paste again.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(StudioFont.sans(17, .bold))
+                .foregroundStyle(Studio.ink)
+            Text("Hold your push-to-talk key and dictate. Finished transcripts land here, ready to paste again.")
+                .font(StudioFont.cardBody)
+                .foregroundStyle(Studio.inkSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
         }
         .frame(maxWidth: .infinity)
-        .padding(40)
+        .padding(44)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-    }
-
-    private var historyToolbar: some View {
-        HStack {
-            Text("\(state.history.count) saved")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button {
-                viewModel.pasteLastTranscript()
-            } label: {
-                Label("Paste last", systemImage: "arrow.up.doc.on.clipboard")
-            }
-            .disabled(state.history.isEmpty)
-
-            Button(role: .destructive) {
-                viewModel.clearAllHistory()
-            } label: {
-                Label("Clear all", systemImage: "trash")
-            }
-        }
-    }
-
-    private var historyList: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(state.history.enumerated()), id: \.element.id) { idx, entry in
-                historyRow(entry)
-                if idx < state.history.count - 1 {
-                    Divider().padding(.leading, 14)
-                }
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+            RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Studio.surface)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color.gray.opacity(0.15), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Studio.cardBorder, lineWidth: 1)
         )
     }
 
-    private func historyRow(_ entry: TranscriptHistoryEntry) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(entry.text)
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                    .lineLimit(3)
-                    .textSelection(.enabled)
-                HStack(spacing: 8) {
-                    Text(Self.historyDateFormatter.string(from: entry.createdAt))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if let engine = TranscriberEngine(rawValue: entry.engineRawValue) {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                        Text(engine.displayName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            Spacer()
-            HStack(spacing: 4) {
-                Button { viewModel.copyToClipboard(entry.text) } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .help("Copy")
-
-                Button { viewModel.pasteText(entry.text) } label: {
-                    Image(systemName: "arrow.up.doc.on.clipboard")
-                }
-                .help("Paste at cursor")
-
-                Button(role: .destructive) { viewModel.deleteHistoryEntry(entry.id) } label: {
-                    Image(systemName: "trash")
-                }
-                .help("Delete")
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+    private var wordsDictatedToday: Int {
+        let calendar = Calendar.current
+        return state.history
+            .filter { calendar.isDateInToday($0.createdAt) }
+            .reduce(0) { $0 + $1.text.split(whereSeparator: { $0 == " " || $0 == "\n" }).count }
     }
 
-    private static let historyDateFormatter: DateFormatter = {
+    private static let historyTimeFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
+        f.dateFormat = "h:mm a"
         return f
     }()
 
     // MARK: - Permissions
 
-    private var permissionsForm: some View {
-        Form {
-            Section {
+    private var permissionsPanel: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            StudioCard {
                 permissionRow(
-                    icon: "mic.fill",
-                    tint: .orange,
+                    code: "P1",
                     title: "Microphone",
-                    detail: "Required to listen while you hold the record key.",
+                    detail: "Required to capture your voice.",
                     granted: micGranted,
                     denied: micDenied
                 ) {
                     permissions.openMicrophoneSettings()
                 }
-
+                rowDivider
                 permissionRow(
-                    icon: "keyboard",
-                    tint: .blue,
+                    code: "P2",
                     title: "Accessibility",
-                    detail: "Required for auto-paste at the cursor.",
+                    detail: "Lets Whisper paste text at your cursor.",
                     granted: accessibilityGranted,
                     denied: false
                 ) {
                     permissions.promptAccessibility()
                     permissions.openAccessibilitySettings()
                 }
-            } footer: {
-                Text("Status refreshes automatically when you return from System Settings.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+
+            HStack(spacing: 8) {
+                Image(systemName: "shield")
+                    .font(.system(size: 11, weight: .bold))
+                Text("ALL PROCESSING HAPPENS ON-DEVICE. NOTHING IS UPLOADED.")
+                    .font(StudioFont.monoSmall)
+                    .tracking(1.5)
+            }
+            .foregroundStyle(Studio.inkTertiary)
+            .padding(.leading, 4)
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
-        .frame(minHeight: 280)
     }
 
     private func permissionRow(
-        icon: String,
-        tint: Color,
+        code: String,
         title: String,
         detail: String,
         granted: Bool,
         denied: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        LabeledContent {
+        SettingRow(code: code, title: title, detail: detail) {
             if granted {
-                Label("Granted", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .labelStyle(.titleAndIcon)
-            } else {
-                Button(denied ? "Open Settings" : "Grant", action: action)
-            }
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .foregroundStyle(tint)
-                    .frame(width: 18)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .heavy))
+                    Text("GRANTED")
+                        .font(StudioFont.mono)
+                        .tracking(1)
                 }
+                .foregroundStyle(Studio.green)
+            } else {
+                StudioButton(title: denied ? "Open Settings" : "Grant access", icon: nil, filled: true, action: action)
             }
         }
     }
 
     // MARK: - About
 
-    private var aboutForm: some View {
-        Form {
-            Section {
-                HStack(spacing: 14) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.orange.opacity(0.15))
-                            .frame(width: 56, height: 56)
-                        Image(systemName: "waveform")
-                            .font(.system(size: 26, weight: .bold))
-                            .foregroundStyle(.orange)
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Whisper Master")
-                            .font(.headline)
-                        Text("Version 0.1.0")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                        Text("Local-first dictation, FluidAudio + Parakeet on Apple Silicon.")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    Spacer()
+    private var aboutPanel: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(spacing: 18) {
+                WaveformStrip(barCount: 22, height: 44, accent: Studio.red, base: Studio.red.opacity(0.45), centered: true)
+                    .frame(width: 240, height: 44)
+                    .padding(.top, 8)
+                VStack(spacing: 8) {
+                    Text("Whisper Master")
+                        .font(StudioFont.sans(28, .heavy))
+                        .foregroundStyle(.white)
+                    Text("VERSION 0.1.0 · ON-DEVICE DICTATION")
+                        .font(StudioFont.mono)
+                        .tracking(2)
+                        .foregroundStyle(Studio.creamSecondary)
                 }
-                .padding(.vertical, 6)
+                HStack(spacing: 14) {
+                    StudioButton(title: "Reveal models", icon: "folder", filled: false, onDark: true) {
+                        NSWorkspace.shared.activateFileViewerSelecting([state.selectedEngine.localModelURL])
+                    }
+                    StudioButton(title: "Reopen onboarding", icon: "sparkles", filled: true, onDark: true) {
+                        reopenOnboarding()
+                    }
+                }
+                .padding(.bottom, 6)
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 30)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Studio.dark)
+            )
+            .shadow(color: Studio.cardShadow, radius: 14, y: 7)
 
-            Section("Actions") {
-                LabeledContent("Reopen onboarding") {
-                    Button("Reopen") { reopenOnboarding() }
+            StudioCard {
+                SettingRow(code: "U1", title: "Engine", detail: "On-device transcription.") {
+                    Text("FluidAudio · Parakeet")
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Studio.inkSecondary)
+                }
+                rowDivider
+                SettingRow(code: "U2", title: "Platform", detail: "Built for Apple Silicon.") {
+                    Text("macOS 14+ · arm64")
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Studio.inkSecondary)
                 }
             }
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
-        .frame(minHeight: 280)
     }
 
     // MARK: - Setup banner
@@ -568,71 +670,63 @@ struct PrototypeView: View {
 
     private var setupBanner: some View {
         let preparing = state.preparingEngine == state.selectedEngine
-        let isFailed: Bool = {
-            if case .failed = state.phase { return true }
-            return false
-        }()
+        let isFailed: Bool = { if case .failed = state.phase { return true }; return false }()
         let percent = Int((state.download?.fractionCompleted ?? 0) * 100)
         let progress = state.download?.fractionCompleted ?? 0
 
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 14) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(isFailed ? Color.red.opacity(0.15) : Color.accentColor.opacity(0.15))
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(isFailed ? Studio.red.opacity(0.16) : Studio.red.opacity(0.12))
                         .frame(width: 44, height: 44)
                     if preparing {
-                        ProgressView()
-                            .controlSize(.regular)
+                        ProgressView().controlSize(.small)
                     } else {
                         Image(systemName: isFailed ? "exclamationmark.triangle.fill" : "arrow.down.circle.fill")
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(isFailed ? .red : Color.accentColor)
+                            .foregroundStyle(Studio.red)
                     }
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(setupHeadline)
-                        .font(.headline)
+                        .font(StudioFont.sans(15, .bold))
+                        .foregroundStyle(Studio.ink)
                     Text(setupSubhead)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .font(StudioFont.cardBody)
+                        .foregroundStyle(Studio.inkSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
                 if preparing {
                     Text("\(percent)%")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.accentColor)
+                        .font(StudioFont.sans(22, .heavy))
+                        .foregroundStyle(Studio.red)
                         .monospacedDigit()
                 }
             }
             if preparing {
-                ProgressView(value: progress)
+                ProgressView(value: progress).tint(Studio.red)
             }
             HStack {
                 if preparing {
-                    Button("Cancel", action: cancelSetup)
+                    StudioButton(title: "Cancel", icon: nil, filled: false, action: cancelSetup)
                 } else {
-                    Button(action: startSetup) {
-                        Label("Download voice engine", systemImage: "arrow.down.circle.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    Button("Open details") { selection = .engine }
+                    StudioButton(title: "Download voice engine", icon: "arrow.down.circle", filled: true, action: startSetup)
+                    StudioButton(title: "Open engine", icon: nil, filled: false) { selection = .engine }
                 }
                 Spacer()
                 Text(state.selectedEngine.estimatedDownloadSize)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .font(StudioFont.monoSmall)
+                    .foregroundStyle(Studio.inkTertiary)
             }
         }
-        .padding(14)
+        .padding(20)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+            RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Studio.surface)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(isFailed ? Color.red.opacity(0.45) : Color.accentColor.opacity(0.4), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Studio.red.opacity(0.45), lineWidth: 1.5)
         )
     }
 
@@ -658,6 +752,22 @@ struct PrototypeView: View {
         return "One-time download of the on-device model. Whisper Master can't transcribe until this finishes."
     }
 
+    // MARK: - Shared bits
+
+    private var rowDivider: some View {
+        Rectangle().fill(Studio.divider).frame(height: 1)
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        HStack(spacing: 12) {
+            Text(text)
+                .font(StudioFont.mono)
+                .tracking(2)
+                .foregroundStyle(Studio.inkTertiary)
+            Rectangle().fill(Studio.divider).frame(height: 1)
+        }
+    }
+
     // MARK: - Helpers
 
     private func autoFocusSetupIfNeeded() {
@@ -675,13 +785,6 @@ struct PrototypeView: View {
         accessibilityGranted = permissions.accessibilityGranted()
     }
 
-    private var hotkeyBinding: Binding<HotkeyManager.HotkeyOption> {
-        Binding(
-            get: { state.hotkey },
-            set: { viewModel.updateHotkey($0) }
-        )
-    }
-
     private var engineSelectionEnabled: Bool {
         switch state.phase {
         case .idle, .failed: return true
@@ -696,36 +799,223 @@ struct PrototypeView: View {
         if state.preparingEngine == state.selectedEngine {
             return state.selectedEngine.isInstalled ? "Loading…" : "Downloading…"
         }
-        if state.preparedEngine == state.selectedEngine {
-            return "Ready"
-        }
+        if state.preparedEngine == state.selectedEngine { return "Ready" }
         return state.selectedEngine.isInstalled ? "Ready on this Mac" : "Setup needed"
-    }
-
-    private var modelStatusColor: Color {
-        if state.preparingEngine == state.selectedEngine { return Color.accentColor }
-        return state.selectedEngine.isInstalled ? .green : .secondary
     }
 
     private var statusColor: Color {
         switch state.phase {
-        case .recording: return .red
-        case .preparingModels: return .orange
-        case .failed: return .red
+        case .recording: return Studio.red
+        case .preparingModels: return Studio.red
+        case .failed: return Studio.red
         case .idle, .stopping:
-            return (micGranted && accessibilityGranted) ? .green : .secondary
+            return (micGranted && accessibilityGranted) ? Studio.greenDark : Studio.creamTertiary
         }
     }
 
     private var statusLabel: String {
         switch state.phase {
         case .recording: return "Recording"
-        case .preparingModels: return "Preparing…"
-        case .stopping: return "Finalizing…"
+        case .preparingModels: return "Preparing"
+        case .stopping: return "Finalizing"
         case .failed: return "Error"
         case .idle:
-            if !micGranted || !accessibilityGranted { return "Needs attention" }
+            if !micGranted || !accessibilityGranted { return "Needs setup" }
             return "Ready"
         }
+    }
+}
+
+// MARK: - Reusable studio components
+
+private struct StudioCard<Content: View>: View {
+    var padding: CGFloat = -1
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(spacing: 0) { content }
+            .padding(padding >= 0 ? padding : 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Studio.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Studio.cardBorder, lineWidth: 1)
+            )
+            .shadow(color: Studio.cardShadow, radius: 10, y: 5)
+    }
+}
+
+private struct SettingRow<Control: View>: View {
+    let code: String
+    let title: String
+    let detail: String?
+    @ViewBuilder var control: Control
+
+    var body: some View {
+        HStack(spacing: 18) {
+            Text(code)
+                .font(StudioFont.monoSmall)
+                .foregroundStyle(Studio.inkTertiary)
+                .frame(width: 26, alignment: .leading)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(StudioFont.cardTitle)
+                    .foregroundStyle(Studio.ink)
+                if let detail {
+                    Text(detail)
+                        .font(StudioFont.cardBody)
+                        .foregroundStyle(Studio.inkSecondary)
+                }
+            }
+            Spacer(minLength: 12)
+            control
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 18)
+    }
+}
+
+private struct StudioButton: View {
+    let title: String
+    var icon: String?
+    var filled: Bool
+    var onDark: Bool = false
+    let action: () -> Void
+
+    private var outlineColor: Color { onDark ? Studio.cream : Studio.ink }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if let icon {
+                    Image(systemName: icon).font(.system(size: 12, weight: .bold))
+                }
+                Text(title).font(StudioFont.sans(13, .bold))
+            }
+            .foregroundStyle(filled ? .white : outlineColor)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(filled ? Studio.red : Color.white.opacity(0.0001))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(filled ? Color.clear : outlineColor.opacity(0.55), lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Sunburst dial used for the engine selector.
+private struct RadialKnob: View {
+    let selected: Bool
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<24, id: \.self) { i in
+                Capsule()
+                    .fill(selected ? Studio.cream.opacity(0.85) : Studio.inkTertiary.opacity(0.7))
+                    .frame(width: 2, height: 6)
+                    .offset(y: -16)
+                    .rotationEffect(.degrees(Double(i) / 24 * 360))
+            }
+            if selected {
+                Circle().strokeBorder(Studio.red, lineWidth: 3).frame(width: 26, height: 26)
+                Circle().fill(.white).frame(width: 14, height: 14)
+            } else {
+                Circle().fill(Studio.red).frame(width: 14, height: 14)
+            }
+        }
+        .frame(width: 44, height: 44)
+    }
+}
+
+/// A deterministic "audio clip" waveform: dark bars with periodic accent bars
+/// and the occasional gap rendered as a dot. Purely decorative.
+private struct WaveformStrip: View {
+    let barCount: Int
+    let height: CGFloat
+    let accent: Color
+    let base: Color
+    var centered: Bool = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let spacing: CGFloat = max(2, geo.size.width / CGFloat(barCount) * 0.35)
+            let barWidth = max(2, (geo.size.width - spacing * CGFloat(barCount - 1)) / CGFloat(barCount))
+            HStack(alignment: .center, spacing: spacing) {
+                ForEach(0..<barCount, id: \.self) { i in
+                    let h = barHeight(i)
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(i % 9 == 4 ? accent : base)
+                        .frame(width: barWidth, height: h)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: centered ? .center : .leading)
+        }
+    }
+
+    private func barHeight(_ i: Int) -> CGFloat {
+        let x = Double(i)
+        // Layered sines give repeated "clip" envelopes; some bars collapse to dots.
+        let env = abs(sin(x * 0.13)) * 0.6 + abs(sin(x * 0.41 + 1.2)) * 0.4
+        let gap = sin(x * 0.27) < -0.55
+        if gap { return 3 }
+        return max(4, CGFloat(0.18 + env) * height)
+    }
+}
+
+/// Live input-level meter shown top-right, wired to the recording audio level.
+private struct InputLevelMeter: View {
+    let level: Float
+    private let barCount = 22
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("INPUT LEVEL")
+                    .font(StudioFont.monoSmall)
+                    .tracking(1.5)
+                    .foregroundStyle(Studio.creamSecondary)
+                Spacer()
+                Image(systemName: "minus")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Studio.creamSecondary)
+            }
+            HStack(alignment: .bottom, spacing: 3) {
+                ForEach(0..<barCount, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 1, style: .continuous)
+                        .fill(color(for: i))
+                        .frame(width: 4, height: barHeight(i))
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .frame(width: 240)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Studio.dark)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.06), lineWidth: 1)
+        )
+    }
+
+    private var activeBars: Int {
+        let lit = Double(min(1, max(0, level * 8))) * Double(barCount)
+        return max(1, Int(lit))
+    }
+
+    private func barHeight(_ i: Int) -> CGFloat {
+        let env = 0.45 + abs(sin(Double(i) * 0.6)) * 0.55
+        return CGFloat(env) * 30
+    }
+
+    private func color(for i: Int) -> Color {
+        if i >= activeBars { return Studio.cream.opacity(0.12) }
+        return i >= barCount - 3 ? Studio.red : Studio.cream.opacity(0.85)
     }
 }

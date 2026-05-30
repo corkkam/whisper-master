@@ -279,6 +279,13 @@ final class PrototypeViewModel {
         let engine = state.selectedEngine
         guard state.preparedEngine != engine, state.preparingEngine != engine else { return }
 
+        // A prior background prep may have left the phase in `.failed`; clear it
+        // so the retry starts from a clean state (the recording path never hits
+        // this method, so we won't stomp on a `.preparingModels`/`.recording` phase).
+        if case .failed = state.phase {
+            state.phase = .idle
+        }
+
         preparationTask?.cancel()
         preparationTask = Task { [weak self] in
             guard let self else { return }
