@@ -28,6 +28,12 @@ final class MicrophoneCaptureService {
         }
     }
 
+    /// Start capturing from the system's current input device.
+    ///
+    /// We deliberately use the default input rather than pinning a specific
+    /// device: macOS keeps the built-in mic as the input even when AirPods are
+    /// connected for output (it only switches input if the user explicitly
+    /// selects the AirPods mic), so the default is already the right source.
     func start(
         bufferHandler: @escaping BufferHandler,
         levelHandler: @escaping LevelHandler
@@ -39,6 +45,14 @@ final class MicrophoneCaptureService {
 
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+            // The input device is mid-route-switch (common right after a
+            // Bluetooth device connects). Fail cleanly instead of installing a
+            // tap with an invalid format — that raises an Objective-C exception
+            // that would otherwise wedge the recording task on "preparing".
+            clearHandlers()
+            throw CaptureError.microphoneUnavailable
+        }
 
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
@@ -53,8 +67,7 @@ final class MicrophoneCaptureService {
             try engine.start()
         } catch {
             inputNode.removeTap(onBus: 0)
-            self.bufferHandler = nil
-            self.levelHandler = nil
+            clearHandlers()
             throw CaptureError.engineStartFailed
         }
 
@@ -65,9 +78,13 @@ final class MicrophoneCaptureService {
         guard isCapturing else { return }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        clearHandlers()
+        isCapturing = false
+    }
+
+    private func clearHandlers() {
         bufferHandler = nil
         levelHandler = nil
-        isCapturing = false
     }
 
     private static func copy(buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {

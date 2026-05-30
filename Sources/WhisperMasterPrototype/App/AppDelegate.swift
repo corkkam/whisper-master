@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.isVisible = true
 
         if let button = item.button {
-            button.image = Self.statusImage(symbol: "waveform")
+            button.image = BrandAsset.trayImage(points: 18) ?? Self.statusImage(symbol: "waveform")
             button.imagePosition = .imageOnly
             button.toolTip = "Whisper Master"
             button.target = self
@@ -83,6 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
+        // Keep the menu a steady width so it doesn't jump around as the status
+        // header / history previews change length.
+        menu.minimumWidth = 300
 
         let header = NSMenuItem(title: "Whisper Master", action: nil, keyEquivalent: "")
         header.isEnabled = false
@@ -199,8 +202,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let state = viewModel.state
 
         let (symbol, tooltip, headerText) = trayAppearance(for: state)
-        if let image = Self.statusImage(symbol: symbol) {
+        // `nil` symbol → show the brand logo (the calm idle/ready state).
+        // Active states keep their SF Symbol so status stays glanceable.
+        if let symbol, let image = Self.statusImage(symbol: symbol) {
             button.image = image
+        } else if symbol == nil, let logo = BrandAsset.trayImage(points: 18) {
+            button.image = logo
         }
         button.toolTip = tooltip
         statusHeader?.title = headerText
@@ -219,7 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         pasteLastItem?.isEnabled = !entries.isEmpty
         if let first = entries.first {
-            pasteLastItem?.title = "Paste Last: \(first.preview)"
+            pasteLastItem?.title = "Paste Last: \(Self.trimMenuTitle(first.preview))"
         } else {
             pasteLastItem?.title = "Paste Last Transcript"
         }
@@ -240,7 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let display = Array(entries.prefix(10))
         for (index, entry) in display.enumerated() {
             let item = NSMenuItem(
-                title: "\(Self.timestampFormatter.string(from: entry.createdAt))  ·  \(entry.preview)",
+                title: "\(Self.timestampFormatter.string(from: entry.createdAt))  ·  \(Self.trimMenuTitle(entry.preview))",
                 action: #selector(pasteHistoryItem(_:)),
                 keyEquivalent: index < 9 ? String(index + 1) : ""
             )
@@ -273,13 +280,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         historyMenu.addItem(clear)
     }
 
+    private static func trimMenuTitle(_ text: String, limit: Int = 26) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > limit else { return trimmed }
+        let idx = trimmed.index(trimmed.startIndex, offsetBy: limit)
+        return String(trimmed[..<idx]) + "…"
+    }
+
     private static let timestampFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
         return f
     }()
 
-    private func trayAppearance(for state: PrototypeAppState) -> (String, String, String) {
+    private func trayAppearance(for state: PrototypeAppState) -> (String?, String, String) {
         if state.preparingEngine != nil {
             let percent = Int((state.download?.fractionCompleted ?? 0) * 100)
             let label = "Setting up voice engine — \(percent)%"
@@ -298,7 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !state.selectedEngine.isInstalled {
                 return ("arrow.down.circle", "Whisper Master — voice engine not installed", "Voice engine not installed")
             }
-            return ("waveform", "Whisper Master — ready", "Ready")
+            return (nil, "Whisper Master — ready", "Ready")
         }
     }
 
@@ -357,7 +371,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state: viewModel.state,
             permissions: permissionsManager,
             microphoneCapture: onboardingMic,
-            retryEngine: { [weak self] in self?.viewModel.prepareDefaultEngineOnLaunch() }
+            retryEngine: { [weak self] in self?.viewModel.prepareDefaultEngineOnLaunch() },
+            onClose: { [weak self] in
+                // User dismissed onboarding early — drop to the tray. They can
+                // reopen it any time via the "Reopen Onboarding…" menu item.
+                guard let self else { return }
+                self.onboardingWindow?.close()
+                self.onboardingWindow = nil
+            }
         ) { [weak self] in
             guard let self else { return }
             self.onboardingWindow?.close()

@@ -55,7 +55,6 @@ final class PrototypeAppState {
     var holdToTalkEnabled: Bool = true
     var autoPasteEnabled: Bool = true
     var soundEnabled: Bool = true
-    var preferBuiltInMic: Bool = true
     var hidePillWhenIdle: Bool = true
     var phase: PrototypePhase = .idle
     var download: ModelDownloadSnapshot?

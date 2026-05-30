@@ -111,14 +111,7 @@ struct PrototypeView: View {
 
     private var brand: some View {
         HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(Studio.red)
-                .frame(width: 44, height: 44)
-                .overlay(
-                    Text("W")
-                        .font(StudioFont.sans(24, .heavy))
-                        .foregroundStyle(.white)
-                )
+            BrandLogo(size: 44, cornerRadius: 11)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Whisper Master")
                     .font(StudioFont.sans(17, .bold))
@@ -250,11 +243,6 @@ struct PrototypeView: View {
                 SettingRow(code: "A4", title: "Play start / stop sound",
                            detail: "Subtle click when recording begins or ends.") {
                     Toggle("", isOn: $state.soundEnabled).toggleStyle(StudioToggleStyle())
-                }
-                rowDivider
-                SettingRow(code: "A5", title: "Always use built-in mic",
-                           detail: "Ignore external audio devices.") {
-                    Toggle("", isOn: $state.preferBuiltInMic).toggleStyle(StudioToggleStyle())
                 }
             }
 
@@ -646,7 +634,7 @@ struct PrototypeView: View {
 
             StudioCard {
                 SettingRow(code: "U1", title: "Engine", detail: "On-device transcription.") {
-                    Text("FluidAudio · Parakeet")
+                    Text("Whisper Master \(state.selectedEngine.displayName)")
                         .font(.system(size: 13, weight: .semibold, design: .monospaced))
                         .foregroundStyle(Studio.inkSecondary)
                 }
@@ -873,39 +861,6 @@ private struct SettingRow<Control: View>: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 18)
-    }
-}
-
-private struct StudioButton: View {
-    let title: String
-    var icon: String?
-    var filled: Bool
-    var onDark: Bool = false
-    let action: () -> Void
-
-    private var outlineColor: Color { onDark ? Studio.cream : Studio.ink }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                if let icon {
-                    Image(systemName: icon).font(.system(size: 12, weight: .bold))
-                }
-                Text(title).font(StudioFont.sans(13, .bold))
-            }
-            .foregroundStyle(filled ? .white : outlineColor)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(filled ? Studio.red : Color.white.opacity(0.0001))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(filled ? Color.clear : outlineColor.opacity(0.55), lineWidth: 1.5)
-            )
-        }
-        .buttonStyle(.plain)
     }
 }
 

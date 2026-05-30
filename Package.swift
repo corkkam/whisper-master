@@ -21,7 +21,10 @@ let package = Package(
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio")
             ],
-            path: "Sources/WhisperMasterPrototype"
+            path: "Sources/WhisperMasterPrototype",
+            resources: [
+                .process("Resources")
+            ]
         )
     ]
 )

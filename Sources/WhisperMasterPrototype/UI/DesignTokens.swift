@@ -1,4 +1,59 @@
+import AppKit
 import SwiftUI
+
+/// The Whisper Master squircle mark, loaded once from the package resource.
+enum BrandAsset {
+    static let logo: NSImage? = {
+        guard let url = Bundle.module.url(forResource: "WhisperMasterLogo", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
+
+    /// A copy of the logo scaled to `points` for use as a status-bar (tray)
+    /// icon. Not a template image — we want to keep the brand colors.
+    static func trayImage(points: CGFloat) -> NSImage? {
+        guard let logo else { return nil }
+        let size = NSSize(width: points, height: points)
+        let scaled = NSImage(size: size)
+        scaled.lockFocus()
+        logo.draw(in: NSRect(origin: .zero, size: size),
+                  from: .zero, operation: .sourceOver, fraction: 1)
+        scaled.unlockFocus()
+        scaled.isTemplate = false
+        return scaled
+    }
+}
+
+/// The Whisper Master squircle mark, bundled as a package resource. Falls back
+/// to the drawn "W" monogram if the asset can't be loaded.
+struct BrandLogo: View {
+    var size: CGFloat
+    var cornerRadius: CGFloat?
+
+    init(size: CGFloat, cornerRadius: CGFloat? = nil) {
+        self.size = size
+        self.cornerRadius = cornerRadius
+    }
+
+    var body: some View {
+        Group {
+            if let image = BrandAsset.logo {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+            } else {
+                RoundedRectangle(cornerRadius: cornerRadius ?? size * 0.24, style: .continuous)
+                    .fill(Studio.red)
+                    .overlay(
+                        Text("W")
+                            .font(.system(size: size * 0.52, weight: .heavy))
+                            .foregroundStyle(.white)
+                    )
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius ?? size * 0.24, style: .continuous))
+    }
+}
 
 enum Palette {
     static let background = Color(red: 0.09, green: 0.085, blue: 0.082)
@@ -100,6 +155,41 @@ enum StudioFont {
     // Monospace labels stay on SF Mono — that's the studio "readout" voice.
     static let mono = Font.system(size: 12, weight: .bold, design: .monospaced)
     static let monoSmall = Font.system(size: 10, weight: .bold, design: .monospaced)
+}
+
+/// Pill button: filled vermillion or outlined. `onDark` flips the outline
+/// variant to cream text/border for use on dark surfaces.
+struct StudioButton: View {
+    let title: String
+    var icon: String?
+    var filled: Bool
+    var onDark: Bool = false
+    let action: () -> Void
+
+    private var outlineColor: Color { onDark ? Studio.cream : Studio.ink }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if let icon {
+                    Image(systemName: icon).font(.system(size: 12, weight: .bold))
+                }
+                Text(title).font(StudioFont.sans(13, .bold))
+            }
+            .foregroundStyle(filled ? .white : outlineColor)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(filled ? Studio.red : Color.white.opacity(0.0001))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(filled ? Color.clear : outlineColor.opacity(0.55), lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 /// The chunky vermillion rocker switch used throughout the studio settings.
