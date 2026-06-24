@@ -3,8 +3,35 @@ import SwiftUI
 
 /// The Whisper Master squircle mark, loaded once from the package resource.
 enum BrandAsset {
+    /// Name of the SwiftPM-generated resource bundle for this target.
+    private static let resourceBundleName = "WhisperMasterPrototype_WhisperMasterPrototype.bundle"
+
+    /// Resolve the resource bundle without relying on the generated
+    /// `Bundle.module` accessor.
+    ///
+    /// `Bundle.module` only probes `Bundle.main.bundleURL` (the `.app` *root*,
+    /// not `Contents/Resources`) and an absolute `.build` path baked in at
+    /// compile time — and it `fatalError`s when neither exists. In a packaged
+    /// `.app` the resource bundle correctly lives in `Contents/Resources/`
+    /// (the only codesign-safe location), which that accessor never checks,
+    /// so touching `Bundle.module` crashes the app on launch. We probe the
+    /// real locations ourselves and return `nil` instead of trapping.
+    private static let resourceBundle: Bundle? = {
+        let candidates: [URL?] = [
+            // Packaged `.app`: Contents/Resources/<bundle>
+            Bundle.main.resourceURL?.appendingPathComponent(resourceBundleName),
+            // Dev (`swift run`) and legacy `.app`-root layouts: next to the executable
+            Bundle.main.bundleURL.appendingPathComponent(resourceBundleName),
+        ]
+        for url in candidates.compactMap({ $0 }) where FileManager.default.fileExists(atPath: url.path) {
+            if let bundle = Bundle(url: url) { return bundle }
+        }
+        // Last resort: the resource may have been flattened into the main bundle.
+        return Bundle.main
+    }()
+
     static let logo: NSImage? = {
-        guard let url = Bundle.module.url(forResource: "WhisperMasterLogo", withExtension: "png") else { return nil }
+        guard let url = resourceBundle?.url(forResource: "WhisperMasterLogo", withExtension: "png") else { return nil }
         return NSImage(contentsOf: url)
     }()
 
