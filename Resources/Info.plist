@@ -30,10 +30,6 @@
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Whisper Master uses the microphone while you hold the dictation hotkey.</string>
-    <key>NSRemindersUsageDescription</key>
-    <string>Whisper Master can create Reminders from your voice dictations when Add Reminder mode is active.</string>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>Whisper Master needs permission to send your transcriptions to Apple Notes when Create Note mode is active.</string>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright 2026 Whisper Master</string>
 </dict>

@@ -24,9 +24,6 @@ let package = Package(
             path: "Sources/WhisperMasterPrototype",
             resources: [
                 .process("Resources")
-            ],
-            linkerSettings: [
-                .linkedFramework("EventKit")
             ]
         )
     ]

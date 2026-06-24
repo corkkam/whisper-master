@@ -3,7 +3,7 @@ import SwiftUI
 struct PrototypePillView: View {
     let state: PrototypeAppState
 
-    private var pillWidth: CGFloat { 180 }
+    private var pillWidth: CGFloat { 168 }
     private var pillHeight: CGFloat { 34 }
 
     private var isHidden: Bool {
@@ -67,30 +67,12 @@ struct PrototypePillView: View {
                         .font(.system(size: 10, weight: .medium))
                 }
             case .recording:
-                HStack(spacing: 6) {
-                    Image(systemName: outputModeIcon)
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(outputModeTint)
-                    InfinityWaveView(level: state.audioLevel)
-                }
+                InfinityWaveView(level: state.audioLevel)
             case .failed:
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
                     .font(.system(size: 12, weight: .bold))
             }
-        }
-    }
-
-    private var outputModeIcon: String {
-        state.outputMode.systemImage
-    }
-
-    private var outputModeTint: Color {
-        switch state.outputMode {
-        case .auto:           return Color.mint.opacity(0.9)
-        case .dictate:        return Color.white.opacity(0.6)
-        case .createNote:     return Color.yellow.opacity(0.9)
-        case .createReminder: return Color(red: 0.6, green: 0.5, blue: 1.0)
         }
     }
 }

@@ -1,13 +1,9 @@
 import AppKit
 import AVFoundation
 import ApplicationServices
-import EventKit
 
 @MainActor
 final class PermissionsManager {
-
-    // MARK: - Microphone
-
     enum MicStatus {
         case notDetermined
         case denied
@@ -35,15 +31,6 @@ final class PermissionsManager {
         await AVCaptureDevice.requestAccess(for: .audio)
     }
 
-    func openMicrophoneSettings() {
-        guard let url = URL(
-            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
-        ) else { return }
-        NSWorkspace.shared.open(url)
-    }
-
-    // MARK: - Accessibility
-
     func accessibilityGranted() -> Bool {
         AXIsProcessTrusted()
     }
@@ -58,39 +45,18 @@ final class PermissionsManager {
     func openAccessibilitySettings() {
         guard let url = URL(
             string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-        ) else { return }
+        ) else {
+            return
+        }
         NSWorkspace.shared.open(url)
     }
 
-    // MARK: - Reminders
-
-    enum RemindersStatus {
-        case notDetermined
-        case denied
-        case granted
-    }
-
-    func remindersStatus() -> RemindersStatus {
-        switch EKEventStore.authorizationStatus(for: .reminder) {
-        case .authorized:
-            return .granted
-        case .denied, .restricted:
-            return .denied
-        case .notDetermined:
-            return .notDetermined
-        case .writeOnly:
-            return .granted
-        case .fullAccess:
-            return .granted
-        @unknown default:
-            return .notDetermined
-        }
-    }
-
-    func openRemindersSettings() {
+    func openMicrophoneSettings() {
         guard let url = URL(
-            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders"
-        ) else { return }
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+        ) else {
+            return
+        }
         NSWorkspace.shared.open(url)
     }
 }
