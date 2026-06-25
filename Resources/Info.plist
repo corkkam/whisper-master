@@ -32,5 +32,11 @@
     <string>Whisper Master uses the microphone while you hold the dictation hotkey.</string>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright 2026 Whisper Master</string>
+    <key>SUFeedURL</key>
+    <string>https://pub-033f6365404f4b37ac6c630d4feb0dcd.r2.dev/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>cmaCrnrt6lBk+fGN+1qzcSK8uyADiLSBveAFYwEk5hk=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
 </dict>
 </plist>

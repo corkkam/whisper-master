@@ -32,9 +32,16 @@ REBUILD=0 bash Scripts/make-dmg.sh      # repackage existing .app only
 bash Scripts/install.sh
 REBUILD=0 bash Scripts/install.sh       # skip rebuild
 RELAUNCH=0 bash Scripts/install.sh      # install without launching
+
+# Ship a Sparkle auto-update — bump CFBundleShortVersionString AND
+# CFBundleVersion in Resources/Info.plist first, then:
+bash Scripts/release.sh                 # build → sign → appcast → upload to R2
+REBUILD=0 bash Scripts/release.sh       # re-upload without rebuilding
 ```
 
 Distribution signing identity defaults to the self-signed keychain cert `whisper master` (override with `SIGN_IDENTITY=…`); Xcode dev builds sign ad-hoc. Build is arm64-only, macOS 14+. The Xcode **toolchain** (not just Command Line Tools) must be selected — `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
+
+**Auto-updates (Sparkle + Cloudflare R2):** the app embeds Sparkle and checks the `SUFeedURL` appcast on a public R2 bucket. `release.sh` signs the archive with the keychain EdDSA key (its public key is `SUPublicEDKey` in `Info.plist`) and uploads `appcast.xml` + the zip to R2. Bucket credentials live in `.env` (git-ignored — see `.env.example`). Not notarized yet, so the first install still needs a one-time `xattr -dr com.apple.quarantine` on the recipient's machine; Sparkle's own updates don't re-trigger Gatekeeper.
 
 There is no test suite.
 

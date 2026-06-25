@@ -17,6 +17,9 @@ packages:
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio.git
     from: "0.14.7"
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
 
 targets:
   WhisperMaster:
@@ -28,7 +31,7 @@ targets:
         buildPhase: resources
     dependencies:
       - package: FluidAudio
-      - sdk: EventKit.framework
+      - package: Sparkle
     settings:
       base:
         PRODUCT_NAME: WhisperMaster

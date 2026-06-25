@@ -1,4 +1,5 @@
 import AppKit
+import Sparkle
 import SwiftUI
 
 @MainActor
@@ -26,6 +27,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var historyMenuItem: NSMenuItem?
     private var historySeparator: NSMenuItem?
     private var renderedHistoryIDs: [UUID] = []
+
+    /// Sparkle auto-updater. `startingUpdater: true` begins scheduled update
+    /// checks (gated by `SUEnableAutomaticChecks` in Info.plist) against the
+    /// `SUFeedURL` appcast, verified with the `SUPublicEDKey`.
+    private lazy var updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -109,6 +119,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 keyEquivalent: ""
             )
         )
+
+        // Wired to the Sparkle updater (not self) after the blanket target
+        // assignment below.
+        let updates = NSMenuItem(
+            title: "Check for Updates…",
+            action: nil,
+            keyEquivalent: ""
+        )
+        menu.addItem(updates)
+
         menu.addItem(.separator())
 
         let pasteLast = NSMenuItem(
@@ -169,6 +189,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         menu.items.forEach { $0.target = self }
+
+        // The updater owns its own validation/handling, so point this item at
+        // the Sparkle controller instead of the app delegate.
+        updates.target = updaterController
+        updates.action = #selector(SPUStandardUpdaterController.checkForUpdates(_:))
+
         item.menu = menu
         statusItem = item
     }
