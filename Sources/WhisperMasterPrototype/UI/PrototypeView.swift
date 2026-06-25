@@ -163,7 +163,7 @@ struct PrototypeView: View {
                     .tracking(1.5)
                     .foregroundStyle(Studio.cream)
             }
-            Text("V0.1.0 · \(state.hotkey.compactName) TO DICTATE")
+            Text("V\(AppInfo.version) · \(state.hotkey.compactName) TO DICTATE")
                 .font(StudioFont.monoSmall)
                 .tracking(1)
                 .foregroundStyle(Studio.creamTertiary)
@@ -610,7 +610,7 @@ struct PrototypeView: View {
                     Text("Whisper Master")
                         .font(StudioFont.sans(28, .heavy))
                         .foregroundStyle(.white)
-                    Text("VERSION 0.1.0 · ON-DEVICE DICTATION")
+                    Text("VERSION \(AppInfo.version) · ON-DEVICE DICTATION")
                         .font(StudioFont.mono)
                         .tracking(2)
                         .foregroundStyle(Studio.creamSecondary)
