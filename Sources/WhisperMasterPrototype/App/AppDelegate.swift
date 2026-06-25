@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.isVisible = true
 
         if let button = item.button {
-            button.image = BrandAsset.trayImage(points: 18) ?? Self.statusImage(symbol: "waveform")
+            button.image = BrandAsset.trayTemplateImage(points: 18) ?? Self.statusImage(symbol: "waveform")
             button.imagePosition = .imageOnly
             button.toolTip = "Whisper Master"
             button.target = self
@@ -206,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Active states keep their SF Symbol so status stays glanceable.
         if let symbol, let image = Self.statusImage(symbol: symbol) {
             button.image = image
-        } else if symbol == nil, let logo = BrandAsset.trayImage(points: 18) {
+        } else if symbol == nil, let logo = BrandAsset.trayTemplateImage(points: 18) {
             button.image = logo
         }
         button.toolTip = tooltip

@@ -35,19 +35,61 @@ enum BrandAsset {
         return NSImage(contentsOf: url)
     }()
 
-    /// A copy of the logo scaled to `points` for use as a status-bar (tray)
-    /// icon. Not a template image — we want to keep the brand colors.
-    static func trayImage(points: CGFloat) -> NSImage? {
-        guard let logo else { return nil }
-        let size = NSSize(width: points, height: points)
-        let scaled = NSImage(size: size)
-        scaled.lockFocus()
-        logo.draw(in: NSRect(origin: .zero, size: size),
-                  from: .zero, operation: .sourceOver, fraction: 1)
-        scaled.unlockFocus()
-        scaled.isTemplate = false
-        return scaled
+    /// The brand "W" for use as a status-bar (tray) icon, as a **template**
+    /// image: the cream squircle is dropped, leaving just the glyph silhouette
+    /// so macOS tints it to match the system appearance. This is essential on
+    /// the translucent menu bar (macOS 26+), where an opaque full-color logo
+    /// tile looks pasted-on rather than part of the bar.
+    static func trayTemplateImage(points: CGFloat) -> NSImage? {
+        guard let glyphMask else { return nil }
+        let image = NSImage(cgImage: glyphMask, size: NSSize(width: points, height: points))
+        image.isTemplate = true
+        return image
     }
+
+    /// The logo with everything but the "W" strokes masked out (black on a
+    /// clear background), computed once. Any pixel close to the squircle's
+    /// cream is dropped; the dark and red strokes are kept as the silhouette.
+    private static let glyphMask: CGImage? = {
+        guard let logo,
+              let source = logo.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        else { return nil }
+
+        let width = source.width
+        let height = source.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        let cream = (r: 0.90, g: 0.88, b: 0.82)
+        let tolerance = 0.22
+        for index in stride(from: 0, to: pixels.count, by: 4) {
+            let alpha = Double(pixels[index + 3]) / 255
+            // Un-premultiply so anti-aliased cream edges aren't misread as glyph.
+            var r = 0.0, g = 0.0, b = 0.0
+            if alpha > 0 {
+                r = Double(pixels[index]) / 255 / alpha
+                g = Double(pixels[index + 1]) / 255 / alpha
+                b = Double(pixels[index + 2]) / 255 / alpha
+            }
+            let isGlyph = alpha > 0.5
+                && max(abs(r - cream.r), abs(g - cream.g), abs(b - cream.b)) > tolerance
+
+            pixels[index] = 0
+            pixels[index + 1] = 0
+            pixels[index + 2] = 0
+            pixels[index + 3] = isGlyph ? 255 : 0
+        }
+        return context.makeImage()
+    }()
 }
 
 /// The Whisper Master squircle mark, bundled as a package resource. Falls back
