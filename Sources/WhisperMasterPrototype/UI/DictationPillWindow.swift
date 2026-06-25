@@ -1,14 +1,14 @@
 import AppKit
 import SwiftUI
 
+/// Owns the borderless, click-through panel that hosts the notch dictation
+/// surface, keeping it anchored to the notch as displays change.
 @MainActor
 final class DictationPillWindow {
     private let panel: NSPanel
+    private let host: NSHostingView<PrototypePillView>
     private let state: PrototypeAppState
-
-    private let panelWidth: CGFloat = 160
-    private let panelHeight: CGFloat = 56
-    private let bottomInset: CGFloat = 24
+    private let layout = NotchSurfaceLayout()
 
     private var screenObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
@@ -17,7 +17,7 @@ final class DictationPillWindow {
         self.state = state
 
         panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
+            contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -30,7 +30,7 @@ final class DictationPillWindow {
         panel.isMovable = false
         panel.ignoresMouseEvents = true
 
-        let host = NSHostingView(rootView: PrototypePillView(state: state))
+        host = NSHostingView(rootView: PrototypePillView(state: state))
         host.autoresizingMask = [.width, .height]
         panel.contentView = host
 
@@ -44,6 +44,22 @@ final class DictationPillWindow {
 
     func hide() {
         panel.orderOut(nil)
+    }
+
+    /// Prefer the display that actually has a notch; fall back to the main one.
+    private var targetScreen: NSScreen? {
+        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
+    }
+
+    private func reposition() {
+        guard let screen = targetScreen else { return }
+
+        let geometry = NotchGeometry.measure(screen)
+        let size = layout.panelSize(for: geometry)
+        let origin = layout.panelOrigin(for: geometry, on: screen)
+
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        host.rootView = PrototypePillView(state: state, geometry: geometry, layout: layout)
     }
 
     private func observeEnvironment() {
@@ -66,14 +82,6 @@ final class DictationPillWindow {
                 self?.reposition()
             }
         }
-    }
-
-    private func reposition() {
-        guard let screen = NSScreen.main else { return }
-        let usable = screen.visibleFrame
-        let x = usable.midX - panelWidth / 2
-        let y = usable.minY + bottomInset
-        panel.setFrame(NSRect(x: x, y: y, width: panelWidth, height: panelHeight), display: true)
     }
 
     deinit {

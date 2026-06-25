@@ -1,78 +1,55 @@
 import SwiftUI
 
+/// The notch-anchored dictation surface.
+///
+/// A single black `NotchShape` wraps the physical notch — extending past it on
+/// the left and right and hanging below in a thicker band that holds the
+/// `DictationStatusView`. When there's something to show it extrudes downward
+/// out of the notch; otherwise it retracts back up and disappears.
 struct PrototypePillView: View {
     let state: PrototypeAppState
+    var geometry: NotchGeometry = .none
+    var layout: NotchSurfaceLayout = NotchSurfaceLayout()
 
-    private var pillWidth: CGFloat { 168 }
-    private var pillHeight: CGFloat { 34 }
+    private var expandedHeight: CGFloat {
+        geometry.notchHeight + layout.bottomThickness
+    }
 
-    private var isHidden: Bool {
-        state.phase == .idle
-            && state.download == nil
-            && state.preparingEngine == nil
-            && state.hidePillWhenIdle
+    /// Whether the surface should be dropped down and visible.
+    private var isExpanded: Bool {
+        guard hasContent else { return false }
+        if state.phase == .idle && state.hidePillWhenIdle { return false }
+        return true
+    }
+
+    /// Whether any state is worth surfacing at all.
+    private var hasContent: Bool {
+        if state.download != nil || state.preparingEngine != nil { return true }
+        switch state.phase {
+        case .recording, .preparingModels, .stopping, .failed: return true
+        case .idle: return false
+        }
     }
 
     var body: some View {
-        ZStack {
-            Capsule()
-                .fill(Color.black.opacity(0.85))
-                .overlay(
-                    Capsule().stroke(Color.white.opacity(0.08), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.35), radius: 8, y: 4)
+        let shape = NotchShape(
+            topConcaveRadius: layout.topConcaveRadius,
+            bottomCornerRadius: layout.bottomCornerRadius
+        )
 
-            content
-                .padding(.horizontal, 14)
-        }
-        .frame(width: pillWidth, height: pillHeight)
-        .opacity(isHidden ? 0 : 1)
-        .animation(.easeInOut(duration: 0.22), value: isHidden)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-    }
+        VStack(spacing: 0) {
+            // Camera dead-zone — nothing renders behind the physical notch.
+            Color.clear.frame(height: geometry.notchHeight)
 
-    @ViewBuilder
-    private var content: some View {
-        if let download = state.download {
-            HStack(spacing: 8) {
-                ProgressView(value: download.fractionCompleted)
-                    .progressViewStyle(.circular)
-                    .tint(.white)
-                    .scaleEffect(0.55)
-                    .frame(width: 14, height: 14)
-                Text("\(Int(download.fractionCompleted * 100))%")
-                    .foregroundStyle(.white)
-                    .font(.system(size: 11, weight: .semibold))
-            }
-        } else if state.preparingEngine != nil {
-            HStack(spacing: 7) {
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(.white)
-                Text("Loading engine")
-                    .foregroundStyle(.white)
-                    .font(.system(size: 10, weight: .semibold))
-            }
-        } else {
-            switch state.phase {
-            case .idle:
-                EmptyView()
-            case .preparingModels, .stopping:
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(.white)
-                    Text(state.phase == .stopping ? "Finalizing" : "Preparing")
-                        .foregroundStyle(.white)
-                        .font(.system(size: 10, weight: .medium))
-                }
-            case .recording:
-                InfinityWaveView(level: state.audioLevel)
-            case .failed:
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                    .font(.system(size: 12, weight: .bold))
-            }
+            DictationStatusView(state: state)
+                .frame(maxWidth: .infinity)
+                .frame(height: layout.bottomThickness)
         }
+        .frame(height: isExpanded ? expandedHeight : 0, alignment: .top)
+        .background(shape.fill(.black))
+        .clipShape(shape)
+        .opacity(isExpanded ? 1 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .animation(.spring(response: 0.38, dampingFraction: 0.78), value: isExpanded)
     }
 }
