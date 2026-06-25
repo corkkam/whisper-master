@@ -1,0 +1,53 @@
+name: WhisperMaster
+
+options:
+  bundleIdPrefix: app.whispermaster
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+packages:
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio.git
+    from: "0.14.7"
+
+targets:
+  WhisperMaster:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/WhisperMasterPrototype
+      - path: Resources/AppIcon.icns
+        buildPhase: resources
+    dependencies:
+      - package: FluidAudio
+      - sdk: EventKit.framework
+    settings:
+      base:
+        PRODUCT_NAME: WhisperMaster
+        PRODUCT_BUNDLE_IDENTIFIER: app.whispermaster.mac
+        INFOPLIST_FILE: Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: NO
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+
+schemes:
+  WhisperMaster:
+    build:
+      targets:
+        WhisperMaster: all
+    run:
+      config: Debug
+    archive:
+      config: Release

@@ -8,14 +8,21 @@ A standalone macOS menu-bar app prototype for local-first streaming dictation, b
 
 ## Commands
 
-```bash
-# Dev build (debug)
-swift build
-.build/debug/WhisperMasterPrototype     # runs from CLI; uses LSUIElement so no Dock icon
+This is an **Xcode project**, generated from `project.yml` by [XcodeGen](https://github.com/yonaskolb/XcodeGen) — `project.yml` is the source of truth; the `.xcodeproj` is git-ignored and regenerated. `Package.swift` is kept so `swift build` still works for quick CLI compile checks, but the shippable `.app` is produced by Xcode.
 
-# Release .app (build → codesign with keychain identity "whisper master")
-bash Scripts/bundle.sh                  # produces build/Whisper Master.app
-CONFIG=debug bash Scripts/bundle.sh     # debug-config variant
+```bash
+# First time / after editing project.yml or adding source files
+brew install xcodegen        # one-time
+xcodegen generate            # (re)creates WhisperMaster.xcodeproj
+open WhisperMaster.xcodeproj # work in Xcode normally
+
+# Quick compile check (no .app bundle)
+swift build
+
+# Build + sign the distributable .app (xcodegen → xcodebuild → stage)
+bash Scripts/bundle.sh                       # → build/Whisper Master.app (Release, signed "whisper master")
+CONFIG=Debug bash Scripts/bundle.sh          # debug-config variant
+SIGN_IDENTITY=- bash Scripts/bundle.sh       # ad-hoc instead of the keychain cert
 
 # DMG (chains through bundle.sh)
 bash Scripts/make-dmg.sh                # full rebuild + DMG
@@ -27,7 +34,7 @@ REBUILD=0 bash Scripts/install.sh       # skip rebuild
 RELAUNCH=0 bash Scripts/install.sh      # install without launching
 ```
 
-Codesigning identity is hardcoded to `whisper master` (override with `SIGN_IDENTITY=…`). Build is arm64-only, macOS 14+.
+Distribution signing identity defaults to the self-signed keychain cert `whisper master` (override with `SIGN_IDENTITY=…`); Xcode dev builds sign ad-hoc. Build is arm64-only, macOS 14+. The Xcode **toolchain** (not just Command Line Tools) must be selected — `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
 
 There is no test suite.
 
