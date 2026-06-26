@@ -17,11 +17,10 @@ STAGE="build/sparkle"
 REBUILD="${REBUILD:-1}"
 
 # --- Load R2 credentials ---
-if [[ ! -f .env ]]; then
-    echo "error: .env not found (copy .env.example and fill it in)" >&2
-    exit 1
+# Local runs read .env; CI provides these as environment variables (secrets).
+if [[ -f .env ]]; then
+    set -a; source .env; set +a
 fi
-set -a; source .env; set +a
 : "${R2_ACCESS_KEY_ID:?missing in .env}"
 : "${R2_SECRET_ACCESS_KEY:?missing in .env}"
 : "${R2_BUCKET:?missing in .env}"
@@ -49,9 +48,19 @@ rm -rf "$STAGE"; mkdir -p "$STAGE"
 ZIP="$STAGE/WhisperMaster-$VERSION.zip"
 ditto -c -k --keepParent "$APP_PATH" "$ZIP"
 
-# --- Sign + generate appcast (EdDSA private key read from the keychain) ---
-echo ">> Generating appcast (may prompt for keychain access — click Always Allow)"
-"$GEN_APPCAST" "$STAGE" --download-url-prefix "${R2_PUBLIC_BASE_URL%/}/"
+# --- Sign + generate appcast ---
+echo ">> Generating appcast"
+if [[ -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]]; then
+    # CI: sign with the exported EdDSA key (no keychain on the runner).
+    ED_KEY_FILE="build/.sparkle_ed_key"
+    printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$ED_KEY_FILE"
+    trap 'rm -f "$ED_KEY_FILE"' EXIT
+    "$GEN_APPCAST" "$STAGE" --ed-key-file "$ED_KEY_FILE" --download-url-prefix "${R2_PUBLIC_BASE_URL%/}/"
+    rm -f "$ED_KEY_FILE"; trap - EXIT
+else
+    # Local: read the private key from the keychain (may prompt once).
+    "$GEN_APPCAST" "$STAGE" --download-url-prefix "${R2_PUBLIC_BASE_URL%/}/"
+fi
 
 # --- Upload archive + appcast to R2 ---
 echo ">> Uploading to R2 bucket: $R2_BUCKET"
