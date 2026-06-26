@@ -66,10 +66,11 @@ final class PrototypeViewModel {
 
                 try await prepareSelectedEngineIfNeeded()
 
-                if !state.customVocabulary.isEmpty {
-                    state.statusMessage = "Preparing custom vocabulary..."
-                    await transcriber.setVocabulary(state.customVocabulary)
-                }
+                // Custom vocabulary: register terms now (cheap) and load the
+                // CTC model in the background, so recording starts immediately
+                // and biasing kicks in once it's ready — never blocking.
+                await transcriber.setVocabulary(state.customVocabulary)
+                Task { [transcriber] in await transcriber.loadVocabularyResources() }
 
                 state.download = nil
                 state.statusMessage = "Voice engine ready. Starting microphone..."

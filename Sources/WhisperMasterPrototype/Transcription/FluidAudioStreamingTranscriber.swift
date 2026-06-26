@@ -20,18 +20,31 @@ actor FluidAudioStreamingTranscriber {
         self.manager = SlidingWindowAsrManager(config: config)
     }
 
-    /// Bias decoding toward custom terms (proper nouns, jargon like "RAG").
-    /// Loads the CTC keyword-spotting model on first use and re-applies the
-    /// boosting to the current manager; a free no-op when `terms` is empty.
-    /// Best-effort — failures (offline, model missing) leave transcription
-    /// working without biasing.
-    func setVocabulary(_ terms: [String]) async {
-        let cleaned = terms
+    /// Store the terms to bias decoding toward (proper nouns, jargon like
+    /// "RAG"). Cheap — no I/O; the model loading happens in
+    /// `loadVocabularyResources()`.
+    func setVocabulary(_ terms: [String]) {
+        vocabularyTerms = terms
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        vocabularyTerms = cleaned
-        guard !cleaned.isEmpty else { return }
+    }
+
+    /// Ensure the CTC keyword model is loaded and the biasing is applied. Meant
+    /// to run in the background after the main models are ready: transcription
+    /// works (unbiased) until this finishes and it never blocks recording.
+    /// Best-effort — failures leave transcription working without biasing.
+    func loadVocabularyResources() async {
+        guard !vocabularyTerms.isEmpty else { return }
         if ctcModels == nil {
+            // Mirror-first: pre-place the CTC model so `downloadAndLoad` reads
+            // from disk instead of HuggingFace; it falls back to HF on a miss.
+            let cacheDirectory = CtcModels.defaultCacheDirectory(for: .ctc110m)
+            try? await ModelInstaller.installIfNeeded(
+                archiveName: cacheDirectory.lastPathComponent,
+                destinationRoot: cacheDirectory.deletingLastPathComponent(),
+                label: "vocabulary model",
+                isInstalled: { CtcModels.modelsExist(at: cacheDirectory) }
+            )
             ctcModels = try? await CtcModels.downloadAndLoad()
         }
         await applyVocabularyBoosting()
@@ -97,6 +110,7 @@ extension FluidAudioStreamingTranscriber: LocalStreamingTranscriber {
             try await replacement.loadModels()
         }
         manager = replacement
+        await applyVocabularyBoosting()
         return final
     }
 
@@ -110,5 +124,6 @@ extension FluidAudioStreamingTranscriber: LocalStreamingTranscriber {
             try? await replacement.loadModels()
         }
         manager = replacement
+        await applyVocabularyBoosting()
     }
 }

@@ -339,28 +339,45 @@ struct PrototypeView: View {
                 }
             }
 
-            sectionLabel("CUSTOM VOCABULARY")
+            sectionLabel("WORDS TO GET RIGHT")
                 .padding(.top, 6)
 
-            StudioCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("One term per line. Biases decoding toward proper nouns and jargon (e.g. \"RAG\") so they aren't misheard.")
+            StudioCard(padding: 22) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Names, acronyms, or jargon the app keeps mishearing — one per line. It listens harder for these, so e.g. \u{201C}RAG\u{201D} stops coming out as \u{201C}rack\u{201D}.")
                         .font(StudioFont.cardBody)
                         .foregroundStyle(Studio.inkSecondary)
-                    TextEditor(text: vocabularyText)
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundStyle(Studio.ink)
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 110)
-                        .padding(8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Studio.surface)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(Studio.ink.opacity(0.18), lineWidth: 1)
-                        )
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    ZStack(alignment: .topLeading) {
+                        if state.customVocabulary.isEmpty {
+                            Text("RAG\nParakeet\nLyzr")
+                                .font(.system(size: 13, design: .monospaced))
+                                .foregroundStyle(Studio.inkTertiary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: vocabularyText)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(Studio.ink)
+                            .scrollContentBackground(.hidden)
+                            .frame(height: 88)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 5)
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Studio.bg)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Studio.cardBorder, lineWidth: 1)
+                    )
+
+                    Text("One word or phrase per line. Saved automatically.")
+                        .font(StudioFont.monoSmall)
+                        .foregroundStyle(Studio.inkTertiary)
                 }
             }
         }
