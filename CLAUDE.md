@@ -39,13 +39,65 @@ bash Scripts/release.sh                 # build → sign → appcast → upload 
 REBUILD=0 bash Scripts/release.sh       # re-upload without rebuilding
 ```
 
-Distribution signing identity defaults to the self-signed keychain cert `whisper master` (override with `SIGN_IDENTITY=…`); Xcode dev builds sign ad-hoc. Build is arm64-only, macOS 14+. The Xcode **toolchain** (not just Command Line Tools) must be selected — `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
-
-**Auto-updates (Sparkle + Cloudflare R2):** the app embeds Sparkle (SPM) and checks the `SUFeedURL` appcast on a public R2 bucket (`https://pub-033f6365404f4b37ac6c630d4feb0dcd.r2.dev`, bucket `whisper-master`). `release.sh` signs the archive with the keychain EdDSA key (public key is `SUPublicEDKey` in `Info.plist`) and uploads `appcast.xml` + the zip to R2. Bucket credentials live in `.env` (git-ignored — see `.env.example`). Not notarized yet, so the first install still needs a one-time `xattr -dr com.apple.quarantine` on the recipient's machine; Sparkle's own updates don't re-trigger Gatekeeper. **Always bump both `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.plist` before releasing** or Sparkle won't see the build as newer.
-
-**CI (GitHub Actions):** pushing to `dev` triggers `.github/workflows/release.yml` on a macOS runner — it imports the signing cert from a secret into a temp keychain, sets `CFBundleVersion` to the run number, then builds → signs → appcast → uploads to R2 (the CI-aware path in `release.sh`). Put `[skip release]` in the commit message to skip a run. Required repo secrets: `SIGNING_CERT_P12_BASE64`, `SIGNING_CERT_PASSWORD`, `SPARKLE_ED_PRIVATE_KEY`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`. macOS runner minutes bill ~10×. Repo is private (`HEGADE/whisper-master`); default branch `main`, work on `dev`.
-
 There is no test suite.
+
+### Toolchain & prerequisites
+
+- **Apple Silicon, macOS 14+.** Build is **arm64-only**; deployment target macOS 14.0. Developed on macOS 26 / **Xcode 26.5**; Swift language mode **5.0** (`SWIFT_VERSION` in `project.yml`).
+- **Full Xcode is required** (not just Command Line Tools — the macro plugins / app target need it). Point the toolchain at it and verify:
+  ```bash
+  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+  xcodebuild -version              # must show Xcode, not CommandLineTools
+  sudo xcodebuild -license accept
+  ```
+- **CLI tools (Homebrew):** `brew install xcodegen rclone` — XcodeGen generates the project; rclone uploads to R2.
+
+### Dependencies (SPM)
+
+Declared in **both** `project.yml` (source of truth for the app target) and `Package.swift` (so `swift build` + the editor resolve) — keep the two in sync when adding/bumping:
+- **FluidAudio** ≥ 0.14.7 — on-device ASR (NVIDIA Parakeet) + the CTC keyword model used for vocabulary biasing.
+- **Sparkle** ≥ 2.6 (resolves 2.9.x) — auto-update. Xcode embeds/signs the framework automatically; replicating that by hand is the main reason the project moved off the old SwiftPM-only bundle onto an Xcode app target.
+
+Product: `WhisperMaster.app`, bundle id `app.whispermaster.mac`, executable `WhisperMaster`; distributed as `Whisper Master.app` / `.dmg`.
+
+### How we build
+
+`project.yml` → `xcodegen generate` → `WhisperMaster.xcodeproj` (git-ignored) → `xcodebuild`. Day-to-day: open the `.xcodeproj` in Xcode, or `swift build` for a fast headless compile check (no `.app`). Shippable `.app`: `Scripts/bundle.sh` (xcodegen → `xcodebuild -configuration Release` → stage to `build/Whisper Master.app`).
+
+### Signing & keys (no paid Apple account)
+
+- **Code signing:** a self-signed keychain cert named **`whisper master`** (created in Keychain Access → Certificate Assistant → *Create a Certificate* → Self-Signed Root / Code Signing). `bundle.sh` & `release.sh` default `SIGN_IDENTITY="whisper master"`; pass `SIGN_IDENTITY=-` for ad-hoc. **Not notarized** (needs the $99 Developer Program), so each recipient runs `xattr -dr com.apple.quarantine "/Applications/Whisper Master.app"` once on first install; Sparkle's later updates don't re-trigger Gatekeeper.
+- **Update signing:** a Sparkle **EdDSA** keypair (Sparkle's `bin/generate_keys`; private key lives in the login keychain, public key is `SUPublicEDKey` in `Info.plist`). Export for CI with `generate_keys -x <file>`.
+- The clean future upgrade is a paid **Developer ID + notarization** for warning-free installs (would slot into `bundle.sh`/CI).
+
+### Distribution & auto-update (Sparkle + Cloudflare R2)
+
+- **Hosting:** R2 bucket `whisper-master`; public read URL `https://pub-033f6365404f4b37ac6c630d4feb0dcd.r2.dev`; S3 (upload) endpoint `https://db4d52dbca4f08ab7bd161955d66ed6a.r2.cloudflarestorage.com`. Credentials in `.env` (git-ignored; template `.env.example`): `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`.
+- **Layout on R2:** `appcast.xml` + `WhisperMaster-<version>.zip` at the bucket root; model archives under `models/`.
+- **`release.sh`** = build+sign (`bundle.sh`) → zip → Sparkle `generate_appcast` (EdDSA-signs, sets the enclosure URL via `--download-url-prefix`) → `rclone` upload of the staged dir. It reads `.env` locally; in CI it reads the same vars from the environment and the EdDSA key from `SPARKLE_ED_PRIVATE_KEY` instead of the keychain.
+- **Versioning:** bump **both** `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.plist` before a manual release, or Sparkle won't treat it as newer.
+
+### CI/CD (GitHub Actions)
+
+- Repo is **private** (`HEGADE/whisper-master`); default branch `main`, active work on `dev`.
+- **`.github/workflows/release.yml`** runs on **push to `dev`** (and manual `workflow_dispatch`) on a `macos-15` runner: checkout → `brew install xcodegen rclone` → import the signing cert from secrets into a temporary keychain → set `CFBundleVersion` to `github.run_number` (monotonic, so each push is "newer") → run `release.sh`. Add **`[skip release]`** to the commit message to skip a run.
+- **Required repo secrets:** `SIGNING_CERT_P12_BASE64` (base64 of the cert `.p12`), `SIGNING_CERT_PASSWORD`, `SPARKLE_ED_PRIVATE_KEY`, plus the five `R2_*` values above.
+- macOS runner minutes bill **~10×** — releasing on every `dev` push is intentional but costly; `[skip release]` is the cost/noise guard.
+
+### Release flow, end to end (two ways)
+
+A "release" = put a newer, EdDSA-signed `.zip` + an updated `appcast.xml` on R2; installed apps then self-update via Sparkle. There are two ways to trigger it:
+
+**A. Manual (from your Mac):**
+1. Bump **both** `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.plist` (e.g. `PlistBuddy -c "Set :CFBundleShortVersionString 0.1.9" -c "Set :CFBundleVersion 11" Resources/Info.plist`).
+2. `bash Scripts/release.sh` → `xcodegen generate` → `xcodebuild -configuration Release` (signed `whisper master`) → `ditto` zip → Sparkle `generate_appcast` (signs the zip with the keychain EdDSA key, writes `appcast.xml` pointing at the R2 public URL) → `rclone` uploads `appcast.xml` + `WhisperMaster-<ver>.zip` to the bucket root.
+3. Verify: `curl -s "$R2_PUBLIC_BASE_URL/appcast.xml"` shows the new `sparkle:version`.
+
+**B. CI (push to `dev`):** `git push origin dev` (commit message without `[skip release]`) → the workflow does the same as (A) on a macOS runner, but sets `CFBundleVersion` = `github.run_number` automatically (you still bump `CFBundleShortVersionString` in commits when you want a new human version). Secrets supply the cert + EdDSA key + R2 creds.
+
+**What a tester sees:** their installed app's Sparkle polls `SUFeedURL`, sees a higher `CFBundleVersion`, downloads the signed zip, swaps the app in place, and relaunches — no reinstall. Only the **first-ever** install needs the one-time `xattr -dr com.apple.quarantine` (not notarized).
+
+**Publishing a model to R2** (separate from app releases): from `~/Library/Application Support/FluidAudio/Models`, `ditto -c -k --keepParent <dir> <dir>.zip`, then `rclone` it to `whisper-master/models/` (creds from `.env`). Done for the engine (`parakeet-tdt-0.6b-v3`) and CTC (`parakeet-ctc-110m-coreml`) models; the app installs them mirror-first via `ModelInstaller`.
 
 ## Architecture
 
