@@ -10,8 +10,7 @@ final class PrototypeViewModel {
     private let microphoneCapture: MicrophoneCaptureService
     private let permissionsManager: PermissionsManager
     private let hotkeyUpdater: (HotkeyManager.HotkeyOption) -> Void
-    private let slidingWindowTranscriber: FluidAudioStreamingTranscriber
-    private let eouTranscriber: FluidAudioEouStreamingTranscriber
+    private let transcriber: FluidAudioStreamingTranscriber
     private let textInjector: TextInjector
     private var pendingAppendTasks: [UUID: Task<Void, Never>] = [:]
     private var preparationTask: Task<Void, Never>?
@@ -22,16 +21,14 @@ final class PrototypeViewModel {
         microphoneCapture: MicrophoneCaptureService,
         permissionsManager: PermissionsManager,
         hotkeyUpdater: @escaping (HotkeyManager.HotkeyOption) -> Void = { _ in },
-        slidingWindowTranscriber: FluidAudioStreamingTranscriber,
-        eouTranscriber: FluidAudioEouStreamingTranscriber,
+        transcriber: FluidAudioStreamingTranscriber,
         textInjector: TextInjector
     ) {
         self.state = state
         self.microphoneCapture = microphoneCapture
         self.permissionsManager = permissionsManager
         self.hotkeyUpdater = hotkeyUpdater
-        self.slidingWindowTranscriber = slidingWindowTranscriber
-        self.eouTranscriber = eouTranscriber
+        self.transcriber = transcriber
         self.textInjector = textInjector
     }
 
@@ -47,19 +44,9 @@ final class PrototypeViewModel {
             microphoneCapture: MicrophoneCaptureService(),
             permissionsManager: PermissionsManager(),
             hotkeyUpdater: hotkeyUpdater,
-            slidingWindowTranscriber: FluidAudioStreamingTranscriber(),
-            eouTranscriber: FluidAudioEouStreamingTranscriber(),
+            transcriber: FluidAudioStreamingTranscriber(),
             textInjector: TextInjector()
         )
-    }
-
-    private var transcriber: any LocalStreamingTranscriber {
-        switch state.selectedEngine {
-        case .eouStreaming:
-            return eouTranscriber
-        case .slidingWindow:
-            return slidingWindowTranscriber
-        }
     }
 
     func startRecording() {
@@ -78,6 +65,11 @@ final class PrototypeViewModel {
                 }
 
                 try await prepareSelectedEngineIfNeeded()
+
+                if !state.customVocabulary.isEmpty {
+                    state.statusMessage = "Preparing custom vocabulary..."
+                    await transcriber.setVocabulary(state.customVocabulary)
+                }
 
                 state.download = nil
                 state.statusMessage = "Voice engine ready. Starting microphone..."
@@ -348,9 +340,8 @@ final class PrototypeViewModel {
             ? "Loading voice engine..."
             : "Downloading voice engine..."
 
-        let selectedTranscriber = transcriber(for: engine)
         await installModelsFromMirror(engine)
-        try await selectedTranscriber.prepareModels { [weak self] snapshot in
+        try await transcriber.prepareModels { [weak self] snapshot in
             Task { @MainActor in
                 guard let self, self.state.preparingEngine == engine else { return }
                 let detail = Self.detailText(for: snapshot)
@@ -386,15 +377,6 @@ final class PrototypeViewModel {
         } catch {
             NSLog("Model mirror install failed for %@; using HuggingFace fallback: %@",
                   engine.displayName, String(describing: error))
-        }
-    }
-
-    private func transcriber(for engine: TranscriberEngine) -> any LocalStreamingTranscriber {
-        switch engine {
-        case .eouStreaming:
-            return eouTranscriber
-        case .slidingWindow:
-            return slidingWindowTranscriber
         }
     }
 

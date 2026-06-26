@@ -297,6 +297,20 @@ struct PrototypeView: View {
 
     // MARK: - Engine
 
+    /// Two-way bridge between the newline-separated editor text and the
+    /// `[String]` glossary in state.
+    private var vocabularyText: Binding<String> {
+        Binding(
+            get: { state.customVocabulary.joined(separator: "\n") },
+            set: { newValue in
+                state.customVocabulary = newValue
+                    .split(separator: "\n", omittingEmptySubsequences: true)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            }
+        )
+    }
+
     private var enginePanel: some View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(TranscriberEngine.allCases) { engine in
@@ -322,6 +336,31 @@ struct PrototypeView: View {
                             NSWorkspace.shared.activateFileViewerSelecting([state.selectedEngine.localModelURL])
                         }
                     }
+                }
+            }
+
+            sectionLabel("CUSTOM VOCABULARY")
+                .padding(.top, 6)
+
+            StudioCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("One term per line. Biases decoding toward proper nouns and jargon (e.g. \"RAG\") so they aren't misheard.")
+                        .font(StudioFont.cardBody)
+                        .foregroundStyle(Studio.inkSecondary)
+                    TextEditor(text: vocabularyText)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(Studio.ink)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 110)
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Studio.surface)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(Studio.ink.opacity(0.18), lineWidth: 1)
+                        )
                 }
             }
         }

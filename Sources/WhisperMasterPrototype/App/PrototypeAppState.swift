@@ -47,6 +47,7 @@ struct TranscriptHistoryEntry: Identifiable, Equatable, Codable {
 final class PrototypeAppState {
     static let historyDefaultsKey = "WhisperMaster.transcriptHistory.v1"
     static let historyLimit = 50
+    static let vocabularyDefaultsKey = "WhisperMaster.customVocabulary.v1"
 
     var selectedEngine: TranscriberEngine = .slidingWindow
     var preparedEngine: TranscriberEngine?
@@ -62,9 +63,15 @@ final class PrototypeAppState {
     var statusMessage: String = "Getting voice engine ready..."
     var audioLevel: Float = 0
     var history: [TranscriptHistoryEntry] = []
+    /// User-maintained terms to bias decoding toward (proper nouns, jargon
+    /// like "RAG"). Persisted; applied on each recording.
+    var customVocabulary: [String] = [] {
+        didSet { Self.persistVocabulary(customVocabulary) }
+    }
 
     init() {
         history = Self.loadHistory()
+        customVocabulary = Self.loadVocabulary()
     }
 
     var canStart: Bool {
@@ -119,5 +126,13 @@ final class PrototypeAppState {
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(entries) else { return }
         UserDefaults.standard.set(data, forKey: historyDefaultsKey)
+    }
+
+    private static func loadVocabulary() -> [String] {
+        UserDefaults.standard.stringArray(forKey: vocabularyDefaultsKey) ?? []
+    }
+
+    private static func persistVocabulary(_ terms: [String]) {
+        UserDefaults.standard.set(terms, forKey: vocabularyDefaultsKey)
     }
 }

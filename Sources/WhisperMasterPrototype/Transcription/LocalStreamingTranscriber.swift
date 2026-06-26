@@ -24,50 +24,21 @@ protocol LocalStreamingTranscriber: Sendable {
 }
 
 enum TranscriberEngine: String, CaseIterable, Identifiable {
-    case eouStreaming
     case slidingWindow
 
     var id: String { rawValue }
 
-    var displayName: String {
-        switch self {
-        case .eouStreaming:
-            return "Light"
-        case .slidingWindow:
-            return "Heavy"
-        }
-    }
+    var displayName: String { "Heavy" }
 
-    var subtitle: String {
-        switch self {
-        case .eouStreaming:
-            return "Fast local dictation"
-        case .slidingWindow:
-            return "Best accuracy local dictation"
-        }
-    }
+    var subtitle: String { "Best accuracy local dictation" }
 
-    var estimatedDownloadSize: String {
-        switch self {
-        case .eouStreaming:
-            return "~250 MB"
-        case .slidingWindow:
-            return "~643 MB"
-        }
-    }
+    var estimatedDownloadSize: String { "~643 MB" }
 
     var userFacingName: String {
         "\(displayName) (\(estimatedDownloadSize))"
     }
 
-    var cacheDirectoryName: String {
-        switch self {
-        case .eouStreaming:
-            return "parakeet-eou-streaming"
-        case .slidingWindow:
-            return "parakeet-tdt-0.6b-v3"
-        }
-    }
+    var cacheDirectoryName: String { "parakeet-tdt-0.6b-v3" }
 
     var localModelsRoot: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!

@@ -12,10 +12,37 @@ actor FluidAudioStreamingTranscriber {
     private var updatesTask: Task<Void, Never>?
     private var started = false
     private var modelsLoaded = false
+    private var vocabularyTerms: [String] = []
+    private var ctcModels: CtcModels?
 
     init(config: SlidingWindowAsrConfig = .streaming) {
         self.config = config
         self.manager = SlidingWindowAsrManager(config: config)
+    }
+
+    /// Bias decoding toward custom terms (proper nouns, jargon like "RAG").
+    /// Loads the CTC keyword-spotting model on first use and re-applies the
+    /// boosting to the current manager; a free no-op when `terms` is empty.
+    /// Best-effort — failures (offline, model missing) leave transcription
+    /// working without biasing.
+    func setVocabulary(_ terms: [String]) async {
+        let cleaned = terms
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        vocabularyTerms = cleaned
+        guard !cleaned.isEmpty else { return }
+        if ctcModels == nil {
+            ctcModels = try? await CtcModels.downloadAndLoad()
+        }
+        await applyVocabularyBoosting()
+    }
+
+    private func applyVocabularyBoosting() async {
+        guard !vocabularyTerms.isEmpty, let ctcModels else { return }
+        let context = CustomVocabularyContext(
+            terms: vocabularyTerms.map { CustomVocabularyTerm(text: $0) }
+        )
+        try? await manager.configureVocabularyBoosting(vocabulary: context, ctcModels: ctcModels)
     }
 }
 
