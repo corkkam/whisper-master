@@ -59,6 +59,10 @@ struct PrototypeView: View {
     @State private var micGranted = false
     @State private var micDenied = false
     @State private var accessibilityGranted = false
+    /// Raw editor text for the custom-words field. Kept separate from the
+    /// parsed `[String]` glossary so typing newlines/blank lines isn't fought
+    /// by a normalizing binding.
+    @State private var vocabularyDraft = ""
     private let permissions = PermissionsManager()
 
     var body: some View {
@@ -71,6 +75,7 @@ struct PrototypeView: View {
         .onAppear {
             refreshPermissions()
             autoFocusSetupIfNeeded()
+            vocabularyDraft = state.customVocabulary.joined(separator: "\n")
         }
         .onReceive(Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()) { _ in
             refreshPermissions()
@@ -297,18 +302,14 @@ struct PrototypeView: View {
 
     // MARK: - Engine
 
-    /// Two-way bridge between the newline-separated editor text and the
-    /// `[String]` glossary in state.
-    private var vocabularyText: Binding<String> {
-        Binding(
-            get: { state.customVocabulary.joined(separator: "\n") },
-            set: { newValue in
-                state.customVocabulary = newValue
-                    .split(separator: "\n", omittingEmptySubsequences: true)
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
-            }
-        )
+    /// Parse the raw editor text into the stored glossary (one term per line,
+    /// blank lines ignored). The editor keeps its own raw text, so this only
+    /// flows draft → state, never back.
+    private func updateVocabulary(from text: String) {
+        state.customVocabulary = text
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 
     private var enginePanel: some View {
@@ -350,7 +351,7 @@ struct PrototypeView: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     ZStack(alignment: .topLeading) {
-                        if state.customVocabulary.isEmpty {
+                        if vocabularyDraft.isEmpty {
                             Text("RAG\nParakeet\nLyzr")
                                 .font(.system(size: 13, design: .monospaced))
                                 .foregroundStyle(Studio.inkTertiary)
@@ -358,13 +359,16 @@ struct PrototypeView: View {
                                 .padding(.vertical, 10)
                                 .allowsHitTesting(false)
                         }
-                        TextEditor(text: vocabularyText)
+                        TextEditor(text: $vocabularyDraft)
                             .font(.system(size: 13, design: .monospaced))
                             .foregroundStyle(Studio.ink)
                             .scrollContentBackground(.hidden)
                             .frame(height: 88)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 5)
+                            .onChange(of: vocabularyDraft) { _, text in
+                                updateVocabulary(from: text)
+                            }
                     }
                     .background(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)

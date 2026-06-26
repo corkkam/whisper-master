@@ -14,6 +14,7 @@ actor FluidAudioStreamingTranscriber {
     private var modelsLoaded = false
     private var vocabularyTerms: [String] = []
     private var ctcModels: CtcModels?
+    private var isLoadingVocabulary = false
 
     init(config: SlidingWindowAsrConfig = .streaming) {
         self.config = config
@@ -36,6 +37,9 @@ actor FluidAudioStreamingTranscriber {
     func loadVocabularyResources() async {
         guard !vocabularyTerms.isEmpty else { return }
         if ctcModels == nil {
+            guard !isLoadingVocabulary else { return } // a load is already in flight
+            isLoadingVocabulary = true
+            defer { isLoadingVocabulary = false }
             // Mirror-first: pre-place the CTC model so `downloadAndLoad` reads
             // from disk instead of HuggingFace; it falls back to HF on a miss.
             let cacheDirectory = CtcModels.defaultCacheDirectory(for: .ctc110m)

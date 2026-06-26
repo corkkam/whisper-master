@@ -69,8 +69,7 @@ final class PrototypeViewModel {
                 // Custom vocabulary: register terms now (cheap) and load the
                 // CTC model in the background, so recording starts immediately
                 // and biasing kicks in once it's ready — never blocking.
-                await transcriber.setVocabulary(state.customVocabulary)
-                Task { [transcriber] in await transcriber.loadVocabularyResources() }
+                refreshCustomVocabulary()
 
                 state.download = nil
                 state.statusMessage = "Voice engine ready. Starting microphone..."
@@ -284,10 +283,25 @@ final class PrototypeViewModel {
             guard let self else { return }
             do {
                 try await self.prepareEngine(engine)
+                // Warm the custom-vocabulary (CTC) model in the background once
+                // the main engine is ready, so biasing is available by the
+                // first recording instead of on the second.
+                self.refreshCustomVocabulary()
             } catch {
                 guard !Task.isCancelled else { return }
                 await self.handlePreparationFailure(error, engine: engine)
             }
+        }
+    }
+
+    /// Push the current glossary to the transcriber and load the CTC model in
+    /// the background (non-blocking). Safe to call repeatedly — the transcriber
+    /// guards against duplicate loads.
+    private func refreshCustomVocabulary() {
+        let terms = state.customVocabulary
+        Task { [transcriber] in
+            await transcriber.setVocabulary(terms)
+            await transcriber.loadVocabularyResources()
         }
     }
 
