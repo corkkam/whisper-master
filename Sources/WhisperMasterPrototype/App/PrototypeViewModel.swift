@@ -349,6 +349,7 @@ final class PrototypeViewModel {
             : "Downloading voice engine..."
 
         let selectedTranscriber = transcriber(for: engine)
+        await installModelsFromMirror(engine)
         try await selectedTranscriber.prepareModels { [weak self] snapshot in
             Task { @MainActor in
                 guard let self, self.state.preparingEngine == engine else { return }
@@ -366,6 +367,26 @@ final class PrototypeViewModel {
         state.preparingEngine = nil
         state.download = nil
         state.statusMessage = "Voice engine ready."
+    }
+
+    /// Prefer the fast R2 model mirror (accurate %, free egress); on any
+    /// failure fall through so FluidAudio downloads from HuggingFace as before.
+    private func installModelsFromMirror(_ engine: TranscriberEngine) async {
+        do {
+            try await ModelInstaller.installIfNeeded(engine) { [weak self] progress in
+                Task { @MainActor in
+                    guard let self, self.state.preparingEngine == engine else { return }
+                    self.state.download = ModelDownloadSnapshot(
+                        fractionCompleted: progress.fractionCompleted,
+                        detail: progress.detail
+                    )
+                    self.state.statusMessage = progress.detail
+                }
+            }
+        } catch {
+            NSLog("Model mirror install failed for %@; using HuggingFace fallback: %@",
+                  engine.displayName, String(describing: error))
+        }
     }
 
     private func transcriber(for engine: TranscriberEngine) -> any LocalStreamingTranscriber {
