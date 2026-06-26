@@ -29,15 +29,23 @@ fi
 
 # --- Tools ---
 command -v rclone >/dev/null || { echo "error: rclone not installed (brew install rclone)" >&2; exit 1; }
-GEN_APPCAST=$(find build/DerivedData "$HOME/Library/Developer/Xcode/DerivedData" \
-    -path '*artifacts/sparkle/Sparkle/bin/generate_appcast' 2>/dev/null | head -1)
-[[ -n "$GEN_APPCAST" ]] || { echo "error: generate_appcast not found — build once first" >&2; exit 1; }
 
 # --- Build the signed .app ---
 if [[ "$REBUILD" == "1" || ! -d "$APP_PATH" ]]; then
     echo ">> Building app via bundle.sh"
     bash Scripts/bundle.sh
 fi
+
+# --- Locate Sparkle's appcast tool (fetched into DerivedData during the build) ---
+# Done after the build so the SwiftPM artifacts exist; only scan dirs that are
+# present so `find` can't trip `set -e`.
+GEN_APPCAST=""
+for root in "build/DerivedData" "$HOME/Library/Developer/Xcode/DerivedData"; do
+    [[ -d "$root" ]] || continue
+    found=$(find "$root" -path '*artifacts/sparkle/Sparkle/bin/generate_appcast' 2>/dev/null | head -1 || true)
+    [[ -n "$found" ]] && { GEN_APPCAST="$found"; break; }
+done
+[[ -n "$GEN_APPCAST" ]] || { echo "error: generate_appcast not found under DerivedData" >&2; exit 1; }
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PATH/Contents/Info.plist")
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PATH/Contents/Info.plist")
