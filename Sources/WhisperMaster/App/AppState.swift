@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-enum PrototypePhase: Equatable {
+enum RecordingPhase: Equatable {
     case idle
     case preparingModels
     case recording
@@ -44,7 +44,7 @@ struct TranscriptHistoryEntry: Identifiable, Equatable, Codable {
 
 @MainActor
 @Observable
-final class PrototypeAppState {
+final class AppState {
     static let historyDefaultsKey = "WhisperMaster.transcriptHistory.v1"
     static let historyLimit = 50
     static let vocabularyDefaultsKey = "WhisperMaster.customVocabulary.v1"
@@ -57,7 +57,7 @@ final class PrototypeAppState {
     var autoPasteEnabled: Bool = true
     var soundEnabled: Bool = true
     var hidePillWhenIdle: Bool = true
-    var phase: PrototypePhase = .idle
+    var phase: RecordingPhase = .idle
     var download: ModelDownloadSnapshot?
     var transcript = TranscriptSnapshot()
     var statusMessage: String = "Getting voice engine ready..."

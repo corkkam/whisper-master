@@ -7,7 +7,7 @@ import SwiftUI
 /// preparing, loading an engine, or finalizing. Download keeps its own
 /// determinate progress, and failures show an error glyph.
 struct DictationStatusView: View {
-    let state: PrototypeAppState
+    let state: AppState
 
     var body: some View {
         if let download = state.download {

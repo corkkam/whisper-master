@@ -7,7 +7,7 @@ final class OnboardingWindow {
     private let window: NSWindow
 
     init(
-        state: PrototypeAppState,
+        state: AppState,
         permissions: PermissionsManager,
         microphoneCapture: MicrophoneCaptureService,
         retryEngine: @escaping () -> Void,
@@ -40,7 +40,9 @@ final class OnboardingWindow {
         window.level = .normal
         window.hidesOnDeactivate = false
         window.isMovableByWindowBackground = true
-        window.backgroundColor = NSColor(srgbRed: 0.906, green: 0.882, blue: 0.824, alpha: 1)
+        // Light "Daylight" chrome to match the settings theme.
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = Theme.canvasNSColor
     }
 
     func show() {
@@ -54,7 +56,7 @@ final class OnboardingWindow {
     }
 }
 
-private enum OnboardingStep: Int, CaseIterable {
+enum OnboardingStep: Int, CaseIterable {
     case welcome
     case microphone
     case accessibility
@@ -72,15 +74,33 @@ private enum OnboardingStep: Int, CaseIterable {
     }
 }
 
-private struct OnboardingView: View {
-    let state: PrototypeAppState
+struct OnboardingView: View {
+    let state: AppState
     let permissions: PermissionsManager
     let microphoneCapture: MicrophoneCaptureService
     let retryEngine: () -> Void
     let onClose: () -> Void
     let onComplete: () -> Void
 
-    @State private var step: OnboardingStep = .welcome
+    init(
+        state: AppState,
+        permissions: PermissionsManager,
+        microphoneCapture: MicrophoneCaptureService,
+        retryEngine: @escaping () -> Void,
+        onClose: @escaping () -> Void,
+        onComplete: @escaping () -> Void,
+        initialStep: OnboardingStep = .welcome
+    ) {
+        self.state = state
+        self.permissions = permissions
+        self.microphoneCapture = microphoneCapture
+        self.retryEngine = retryEngine
+        self.onClose = onClose
+        self.onComplete = onComplete
+        _step = State(initialValue: initialStep)
+    }
+
+    @State private var step: OnboardingStep
     @State private var micGranted = false
     @State private var micDenied = false
     @State private var requestingMic = false
@@ -92,14 +112,14 @@ private struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            Studio.bg.ignoresSafeArea()
+            Theme.canvasGradient.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 topBar
                     .padding(.horizontal, 28)
                     .padding(.top, 18)
 
-                stepHeader
+                OnboardingStepHeader(step: step)
                     .padding(.horizontal, 32)
                     .padding(.top, 18)
                     .padding(.bottom, 22)
@@ -129,60 +149,20 @@ private struct OnboardingView: View {
     private var topBar: some View {
         HStack(spacing: 11) {
             BrandLogo(size: 30, cornerRadius: 8)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Whisper Master")
-                    .font(StudioFont.sans(14, .bold))
-                    .foregroundStyle(Studio.ink)
-                Text("STUDIO")
-                    .font(StudioFont.monoSmall)
-                    .tracking(2.5)
-                    .foregroundStyle(Studio.red)
-            }
+            Text("Whisper Master")
+                .font(Typography.sans(14, .bold))
+                .foregroundStyle(Theme.textPrimary)
             Spacer()
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Studio.inkSecondary)
+                    .foregroundStyle(Theme.textSecondary)
                     .frame(width: 28, height: 28)
-                    .background(Circle().fill(Studio.surface))
-                    .overlay(Circle().strokeBorder(Studio.cardBorder, lineWidth: 1))
+                    .background(Circle().fill(Theme.surface))
+                    .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 1))
             }
             .buttonStyle(.plain)
             .help("Close — you can reopen this later from the menu bar")
-        }
-    }
-
-    private var stepHeader: some View {
-        HStack(spacing: 10) {
-            ForEach(OnboardingStep.allCases, id: \.rawValue) { stepValue in
-                stepDot(for: stepValue)
-                if stepValue != OnboardingStep.allCases.last {
-                    Rectangle()
-                        .fill(stepValue.rawValue < step.rawValue ? Studio.red : Studio.cardBorder)
-                        .frame(height: 2)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-        }
-    }
-
-    private func stepDot(for stepValue: OnboardingStep) -> some View {
-        let isCurrent = stepValue == step
-        let isComplete = stepValue.rawValue < step.rawValue
-        return ZStack {
-            Circle()
-                .fill(isCurrent || isComplete ? Studio.red : Studio.surface)
-                .frame(width: 22, height: 22)
-                .overlay(
-                    Circle().strokeBorder(isCurrent ? Color.white.opacity(0.3) : Studio.cardBorder, lineWidth: 1)
-                )
-            if isComplete {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .heavy))
-                    .foregroundStyle(.white)
-            } else if isCurrent {
-                Circle().fill(.white).frame(width: 6, height: 6)
-            }
         }
     }
 
@@ -202,20 +182,21 @@ private struct OnboardingView: View {
             HStack(alignment: .center, spacing: 18) {
                 BrandLogo(size: 78, cornerRadius: 18)
                 VStack(alignment: .leading, spacing: 6) {
+                    KickerLabel("Welcome")
                     Text("Whisper Master")
-                        .font(StudioFont.sans(30, .heavy))
-                        .foregroundStyle(Studio.ink)
+                        .font(Typography.sans(30, .bold))
+                        .foregroundStyle(Theme.textPrimary)
                     Text("Local-first dictation for macOS")
-                        .font(StudioFont.subtitle)
-                        .foregroundStyle(Studio.inkSecondary)
+                        .font(Typography.sans(15))
+                        .foregroundStyle(Theme.textSecondary)
                 }
                 Spacer(minLength: 0)
             }
 
             VStack(alignment: .leading, spacing: 12) {
-                bullet("Speak, and your words land at the cursor — anywhere on your Mac.")
-                bullet("All transcription runs on-device. Nothing leaves this machine.")
-                bullet("Two quick permissions, a 5-second mic check, and you're done.")
+                OnboardingBullet(text: "Speak, and your words land at the cursor — anywhere on your Mac.")
+                OnboardingBullet(text: "All transcription runs on-device. Nothing leaves this machine.")
+                OnboardingBullet(text: "Two quick permissions, a 5-second mic check, and you're done.")
             }
             .padding(.top, 6)
 
@@ -224,10 +205,11 @@ private struct OnboardingView: View {
     }
 
     private var microphonePage: some View {
-        permissionPage(
+        OnboardingPermissionPage(
+            kicker: "Permission",
             icon: "mic.fill",
             heading: "Let me hear you",
-            body: "Whisper Master needs microphone access so it can transcribe your voice while you hold the record key. Audio stays on this Mac.",
+            bodyText: "Whisper Master needs microphone access so it can transcribe your voice while you hold the record key. Audio stays on this Mac.",
             granted: micGranted,
             denied: micDenied,
             working: requestingMic,
@@ -237,17 +219,16 @@ private struct OnboardingView: View {
     }
 
     private var accessibilityPage: some View {
-        permissionPage(
+        OnboardingPermissionPage(
+            kicker: "Permission",
             icon: "keyboard",
             heading: "Type at the cursor",
-            body: "Accessibility lets Whisper Master paste your transcription into whichever app you're using. You can skip this and copy manually if you'd rather not.",
+            bodyText: "Accessibility lets Whisper Master paste your transcription into whichever app you're using. You can skip this and copy manually if you'd rather not.",
             granted: accessibilityGranted,
             denied: false,
             working: false,
             primaryLabel: "Open Accessibility Settings",
-            primaryAction: {
-                permissions.openAccessibilitySettings()
-            },
+            primaryAction: { permissions.openAccessibilitySettings() },
             secondaryLabel: accessibilityGranted ? nil : "Skip for now",
             secondaryAction: {
                 accessibilitySkipped = true
@@ -259,26 +240,27 @@ private struct OnboardingView: View {
     private var micTestPage: some View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 6) {
+                KickerLabel("Sound check")
                 Text("Say something")
-                    .font(StudioFont.sans(22, .bold))
-                    .foregroundStyle(Studio.ink)
+                    .font(Typography.sans(22, .bold))
+                    .foregroundStyle(Theme.textPrimary)
                 Text(testHeardSound
                      ? "Heard you loud and clear. Looking good."
                      : "Speak a sentence — try \"Hello Whisper, can you hear me?\". The bars should move.")
-                    .font(StudioFont.cardBody)
-                    .foregroundStyle(Studio.inkSecondary)
+                    .font(Typography.body)
+                    .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             ZStack {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Studio.surface)
+                    .fill(Theme.surface)
                     .overlay(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(testHeardSound ? Studio.green.opacity(0.5) : Studio.cardBorder, lineWidth: 1)
+                            .strokeBorder(testHeardSound ? Theme.success.opacity(0.5) : Theme.stroke, lineWidth: 1)
                     )
 
-                LevelMeter(level: testLevel, active: testRunning)
+                OnboardingLevelMeter(level: testLevel, active: testRunning)
                     .padding(.horizontal, 22)
                     .padding(.vertical, 24)
             }
@@ -286,13 +268,13 @@ private struct OnboardingView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: testHeardSound ? "checkmark.circle.fill" : (testRunning ? "ear" : "ear.badge.waveform"))
-                    .foregroundStyle(testHeardSound ? Studio.green : Studio.inkSecondary)
+                    .foregroundStyle(testHeardSound ? Theme.success : Theme.textSecondary)
                 Text(micStatusText)
-                    .font(StudioFont.cardBody)
-                    .foregroundStyle(Studio.inkSecondary)
+                    .font(Typography.body)
+                    .foregroundStyle(Theme.textSecondary)
                 Spacer()
                 if !testRunning && !testHeardSound {
-                    StudioButton(title: "Start mic check", icon: nil, filled: false) { startMicTest() }
+                    SecondaryButton(title: "Start mic check") { startMicTest() }
                 }
             }
 
@@ -307,21 +289,22 @@ private struct OnboardingView: View {
             Spacer()
             ZStack {
                 Circle()
-                    .fill(Studio.green.opacity(0.18))
+                    .fill(Theme.success.opacity(0.18))
                     .frame(width: 96, height: 96)
                 Image(systemName: "checkmark")
                     .font(.system(size: 44, weight: .heavy))
-                    .foregroundStyle(Studio.green)
+                    .foregroundStyle(Theme.success)
             }
             VStack(spacing: 8) {
+                KickerLabel("Ready")
                 Text("You're ready")
-                    .font(StudioFont.sans(30, .heavy))
-                    .foregroundStyle(Studio.ink)
+                    .font(Typography.sans(30, .bold))
+                    .foregroundStyle(Theme.textPrimary)
                 Text(engineReady
                      ? "The voice engine is downloaded and loaded. Hold your push-to-talk key and start dictating."
                      : "Hold your push-to-talk key and start dictating. We're finishing the voice engine in the background.")
-                    .font(StudioFont.subtitle)
-                    .foregroundStyle(Studio.inkSecondary)
+                    .font(Typography.sans(15))
+                    .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 440)
             }
@@ -350,34 +333,34 @@ private struct OnboardingView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(engineStatusTitle)
-                    .font(StudioFont.sans(14, .semibold))
-                    .foregroundStyle(Studio.ink)
+                    .font(Typography.headline)
+                    .foregroundStyle(Theme.textPrimary)
                 if let detail = engineStatusDetail {
                     Text(detail)
-                        .font(StudioFont.monoSmall)
-                        .foregroundStyle(Studio.inkSecondary)
+                        .font(Typography.monoSmall)
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
 
             Spacer(minLength: 0)
 
             if engineFailed {
-                StudioButton(title: "Retry", icon: nil, filled: true) { retryEngine() }
+                PrimaryButton(title: "Retry") { retryEngine() }
             } else if enginePreparing {
                 Text("\(Int((state.download?.fractionCompleted ?? 0) * 100))%")
-                    .font(StudioFont.sans(15, .bold))
-                    .foregroundStyle(Studio.inkSecondary)
+                    .font(Typography.sans(15, .bold))
+                    .foregroundStyle(Theme.textSecondary)
                     .monospacedDigit()
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Studio.surface)
+            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.surface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(engineReady ? Studio.green.opacity(0.5) : Studio.cardBorder, lineWidth: 1)
+                .strokeBorder(engineReady ? Theme.success.opacity(0.5) : Theme.stroke, lineWidth: 1)
         )
     }
 
@@ -386,13 +369,13 @@ private struct OnboardingView: View {
         if engineReady {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Studio.green)
+                .foregroundStyle(Theme.success)
         } else if engineFailed {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(Studio.red)
+                .foregroundStyle(Theme.accent)
         } else {
-            ProgressView().controlSize(.small).tint(Studio.red)
+            ProgressView().controlSize(.small).tint(Theme.accent)
         }
     }
 
@@ -411,15 +394,15 @@ private struct OnboardingView: View {
     private var footer: some View {
         HStack {
             if step != .welcome {
-                StudioButton(title: "Back", icon: nil, filled: false) { goBack() }
+                SecondaryButton(title: "Back") { goBack() }
             }
             Spacer()
             Text(footerHint)
-                .font(StudioFont.monoSmall)
+                .font(Typography.monoSmall)
                 .tracking(1)
-                .foregroundStyle(Studio.inkTertiary)
+                .foregroundStyle(Theme.textTertiary)
             Spacer()
-            StudioButton(title: primaryFooterLabel, icon: nil, filled: true) {
+            PrimaryButton(title: primaryFooterLabel) {
                 if primaryFooterEnabled { primaryFooterAction() }
             }
             .opacity(primaryFooterEnabled ? 1 : 0.4)
@@ -460,7 +443,7 @@ private struct OnboardingView: View {
     private var micStatusText: String {
         if !micGranted { return "Mic permission not granted." }
         if testHeardSound { return "Audio reaching the app." }
-        if testRunning { return "Listening..." }
+        if testRunning { return "Listening…" }
         return "Press start to test your microphone."
     }
 
@@ -525,117 +508,5 @@ private struct OnboardingView: View {
         microphoneCapture.stop()
         testRunning = false
         testLevel = 0
-    }
-
-    private func bullet(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Circle()
-                .fill(Studio.red)
-                .frame(width: 6, height: 6)
-                .padding(.top, 7)
-            Text(text)
-                .font(StudioFont.subtitle)
-                .foregroundStyle(Studio.ink.opacity(0.92))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    @ViewBuilder
-    private func permissionPage(
-        icon: String,
-        heading: String,
-        body: String,
-        granted: Bool,
-        denied: Bool,
-        working: Bool,
-        primaryLabel: String,
-        primaryAction: @escaping () -> Void,
-        secondaryLabel: String? = nil,
-        secondaryAction: (() -> Void)? = nil
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(alignment: .center, spacing: 16) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(granted ? Studio.green.opacity(0.18) : Studio.red.opacity(0.12))
-                        .frame(width: 56, height: 56)
-                    Image(systemName: granted ? "checkmark" : icon)
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(granted ? Studio.green : Studio.red)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(heading)
-                        .font(StudioFont.sans(22, .bold))
-                        .foregroundStyle(Studio.ink)
-                    Text(granted ? "Granted. You're good to go." : "Not yet granted.")
-                        .font(StudioFont.cardBody)
-                        .foregroundStyle(granted ? Studio.green : Studio.inkSecondary)
-                }
-                Spacer()
-            }
-
-            Text(body)
-                .font(StudioFont.subtitle)
-                .foregroundStyle(Studio.inkSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .lineSpacing(3)
-
-            HStack(spacing: 12) {
-                if granted {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill")
-                        Text("Granted").font(StudioFont.sans(14, .semibold))
-                    }
-                    .foregroundStyle(Studio.green)
-                } else if working {
-                    HStack(spacing: 10) {
-                        ProgressView().controlSize(.small).tint(Studio.red)
-                        Text("Waiting for your response...")
-                            .font(StudioFont.cardBody)
-                            .foregroundStyle(Studio.inkSecondary)
-                    }
-                } else {
-                    StudioButton(title: primaryLabel, icon: nil, filled: true, action: primaryAction)
-                    if let secondaryLabel, let secondaryAction {
-                        StudioButton(title: secondaryLabel, icon: nil, filled: false, action: secondaryAction)
-                    }
-                }
-                Spacer()
-            }
-
-            Spacer(minLength: 0)
-        }
-    }
-}
-
-private struct LevelMeter: View {
-    let level: Float
-    let active: Bool
-
-    private let barCount = 32
-
-    var body: some View {
-        GeometryReader { geo in
-            let spacing: CGFloat = 4
-            let totalSpacing = spacing * CGFloat(barCount - 1)
-            let barWidth = max(2, (geo.size.width - totalSpacing) / CGFloat(barCount))
-            HStack(alignment: .center, spacing: spacing) {
-                ForEach(0..<barCount, id: \.self) { index in
-                    bar(index: index, width: barWidth, height: geo.size.height)
-                }
-            }
-        }
-    }
-
-    private func bar(index: Int, width: CGFloat, height: CGFloat) -> some View {
-        let center = Double(barCount - 1) / 2.0
-        let distance = abs(Double(index) - center) / center
-        let envelope = 1.0 - pow(distance, 2.0)
-        let normalized = min(1.0, Double(level) * 6.0)
-        let h = max(4, CGFloat(envelope * normalized) * height)
-        return RoundedRectangle(cornerRadius: 2, style: .continuous)
-            .fill(active ? Studio.red : Studio.cardBorder)
-            .frame(width: width, height: h)
-            .animation(.easeOut(duration: 0.08), value: level)
     }
 }

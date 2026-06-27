@@ -6,8 +6,8 @@ import SwiftUI
 /// the left and right and hanging below in a thicker band that holds the
 /// `DictationStatusView`. When there's something to show it extrudes downward
 /// out of the notch; otherwise it retracts back up and disappears.
-struct PrototypePillView: View {
-    let state: PrototypeAppState
+struct DictationPillContent: View {
+    let state: AppState
     var geometry: NotchGeometry = .none
     var layout: NotchSurfaceLayout = NotchSurfaceLayout()
 
