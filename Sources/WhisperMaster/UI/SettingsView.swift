@@ -105,20 +105,21 @@ struct SettingsView: View {
 
     // MARK: - Masthead (brand + status + tabs)
 
+    /// Shared left margin for the brand, the tabs, and the content column so
+    /// everything lines up on one edge.
+    private let gutter: CGFloat = 36
+
     private var masthead: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
+            HStack(spacing: 11) {
                 BrandLogo(size: 26, cornerRadius: 7)
                 Text("Whisper Master")
                     .font(Typography.optima(17, .bold))
                     .foregroundStyle(Theme.textPrimary)
                 Spacer()
-                statusPill
             }
-            .padding(.leading, 80)   // clear the traffic-light buttons
-            .padding(.trailing, 24)
-            .padding(.top, 16)
-            .padding(.bottom, 14)
+            .padding(.top, 26)
+            .padding(.bottom, 18)
 
             HStack(spacing: 26) {
                 ForEach(SettingsSection.allCases) { section in
@@ -126,11 +127,12 @@ struct SettingsView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 26)
 
             Rectangle().fill(Theme.stroke).frame(height: 1)
                 .padding(.top, 12)
+                .padding(.horizontal, -gutter)
         }
+        .padding(.horizontal, gutter)
     }
 
     private func tab(_ section: SettingsSection) -> some View {
@@ -152,19 +154,6 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 
-    private var statusPill: some View {
-        HStack(spacing: 7) {
-            StatusDot(color: statusColor, size: 7)
-            Text(statusLabel)
-                .font(Typography.caption)
-                .foregroundStyle(Theme.textSecondary)
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 6)
-        .background(Capsule().fill(Theme.surface))
-        .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
-    }
-
     // MARK: - Detail
 
     private var detail: some View {
@@ -183,10 +172,10 @@ struct SettingsView: View {
 
                 panelContent
             }
-            .frame(maxWidth: 620, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 40)
-            .padding(.top, 34)
+            .frame(maxWidth: 640, alignment: .leading)
+            .padding(.leading, gutter)
+            .padding(.trailing, gutter)
+            .padding(.top, 32)
             .padding(.bottom, 52)
         }
     }
@@ -255,27 +244,6 @@ struct SettingsView: View {
         accessibilityGranted = permissions.accessibilityGranted()
     }
 
-    private var permissionsReady: Bool { micGranted && accessibilityGranted }
-
-    private var statusColor: Color {
-        switch state.phase {
-        case .recording, .preparingModels, .failed:
-            return Theme.accent
-        case .idle, .stopping:
-            return permissionsReady ? Theme.success : Theme.textTertiary
-        }
-    }
-
-    private var statusLabel: String {
-        switch state.phase {
-        case .recording: return "Recording"
-        case .preparingModels: return "Preparing"
-        case .stopping: return "Finalizing"
-        case .failed: return "Error"
-        case .idle:
-            return permissionsReady ? "Ready · \(state.hotkey.compactName)" : "Needs setup"
-        }
-    }
 }
 
 /// A compact live input-level meter shown in the header while recording.

@@ -46,23 +46,17 @@ struct RecordingSettingsView: View {
         if isSnapshot {
             hotkeyLabel
         } else {
-            Menu {
+            Picker("", selection: Binding(
+                get: { state.hotkey },
+                set: { viewModel.updateHotkey($0) }
+            )) {
                 ForEach(HotkeyManager.HotkeyOption.allCases) { option in
-                    Button {
-                        viewModel.updateHotkey(option)
-                    } label: {
-                        if option == state.hotkey {
-                            Label(option.displayName, systemImage: "checkmark")
-                        } else {
-                            Text(option.displayName)
-                        }
-                    }
+                    Text(option.displayName).tag(option)
                 }
-            } label: {
-                hotkeyLabel
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .tint(Theme.accent)
             .fixedSize()
         }
     }
