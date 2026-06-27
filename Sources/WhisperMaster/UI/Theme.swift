@@ -5,14 +5,14 @@ import SwiftUI
 /// vermillion accent from the app icon spent sparingly. Calm and premium rather
 /// than another dark dashboard.
 enum Theme {
-    // MARK: Ground + surfaces (warm paper, not pure white)
-    static let canvas = Color(red: 0.957, green: 0.933, blue: 0.882)
-    static let canvasTop = Color(red: 0.965, green: 0.945, blue: 0.898)
-    /// Slightly lifted paper for the few boxed elements (tiles, the words field).
-    static let surface = Color(red: 0.984, green: 0.969, blue: 0.937)
-    static let surfaceSunken = Color(red: 0.925, green: 0.902, blue: 0.851)
+    // MARK: Ground + surfaces (plain white)
+    static let canvas = Color.white
+    static let canvasTop = Color.white
+    /// Slightly off-white for the few boxed elements (tiles, the words field).
+    static let surface = Color(red: 0.972, green: 0.968, blue: 0.960)
+    static let surfaceSunken = Color(red: 0.925, green: 0.918, blue: 0.902)
     /// Warm sand band used for the selected sidebar item.
-    static let selection = Color(red: 0.890, green: 0.851, blue: 0.776)
+    static let selection = Color(red: 0.918, green: 0.882, blue: 0.808)
 
     // MARK: Ink
     static let textPrimary = Color(red: 0.129, green: 0.110, blue: 0.082)
@@ -40,7 +40,7 @@ enum Theme {
         endPoint: .bottom
     )
     /// AppKit ground color for window backgrounds / titlebars.
-    static let canvasNSColor = NSColor(srgbRed: 0.957, green: 0.933, blue: 0.882, alpha: 1)
+    static let canvasNSColor = NSColor.white
 }
 
 /// Type system. Display + body are Optima (ships with macOS — no bundling); the

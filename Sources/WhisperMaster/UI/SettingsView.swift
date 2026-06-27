@@ -90,6 +90,7 @@ struct SettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             nav
+            sectionSeparator
             detail
         }
         .frame(minWidth: 760, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
@@ -127,9 +128,19 @@ struct SettingsView: View {
         }
         .frame(width: 252)
         .frame(maxHeight: .infinity)
-        .overlay(alignment: .trailing) {
-            Rectangle().fill(Theme.stroke).frame(width: 1)
+    }
+
+    /// Double-rule seam between the sidebar and the content: two lines with a
+    /// small gap and a soft shadow falling onto the content for a bit of depth.
+    private var sectionSeparator: some View {
+        HStack(spacing: 4) {
+            Rectangle().fill(Theme.strokeStrong).frame(width: 2)
+            Rectangle().fill(Theme.stroke).frame(width: 2)
         }
+        .frame(maxHeight: .infinity)
+        .background(Theme.canvas)
+        .shadow(color: .black.opacity(0.08), radius: 5, x: 2, y: 0)
+        .zIndex(1)
     }
 
     private func navRow(_ section: SettingsSection) -> some View {
