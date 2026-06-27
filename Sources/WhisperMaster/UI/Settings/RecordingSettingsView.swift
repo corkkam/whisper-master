@@ -4,6 +4,7 @@ import SwiftUI
 struct RecordingSettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
+    @Environment(\.isSnapshot) private var isSnapshot
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -40,41 +41,50 @@ struct RecordingSettingsView: View {
         }
     }
 
+    @ViewBuilder
     private var hotkeyMenu: some View {
-        Menu {
-            ForEach(HotkeyManager.HotkeyOption.allCases) { option in
-                Button {
-                    viewModel.updateHotkey(option)
-                } label: {
-                    if option == state.hotkey {
-                        Label(option.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(option.displayName)
+        if isSnapshot {
+            hotkeyLabel
+        } else {
+            Menu {
+                ForEach(HotkeyManager.HotkeyOption.allCases) { option in
+                    Button {
+                        viewModel.updateHotkey(option)
+                    } label: {
+                        if option == state.hotkey {
+                            Label(option.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(option.displayName)
+                        }
                     }
                 }
+            } label: {
+                hotkeyLabel
             }
-        } label: {
-            HStack(spacing: 9) {
-                Text(state.hotkey.compactName)
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Theme.textPrimary)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                    .fill(Theme.surfaceElevated)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                    .strokeBorder(Theme.strokeStrong, lineWidth: 1)
-            )
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+    }
+
+    private var hotkeyLabel: some View {
+        HStack(spacing: 9) {
+            Text(state.hotkey.compactName)
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Theme.textPrimary)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
+                .fill(Theme.surfaceElevated)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
+                .strokeBorder(Theme.strokeStrong, lineWidth: 1)
+        )
     }
 }

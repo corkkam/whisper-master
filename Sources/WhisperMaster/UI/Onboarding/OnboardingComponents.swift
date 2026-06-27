@@ -10,7 +10,7 @@ struct OnboardingStepHeader: View {
                 dot(for: value)
                 if value != OnboardingStep.allCases.last {
                     Rectangle()
-                        .fill(value.rawValue < step.rawValue ? Theme.accent : Theme.stroke)
+                        .fill(value.rawValue < step.rawValue ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.stroke))
                         .frame(height: 2)
                         .frame(maxWidth: .infinity)
                 }
@@ -23,7 +23,7 @@ struct OnboardingStepHeader: View {
         let isComplete = value.rawValue < step.rawValue
         return ZStack {
             Circle()
-                .fill(isCurrent || isComplete ? Theme.accent : Theme.surface)
+                .fill(isCurrent || isComplete ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.surface))
                 .frame(width: 22, height: 22)
                 .overlay(
                     Circle().strokeBorder(isCurrent ? Color.white.opacity(0.3) : Theme.strokeStrong, lineWidth: 1)
@@ -42,6 +42,7 @@ struct OnboardingStepHeader: View {
 /// A permission step page (microphone / accessibility): icon, heading, body, and
 /// a primary action with an optional secondary (e.g. "Skip for now").
 struct OnboardingPermissionPage: View {
+    let kicker: String
     let icon: String
     let heading: String
     let bodyText: String
@@ -58,13 +59,14 @@ struct OnboardingPermissionPage: View {
             HStack(alignment: .center, spacing: 16) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(granted ? Theme.success.opacity(0.18) : Theme.accentSoft)
+                        .fill(granted ? AnyShapeStyle(Theme.success.opacity(0.18)) : AnyShapeStyle(Theme.accentSoft))
                         .frame(width: 56, height: 56)
                     Image(systemName: granted ? "checkmark" : icon)
                         .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(granted ? Theme.success : Theme.accent)
                 }
                 VStack(alignment: .leading, spacing: 4) {
+                    KickerLabel(kicker)
                     Text(heading)
                         .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(Theme.textPrimary)

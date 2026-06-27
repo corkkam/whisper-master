@@ -6,6 +6,7 @@ import SwiftUI
 struct EngineSettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
+    @Environment(\.isSnapshot) private var isSnapshot
 
     /// Raw editor text for the custom-words field. Kept separate from the parsed
     /// `[String]` glossary so typing newlines/blank lines isn't fought by a
@@ -137,16 +138,26 @@ struct EngineSettingsView: View {
                             .padding(.vertical, 10)
                             .allowsHitTesting(false)
                     }
-                    TextEditor(text: $vocabularyDraft)
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundStyle(Theme.textPrimary)
-                        .scrollContentBackground(.hidden)
-                        .frame(height: 96)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 5)
-                        .onChange(of: vocabularyDraft) { _, text in
-                            updateVocabulary(from: text)
-                        }
+                    if isSnapshot {
+                        // Static stand-in: TextEditor (NSTextView) can't render in ImageRenderer.
+                        Text(vocabularyDraft.isEmpty ? " " : vocabularyDraft)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(Theme.textPrimary)
+                            .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                    } else {
+                        TextEditor(text: $vocabularyDraft)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(Theme.textPrimary)
+                            .scrollContentBackground(.hidden)
+                            .frame(height: 96)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 5)
+                            .onChange(of: vocabularyDraft) { _, text in
+                                updateVocabulary(from: text)
+                            }
+                    }
                 }
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.canvas)

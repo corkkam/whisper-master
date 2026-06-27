@@ -40,6 +40,16 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .about: return "Voice dictation that stays on your Mac."
         }
     }
+
+    var kicker: String {
+        switch self {
+        case .recording: return "Capture"
+        case .engine: return "On-device"
+        case .history: return "Activity"
+        case .permissions: return "Privacy"
+        case .about: return "Whisper Master"
+        }
+    }
 }
 
 /// The settings window: a slim shell that owns navigation + cross-cutting state
@@ -51,8 +61,28 @@ struct SettingsView: View {
     var reopenOnboarding: () -> Void = {}
     var startSetup: () -> Void = {}
     var cancelSetup: () -> Void = {}
+    /// Initial section to show. Defaults to recording; overridable so snapshot
+    /// tooling can render each panel.
+    var initialSection: SettingsSection = .recording
 
-    @State private var selection: SettingsSection = .recording
+    @State private var selection: SettingsSection
+
+    init(
+        viewModel: DictationViewModel,
+        state: AppState,
+        reopenOnboarding: @escaping () -> Void = {},
+        startSetup: @escaping () -> Void = {},
+        cancelSetup: @escaping () -> Void = {},
+        initialSection: SettingsSection = .recording
+    ) {
+        self.viewModel = viewModel
+        _state = Bindable(wrappedValue: state)
+        self.reopenOnboarding = reopenOnboarding
+        self.startSetup = startSetup
+        self.cancelSetup = cancelSetup
+        self.initialSection = initialSection
+        _selection = State(initialValue: initialSection)
+    }
     @State private var hasAutoFocusedSetup = false
     @State private var micGranted = false
     @State private var micDenied = false
@@ -61,7 +91,11 @@ struct SettingsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            sidebar
+            SettingsSidebar(
+                selection: $selection,
+                state: state,
+                permissionsReady: micGranted && accessibilityGranted
+            )
             detail
         }
         .frame(minWidth: 840, minHeight: 600)
@@ -75,90 +109,11 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Sidebar
-
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            brand
-                .padding(.horizontal, 20)
-                .padding(.top, 34)
-
-            VStack(spacing: 2) {
-                ForEach(SettingsSection.allCases) { section in
-                    navRow(section)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 26)
-
-            Spacer(minLength: 0)
-
-            sidebarFooter
-                .padding(.horizontal, 20)
-                .padding(.bottom, 18)
-        }
-        .frame(width: 232)
-        .frame(maxHeight: .infinity)
-        .background(Theme.sidebar)
-        .overlay(alignment: .trailing) {
-            Rectangle().fill(Theme.stroke).frame(width: 1)
-        }
-    }
-
-    private var brand: some View {
-        HStack(spacing: 11) {
-            BrandLogo(size: 34, cornerRadius: 9)
-            Text("Whisper Master")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Theme.textPrimary)
-        }
-    }
-
-    private func navRow(_ section: SettingsSection) -> some View {
-        let isSelected = selection == section
-        return Button {
-            selection = section
-        } label: {
-            HStack(spacing: 11) {
-                Image(systemName: section.icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 20)
-                    .foregroundStyle(isSelected ? Theme.accent : Theme.textTertiary)
-                Text(section.title)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Theme.surfaceElevated : Color.clear)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var sidebarFooter: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 7) {
-                StatusDot(color: statusColor)
-                Text(statusLabel)
-                    .font(Typography.caption)
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            Text("v\(AppInfo.version) · \(state.hotkey.compactName) to dictate")
-                .font(Typography.monoSmall)
-                .foregroundStyle(Theme.textTertiary)
-        }
-    }
-
     // MARK: - Detail
 
     private var detail: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 26) {
                 detailHeader
 
                 if shouldShowSetupBanner, selection != .engine {
@@ -172,16 +127,18 @@ struct SettingsView: View {
 
                 panelContent
             }
-            .padding(.horizontal, 40)
-            .padding(.vertical, 34)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: 680, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, 44)
+            .padding(.vertical, 40)
         }
-        .background(Theme.canvas)
+        .background(Theme.canvasGradient)
     }
 
     private var detailHeader: some View {
         HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 7) {
+                KickerLabel(selection.kicker)
                 Text(selection.title)
                     .font(Typography.largeTitle)
                     .foregroundStyle(Theme.textPrimary)
@@ -240,27 +197,6 @@ struct SettingsView: View {
         micGranted = micStatus == .granted
         micDenied = micStatus == .denied
         accessibilityGranted = permissions.accessibilityGranted()
-    }
-
-    private var statusColor: Color {
-        switch state.phase {
-        case .recording, .preparingModels, .failed:
-            return Theme.accent
-        case .idle, .stopping:
-            return (micGranted && accessibilityGranted) ? Theme.success : Theme.textTertiary
-        }
-    }
-
-    private var statusLabel: String {
-        switch state.phase {
-        case .recording: return "Recording"
-        case .preparingModels: return "Preparing"
-        case .stopping: return "Finalizing"
-        case .failed: return "Error"
-        case .idle:
-            if !micGranted || !accessibilityGranted { return "Needs setup" }
-            return "Ready"
-        }
     }
 }
 

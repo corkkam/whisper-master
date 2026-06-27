@@ -75,7 +75,7 @@ enum OnboardingStep: Int, CaseIterable {
     }
 }
 
-private struct OnboardingView: View {
+struct OnboardingView: View {
     let state: AppState
     let permissions: PermissionsManager
     let microphoneCapture: MicrophoneCaptureService
@@ -83,7 +83,25 @@ private struct OnboardingView: View {
     let onClose: () -> Void
     let onComplete: () -> Void
 
-    @State private var step: OnboardingStep = .welcome
+    init(
+        state: AppState,
+        permissions: PermissionsManager,
+        microphoneCapture: MicrophoneCaptureService,
+        retryEngine: @escaping () -> Void,
+        onClose: @escaping () -> Void,
+        onComplete: @escaping () -> Void,
+        initialStep: OnboardingStep = .welcome
+    ) {
+        self.state = state
+        self.permissions = permissions
+        self.microphoneCapture = microphoneCapture
+        self.retryEngine = retryEngine
+        self.onClose = onClose
+        self.onComplete = onComplete
+        _step = State(initialValue: initialStep)
+    }
+
+    @State private var step: OnboardingStep
     @State private var micGranted = false
     @State private var micDenied = false
     @State private var requestingMic = false
@@ -95,7 +113,7 @@ private struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            Theme.canvas.ignoresSafeArea()
+            Theme.canvasGradient.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 topBar
@@ -165,6 +183,7 @@ private struct OnboardingView: View {
             HStack(alignment: .center, spacing: 18) {
                 BrandLogo(size: 78, cornerRadius: 18)
                 VStack(alignment: .leading, spacing: 6) {
+                    KickerLabel("Welcome")
                     Text("Whisper Master")
                         .font(.system(size: 30, weight: .bold))
                         .foregroundStyle(Theme.textPrimary)
@@ -188,6 +207,7 @@ private struct OnboardingView: View {
 
     private var microphonePage: some View {
         OnboardingPermissionPage(
+            kicker: "Permission",
             icon: "mic.fill",
             heading: "Let me hear you",
             bodyText: "Whisper Master needs microphone access so it can transcribe your voice while you hold the record key. Audio stays on this Mac.",
@@ -201,6 +221,7 @@ private struct OnboardingView: View {
 
     private var accessibilityPage: some View {
         OnboardingPermissionPage(
+            kicker: "Permission",
             icon: "keyboard",
             heading: "Type at the cursor",
             bodyText: "Accessibility lets Whisper Master paste your transcription into whichever app you're using. You can skip this and copy manually if you'd rather not.",
@@ -220,6 +241,7 @@ private struct OnboardingView: View {
     private var micTestPage: some View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 6) {
+                KickerLabel("Sound check")
                 Text("Say something")
                     .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(Theme.textPrimary)
@@ -275,6 +297,7 @@ private struct OnboardingView: View {
                     .foregroundStyle(Theme.success)
             }
             VStack(spacing: 8) {
+                KickerLabel("Ready")
                 Text("You're ready")
                     .font(.system(size: 30, weight: .bold))
                     .foregroundStyle(Theme.textPrimary)

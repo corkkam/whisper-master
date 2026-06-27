@@ -1,11 +1,10 @@
 import SwiftUI
 
-// Reusable building blocks for the settings UI. These replace the duplicated
-// rounded-rect + stroke + shadow blocks that were copy-pasted across the old
-// monolithic settings view.
+// Reusable building blocks for the settings UI.
 
-/// A grouped surface card. Pass `contentPadding` for free-form content; leave it
-/// at 0 when filling the card with `SettingsRow`s (they carry their own insets).
+/// A grouped surface card with a faint top highlight + soft shadow for depth.
+/// Pass `contentPadding` for free-form content; leave it 0 when filling with
+/// `SettingsRow`s (they carry their own insets).
 struct SettingsCard<Content: View>: View {
     var contentPadding: CGFloat = 0
     @ViewBuilder var content: Content
@@ -20,8 +19,16 @@ struct SettingsCard<Content: View>: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                    .strokeBorder(Theme.stroke, lineWidth: 1)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [Theme.topHighlight, Theme.stroke],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
             )
+            .shadow(color: .black.opacity(0.25), radius: 14, x: 0, y: 8)
     }
 }
 
@@ -53,8 +60,8 @@ struct SettingsRow<Control: View>: View {
             Spacer(minLength: 12)
             control
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
     }
 }
 
@@ -64,7 +71,7 @@ struct RowDivider: View {
         Rectangle()
             .fill(Theme.stroke)
             .frame(height: 1)
-            .padding(.leading, 18)
+            .padding(.leading, 20)
     }
 }
 
@@ -76,29 +83,61 @@ struct SectionLabel: View {
     var body: some View {
         Text(text.uppercased())
             .font(Typography.label)
-            .tracking(1.2)
+            .tracking(1.4)
             .foregroundStyle(Theme.textTertiary)
     }
 }
 
-/// Native switch tinted with the brand accent. Guarantees standard toggle
-/// behavior — no custom hit-testing to break.
-struct ThemeToggle: View {
-    @Binding var isOn: Bool
+/// A small uppercased accent kicker (used above section titles).
+struct KickerLabel: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
     var body: some View {
-        Toggle("", isOn: $isOn)
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .tint(Theme.accent)
+        Text(text.uppercased())
+            .font(Typography.kicker)
+            .tracking(2)
+            .foregroundStyle(Theme.accent)
     }
 }
 
-/// A small colored status dot.
+/// A crafted vermillion pill switch built from shapes (no AppKit), so it renders
+/// consistently and carries the brand. Behaves like a standard toggle.
+struct ThemeToggle: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            ZStack(alignment: isOn ? .trailing : .leading) {
+                Capsule()
+                    .fill(isOn ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.surfaceElevated))
+                    .overlay(
+                        Capsule().strokeBorder(isOn ? Color.clear : Theme.strokeStrong, lineWidth: 1)
+                    )
+                    .frame(width: 46, height: 28)
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 22, height: 22)
+                    .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
+                    .padding(3)
+            }
+        }
+        .buttonStyle(.plain)
+        .animation(.spring(response: 0.28, dampingFraction: 0.7), value: isOn)
+    }
+}
+
+/// A small colored status dot with a soft glow.
 struct StatusDot: View {
     let color: Color
     var size: CGFloat = 8
     var body: some View {
-        Circle().fill(color).frame(width: size, height: size)
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .shadow(color: color.opacity(0.6), radius: 4)
     }
 }
 
@@ -110,10 +149,8 @@ struct PrimaryButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            ButtonLabel(title: title, icon: icon)
-        }
-        .buttonStyle(AccentButtonStyle())
+        Button(action: action) { ButtonLabel(title: title, icon: icon) }
+            .buttonStyle(AccentButtonStyle())
     }
 }
 
@@ -123,10 +160,8 @@ struct SecondaryButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            ButtonLabel(title: title, icon: icon)
-        }
-        .buttonStyle(GhostButtonStyle())
+        Button(action: action) { ButtonLabel(title: title, icon: icon) }
+            .buttonStyle(GhostButtonStyle())
     }
 }
 
@@ -151,8 +186,14 @@ struct AccentButtonStyle: ButtonStyle {
             .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                    .fill(Theme.accent.opacity(configuration.isPressed ? 0.82 : 1))
+                    .fill(Theme.accentGradient)
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: Theme.accentDeep.opacity(0.4), radius: 8, y: 3)
+            .opacity(configuration.isPressed ? 0.85 : 1)
             .contentShape(Rectangle())
     }
 }
