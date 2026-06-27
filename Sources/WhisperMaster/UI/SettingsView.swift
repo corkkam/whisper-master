@@ -111,7 +111,7 @@ struct SettingsView: View {
             HStack(spacing: 12) {
                 BrandLogo(size: 32, cornerRadius: 8)
                 Text("Whisper Master")
-                    .font(Typography.optima(18, .bold))
+                    .font(Typography.sans(18, .bold))
                     .foregroundStyle(Theme.textPrimary)
             }
             .padding(.horizontal, 20)
@@ -149,7 +149,7 @@ struct SettingsView: View {
             selection = section
         } label: {
             Text(section.title)
-                .font(Typography.optima(16.5, isSelected ? .bold : .regular))
+                .font(Typography.sans(16.5, isSelected ? .bold : .regular))
                 .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 20)

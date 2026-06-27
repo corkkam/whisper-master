@@ -13,7 +13,7 @@ struct AboutSettingsView: View {
                 BrandLogo(size: 58, cornerRadius: 14)
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Whisper Master")
-                        .font(Typography.optima(23, .bold))
+                        .font(Typography.sans(23, .bold))
                         .foregroundStyle(Theme.textPrimary)
                     Text("Version \(AppInfo.version) · On-device dictation")
                         .font(Typography.mono)

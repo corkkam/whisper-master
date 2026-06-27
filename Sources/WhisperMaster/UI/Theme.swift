@@ -43,24 +43,23 @@ enum Theme {
     static let canvasNSColor = NSColor.white
 }
 
-/// Type system. Display + body are Optima (ships with macOS — no bundling); the
-/// utility face is SF Mono for keycaps, versions, and data readouts.
+/// Type system. Display + body are Avenir Next (ships with macOS — no bundling);
+/// the utility face is SF Mono for keycaps, versions, and data readouts.
 enum Typography {
-    /// Optima at an explicit weight. Optima runs small, so sizes here are tuned
-    /// a touch larger than an SF-based scale would be.
-    static func optima(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .custom("Optima", size: size).weight(weight)
+    /// The UI sans (Avenir Next) at an explicit weight.
+    static func sans(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .custom("Avenir Next", size: size).weight(weight)
     }
 
-    static let largeTitle = optima(33, .bold)
-    static let title = optima(22, .bold)
-    static let headline = optima(16.5, .bold)
-    static let body = optima(15)
-    static let bodyMedium = optima(15, .medium)
-    static let subheadline = optima(13.5)
-    static let caption = optima(12.5, .medium)
-    static let kicker = optima(12, .bold)
-    static let label = optima(12.5, .semibold)
+    static let largeTitle = sans(31, .bold)
+    static let title = sans(21, .bold)
+    static let headline = sans(15.5, .semibold)
+    static let body = sans(14, .regular)
+    static let bodyMedium = sans(14, .medium)
+    static let subheadline = sans(13, .regular)
+    static let caption = sans(12, .medium)
+    static let kicker = sans(11.5, .bold)
+    static let label = sans(12, .semibold)
     static let mono = Font.system(size: 12.5, weight: .medium, design: .monospaced)
     static let monoSmall = Font.system(size: 11, weight: .medium, design: .monospaced)
 }

@@ -68,7 +68,7 @@ struct OnboardingPermissionPage: View {
                 VStack(alignment: .leading, spacing: 4) {
                     KickerLabel(kicker)
                     Text(heading)
-                        .font(Typography.optima(22, .bold))
+                        .font(Typography.sans(22, .bold))
                         .foregroundStyle(Theme.textPrimary)
                     Text(granted ? "Granted. You're good to go." : "Not yet granted.")
                         .font(Typography.body)
@@ -78,7 +78,7 @@ struct OnboardingPermissionPage: View {
             }
 
             Text(bodyText)
-                .font(Typography.optima(15))
+                .font(Typography.sans(15))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineSpacing(3)
@@ -154,7 +154,7 @@ struct OnboardingBullet: View {
                 .frame(width: 6, height: 6)
                 .padding(.top, 7)
             Text(text)
-                .font(Typography.optima(15))
+                .font(Typography.sans(15))
                 .foregroundStyle(Theme.textPrimary.opacity(0.92))
                 .fixedSize(horizontal: false, vertical: true)
         }

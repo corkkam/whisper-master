@@ -52,7 +52,7 @@ struct EngineSettingsView: View {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 3) {
                     Text(engine.estimatedDownloadSize)
-                        .font(Typography.optima(16, .semibold))
+                        .font(Typography.sans(16, .semibold))
                         .foregroundStyle(Theme.textPrimary)
                     Text(engine.isInstalled ? "Installed" : "Not installed")
                         .font(Typography.caption)

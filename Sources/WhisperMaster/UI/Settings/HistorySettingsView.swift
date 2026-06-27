@@ -37,7 +37,7 @@ struct HistorySettingsView: View {
     private func statCard(value: String, label: String, accent: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(value)
-                .font(Typography.optima(34, .bold))
+                .font(Typography.sans(34, .bold))
                 .foregroundStyle(accent ? Theme.accent : Theme.textPrimary)
             Text(label)
                 .font(Typography.subheadline)
