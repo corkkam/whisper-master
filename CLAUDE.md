@@ -72,7 +72,7 @@ Product: `WhisperMaster.app`, bundle id `app.whispermaster.mac`, executable `Whi
 
 ### Distribution & auto-update (Sparkle + Cloudflare R2)
 
-- **Hosting:** R2 bucket `whisper-master`; public read URL `https://pub-033f6365404f4b37ac6c630d4feb0dcd.r2.dev`; S3 (upload) endpoint `https://db4d52dbca4f08ab7bd161955d66ed6a.r2.cloudflarestorage.com`. Credentials in `.env` (git-ignored; template `.env.example`): `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`.
+- **Hosting:** R2 bucket `whisper-master`, served via the **custom domain `https://model.scoopscore.in`** (Cloudflare CDN — edge-cached, no rate limit). The old `https://pub-033f6365404f4b37ac6c630d4feb0dcd.r2.dev` dev URL is the same bucket and is kept enabled so already-installed apps (with the old `SUFeedURL`) keep polling; new builds use the custom domain. S3 (upload) endpoint `https://db4d52dbca4f08ab7bd161955d66ed6a.r2.cloudflarestorage.com`. Credentials in `.env` (git-ignored; template `.env.example`): `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`.
 - **Layout on R2:** `appcast.xml` + `WhisperMaster-<version>.zip` at the bucket root; model archives under `models/`.
 - **`release.sh`** = build+sign (`bundle.sh`) → zip → Sparkle `generate_appcast` (EdDSA-signs, sets the enclosure URL via `--download-url-prefix`) → `rclone` upload of the staged dir. It reads `.env` locally; in CI it reads the same vars from the environment and the EdDSA key from `SPARKLE_ED_PRIVATE_KEY` instead of the keychain.
 - **Versioning:** bump **both** `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.plist` before a manual release, or Sparkle won't treat it as newer.
