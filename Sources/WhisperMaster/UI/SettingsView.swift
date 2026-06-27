@@ -88,11 +88,11 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            masthead
+        HStack(spacing: 0) {
+            nav
             detail
         }
-        .frame(minWidth: 720, minHeight: 600)
+        .frame(minWidth: 760, minHeight: 600)
         .background(Theme.canvasGradient)
         .onAppear {
             refreshPermissions()
@@ -103,53 +103,57 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Masthead (brand + status + tabs)
+    // MARK: - Sidebar (vertical nav)
 
-    /// Shared left margin for the brand, the tabs, and the content column so
-    /// everything lines up on one edge.
-    private let gutter: CGFloat = 36
-
-    private var masthead: some View {
-        VStack(spacing: 0) {
+    private var nav: some View {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 11) {
-                BrandLogo(size: 26, cornerRadius: 7)
+                BrandLogo(size: 28, cornerRadius: 7)
                 Text("Whisper Master")
-                    .font(Typography.optima(17, .bold))
+                    .font(Typography.optima(16, .bold))
                     .foregroundStyle(Theme.textPrimary)
-                Spacer()
             }
-            .padding(.top, 26)
-            .padding(.bottom, 18)
+            .padding(.horizontal, 18)
+            .padding(.top, 30)
+            .padding(.bottom, 26)
 
-            HStack(spacing: 26) {
+            VStack(spacing: 3) {
                 ForEach(SettingsSection.allCases) { section in
-                    tab(section)
+                    navRow(section)
                 }
-                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 12)
 
-            Rectangle().fill(Theme.stroke).frame(height: 1)
-                .padding(.top, 12)
-                .padding(.horizontal, -gutter)
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, gutter)
+        .frame(width: 214)
+        .frame(maxHeight: .infinity)
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(Theme.stroke).frame(width: 1)
+        }
     }
 
-    private func tab(_ section: SettingsSection) -> some View {
+    private func navRow(_ section: SettingsSection) -> some View {
         let isSelected = selection == section
         return Button {
             selection = section
         } label: {
-            VStack(spacing: 8) {
-                Text(section.tab)
-                    .font(Typography.optima(14, isSelected ? .bold : .regular))
-                    .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
-                Rectangle()
-                    .fill(isSelected ? Theme.accent : Color.clear)
-                    .frame(height: 2)
-            }
-            .fixedSize()
-            .contentShape(Rectangle())
+            Text(section.title)
+                .font(Typography.optima(15, isSelected ? .bold : .regular))
+                .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(isSelected ? Theme.accentSoft : Color.clear)
+                )
+                .overlay(alignment: .leading) {
+                    if isSelected {
+                        Capsule().fill(Theme.accent).frame(width: 3, height: 17).padding(.leading, 1)
+                    }
+                }
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -172,10 +176,9 @@ struct SettingsView: View {
 
                 panelContent
             }
-            .frame(maxWidth: 640, alignment: .leading)
-            .padding(.leading, gutter)
-            .padding(.trailing, gutter)
-            .padding(.top, 32)
+            .frame(maxWidth: 620, alignment: .leading)
+            .padding(.horizontal, 40)
+            .padding(.top, 36)
             .padding(.bottom, 52)
         }
     }
