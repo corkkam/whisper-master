@@ -1,46 +1,47 @@
 import AppKit
 import SwiftUI
 
-/// About section: brand header, version, and quick actions + platform facts.
+/// About section: a left-aligned brand lockup with quick actions, then a clean
+/// hairline list of facts — consistent with the rest of the Daylight pages.
 struct AboutSettingsView: View {
     @Bindable var state: AppState
     var reopenOnboarding: () -> Void = {}
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(spacing: 16) {
-                BrandLogo(size: 64, cornerRadius: 16)
-                VStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 26) {
+            HStack(spacing: 18) {
+                BrandLogo(size: 58, cornerRadius: 14)
+                VStack(alignment: .leading, spacing: 5) {
                     Text("Whisper Master")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(Typography.optima(23, .bold))
                         .foregroundStyle(Theme.textPrimary)
                     Text("Version \(AppInfo.version) · On-device dictation")
                         .font(Typography.mono)
                         .foregroundStyle(Theme.textSecondary)
                 }
-                HStack(spacing: 12) {
-                    SecondaryButton(title: "Reveal models", icon: "folder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([state.selectedEngine.localModelURL])
-                    }
-                    PrimaryButton(title: "Reopen onboarding", icon: "sparkles") {
-                        reopenOnboarding()
-                    }
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 12) {
+                SecondaryButton(title: "Reveal models", icon: "folder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([state.selectedEngine.localModelURL])
+                }
+                PrimaryButton(title: "Reopen onboarding", icon: "sparkles") {
+                    reopenOnboarding()
                 }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 34)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1)
-            )
 
             SettingsCard {
                 SettingsRow("Engine", subtitle: "On-device transcription.") {
-                    Text("Whisper Master \(state.selectedEngine.displayName)")
+                    Text(state.selectedEngine.displayName)
                         .font(Typography.mono)
                         .foregroundStyle(Theme.textSecondary)
+                }
+                RowDivider()
+                SettingsRow("Privacy", subtitle: "Your audio never leaves this Mac.") {
+                    Text("On-device")
+                        .font(Typography.mono)
+                        .foregroundStyle(Theme.success)
                 }
                 RowDivider()
                 SettingsRow("Platform", subtitle: "Built for Apple Silicon.") {

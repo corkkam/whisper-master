@@ -117,12 +117,11 @@ struct SettingsView: View {
             .padding(.top, 32)
             .padding(.bottom, 30)
 
-            VStack(spacing: 4) {
+            VStack(spacing: 0) {
                 ForEach(SettingsSection.allCases) { section in
                     navRow(section)
                 }
             }
-            .padding(.horizontal, 14)
 
             Spacer(minLength: 0)
         }
@@ -142,15 +141,13 @@ struct SettingsView: View {
                 .font(Typography.optima(16.5, isSelected ? .bold : .regular))
                 .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(isSelected ? Theme.accentSoft : Color.clear)
-                )
+                .padding(.leading, 20)
+                .padding(.trailing, 16)
+                .padding(.vertical, 12)
+                .background(isSelected ? Theme.selection : Color.clear)   // full-width band, no radius
                 .overlay(alignment: .leading) {
                     if isSelected {
-                        Capsule().fill(Theme.accent).frame(width: 3, height: 19).padding(.leading, 1)
+                        Rectangle().fill(Theme.accent).frame(width: 3)     // full-height accent bar
                     }
                 }
                 .contentShape(Rectangle())

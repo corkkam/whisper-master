@@ -52,7 +52,7 @@ struct EngineSettingsView: View {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 3) {
                     Text(engine.estimatedDownloadSize)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(Typography.optima(16, .semibold))
                         .foregroundStyle(Theme.textPrimary)
                     Text(engine.isInstalled ? "Installed" : "Not installed")
                         .font(Typography.caption)
@@ -122,20 +122,23 @@ struct EngineSettingsView: View {
     // MARK: - Vocabulary card
 
     private var vocabularyCard: some View {
-        SettingsCard(contentPadding: 18) {
-            VStack(alignment: .leading, spacing: 12) {
+        // Hairline group; the editor text sits flush at the same left edge as the
+        // description and helper (no nested box) so everything lines up.
+        SettingsCard {
+            VStack(alignment: .leading, spacing: 0) {
                 Text("Names, acronyms, or jargon the app keeps mishearing — one per line. It listens harder for these, so e.g. \u{201C}RAG\u{201D} stops coming out as \u{201C}rack\u{201D}.")
                     .font(Typography.body)
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 16)
+
+                RowDivider()
 
                 ZStack(alignment: .topLeading) {
                     if vocabularyDraft.isEmpty {
                         Text("RAG\nParakeet\nLyzr")
                             .font(.system(size: 13, design: .monospaced))
                             .foregroundStyle(Theme.textTertiary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
                             .allowsHitTesting(false)
                     }
                     if isSnapshot {
@@ -143,32 +146,27 @@ struct EngineSettingsView: View {
                         Text(vocabularyDraft.isEmpty ? " " : vocabularyDraft)
                             .font(.system(size: 13, design: .monospaced))
                             .foregroundStyle(Theme.textPrimary)
-                            .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
                     } else {
                         TextEditor(text: $vocabularyDraft)
                             .font(.system(size: 13, design: .monospaced))
                             .foregroundStyle(Theme.textPrimary)
                             .scrollContentBackground(.hidden)
-                            .frame(height: 96)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 5)
+                            .frame(height: 92)
+                            .padding(.leading, -5)   // cancel NSTextView's inset so text aligns flush
                             .onChange(of: vocabularyDraft) { _, text in
                                 updateVocabulary(from: text)
                             }
                     }
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.canvas)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1)
-                )
+                .padding(.vertical, 13)
+
+                RowDivider()
 
                 Text("One word or phrase per line. Saved automatically.")
                     .font(Typography.caption)
                     .foregroundStyle(Theme.textTertiary)
+                    .padding(.vertical, 13)
             }
         }
     }

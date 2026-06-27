@@ -150,7 +150,7 @@ struct OnboardingView: View {
         HStack(spacing: 11) {
             BrandLogo(size: 30, cornerRadius: 8)
             Text("Whisper Master")
-                .font(.system(size: 14, weight: .semibold))
+                .font(Typography.optima(14, .bold))
                 .foregroundStyle(Theme.textPrimary)
             Spacer()
             Button(action: onClose) {
@@ -184,10 +184,10 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     KickerLabel("Welcome")
                     Text("Whisper Master")
-                        .font(.system(size: 30, weight: .bold))
+                        .font(Typography.optima(30, .bold))
                         .foregroundStyle(Theme.textPrimary)
                     Text("Local-first dictation for macOS")
-                        .font(.system(size: 15))
+                        .font(Typography.optima(15))
                         .foregroundStyle(Theme.textSecondary)
                 }
                 Spacer(minLength: 0)
@@ -242,7 +242,7 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 6) {
                 KickerLabel("Sound check")
                 Text("Say something")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(Typography.optima(22, .bold))
                     .foregroundStyle(Theme.textPrimary)
                 Text(testHeardSound
                      ? "Heard you loud and clear. Looking good."
@@ -298,12 +298,12 @@ struct OnboardingView: View {
             VStack(spacing: 8) {
                 KickerLabel("Ready")
                 Text("You're ready")
-                    .font(.system(size: 30, weight: .bold))
+                    .font(Typography.optima(30, .bold))
                     .foregroundStyle(Theme.textPrimary)
                 Text(engineReady
                      ? "The voice engine is downloaded and loaded. Hold your push-to-talk key and start dictating."
                      : "Hold your push-to-talk key and start dictating. We're finishing the voice engine in the background.")
-                    .font(.system(size: 15))
+                    .font(Typography.optima(15))
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 440)
@@ -348,7 +348,7 @@ struct OnboardingView: View {
                 PrimaryButton(title: "Retry") { retryEngine() }
             } else if enginePreparing {
                 Text("\(Int((state.download?.fractionCompleted ?? 0) * 100))%")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(Typography.optima(15, .bold))
                     .foregroundStyle(Theme.textSecondary)
                     .monospacedDigit()
             }

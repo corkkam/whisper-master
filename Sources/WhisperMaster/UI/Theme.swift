@@ -11,6 +11,8 @@ enum Theme {
     /// Slightly lifted paper for the few boxed elements (tiles, the words field).
     static let surface = Color(red: 0.984, green: 0.969, blue: 0.937)
     static let surfaceSunken = Color(red: 0.925, green: 0.902, blue: 0.851)
+    /// Warm sand band used for the selected sidebar item.
+    static let selection = Color(red: 0.890, green: 0.851, blue: 0.776)
 
     // MARK: Ink
     static let textPrimary = Color(red: 0.129, green: 0.110, blue: 0.082)

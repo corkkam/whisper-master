@@ -44,7 +44,7 @@ struct SetupBanner: View {
                 Spacer()
                 if preparing {
                     Text("\(percent)%")
-                        .font(.system(size: 20, weight: .bold))
+                        .font(Typography.optima(20, .bold))
                         .monospacedDigit()
                         .foregroundStyle(Theme.accent)
                 }
