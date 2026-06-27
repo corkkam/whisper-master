@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.hotkeyManager?.setHotkey(hotkey)
         }
     )
+    private let transcriptionServer = RemoteTranscriptionServer()
     private var pillWindow: DictationPillWindow?
     private var onboardingWindow: OnboardingWindow?
     private var statusRefreshTimer: Timer?
@@ -43,6 +44,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupPill()
         setupHotkey()
         startStatusRefreshLoop()
+
+        // Advertise the LAN transcription service so iOS clients can stream
+        // audio here and use this Mac's models. Independent of local recording.
+        transcriptionServer.start()
 
         // Start downloading/loading the voice engine immediately, in parallel
         // with onboarding. Model preparation only needs the network, not the

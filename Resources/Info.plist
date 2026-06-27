@@ -28,8 +28,14 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_whispermaster._tcp</string>
+	</array>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright 2026 Whisper Master</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Whisper Master advertises a transcription service so your iPhone can stream audio here and use this Mac's models.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Whisper Master uses the microphone while you hold the dictation hotkey.</string>
 	<key>SUEnableAutomaticChecks</key>
