@@ -80,7 +80,7 @@ struct RecordingSettingsView: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                .fill(Theme.surfaceElevated)
+                .fill(Theme.surface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)

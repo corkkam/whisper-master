@@ -40,10 +40,9 @@ final class OnboardingWindow {
         window.level = .normal
         window.hidesOnDeactivate = false
         window.isMovableByWindowBackground = true
-        // Warm-charcoal chrome to match the app theme; dark appearance so native
-        // controls (progress, switches) render correctly on the dark canvas.
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = NSColor(srgbRed: 0.102, green: 0.090, blue: 0.078, alpha: 1)
+        // Light "Daylight" chrome to match the settings theme.
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = Theme.canvasNSColor
     }
 
     func show() {

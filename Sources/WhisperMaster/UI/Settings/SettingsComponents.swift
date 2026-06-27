@@ -1,11 +1,13 @@
 import SwiftUI
 
-// Reusable building blocks for the settings UI.
+// Daylight building blocks: rows separated by hairlines (no heavy cards), with a
+// subtle boxed variant reserved for tiles and the words field.
 
-/// A grouped surface card with a faint top highlight + soft shadow for depth.
-/// Pass `contentPadding` for free-form content; leave it 0 when filling with
-/// `SettingsRow`s (they carry their own insets).
+/// A group of settings rows. Default is an airy hairline group (a rule top and
+/// bottom, no fill). Pass `boxed: true` for the few elements that want a panel
+/// (stat tiles, the words field, the engine row).
 struct SettingsCard<Content: View>: View {
+    var boxed: Bool = false
     var contentPadding: CGFloat = 0
     @ViewBuilder var content: Content
 
@@ -13,22 +15,29 @@ struct SettingsCard<Content: View>: View {
         VStack(spacing: 0) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(contentPadding)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                    .fill(Theme.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [Theme.topHighlight, Theme.stroke],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
-            )
-            .shadow(color: .black.opacity(0.25), radius: 14, x: 0, y: 8)
+            .modifier(GroupChrome(boxed: boxed))
+    }
+}
+
+private struct GroupChrome: ViewModifier {
+    let boxed: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if boxed {
+            content
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                        .strokeBorder(Theme.stroke, lineWidth: 1)
+                )
+        } else {
+            content
+                .overlay(alignment: .top) { Rectangle().fill(Theme.stroke).frame(height: 1) }
+                .overlay(alignment: .bottom) { Rectangle().fill(Theme.stroke).frame(height: 1) }
+        }
     }
 }
 
@@ -60,22 +69,18 @@ struct SettingsRow<Control: View>: View {
             Spacer(minLength: 12)
             control
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .padding(.vertical, 17)
     }
 }
 
-/// Hairline separator between rows, inset to align under the row text.
+/// Full-width hairline between rows.
 struct RowDivider: View {
     var body: some View {
-        Rectangle()
-            .fill(Theme.stroke)
-            .frame(height: 1)
-            .padding(.leading, 20)
+        Rectangle().fill(Theme.stroke).frame(height: 1)
     }
 }
 
-/// A small uppercased group heading shown above a card.
+/// Uppercased group heading shown above a group.
 struct SectionLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
@@ -83,12 +88,12 @@ struct SectionLabel: View {
     var body: some View {
         Text(text.uppercased())
             .font(Typography.label)
-            .tracking(1.4)
+            .tracking(1.6)
             .foregroundStyle(Theme.textTertiary)
     }
 }
 
-/// A small uppercased accent kicker (used above section titles).
+/// Accent kicker above a section title.
 struct KickerLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
@@ -96,13 +101,12 @@ struct KickerLabel: View {
     var body: some View {
         Text(text.uppercased())
             .font(Typography.kicker)
-            .tracking(2)
+            .tracking(2.2)
             .foregroundStyle(Theme.accent)
     }
 }
 
-/// A crafted vermillion pill switch built from shapes (no AppKit), so it renders
-/// consistently and carries the brand. Behaves like a standard toggle.
+/// Light pill toggle. Off is warm sand, on is the vermillion accent.
 struct ThemeToggle: View {
     @Binding var isOn: Bool
 
@@ -112,32 +116,26 @@ struct ThemeToggle: View {
         } label: {
             ZStack(alignment: isOn ? .trailing : .leading) {
                 Capsule()
-                    .fill(isOn ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.surfaceElevated))
-                    .overlay(
-                        Capsule().strokeBorder(isOn ? Color.clear : Theme.strokeStrong, lineWidth: 1)
-                    )
-                    .frame(width: 46, height: 28)
+                    .fill(isOn ? Theme.accent : Theme.surfaceSunken)
+                    .frame(width: 44, height: 26)
                 Circle()
                     .fill(Color.white)
-                    .frame(width: 22, height: 22)
-                    .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
+                    .frame(width: 20, height: 20)
+                    .shadow(color: .black.opacity(0.22), radius: 1.5, x: 0, y: 1)
                     .padding(3)
             }
         }
         .buttonStyle(.plain)
-        .animation(.spring(response: 0.28, dampingFraction: 0.7), value: isOn)
+        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: isOn)
     }
 }
 
-/// A small colored status dot with a soft glow.
+/// Small status dot.
 struct StatusDot: View {
     let color: Color
     var size: CGFloat = 8
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: size, height: size)
-            .shadow(color: color.opacity(0.6), radius: 4)
+        Circle().fill(color).frame(width: size, height: size)
     }
 }
 
@@ -147,7 +145,6 @@ struct PrimaryButton: View {
     let title: String
     var icon: String?
     let action: () -> Void
-
     var body: some View {
         Button(action: action) { ButtonLabel(title: title, icon: icon) }
             .buttonStyle(AccentButtonStyle())
@@ -158,7 +155,6 @@ struct SecondaryButton: View {
     let title: String
     var icon: String?
     let action: () -> Void
-
     var body: some View {
         Button(action: action) { ButtonLabel(title: title, icon: icon) }
             .buttonStyle(GhostButtonStyle())
@@ -186,14 +182,8 @@ struct AccentButtonStyle: ButtonStyle {
             .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                    .fill(Theme.accentGradient)
+                    .fill(Theme.accent.opacity(configuration.isPressed ? 0.85 : 1))
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-            )
-            .shadow(color: Theme.accentDeep.opacity(0.4), radius: 8, y: 3)
-            .opacity(configuration.isPressed ? 0.85 : 1)
             .contentShape(Rectangle())
     }
 }
@@ -206,7 +196,7 @@ struct GhostButtonStyle: ButtonStyle {
             .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                    .fill(Theme.surfaceElevated.opacity(configuration.isPressed ? 0.6 : 1))
+                    .fill(configuration.isPressed ? Theme.surfaceSunken : Theme.surface)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)

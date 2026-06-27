@@ -96,7 +96,7 @@ struct HistorySettingsView: View {
                 .foregroundStyle(Theme.textSecondary)
                 .frame(width: 28, height: 28)
                 .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.surfaceElevated)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.surfaceSunken)
                 )
         }
         .buttonStyle(.plain)

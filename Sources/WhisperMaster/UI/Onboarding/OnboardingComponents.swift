@@ -10,7 +10,7 @@ struct OnboardingStepHeader: View {
                 dot(for: value)
                 if value != OnboardingStep.allCases.last {
                     Rectangle()
-                        .fill(value.rawValue < step.rawValue ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.stroke))
+                        .fill(value.rawValue < step.rawValue ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.stroke))
                         .frame(height: 2)
                         .frame(maxWidth: .infinity)
                 }
@@ -23,7 +23,7 @@ struct OnboardingStepHeader: View {
         let isComplete = value.rawValue < step.rawValue
         return ZStack {
             Circle()
-                .fill(isCurrent || isComplete ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.surface))
+                .fill(isCurrent || isComplete ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.surface))
                 .frame(width: 22, height: 22)
                 .overlay(
                     Circle().strokeBorder(isCurrent ? Color.white.opacity(0.3) : Theme.strokeStrong, lineWidth: 1)

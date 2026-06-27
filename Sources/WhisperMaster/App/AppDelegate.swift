@@ -418,10 +418,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
-        // Dark warm-charcoal chrome so the transparent titlebar blends with the
-        // theme and native controls (switches, menus, progress) render on dark.
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = NSColor(srgbRed: 0.102, green: 0.090, blue: 0.078, alpha: 1)
+        // Light "Daylight" chrome: paper titlebar that blends with the theme.
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = Theme.canvasNSColor
         window.center()
         window.contentViewController = host
         window.isReleasedWhenClosed = false

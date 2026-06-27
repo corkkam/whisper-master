@@ -28,16 +28,14 @@ enum SnapshotMode {
         seedMockData(viewModel.state)
         let state = viewModel.state
 
-        // Faithful full-window composites: real sidebar + the detail container.
+        // Full window (top-tab masthead + body). The detail ScrollView may
+        // collapse in ImageRenderer, so the per-section panels below carry the body.
         for section in [SettingsSection.recording, .history, .engine] {
-            let window = HStack(alignment: .top, spacing: 0) {
-                SettingsSidebar(selection: .constant(section), state: state, permissionsReady: true)
-                detailContainer(section: section, viewModel: viewModel, state: state)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .frame(width: 1000, height: 720, alignment: .topLeading)
-            .background(Theme.canvasGradient)
-            render(window, to: dir.appendingPathComponent("window-\(section.rawValue).png"))
+            render(
+                SettingsView(viewModel: viewModel, state: state, initialSection: section)
+                    .frame(width: 900, height: 700),
+                to: dir.appendingPathComponent("window-\(section.rawValue).png")
+            )
         }
 
         // Each section's panel on its own (ImageRenderer collapses flexible

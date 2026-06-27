@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The five sections of the settings window, shown in the sidebar.
+/// The five sections of the settings window, shown as top tabs.
 enum SettingsSection: String, CaseIterable, Identifiable {
     case recording
     case engine
@@ -21,13 +21,14 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         }
     }
 
-    var icon: String {
+    /// Short label for the tab bar.
+    var tab: String {
         switch self {
-        case .recording: return "mic.fill"
-        case .engine: return "waveform"
-        case .history: return "clock.arrow.circlepath"
-        case .permissions: return "lock.shield.fill"
-        case .about: return "info.circle.fill"
+        case .recording: return "Recording"
+        case .engine: return "Engine"
+        case .history: return "History"
+        case .permissions: return "Permissions"
+        case .about: return "About"
         }
     }
 
@@ -52,20 +53,22 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
 }
 
-/// The settings window: a slim shell that owns navigation + cross-cutting state
-/// (permissions polling, the setup banner) and routes to a focused view per
-/// section. The per-section views live in `UI/Settings/`.
+/// The settings window — "Daylight": a light, editorial layout with a top tab
+/// bar (no sidebar) and a centered, hairline-ruled content column.
 struct SettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
     var reopenOnboarding: () -> Void = {}
     var startSetup: () -> Void = {}
     var cancelSetup: () -> Void = {}
-    /// Initial section to show. Defaults to recording; overridable so snapshot
-    /// tooling can render each panel.
     var initialSection: SettingsSection = .recording
 
     @State private var selection: SettingsSection
+    @State private var hasAutoFocusedSetup = false
+    @State private var micGranted = false
+    @State private var micDenied = false
+    @State private var accessibilityGranted = false
+    private let permissions = PermissionsManager()
 
     init(
         viewModel: DictationViewModel,
@@ -83,23 +86,14 @@ struct SettingsView: View {
         self.initialSection = initialSection
         _selection = State(initialValue: initialSection)
     }
-    @State private var hasAutoFocusedSetup = false
-    @State private var micGranted = false
-    @State private var micDenied = false
-    @State private var accessibilityGranted = false
-    private let permissions = PermissionsManager()
 
     var body: some View {
-        HStack(spacing: 0) {
-            SettingsSidebar(
-                selection: $selection,
-                state: state,
-                permissionsReady: micGranted && accessibilityGranted
-            )
+        VStack(spacing: 0) {
+            masthead
             detail
         }
-        .frame(minWidth: 840, minHeight: 600)
-        .background(Theme.canvas)
+        .frame(minWidth: 720, minHeight: 600)
+        .background(Theme.canvasGradient)
         .onAppear {
             refreshPermissions()
             autoFocusSetupIfNeeded()
@@ -109,12 +103,74 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Masthead (brand + status + tabs)
+
+    private var masthead: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                BrandLogo(size: 26, cornerRadius: 7)
+                Text("Whisper Master")
+                    .font(Typography.optima(17, .bold))
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+                statusPill
+            }
+            .padding(.leading, 80)   // clear the traffic-light buttons
+            .padding(.trailing, 24)
+            .padding(.top, 16)
+            .padding(.bottom, 14)
+
+            HStack(spacing: 26) {
+                ForEach(SettingsSection.allCases) { section in
+                    tab(section)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 26)
+
+            Rectangle().fill(Theme.stroke).frame(height: 1)
+                .padding(.top, 12)
+        }
+    }
+
+    private func tab(_ section: SettingsSection) -> some View {
+        let isSelected = selection == section
+        return Button {
+            selection = section
+        } label: {
+            VStack(spacing: 8) {
+                Text(section.tab)
+                    .font(Typography.optima(14, isSelected ? .bold : .regular))
+                    .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
+                Rectangle()
+                    .fill(isSelected ? Theme.accent : Color.clear)
+                    .frame(height: 2)
+            }
+            .fixedSize()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var statusPill: some View {
+        HStack(spacing: 7) {
+            StatusDot(color: statusColor, size: 7)
+            Text(statusLabel)
+                .font(Typography.caption)
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 6)
+        .background(Capsule().fill(Theme.surface))
+        .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
+    }
+
     // MARK: - Detail
 
     private var detail: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                detailHeader
+                header
 
                 if shouldShowSetupBanner, selection != .engine {
                     SetupBanner(
@@ -127,17 +183,17 @@ struct SettingsView: View {
 
                 panelContent
             }
-            .frame(maxWidth: 680, alignment: .leading)
+            .frame(maxWidth: 620, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 44)
-            .padding(.vertical, 40)
+            .padding(.horizontal, 40)
+            .padding(.top, 34)
+            .padding(.bottom, 52)
         }
-        .background(Theme.canvasGradient)
     }
 
-    private var detailHeader: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 7) {
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 8) {
                 KickerLabel(selection.kicker)
                 Text(selection.title)
                     .font(Typography.largeTitle)
@@ -198,6 +254,28 @@ struct SettingsView: View {
         micDenied = micStatus == .denied
         accessibilityGranted = permissions.accessibilityGranted()
     }
+
+    private var permissionsReady: Bool { micGranted && accessibilityGranted }
+
+    private var statusColor: Color {
+        switch state.phase {
+        case .recording, .preparingModels, .failed:
+            return Theme.accent
+        case .idle, .stopping:
+            return permissionsReady ? Theme.success : Theme.textTertiary
+        }
+    }
+
+    private var statusLabel: String {
+        switch state.phase {
+        case .recording: return "Recording"
+        case .preparingModels: return "Preparing"
+        case .stopping: return "Finalizing"
+        case .failed: return "Error"
+        case .idle:
+            return permissionsReady ? "Ready · \(state.hotkey.compactName)" : "Needs setup"
+        }
+    }
 }
 
 /// A compact live input-level meter shown in the header while recording.
@@ -220,12 +298,8 @@ private struct RecordingLevelBadge: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1)
-        )
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.surface))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
     }
 
     private var activeBars: Int {
