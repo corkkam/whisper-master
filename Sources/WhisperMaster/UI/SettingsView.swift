@@ -5,6 +5,7 @@ import SwiftUI
 enum SettingsSection: String, CaseIterable, Identifiable {
     case recording
     case engine
+    case mesh
     case history
     case permissions
     case about
@@ -15,6 +16,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .recording: return "Recording"
         case .engine: return "Voice engine"
+        case .mesh: return "Nearby Macs"
         case .history: return "History"
         case .permissions: return "Permissions"
         case .about: return "About"
@@ -26,6 +28,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .recording: return "Recording"
         case .engine: return "Engine"
+        case .mesh: return "Mesh"
         case .history: return "History"
         case .permissions: return "Permissions"
         case .about: return "About"
@@ -36,6 +39,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .recording: return "How dictation starts, stops, and lands where you're typing."
         case .engine: return "Everything runs on-device — your audio never leaves this Mac."
+        case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
         case .history: return "Your recent transcriptions, kept locally."
         case .permissions: return "Whisper Master only asks for what it needs to work."
         case .about: return "Voice dictation that stays on your Mac."
@@ -46,6 +50,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .recording: return "Capture"
         case .engine: return "On-device"
+        case .mesh: return "Mesh"
         case .history: return "Activity"
         case .permissions: return "Privacy"
         case .about: return "Whisper Master"
@@ -221,6 +226,8 @@ struct SettingsView: View {
             RecordingSettingsView(viewModel: viewModel, state: state)
         case .engine:
             EngineSettingsView(viewModel: viewModel, state: state)
+        case .mesh:
+            MeshSettingsView(viewModel: viewModel, state: state)
         case .history:
             HistorySettingsView(viewModel: viewModel, state: state)
         case .permissions:

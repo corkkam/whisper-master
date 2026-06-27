@@ -18,7 +18,13 @@ import Network
 
 actor RemoteTranscriptionSession {
     private let channel: MessageChannel
-    private let transcriber = FluidAudioStreamingTranscriber()
+    /// Reports `true` when this session begins transcribing and `false` when it
+    /// stops — the server uses it to count active transcriptions (its load).
+    private let onRecordingChange: @Sendable (Bool) -> Void
+
+    /// Created lazily on the first `startSession`, so a connection that only
+    /// probes latency (ping/pong) never spins up a transcriber.
+    private var transcriber: FluidAudioStreamingTranscriber?
 
     /// All server→client messages funnel through this stream so they are sent
     /// in order from a single task, regardless of which context produced them
@@ -28,8 +34,9 @@ actor RemoteTranscriptionSession {
 
     private var isRunning = false
 
-    init(channel: MessageChannel) {
+    init(channel: MessageChannel, onRecordingChange: @escaping @Sendable (Bool) -> Void = { _ in }) {
         self.channel = channel
+        self.onRecordingChange = onRecordingChange
     }
 
     /// Reads control/audio frames until the client disconnects, then tears the
@@ -63,11 +70,16 @@ actor RemoteTranscriptionSession {
             await stopSession()
         case .cancelSession:
             await cancelSession()
+        case .ping(let nonce):
+            emit(.pong(nonce: nonce))
         }
     }
 
     private func startSession(_ config: SessionConfig) async {
         guard !isRunning else { return }
+
+        let transcriber = self.transcriber ?? FluidAudioStreamingTranscriber()
+        self.transcriber = transcriber
 
         await transcriber.setVocabulary(config.vocabulary)
 
@@ -104,6 +116,7 @@ actor RemoteTranscriptionSession {
         }
 
         isRunning = true
+        onRecordingChange(true)
         emit(.state(.recording))
 
         // Load vocabulary biasing in the background — never blocks recording.
@@ -111,8 +124,9 @@ actor RemoteTranscriptionSession {
     }
 
     private func stopSession() async {
-        guard isRunning else { return }
+        guard isRunning, let transcriber else { return }
         isRunning = false
+        onRecordingChange(false)
         do {
             let final = try await transcriber.stop()
             emit(.finalTranscript(text: final))
@@ -122,15 +136,16 @@ actor RemoteTranscriptionSession {
     }
 
     private func cancelSession() async {
-        guard isRunning else { return }
+        guard isRunning, let transcriber else { return }
         isRunning = false
+        onRecordingChange(false)
         await transcriber.cancel()
     }
 
     // MARK: - Audio handling
 
     private func handleAudio(_ pcm: Data) async {
-        guard isRunning, let buffer = Self.makeBuffer(from: pcm) else { return }
+        guard isRunning, let transcriber, let buffer = Self.makeBuffer(from: pcm) else { return }
         try? await transcriber.append(buffer)
     }
 
@@ -181,7 +196,8 @@ actor RemoteTranscriptionSession {
     private func teardown() async {
         if isRunning {
             isRunning = false
-            await transcriber.cancel()
+            onRecordingChange(false)
+            await transcriber?.cancel()
         }
         outbound?.finish()
         outbound = nil

@@ -28,6 +28,8 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<false/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Whisper Master uses Bluetooth to gauge how physically close nearby Macs are.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_whispermaster._tcp</string>

@@ -71,6 +71,7 @@ enum SnapshotMode {
         switch section {
         case .recording: RecordingSettingsView(viewModel: viewModel, state: state)
         case .engine: EngineSettingsView(viewModel: viewModel, state: state)
+        case .mesh: MeshSettingsView(viewModel: viewModel, state: state)
         case .history: HistorySettingsView(viewModel: viewModel, state: state)
         case .permissions:
             PermissionsSettingsView(permissions: PermissionsManager(), micGranted: true, micDenied: false, accessibilityGranted: false)

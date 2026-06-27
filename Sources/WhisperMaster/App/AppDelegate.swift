@@ -16,6 +16,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     )
     private let transcriptionServer = RemoteTranscriptionServer()
+    private lazy var meshCoordinator = MeshCoordinator(
+        state: viewModel.state,
+        server: transcriptionServer
+    )
     private var pillWindow: DictationPillWindow?
     private var onboardingWindow: OnboardingWindow?
     private var statusRefreshTimer: Timer?
@@ -50,6 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Advertise the LAN transcription service so iOS clients can stream
         // audio here and use this Mac's models. Independent of local recording.
         transcriptionServer.start()
+
+        // Discover other Macs running Whisper Master on the network (the mesh).
+        meshCoordinator.start()
 
         // Request notification permission so Sparkle's gentle "update
         // available" reminder can post a banner when the app is in the

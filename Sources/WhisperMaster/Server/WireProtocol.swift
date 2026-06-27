@@ -4,9 +4,11 @@ import Foundation
 //
 // The contract between the Mac transcription server and the iOS client.
 //
-// IMPORTANT: keep this file byte-identical with its copy in the iOS repo
-// (`whisper-master-ios`). The two processes only interoperate if both sides
-// encode and decode the exact same shapes.
+// IMPORTANT: keep the transcription messages byte-identical with the copy in the
+// iOS repo (`whisper-master-ios`) — the two processes only interoperate if both
+// sides encode/decode the same shapes. The mesh `ping`/`pong` cases are
+// Mac-to-Mac only and intentionally absent from the iOS copy (iOS never sends or
+// receives them, so the divergence is safe).
 
 /// Bonjour / framing constants.
 enum WireProtocol {
@@ -57,6 +59,9 @@ enum ClientControl: Codable, Sendable {
     case startSession(SessionConfig)
     case stopSession
     case cancelSession
+    /// Mesh latency probe (Mac-to-Mac only). The server answers with
+    /// `.pong(nonce:)` immediately, without starting transcription.
+    case ping(nonce: UInt32)
 }
 
 // MARK: - Server → Client
@@ -74,6 +79,8 @@ enum ServerControl: Codable, Sendable {
     case state(ServerState)
     case transcript(partial: String, confirmed: String, isConfirmed: Bool)
     case finalTranscript(text: String)
+    /// Reply to a mesh `.ping` (Mac-to-Mac only).
+    case pong(nonce: UInt32)
 }
 
 // MARK: - JSON coding helpers
