@@ -543,21 +543,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension AppDelegate: SPUStandardUserDriverDelegate {
-    /// Deliver scheduled "update available" notices gently — a macOS
-    /// notification + Dock badge — instead of a focus-stealing modal, so the
-    /// user sees an update is ready without opening the app.
+    /// Opt into gentle reminders: Sparkle defers its window for scheduled
+    /// updates and leaves it to us to remind the user — which we do with a
+    /// notification (below), so they see an update without opening the app.
     var supportsGentleScheduledUpdateReminders: Bool { true }
 
-    /// Bring the app forward only for *user-initiated* checks (so the update
-    /// window isn't buried). Scheduled reminders stay gentle and don't steal
-    /// focus.
     func standardUserDriverWillHandleShowingUpdate(
         _ handleShowingUpdate: Bool,
         forUpdate update: SUAppcastItem,
         state: SPUUserUpdateState
     ) {
         if state.userInitiated {
+            // Manual check: bring the update window to the front.
             NSApp.activate(ignoringOtherApps: true)
+        } else if !NSApp.isActive {
+            // Scheduled check while backgrounded: post the gentle reminder
+            // ourselves (Sparkle won't). Tapping it activates the app, which
+            // surfaces Sparkle's deferred update prompt to install.
+            postUpdateAvailableNotification(for: update)
         }
+    }
+
+    private func postUpdateAvailableNotification(for update: SUAppcastItem) {
+        let content = UNMutableNotificationContent()
+        content.title = "Update available"
+        content.body = "Whisper Master \(update.displayVersionString) is ready to install."
+        let request = UNNotificationRequest(
+            identifier: "app.whispermaster.update-available",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 }
