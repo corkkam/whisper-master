@@ -72,7 +72,7 @@ Product: `WhisperMaster.app`, bundle id `app.whispermaster.mac`, executable `Whi
 
 ### Distribution & auto-update (Sparkle + Cloudflare R2)
 
-- **Hosting:** R2 bucket `whisper-master`; public read URL `https://pub-033f6365404f4b37ac6c630d4feb0dcd.r2.dev`; S3 (upload) endpoint `https://db4d52dbca4f08ab7bd161955d66ed6a.r2.cloudflarestorage.com`. Credentials in `.env` (git-ignored; template `.env.example`): `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`.
+- **Hosting:** R2 bucket `whisper-master`, served via the **custom domain `https://model.scoopscore.in`** (Cloudflare CDN — edge-cached, no rate limit). The old `https://pub-033f6365404f4b37ac6c630d4feb0dcd.r2.dev` dev URL is the same bucket and is kept enabled so already-installed apps (with the old `SUFeedURL`) keep polling; new builds use the custom domain. S3 (upload) endpoint `https://db4d52dbca4f08ab7bd161955d66ed6a.r2.cloudflarestorage.com`. Credentials in `.env` (git-ignored; template `.env.example`): `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`.
 - **Layout on R2:** `appcast.xml` + `WhisperMaster-<version>.zip` at the bucket root; model archives under `models/`.
 - **`release.sh`** = build+sign (`bundle.sh`) → zip → Sparkle `generate_appcast` (EdDSA-signs, sets the enclosure URL via `--download-url-prefix`) → `rclone` upload of the staged dir. It reads `.env` locally; in CI it reads the same vars from the environment and the EdDSA key from `SPARKLE_ED_PRIVATE_KEY` instead of the keychain.
 - **Versioning:** bump **both** `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.plist` before a manual release, or Sparkle won't treat it as newer.
@@ -80,7 +80,7 @@ Product: `WhisperMaster.app`, bundle id `app.whispermaster.mac`, executable `Whi
 ### CI/CD (GitHub Actions)
 
 - Repo is **private** (`HEGADE/whisper-master`); default branch `main`, active work on `dev`.
-- **`.github/workflows/release.yml`** runs on **push to `dev`** (and manual `workflow_dispatch`) on a `macos-15` runner: checkout → `brew install xcodegen rclone` → import the signing cert from secrets into a temporary keychain → set `CFBundleVersion` to `github.run_number` (monotonic, so each push is "newer") → run `release.sh`. Add **`[skip release]`** to the commit message to skip a run.
+- **`.github/workflows/release.yml`** runs on **push to `dev`** (and manual `workflow_dispatch`) on a `macos-15` runner: checkout → `brew install xcodegen rclone` → import the signing cert from secrets into a temporary keychain → set `CFBundleVersion` to **epoch seconds** (`date +%s`) so it always strictly increases and can't be undercut by an earlier manual build → run `release.sh`. Add **`[skip release]`** to the commit message to skip a run.
 - **Required repo secrets:** `SIGNING_CERT_P12_BASE64` (base64 of the cert `.p12`), `SIGNING_CERT_PASSWORD`, `SPARKLE_ED_PRIVATE_KEY`, plus the five `R2_*` values above.
 - macOS runner minutes bill **~10×** — releasing on every `dev` push is intentional but costly; `[skip release]` is the cost/noise guard.
 
@@ -93,7 +93,7 @@ A "release" = put a newer, EdDSA-signed `.zip` + an updated `appcast.xml` on R2;
 2. `bash Scripts/release.sh` → `xcodegen generate` → `xcodebuild -configuration Release` (signed `whisper master`) → `ditto` zip → Sparkle `generate_appcast` (signs the zip with the keychain EdDSA key, writes `appcast.xml` pointing at the R2 public URL) → `rclone` uploads `appcast.xml` + `WhisperMaster-<ver>.zip` to the bucket root.
 3. Verify: `curl -s "$R2_PUBLIC_BASE_URL/appcast.xml"` shows the new `sparkle:version`.
 
-**B. CI (push to `dev`):** `git push origin dev` (commit message without `[skip release]`) → the workflow does the same as (A) on a macOS runner, but sets `CFBundleVersion` = `github.run_number` automatically (you still bump `CFBundleShortVersionString` in commits when you want a new human version). Secrets supply the cert + EdDSA key + R2 creds.
+**B. CI (push to `dev`):** `git push origin dev` (commit message without `[skip release]`) → the workflow does the same as (A) on a macOS runner, but sets `CFBundleVersion` = **epoch seconds** automatically (always strictly increasing; you still bump `CFBundleShortVersionString` in commits when you want a new human version). Secrets supply the cert + EdDSA key + R2 creds.
 
 **What a tester sees:** their installed app's Sparkle polls `SUFeedURL`, sees a higher `CFBundleVersion`, downloads the signed zip, swaps the app in place, and relaunches — no reinstall. Only the **first-ever** install needs the one-time `xattr -dr com.apple.quarantine` (not notarized).
 
@@ -103,7 +103,7 @@ A "release" = put a newer, EdDSA-signed `.zip` + an updated `appcast.xml` on R2;
 
 ### Process / window model
 
-- `LSUIElement = true` (Info.plist) → menu-bar agent, no Dock icon.
+- **Regular Dock app** — `LSUIElement = false` (Info.plist) + `setActivationPolicy(.regular)` (AppMain) → shows a Dock icon and an app menu (`AppDelegate.setupMainMenu`). The menu-bar `NSStatusItem` is still the primary surface, but macOS hides it when the menu bar is crowded (notch), so the Dock icon is the reliable way back in. (Was previously an `.accessory`/`LSUIElement=true` agent with no Dock icon.)
 - `AppDelegate` is the single owner of all top-level objects: the status item, settings window, dictation pill window, hotkey manager, permissions manager, and a dedicated `MicrophoneCaptureService` instance for the onboarding mic test (separate from the one inside `PrototypeViewModel`, since both create their own `AVAudioEngine`).
 - `applicationShouldTerminateAfterLastWindowClosed → false`: closing the settings window must NOT quit the app — the tray is the persistent surface. The `NSStatusItem` uses `autosaveName` so users can drag its position and it sticks across launches.
 - A 0.5s `Timer` in `AppDelegate.startStatusRefreshLoop` polls `PrototypeAppState` and rebuilds the tray icon symbol, tooltip, header line, and history submenu. There's no `@Observable` bridge to AppKit — the timer is the bridge.

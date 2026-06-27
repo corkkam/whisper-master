@@ -2,28 +2,28 @@
 import PackageDescription
 
 let package = Package(
-    name: "WhisperMasterPrototype",
+    name: "WhisperMaster",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .executable(
-            name: "WhisperMasterPrototype",
-            targets: ["WhisperMasterPrototype"]
+            name: "WhisperMaster",
+            targets: ["WhisperMaster"]
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.4"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.14.7"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0")
     ],
     targets: [
         .executableTarget(
-            name: "WhisperMasterPrototype",
+            name: "WhisperMaster",
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "Sparkle", package: "Sparkle")
             ],
-            path: "Sources/WhisperMasterPrototype",
+            path: "Sources/WhisperMaster",
             resources: [
                 .process("Resources")
             ]

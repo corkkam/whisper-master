@@ -1,6 +1,7 @@
 import AppKit
 import Sparkle
 import SwiftUI
+import UserNotifications
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -9,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyManager: HotkeyManager?
     private let permissionsManager = PermissionsManager()
     private let onboardingMic = MicrophoneCaptureService()
-    private lazy var viewModel = PrototypeViewModel(
+    private lazy var viewModel = DictationViewModel(
         hotkeyUpdater: { [weak self] hotkey in
             self?.hotkeyManager?.setHotkey(hotkey)
         }
@@ -35,10 +36,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
         updaterDelegate: nil,
-        userDriverDelegate: nil
+        userDriverDelegate: self
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        setupMainMenu()
         setupStatusItem()
         setupWindow()
         setupPill()
@@ -48,6 +50,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Advertise the LAN transcription service so iOS clients can stream
         // audio here and use this Mac's models. Independent of local recording.
         transcriptionServer.start()
+
+        // Request notification permission so Sparkle's gentle "update
+        // available" reminder can post a banner when the app is in the
+        // background. Without authorization Sparkle silently defers it.
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+
+        // Touch the lazy updater so it starts now (startingUpdater: true) and
+        // runs scheduled background checks. Without this it would only be
+        // created on a manual "Check for Updates…", so automatic update
+        // notifications would never fire.
+        _ = updaterController
 
         // Start downloading/loading the voice engine immediately, in parallel
         // with onboarding. Model preparation only needs the network, not the
@@ -80,6 +93,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var needsOnboarding: Bool {
         permissionsManager.microphoneStatus() != .granted
             || !permissionsManager.accessibilityGranted()
+    }
+
+    /// Standard Dock-app menu bar. Without it, a `.regular` app has no working
+    /// Cmd-Q or Edit shortcuts (cut/copy/paste/select-all/undo) — the latter
+    /// matter for the custom-words editor. The tray menu stays the primary surface.
+    private func setupMainMenu() {
+        let appName = "Whisper Master"
+        let mainMenu = NSMenu()
+
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        let appMenu = NSMenu()
+        appItem.submenu = appMenu
+        appMenu.addItem(
+            withTitle: "About \(appName)",
+            action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        let settings = appMenu.addItem(withTitle: "Settings…", action: #selector(showWindow), keyEquivalent: ",")
+        settings.target = self
+        appMenu.addItem(.separator())
+        appMenu.addItem(
+            withTitle: "Hide \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        let hideOthers = appMenu.addItem(
+            withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(.separator())
+        appMenu.addItem(
+            withTitle: "Quit \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+
+        let editItem = NSMenuItem()
+        mainMenu.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit")
+        editItem.submenu = editMenu
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        NSApp.mainMenu = mainMenu
     }
 
     private func setupStatusItem() {
@@ -197,8 +253,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // The updater owns its own validation/handling, so point this item at
         // the Sparkle controller instead of the app delegate.
-        updates.target = updaterController
-        updates.action = #selector(SPUStandardUpdaterController.checkForUpdates(_:))
+        updates.target = self
+        updates.action = #selector(checkForUpdates(_:))
 
         item.menu = menu
         statusItem = item
@@ -324,7 +380,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return f
     }()
 
-    private func trayAppearance(for state: PrototypeAppState) -> (String?, String, String) {
+    private func trayAppearance(for state: AppState) -> (String?, String, String) {
         if state.preparingEngine != nil {
             let percent = Int((state.download?.fractionCompleted ?? 0) * 100)
             let label = "Setting up voice engine — \(percent)%"
@@ -348,7 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupWindow() {
-        let rootView = PrototypeView(
+        let rootView = SettingsView(
             viewModel: viewModel,
             state: viewModel.state,
             reopenOnboarding: { [weak self] in self?.showOnboarding() },
@@ -367,6 +423,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
+        // Light "Daylight" chrome: paper titlebar that blends with the theme.
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = Theme.canvasNSColor
         window.center()
         window.contentViewController = host
         window.isReleasedWhenClosed = false
@@ -435,6 +494,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc
+    private func checkForUpdates(_ sender: Any?) {
+        // Bring the app forward so Sparkle's update window/alert appears on top
+        // rather than behind whatever the user was working in.
+        NSApp.activate(ignoringOtherApps: true)
+        updaterController.checkForUpdates(sender)
+    }
+
+    @objc
     private func startRecording() {
         viewModel.startRecording()
     }
@@ -480,5 +547,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusRefreshTimer = nil
         viewModel.shutdown()
         NSApp.terminate(nil)
+    }
+}
+
+extension AppDelegate: SPUStandardUserDriverDelegate {
+    /// Opt into gentle reminders: Sparkle defers its window for scheduled
+    /// updates and leaves it to us to remind the user — which we do with a
+    /// notification (below), so they see an update without opening the app.
+    var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool,
+        forUpdate update: SUAppcastItem,
+        state: SPUUserUpdateState
+    ) {
+        if state.userInitiated {
+            // Manual check: bring the update window to the front.
+            NSApp.activate(ignoringOtherApps: true)
+        } else if !NSApp.isActive {
+            // Scheduled check while backgrounded: post the gentle reminder
+            // ourselves (Sparkle won't). Tapping it activates the app, which
+            // surfaces Sparkle's deferred update prompt to install.
+            postUpdateAvailableNotification(for: update)
+        }
+    }
+
+    private func postUpdateAvailableNotification(for update: SUAppcastItem) {
+        let content = UNMutableNotificationContent()
+        content.title = "Update available"
+        content.body = "Whisper Master \(update.displayVersionString) is ready to install."
+        let request = UNNotificationRequest(
+            identifier: "app.whispermaster.update-available",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 }

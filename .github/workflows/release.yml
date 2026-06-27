@@ -43,8 +43,11 @@ jobs:
           rm -f "$RUNNER_TEMP/cert.p12"
 
       - name: Set CI build number
-        # Monotonic CFBundleVersion so each push is a newer build for Sparkle.
-        run: /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" Resources/Info.plist
+        # Epoch seconds: strictly increasing and always larger than any prior
+        # build (incl. earlier manual `release.sh` builds), so Sparkle always
+        # treats a fresh CI build as newer. `github.run_number` was too small
+        # and got undercut by manual builds.
+        run: /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%s)" Resources/Info.plist
 
       - name: Build, sign, generate appcast, upload to R2
         env:
