@@ -21,7 +21,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.2.2</string>
+	<string>0.2.3</string>
 	<key>CFBundleVersion</key>
 	<string>10</string>
 	<key>LSMinimumSystemVersion</key>
@@ -38,5 +38,7 @@
 	<string>https://model.scoopscore.in/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>cmaCrnrt6lBk+fGN+1qzcSK8uyADiLSBveAFYwEk5hk=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>3600</integer>
 </dict>
 </plist>

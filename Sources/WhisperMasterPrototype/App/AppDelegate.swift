@@ -531,14 +531,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension AppDelegate: SPUStandardUserDriverDelegate {
-    /// Bring the app forward before Sparkle shows an update — covers the
-    /// automatic/scheduled check, where the app may not be frontmost — so the
-    /// update window isn't buried behind other apps' windows.
+    /// Deliver scheduled "update available" notices gently — a macOS
+    /// notification + Dock badge — instead of a focus-stealing modal, so the
+    /// user sees an update is ready without opening the app.
+    var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    /// Bring the app forward only for *user-initiated* checks (so the update
+    /// window isn't buried). Scheduled reminders stay gentle and don't steal
+    /// focus.
     func standardUserDriverWillHandleShowingUpdate(
         _ handleShowingUpdate: Bool,
         forUpdate update: SUAppcastItem,
         state: SPUUserUpdateState
     ) {
-        NSApp.activate(ignoringOtherApps: true)
+        if state.userInitiated {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }
