@@ -197,7 +197,6 @@ final class PrototypeViewModel {
     }
 
     func toggleAccessibilityHelp() {
-        permissionsManager.promptAccessibility()
         permissionsManager.openAccessibilitySettings()
     }
 

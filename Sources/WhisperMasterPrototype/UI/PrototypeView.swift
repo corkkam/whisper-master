@@ -617,7 +617,6 @@ struct PrototypeView: View {
                     granted: accessibilityGranted,
                     denied: false
                 ) {
-                    permissions.promptAccessibility()
                     permissions.openAccessibilitySettings()
                 }
             }

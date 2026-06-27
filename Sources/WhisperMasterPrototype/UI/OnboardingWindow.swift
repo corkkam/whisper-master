@@ -34,7 +34,10 @@ final class OnboardingWindow {
         window.setContentSize(NSSize(width: 640, height: 580))
         window.center()
         window.isReleasedWhenClosed = false
-        window.level = .floating
+        // Normal level (not .floating): a floating window sits above System
+        // Settings and the macOS permission modal, hiding them when the user
+        // goes to grant Accessibility. We rely on activate()/orderFront instead.
+        window.level = .normal
         window.hidesOnDeactivate = false
         window.isMovableByWindowBackground = true
         window.backgroundColor = NSColor(srgbRed: 0.906, green: 0.882, blue: 0.824, alpha: 1)
@@ -243,7 +246,6 @@ private struct OnboardingView: View {
             working: false,
             primaryLabel: "Open Accessibility Settings",
             primaryAction: {
-                permissions.promptAccessibility()
                 permissions.openAccessibilitySettings()
             },
             secondaryLabel: accessibilityGranted ? nil : "Skip for now",
