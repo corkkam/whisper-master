@@ -1,6 +1,7 @@
 import AppKit
 import Sparkle
 import SwiftUI
+import UserNotifications
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -44,6 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupPill()
         setupHotkey()
         startStatusRefreshLoop()
+
+        // Request notification permission so Sparkle's gentle "update
+        // available" reminder can post a banner when the app is in the
+        // background. Without authorization Sparkle silently defers it.
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
 
         // Touch the lazy updater so it starts now (startingUpdater: true) and
         // runs scheduled background checks. Without this it would only be
