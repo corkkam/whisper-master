@@ -112,7 +112,7 @@ struct SettingsView: View {
                 BrandLogo(size: 32, cornerRadius: 8)
                 Text("Whisper Master")
                     .font(Typography.sans(18, .bold))
-                    .foregroundStyle(Theme.textPrimary)
+                    .foregroundStyle(Theme.accentGradient)
             }
             .padding(.horizontal, 20)
             .padding(.top, 32)
@@ -139,7 +139,7 @@ struct SettingsView: View {
         }
         .frame(maxHeight: .infinity)
         .background(Theme.canvas)
-        .shadow(color: .black.opacity(0.08), radius: 5, x: 2, y: 0)
+        .shadow(color: .black.opacity(0.45), radius: 6, x: 2, y: 0)
         .zIndex(1)
     }
 

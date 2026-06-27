@@ -40,8 +40,8 @@ final class OnboardingWindow {
         window.level = .normal
         window.hidesOnDeactivate = false
         window.isMovableByWindowBackground = true
-        // Light "Daylight" chrome to match the settings theme.
-        window.appearance = NSAppearance(named: .aqua)
+        // Dark "Midnight" chrome to match the settings theme.
+        window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = Theme.canvasNSColor
     }
 

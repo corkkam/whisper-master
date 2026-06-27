@@ -129,10 +129,12 @@ struct ThreadView: View {
     }
 
     private var gradient: Gradient {
+        // Brand accent sweep — indigo → light indigo → cyan — matching the
+        // landing page's `.accent-gradient-text`.
         Gradient(colors: [
-            Color(red: 0.55, green: 0.85, blue: 1.0),
-            .white,
-            Color(red: 0.55, green: 0.85, blue: 1.0)
+            Color(red: 0.388, green: 0.400, blue: 0.945),  // #6366F1
+            Color(red: 0.647, green: 0.706, blue: 0.988),  // #A5B4FC
+            Color(red: 0.133, green: 0.827, blue: 0.933)   // #22D3EE
         ])
     }
 }
