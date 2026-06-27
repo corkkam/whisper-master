@@ -45,6 +45,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupHotkey()
         startStatusRefreshLoop()
 
+        // Touch the lazy updater so it starts now (startingUpdater: true) and
+        // runs scheduled background checks. Without this it would only be
+        // created on a manual "Check for Updates…", so automatic update
+        // notifications would never fire.
+        _ = updaterController
+
         // Start downloading/loading the voice engine immediately, in parallel
         // with onboarding. Model preparation only needs the network, not the
         // mic/accessibility permissions the wizard collects — so by the time
