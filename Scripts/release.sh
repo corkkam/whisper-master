@@ -51,6 +51,12 @@ VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_P
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PATH/Contents/Info.plist")
 echo ">> Releasing version $VERSION (build $BUILD)"
 
+# --- Notarize + staple the app before zipping ---
+# Stapling embeds the ticket inside the .app, so it travels in the Sparkle zip
+# and the update installs without any Gatekeeper prompt. No-op if NOTARY_* unset.
+echo ">> Notarizing the app"
+bash Scripts/notarize.sh "$APP_PATH"
+
 # --- Zip the app for Sparkle ---
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 ZIP="$STAGE/WhisperMaster-$VERSION.zip"

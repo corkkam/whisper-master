@@ -64,11 +64,11 @@ Product: `WhisperMaster.app`, bundle id `app.whispermaster.mac`, executable `Whi
 
 `project.yml` → `xcodegen generate` → `WhisperMaster.xcodeproj` (git-ignored) → `xcodebuild`. Day-to-day: open the `.xcodeproj` in Xcode, or `swift build` for a fast headless compile check (no `.app`). Shippable `.app`: `Scripts/bundle.sh` (xcodegen → `xcodebuild -configuration Release` → stage to `build/Whisper Master.app`).
 
-### Signing & keys (no paid Apple account)
+### Signing & keys (Developer ID + notarization)
 
-- **Code signing:** a self-signed keychain cert named **`whisper master`** (created in Keychain Access → Certificate Assistant → *Create a Certificate* → Self-Signed Root / Code Signing). `bundle.sh` & `release.sh` default `SIGN_IDENTITY="whisper master"`; pass `SIGN_IDENTITY=-` for ad-hoc. **Not notarized** (needs the $99 Developer Program), so each recipient runs `xattr -dr com.apple.quarantine "/Applications/Whisper Master.app"` once on first install; Sparkle's later updates don't re-trigger Gatekeeper.
-- **Update signing:** a Sparkle **EdDSA** keypair (Sparkle's `bin/generate_keys`; private key lives in the login keychain, public key is `SUPublicEDKey` in `Info.plist`). Export for CI with `generate_keys -x <file>`.
-- The clean future upgrade is a paid **Developer ID + notarization** for warning-free installs (would slot into `bundle.sh`/CI).
+- **Code signing:** a **Developer ID Application** cert (Team ID `VN4484VBKT`), created in Xcode → Settings → Accounts → Manage Certificates → + → *Developer ID Application*. `bundle.sh` & `release.sh` default `SIGN_IDENTITY="Developer ID Application"`; pass `SIGN_IDENTITY=-` for an ad-hoc local build. The build enables the **hardened runtime** (`ENABLE_HARDENED_RUNTIME: YES` in `project.yml`) with `Resources/WhisperMaster.entitlements` (only `com.apple.security.device.audio-input` — non-sandboxed; text injection uses Accessibility/TCC, Bonjour needs no entitlement). `bundle.sh` also passes `--timestamp` (secure timestamp, required by notarization) and `CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO` (so the debug-only `get-task-allow` is never injected — the notary service rejects it). The old self-signed **`whisper master`** cert is retired.
+- **Notarization:** `Scripts/notarize.sh <path-to-.app-or-.dmg>` submits to Apple's notary service (`xcrun notarytool submit --wait`) and staples the ticket (`xcrun stapler staple`). `release.sh` notarizes+staples the `.app` *before* zipping (the ticket travels in the Sparkle zip); `make-dmg.sh` staples the `.app` then the `.dmg`. **Credentials** (first match wins, read from env / `.env`): `NOTARY_KEY_P8`+`NOTARY_KEY_ID`+`NOTARY_ISSUER` (App Store Connect API key), or `NOTARY_PROFILE` (a name saved once via `xcrun notarytool store-credentials`), or `NOTARY_APPLE_ID`+`NOTARY_PASSWORD`+`NOTARY_TEAM_ID`. If none are set, notarization is **skipped** (build still produced, just not notarized). Notarized + stapled means **no more first-launch `xattr -dr com.apple.quarantine`** — installs and DMG mounts are warning-free.
+- **Update signing:** a Sparkle **EdDSA** keypair (Sparkle's `bin/generate_keys`; private key lives in the login keychain, public key is `SUPublicEDKey` in `Info.plist`). Export for CI with `generate_keys -x <file>`. This is independent of the code-signing cert, so the self-signed→Developer ID switch is seamless for already-installed testers (Sparkle validates the unchanged EdDSA key).
 
 ### Distribution & auto-update (Sparkle + Cloudflare R2)
 
@@ -81,7 +81,7 @@ Product: `WhisperMaster.app`, bundle id `app.whispermaster.mac`, executable `Whi
 
 - Repo is **private** (`HEGADE/whisper-master`); default branch `main`, active work on `dev`.
 - **`.github/workflows/release.yml`** runs on **push to `dev`** (and manual `workflow_dispatch`) on a `macos-15` runner: checkout → `brew install xcodegen rclone` → import the signing cert from secrets into a temporary keychain → set `CFBundleVersion` to **epoch seconds** (`date +%s`) so it always strictly increases and can't be undercut by an earlier manual build → run `release.sh`. Add **`[skip release]`** to the commit message to skip a run.
-- **Required repo secrets:** `SIGNING_CERT_P12_BASE64` (base64 of the cert `.p12`), `SIGNING_CERT_PASSWORD`, `SPARKLE_ED_PRIVATE_KEY`, plus the five `R2_*` values above.
+- **Required repo secrets:** `DEVELOPER_ID_CERT_P12_BASE64` (base64 of the Developer ID `.p12`), `DEVELOPER_ID_CERT_PASSWORD`, `NOTARY_KEY_P8_BASE64` (base64 of the App Store Connect `AuthKey_*.p8`), `NOTARY_KEY_ID`, `NOTARY_ISSUER`, `SPARKLE_ED_PRIVATE_KEY`, plus the five `R2_*` values above. (The CI workflow decodes the `.p8` to `$RUNNER_TEMP` and exports `NOTARY_KEY_P8` for `notarize.sh`.)
 - macOS runner minutes bill **~10×** — releasing on every `dev` push is intentional but costly; `[skip release]` is the cost/noise guard.
 
 ### Release flow, end to end (two ways)
@@ -95,7 +95,7 @@ A "release" = put a newer, EdDSA-signed `.zip` + an updated `appcast.xml` on R2;
 
 **B. CI (push to `dev`):** `git push origin dev` (commit message without `[skip release]`) → the workflow does the same as (A) on a macOS runner, but sets `CFBundleVersion` = **epoch seconds** automatically (always strictly increasing; you still bump `CFBundleShortVersionString` in commits when you want a new human version). Secrets supply the cert + EdDSA key + R2 creds.
 
-**What a tester sees:** their installed app's Sparkle polls `SUFeedURL`, sees a higher `CFBundleVersion`, downloads the signed zip, swaps the app in place, and relaunches — no reinstall. Only the **first-ever** install needs the one-time `xattr -dr com.apple.quarantine` (not notarized).
+**What a tester sees:** their installed app's Sparkle polls `SUFeedURL`, sees a higher `CFBundleVersion`, downloads the signed zip, swaps the app in place, and relaunches — no reinstall. Builds are now **Developer ID-signed and notarized**, so first-ever installs open without any Gatekeeper warning — the `xattr -dr com.apple.quarantine` step is no longer needed.
 
 **Publishing a model to R2** (separate from app releases): from `~/Library/Application Support/FluidAudio/Models`, `ditto -c -k --keepParent <dir> <dir>.zip`, then `rclone` it to `whisper-master/models/` (creds from `.env`). Done for the engine (`parakeet-tdt-0.6b-v3`) and CTC (`parakeet-ctc-110m-coreml`) models; the app installs them mirror-first via `ModelInstaller`.
 
