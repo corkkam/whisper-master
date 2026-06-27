@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
         updaterDelegate: nil,
-        userDriverDelegate: nil
+        userDriverDelegate: self
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -236,8 +236,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // The updater owns its own validation/handling, so point this item at
         // the Sparkle controller instead of the app delegate.
-        updates.target = updaterController
-        updates.action = #selector(SPUStandardUpdaterController.checkForUpdates(_:))
+        updates.target = self
+        updates.action = #selector(checkForUpdates(_:))
 
         item.menu = menu
         statusItem = item
@@ -474,6 +474,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc
+    private func checkForUpdates(_ sender: Any?) {
+        // Bring the app forward so Sparkle's update window/alert appears on top
+        // rather than behind whatever the user was working in.
+        NSApp.activate(ignoringOtherApps: true)
+        updaterController.checkForUpdates(sender)
+    }
+
+    @objc
     private func startRecording() {
         viewModel.startRecording()
     }
@@ -519,5 +527,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusRefreshTimer = nil
         viewModel.shutdown()
         NSApp.terminate(nil)
+    }
+}
+
+extension AppDelegate: SPUStandardUserDriverDelegate {
+    /// Bring the app forward before Sparkle shows an update — covers the
+    /// automatic/scheduled check, where the app may not be frontmost — so the
+    /// update window isn't buried behind other apps' windows.
+    func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool,
+        forUpdate update: SUAppcastItem,
+        state: SPUUserUpdateState
+    ) {
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
