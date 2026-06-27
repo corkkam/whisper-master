@@ -7,7 +7,7 @@ final class OnboardingWindow {
     private let window: NSWindow
 
     init(
-        state: PrototypeAppState,
+        state: AppState,
         permissions: PermissionsManager,
         microphoneCapture: MicrophoneCaptureService,
         retryEngine: @escaping () -> Void,
@@ -73,7 +73,7 @@ private enum OnboardingStep: Int, CaseIterable {
 }
 
 private struct OnboardingView: View {
-    let state: PrototypeAppState
+    let state: AppState
     let permissions: PermissionsManager
     let microphoneCapture: MicrophoneCaptureService
     let retryEngine: () -> Void

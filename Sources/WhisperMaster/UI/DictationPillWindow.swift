@@ -6,14 +6,14 @@ import SwiftUI
 @MainActor
 final class DictationPillWindow {
     private let panel: NSPanel
-    private let host: NSHostingView<PrototypePillView>
-    private let state: PrototypeAppState
+    private let host: NSHostingView<DictationPillContent>
+    private let state: AppState
     private let layout = NotchSurfaceLayout()
 
     private var screenObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
 
-    init(state: PrototypeAppState) {
+    init(state: AppState) {
         self.state = state
 
         panel = NSPanel(
@@ -30,7 +30,7 @@ final class DictationPillWindow {
         panel.isMovable = false
         panel.ignoresMouseEvents = true
 
-        host = NSHostingView(rootView: PrototypePillView(state: state))
+        host = NSHostingView(rootView: DictationPillContent(state: state))
         host.autoresizingMask = [.width, .height]
         panel.contentView = host
 
@@ -59,7 +59,7 @@ final class DictationPillWindow {
         let origin = layout.panelOrigin(for: geometry, on: screen)
 
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
-        host.rootView = PrototypePillView(state: state, geometry: geometry, layout: layout)
+        host.rootView = DictationPillContent(state: state, geometry: geometry, layout: layout)
     }
 
     private func observeEnvironment() {

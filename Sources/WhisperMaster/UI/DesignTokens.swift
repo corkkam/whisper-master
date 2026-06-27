@@ -4,7 +4,7 @@ import SwiftUI
 /// The Whisper Master squircle mark, loaded once from the package resource.
 enum BrandAsset {
     /// Name of the SwiftPM-generated resource bundle for this target.
-    private static let resourceBundleName = "WhisperMasterPrototype_WhisperMasterPrototype.bundle"
+    private static let resourceBundleName = "WhisperMaster_WhisperMaster.bundle"
 
     /// Resolve the resource bundle without relying on the generated
     /// `Bundle.module` accessor.

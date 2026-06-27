@@ -4,8 +4,8 @@ import FluidAudio
 import Foundation
 
 @MainActor
-final class PrototypeViewModel {
-    let state: PrototypeAppState
+final class DictationViewModel {
+    let state: AppState
 
     private let microphoneCapture: MicrophoneCaptureService
     private let permissionsManager: PermissionsManager
@@ -17,7 +17,7 @@ final class PrototypeViewModel {
     private let releaseTailNanoseconds: UInt64 = 80_000_000
 
     init(
-        state: PrototypeAppState,
+        state: AppState,
         microphoneCapture: MicrophoneCaptureService,
         permissionsManager: PermissionsManager,
         hotkeyUpdater: @escaping (HotkeyManager.HotkeyOption) -> Void = { _ in },
@@ -40,7 +40,7 @@ final class PrototypeViewModel {
         hotkeyUpdater: @escaping (HotkeyManager.HotkeyOption) -> Void
     ) {
         self.init(
-            state: PrototypeAppState(),
+            state: AppState(),
             microphoneCapture: MicrophoneCaptureService(),
             permissionsManager: PermissionsManager(),
             hotkeyUpdater: hotkeyUpdater,
@@ -310,7 +310,7 @@ final class PrototypeViewModel {
         await MainActor.run {
             self.state.phase = .failed(error.localizedDescription)
             self.state.audioLevel = 0
-            self.state.statusMessage = "Prototype failed: \(error.localizedDescription)"
+            self.state.statusMessage = "Transcription failed: \(error.localizedDescription)"
         }
     }
 
@@ -396,79 +396,17 @@ final class PrototypeViewModel {
 
     private func applyTranscriptUpdate(_ update: StreamingTranscriptUpdate) {
         if update.isConfirmed, !update.confirmedText.isEmpty {
-            state.transcript.latestConfirmed = mergedConfirmedTranscript(
-                currentConfirmed: state.transcript.latestConfirmed,
-                newConfirmed: update.confirmedText
+            state.transcript.latestConfirmed = TranscriptMerger.mergedConfirmed(
+                current: state.transcript.latestConfirmed,
+                new: update.confirmedText
             )
         }
 
         let latestSource = !update.latestText.isEmpty ? update.latestText : update.partialText
-        state.transcript.latestPartial = partialRemainder(
+        state.transcript.latestPartial = TranscriptMerger.partialRemainder(
             partialText: latestSource,
             confirmedText: state.transcript.latestConfirmed
         )
-    }
-
-    private func mergedConfirmedTranscript(
-        currentConfirmed: String,
-        newConfirmed: String
-    ) -> String {
-        let current = normalizedSpaces(in: currentConfirmed)
-        let incoming = normalizedSpaces(in: newConfirmed)
-
-        if current.isEmpty { return incoming }
-        if incoming.isEmpty { return current }
-        if incoming.hasPrefix(current) { return incoming }
-        if current.hasPrefix(incoming) { return current }
-
-        let overlap = longestSuffixPrefixOverlap(lhs: current, rhs: incoming)
-        if overlap > 0 {
-            let suffixStart = incoming.index(incoming.startIndex, offsetBy: overlap)
-            let suffix = incoming[suffixStart...]
-            return normalizedSpaces(in: current + " " + suffix)
-        }
-
-        return normalizedSpaces(in: current + " " + incoming)
-    }
-
-    private func partialRemainder(partialText: String, confirmedText: String) -> String {
-        let partial = normalizedSpaces(in: partialText)
-        let confirmed = normalizedSpaces(in: confirmedText)
-
-        guard !partial.isEmpty else { return "" }
-        guard !confirmed.isEmpty else { return partial }
-
-        if partial.hasPrefix(confirmed) {
-            let start = partial.index(partial.startIndex, offsetBy: confirmed.count)
-            return normalizedSpaces(in: String(partial[start...]))
-        }
-
-        return partial
-    }
-
-    private func normalizedSpaces(in text: String) -> String {
-        text
-            .replacingOccurrences(of: "\n", with: " ")
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-    }
-
-    private func longestSuffixPrefixOverlap(lhs: String, rhs: String) -> Int {
-        let lhsChars = Array(lhs)
-        let rhsChars = Array(rhs)
-        let maxOverlap = min(lhsChars.count, rhsChars.count)
-
-        guard maxOverlap > 0 else { return 0 }
-
-        for length in stride(from: maxOverlap, through: 1, by: -1) {
-            let lhsSuffix = lhsChars.suffix(length)
-            let rhsPrefix = rhsChars.prefix(length)
-            if lhsSuffix.elementsEqual(rhsPrefix) {
-                return length
-            }
-        }
-
-        return 0
     }
 
     private func injectFinalTextIfPossible(_ text: String) async {

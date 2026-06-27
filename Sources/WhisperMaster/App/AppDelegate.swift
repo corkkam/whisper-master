@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyManager: HotkeyManager?
     private let permissionsManager = PermissionsManager()
     private let onboardingMic = MicrophoneCaptureService()
-    private lazy var viewModel = PrototypeViewModel(
+    private lazy var viewModel = DictationViewModel(
         hotkeyUpdater: { [weak self] hotkey in
             self?.hotkeyManager?.setHotkey(hotkey)
         }
@@ -375,7 +375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return f
     }()
 
-    private func trayAppearance(for state: PrototypeAppState) -> (String?, String, String) {
+    private func trayAppearance(for state: AppState) -> (String?, String, String) {
         if state.preparingEngine != nil {
             let percent = Int((state.download?.fractionCompleted ?? 0) * 100)
             let label = "Setting up voice engine — \(percent)%"
@@ -399,7 +399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupWindow() {
-        let rootView = PrototypeView(
+        let rootView = SettingsView(
             viewModel: viewModel,
             state: viewModel.state,
             reopenOnboarding: { [weak self] in self?.showOnboarding() },

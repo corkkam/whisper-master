@@ -47,9 +47,9 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
-struct PrototypeView: View {
-    let viewModel: PrototypeViewModel
-    @Bindable var state: PrototypeAppState
+struct SettingsView: View {
+    let viewModel: DictationViewModel
+    @Bindable var state: AppState
     var reopenOnboarding: () -> Void = {}
     var startSetup: () -> Void = {}
     var cancelSetup: () -> Void = {}

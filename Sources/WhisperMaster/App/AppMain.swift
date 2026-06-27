@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 @main
-struct WhisperMasterPrototypeApp {
+struct WhisperMasterApp {
     @MainActor
     static func main() {
         let app = NSApplication.shared

@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "WhisperMasterPrototype",
+    name: "WhisperMaster",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .executable(
-            name: "WhisperMasterPrototype",
-            targets: ["WhisperMasterPrototype"]
+            name: "WhisperMaster",
+            targets: ["WhisperMaster"]
         )
     ],
     dependencies: [
@@ -18,12 +18,12 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "WhisperMasterPrototype",
+            name: "WhisperMaster",
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "Sparkle", package: "Sparkle")
             ],
-            path: "Sources/WhisperMasterPrototype",
+            path: "Sources/WhisperMaster",
             resources: [
                 .process("Resources")
             ]
