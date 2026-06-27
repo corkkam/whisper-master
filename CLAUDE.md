@@ -80,7 +80,7 @@ Product: `WhisperMaster.app`, bundle id `app.whispermaster.mac`, executable `Whi
 ### CI/CD (GitHub Actions)
 
 - Repo is **private** (`HEGADE/whisper-master`); default branch `main`, active work on `dev`.
-- **`.github/workflows/release.yml`** runs on **push to `dev`** (and manual `workflow_dispatch`) on a `macos-15` runner: checkout → `brew install xcodegen rclone` → import the signing cert from secrets into a temporary keychain → set `CFBundleVersion` to `github.run_number` (monotonic, so each push is "newer") → run `release.sh`. Add **`[skip release]`** to the commit message to skip a run.
+- **`.github/workflows/release.yml`** runs on **push to `dev`** (and manual `workflow_dispatch`) on a `macos-15` runner: checkout → `brew install xcodegen rclone` → import the signing cert from secrets into a temporary keychain → set `CFBundleVersion` to **epoch seconds** (`date +%s`) so it always strictly increases and can't be undercut by an earlier manual build → run `release.sh`. Add **`[skip release]`** to the commit message to skip a run.
 - **Required repo secrets:** `SIGNING_CERT_P12_BASE64` (base64 of the cert `.p12`), `SIGNING_CERT_PASSWORD`, `SPARKLE_ED_PRIVATE_KEY`, plus the five `R2_*` values above.
 - macOS runner minutes bill **~10×** — releasing on every `dev` push is intentional but costly; `[skip release]` is the cost/noise guard.
 
@@ -93,7 +93,7 @@ A "release" = put a newer, EdDSA-signed `.zip` + an updated `appcast.xml` on R2;
 2. `bash Scripts/release.sh` → `xcodegen generate` → `xcodebuild -configuration Release` (signed `whisper master`) → `ditto` zip → Sparkle `generate_appcast` (signs the zip with the keychain EdDSA key, writes `appcast.xml` pointing at the R2 public URL) → `rclone` uploads `appcast.xml` + `WhisperMaster-<ver>.zip` to the bucket root.
 3. Verify: `curl -s "$R2_PUBLIC_BASE_URL/appcast.xml"` shows the new `sparkle:version`.
 
-**B. CI (push to `dev`):** `git push origin dev` (commit message without `[skip release]`) → the workflow does the same as (A) on a macOS runner, but sets `CFBundleVersion` = `github.run_number` automatically (you still bump `CFBundleShortVersionString` in commits when you want a new human version). Secrets supply the cert + EdDSA key + R2 creds.
+**B. CI (push to `dev`):** `git push origin dev` (commit message without `[skip release]`) → the workflow does the same as (A) on a macOS runner, but sets `CFBundleVersion` = **epoch seconds** automatically (always strictly increasing; you still bump `CFBundleShortVersionString` in commits when you want a new human version). Secrets supply the cert + EdDSA key + R2 creds.
 
 **What a tester sees:** their installed app's Sparkle polls `SUFeedURL`, sees a higher `CFBundleVersion`, downloads the signed zip, swaps the app in place, and relaunches — no reinstall. Only the **first-ever** install needs the one-time `xattr -dr com.apple.quarantine` (not notarized).
 
