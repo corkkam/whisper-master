@@ -92,8 +92,8 @@ struct SettingsView: View {
             nav
             detail
         }
-        .frame(minWidth: 760, minHeight: 600)
-        .background(Theme.canvasGradient)
+        .frame(minWidth: 760, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
+        .background(Theme.canvasGradient.ignoresSafeArea())
         .onAppear {
             refreshPermissions()
             autoFocusSetupIfNeeded()
@@ -107,26 +107,26 @@ struct SettingsView: View {
 
     private var nav: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 11) {
-                BrandLogo(size: 28, cornerRadius: 7)
+            HStack(spacing: 12) {
+                BrandLogo(size: 32, cornerRadius: 8)
                 Text("Whisper Master")
-                    .font(Typography.optima(16, .bold))
+                    .font(Typography.optima(18, .bold))
                     .foregroundStyle(Theme.textPrimary)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 30)
-            .padding(.bottom, 26)
+            .padding(.horizontal, 20)
+            .padding(.top, 32)
+            .padding(.bottom, 30)
 
-            VStack(spacing: 3) {
+            VStack(spacing: 4) {
                 ForEach(SettingsSection.allCases) { section in
                     navRow(section)
                 }
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 14)
 
             Spacer(minLength: 0)
         }
-        .frame(width: 214)
+        .frame(width: 252)
         .frame(maxHeight: .infinity)
         .overlay(alignment: .trailing) {
             Rectangle().fill(Theme.stroke).frame(width: 1)
@@ -139,18 +139,18 @@ struct SettingsView: View {
             selection = section
         } label: {
             Text(section.title)
-                .font(Typography.optima(15, isSelected ? .bold : .regular))
+                .font(Typography.optima(16.5, isSelected ? .bold : .regular))
                 .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
                         .fill(isSelected ? Theme.accentSoft : Color.clear)
                 )
                 .overlay(alignment: .leading) {
                     if isSelected {
-                        Capsule().fill(Theme.accent).frame(width: 3, height: 17).padding(.leading, 1)
+                        Capsule().fill(Theme.accent).frame(width: 3, height: 19).padding(.leading, 1)
                     }
                 }
                 .contentShape(Rectangle())
