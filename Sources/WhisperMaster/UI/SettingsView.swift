@@ -173,11 +173,16 @@ struct SettingsView: View {
 
                 panelContent
             }
-            .frame(maxWidth: 620, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 40)
             .padding(.top, 36)
             .padding(.bottom, 52)
         }
+        // Cap the scroll column and center it in the pane so wide/fullscreen
+        // stays balanced and the scrollbar sits next to the content, not at the
+        // far window edge.
+        .frame(maxWidth: 760)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var header: some View {
