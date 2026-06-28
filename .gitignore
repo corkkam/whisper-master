@@ -39,3 +39,11 @@ tmp/
 .env
 .env.local
 *.local
+
+# Signing certs / keys — never commit these
+*.p12
+*.p8
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile

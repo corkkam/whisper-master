@@ -109,11 +109,17 @@ final class RemoteTranscriptionServer {
 
     /// Build the Bonjour service descriptor: an anonymous instance name plus our
     /// current `PeerMetadata` in the TXT record.
+    /// Max concurrent transcription sessions this Mac advertises it will take.
+    /// Conservative default; clients balance by headroom (capacity − load).
+    static let maxConcurrentSessions = 3
+
     private func makeService(load: Int) -> NWListener.Service {
         let metadata = PeerMetadata(
             id: LocalPeer.id,
             modelFamily: LocalPeer.modelFamily,
             load: load,
+            capacity: Self.maxConcurrentSessions,
+            isReady: TranscriberEngine.slidingWindow.isInstalled,
             appVersion: LocalPeer.appVersion
         )
         // Anonymous, unique instance name — never the computer/owner name.

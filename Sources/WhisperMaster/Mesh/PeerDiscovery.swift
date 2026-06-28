@@ -89,7 +89,9 @@ final class BonjourPeerDiscovery: PeerDiscovering, @unchecked Sendable {
         } else {
             // TXT not attached to this browse result — surface the peer using
             // the anonymous service name as identity; metadata enriches later.
-            metadata = PeerMetadata(id: name, modelFamily: "Mac", load: 0, appVersion: "0")
+            metadata = PeerMetadata(
+                id: name, modelFamily: "Mac", load: 0, capacity: 1, isReady: false, appVersion: "0"
+            )
         }
         return DiscoveredPeer(metadata: metadata, endpoint: .bonjour(result.endpoint))
     }
