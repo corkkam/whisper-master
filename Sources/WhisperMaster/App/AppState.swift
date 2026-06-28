@@ -59,6 +59,10 @@ final class AppState {
     var hidePillWhenIdle: Bool = true
     var phase: RecordingPhase = .idle
     var download: ModelDownloadSnapshot?
+    /// True while the R2 mirror was unavailable and the model is coming from the
+    /// slower HuggingFace fallback — surfaced in the UI so a slow prepare is
+    /// never a silent mystery.
+    var usingFallbackModelSource: Bool = false
     var transcript = TranscriptSnapshot()
     var statusMessage: String = "Getting voice engine ready..."
     var audioLevel: Float = 0

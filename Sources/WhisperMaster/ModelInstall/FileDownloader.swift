@@ -10,11 +10,24 @@ final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sen
     }
 
     private let destination: URL
+    private let requestTimeout: TimeInterval
+    private let resourceTimeout: TimeInterval
     private let onProgress: @Sendable (Double) -> Void
     private var continuation: CheckedContinuation<Void, Error>?
 
-    init(destination: URL, onProgress: @escaping @Sendable (Double) -> Void) {
+    /// - Parameters:
+    ///   - requestTimeout: fail if no data arrives for this long (stall
+    ///     detection — resets whenever bytes flow).
+    ///   - resourceTimeout: hard ceiling for the whole transfer.
+    init(
+        destination: URL,
+        requestTimeout: TimeInterval = 120,
+        resourceTimeout: TimeInterval = 3_600,
+        onProgress: @escaping @Sendable (Double) -> Void
+    ) {
         self.destination = destination
+        self.requestTimeout = requestTimeout
+        self.resourceTimeout = resourceTimeout
         self.onProgress = onProgress
     }
 
@@ -22,7 +35,13 @@ final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sen
     func download(from url: URL) async throws {
         try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
-            let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+            // Bound the timeouts: the default resource timeout is 7 days, so a
+            // stalled transfer would appear frozen forever instead of failing
+            // and letting the caller retry / fall back.
+            let configuration = URLSessionConfiguration.default
+            configuration.timeoutIntervalForRequest = requestTimeout
+            configuration.timeoutIntervalForResource = resourceTimeout
+            let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
             session.downloadTask(with: url).resume()
         }
     }

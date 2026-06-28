@@ -1,0 +1,15 @@
+import OSLog
+
+/// Centralized `os.Logger` instances for the app.
+///
+/// Use `.notice` (or higher) for anything we want to be able to diagnose after
+/// the fact: macOS persists `.notice`/`.error`/`.fault` to the unified log,
+/// while `.debug`/`.info` are memory-only and vanish. So a model-prep fallback
+/// logged at `.error` is recoverable later via:
+///   `log show --predicate 'subsystem == "app.whispermaster.mac"' --last 1d`
+enum Log {
+    private static let subsystem = "app.whispermaster.mac"
+
+    /// Model download / install / load pipeline (R2 mirror, unzip, FluidAudio).
+    static let modelPrep = Logger(subsystem: subsystem, category: "model-prep")
+}

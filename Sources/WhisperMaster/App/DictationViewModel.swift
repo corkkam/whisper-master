@@ -350,6 +350,7 @@ final class DictationViewModel {
 
         state.preparingEngine = engine
         state.download = nil
+        state.usingFallbackModelSource = false
         state.statusMessage = engine.isInstalled
             ? "Loading voice engine..."
             : "Downloading voice engine..."
@@ -359,18 +360,23 @@ final class DictationViewModel {
             Task { @MainActor in
                 guard let self, self.state.preparingEngine == engine else { return }
                 let detail = Self.detailText(for: snapshot)
+                // If the mirror fell through, FluidAudio is now pulling from
+                // HuggingFace — say so, so a slow download is explained.
+                let shown = self.state.usingFallbackModelSource ? "\(detail) (backup source)" : detail
                 self.state.download = ModelDownloadSnapshot(
                     fractionCompleted: snapshot.fractionCompleted,
-                    detail: detail
+                    detail: shown
                 )
-                self.state.statusMessage = detail
+                self.state.statusMessage = shown
             }
         }
 
         guard !Task.isCancelled else { return }
+        Log.modelPrep.notice("Voice engine ready (\(engine.displayName, privacy: .public))")
         state.preparedEngine = engine
         state.preparingEngine = nil
         state.download = nil
+        state.usingFallbackModelSource = false
         state.statusMessage = "Voice engine ready."
     }
 
@@ -381,6 +387,7 @@ final class DictationViewModel {
             try await ModelInstaller.installIfNeeded(engine) { [weak self] progress in
                 Task { @MainActor in
                     guard let self, self.state.preparingEngine == engine else { return }
+                    self.state.usingFallbackModelSource = false
                     self.state.download = ModelDownloadSnapshot(
                         fractionCompleted: progress.fractionCompleted,
                         detail: progress.detail
@@ -389,8 +396,16 @@ final class DictationViewModel {
                 }
             }
         } catch {
-            NSLog("Model mirror install failed for %@; using HuggingFace fallback: %@",
-                  engine.displayName, String(describing: error))
+            // The mirror is down/stalled even after retries; FluidAudio's
+            // prepareModels will now download from HuggingFace (slower). Make it
+            // loud (persisted log) and visible (status), never a silent freeze.
+            Log.modelPrep.error(
+                "R2 mirror unavailable for \(engine.displayName, privacy: .public) after retries; falling back to HuggingFace: \(error.localizedDescription, privacy: .public)")
+            await MainActor.run {
+                guard self.state.preparingEngine == engine else { return }
+                self.state.usingFallbackModelSource = true
+                self.state.statusMessage = "Mirror unavailable — downloading from backup source (slower)…"
+            }
         }
     }
 
