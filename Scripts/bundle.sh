@@ -9,6 +9,7 @@ APP_NAME="Whisper Master"          # distribution .app filename (with space)
 SCHEME="WhisperMaster"             # Xcode scheme / product name (no space)
 CONFIG="${CONFIG:-Release}"        # Release | Debug
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}" # keychain identity; pass "-" for ad-hoc
+DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-7MFYAGK3VV}" # Developer ID team (manual signing requires it)
 
 cd "$(dirname "$0")/.."
 
@@ -24,7 +25,7 @@ xcodegen generate >/dev/null
 # requires; ad-hoc ("-") signing can't be timestamped, so skip the flag there.
 SIGN_FLAGS=()
 if [[ "$SIGN_IDENTITY" != "-" ]]; then
-    SIGN_FLAGS+=(OTHER_CODE_SIGN_FLAGS="--timestamp")
+    SIGN_FLAGS+=(OTHER_CODE_SIGN_FLAGS="--timestamp" DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM")
 fi
 
 DERIVED="build/DerivedData"
