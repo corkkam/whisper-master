@@ -8,7 +8,7 @@ set -euo pipefail
 APP_NAME="Whisper Master"          # distribution .app filename (with space)
 SCHEME="WhisperMaster"             # Xcode scheme / product name (no space)
 CONFIG="${CONFIG:-Release}"        # Release | Debug
-SIGN_IDENTITY="${SIGN_IDENTITY:-whisper master}" # keychain identity; pass "-" for ad-hoc
+SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}" # keychain identity; pass "-" for ad-hoc
 
 cd "$(dirname "$0")/.."
 
@@ -20,6 +20,13 @@ fi
 echo ">> Generating Xcode project from project.yml"
 xcodegen generate >/dev/null
 
+# A real (non-ad-hoc) identity gets a secure timestamp, which Apple notarization
+# requires; ad-hoc ("-") signing can't be timestamped, so skip the flag there.
+SIGN_FLAGS=()
+if [[ "$SIGN_IDENTITY" != "-" ]]; then
+    SIGN_FLAGS+=(OTHER_CODE_SIGN_FLAGS="--timestamp")
+fi
+
 DERIVED="build/DerivedData"
 echo ">> Building $SCHEME ($CONFIG) with xcodebuild"
 xcodebuild \
@@ -30,6 +37,8 @@ xcodebuild \
     -destination 'platform=macOS,arch=arm64' \
     CODE_SIGN_STYLE=Manual \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+    ${SIGN_FLAGS[@]+"${SIGN_FLAGS[@]}"} \
     clean build >/dev/null
 
 PRODUCT="$DERIVED/Build/Products/$CONFIG/$SCHEME.app"
@@ -46,3 +55,4 @@ cp -R "$PRODUCT" "$APP_DIR"
 
 echo "Built $APP_DIR (signed: ${SIGN_IDENTITY})"
 echo "Run with: open \"$APP_DIR\""
+echo "Notarize with: bash Scripts/notarize.sh \"$APP_DIR\""

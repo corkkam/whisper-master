@@ -19,6 +19,11 @@ if [[ ! -d "$APP_PATH" ]]; then
     exit 1
 fi
 
+# Notarize + staple the app first so the copy inside the DMG carries the ticket.
+# No-op if NOTARY_* credentials aren't set.
+echo ">> Notarizing the app"
+bash Scripts/notarize.sh "$APP_PATH"
+
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
@@ -38,6 +43,10 @@ hdiutil create \
     -format UDZO \
     -ov \
     "$DMG_PATH" >/dev/null
+
+# Notarize + staple the DMG itself so Gatekeeper is satisfied at mount time too.
+echo ">> Notarizing the DMG"
+bash Scripts/notarize.sh "$DMG_PATH"
 
 echo "Built $DMG_PATH"
 ls -lh "$DMG_PATH"
