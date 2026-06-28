@@ -81,9 +81,9 @@ Product: `WhisperMaster.app`, bundle id `app.whispermaster.mac`, executable `Whi
 ### CI/CD (GitHub Actions)
 
 - Repo is **private** (`HEGADE/whisper-master`); default branch `main`, active work on `dev`.
-- **`.github/workflows/release.yml`** runs on **push to `dev`** (and manual `workflow_dispatch`) on a `macos-15` runner: checkout → `brew install xcodegen rclone` → import the signing cert from secrets into a temporary keychain → set `CFBundleVersion` to **epoch seconds** (`date +%s`) so it always strictly increases and can't be undercut by an earlier manual build → run `release.sh`. Add **`[skip release]`** to the commit message to skip a run.
+- **`.github/workflows/release.yml`** has two jobs. A cheap **`gate`** job (Ubuntu, 1× billing) checks whether `CFBundleShortVersionString` changed versus `github.event.before`; only if it did (or on manual `workflow_dispatch`) does the **`release`** job run on `macos-15`: checkout → `brew install xcodegen rclone` → import the **Developer ID** cert from secrets into a temporary keychain → set `CFBundleVersion` to **epoch seconds** (`date +%s`) so it always strictly increases and can't be undercut by an earlier manual build → decode the notary `.p8` → run `release.sh` (which build+sign+**notarize+staple**s). Add **`[skip release]`** to the commit message to skip even a version-bump push.
 - **Required repo secrets:** `DEVELOPER_ID_CERT_P12_BASE64` (base64 of the Developer ID `.p12`), `DEVELOPER_ID_CERT_PASSWORD`, `NOTARY_KEY_P8_BASE64` (base64 of the App Store Connect `AuthKey_*.p8`), `NOTARY_KEY_ID`, `NOTARY_ISSUER`, `SPARKLE_ED_PRIVATE_KEY`, plus the five `R2_*` values above. (The CI workflow decodes the `.p8` to `$RUNNER_TEMP` and exports `NOTARY_KEY_P8` for `notarize.sh`.)
-- macOS runner minutes bill **~10×** — releasing on every `dev` push is intentional but costly; `[skip release]` is the cost/noise guard.
+- macOS runner minutes bill **~10×** and the Apple notary wait keeps the runner allocated for the whole submission (often 5–30 min today), so each release run is expensive (~hundreds of billed minutes). The **version-bump `gate`** is the primary cost guard — a normal `dev` push that doesn't change `CFBundleShortVersionString` only burns a few Ubuntu seconds; `[skip release]` remains a manual override.
 
 ### Release flow, end to end (two ways)
 

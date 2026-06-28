@@ -1,7 +1,11 @@
 name: Release to R2
 
-# Every push to dev builds, signs, and ships a Sparkle update to the R2 feed.
-# Put [skip release] in the commit message to skip a run.
+# Pushes to dev that BUMP CFBundleShortVersionString build, sign, notarize, and
+# ship a Sparkle update to the R2 feed. Ordinary pushes (code, fixes, docs) only
+# run the cheap Ubuntu gate below and cost ~nothing — the macOS runner (billed
+# ~10x, made longer by the Apple notary wait) is reserved for actual releases.
+# Force a release without a version change via the manual "Run workflow" button.
+# Put [skip release] in the commit message to skip even a version-bump push.
 on:
   push:
     branches: [dev]
@@ -12,8 +16,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Cheap gate: did the marketing version change in this push? Runs on Ubuntu
+  # (1x billing, seconds) so non-release pushes never spin up a macOS runner.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -e
+          ver() { python3 -c "import plistlib,sys;print(plistlib.load(open(sys.argv[1],'rb'))['CFBundleShortVersionString'])" "$1"; }
+          cur="$(ver Resources/Info.plist)"
+          # Manual runs always release; so does the first push with no base ref.
+          if [ "$EVENT" = "workflow_dispatch" ] || [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "current=$cur, manual/first run -> release"
+            echo "release=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git cat-file -e "$BEFORE:Resources/Info.plist" 2>/dev/null; then
+            git show "$BEFORE:Resources/Info.plist" > /tmp/prev.plist
+            prev="$(ver /tmp/prev.plist)"
+          else
+            prev="(none)"
+          fi
+          echo "current=$cur previous=$prev"
+          if [ "$cur" != "$prev" ]; then
+            echo "version bumped -> release"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version unchanged -> skip (no macOS minutes spent)"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+
   release:
-    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
+    needs: gate
+    if: ${{ needs.gate.outputs.release == 'true' && !contains(github.event.head_commit.message, '[skip release]') }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
