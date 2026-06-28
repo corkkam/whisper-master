@@ -46,9 +46,15 @@ if [[ "$TARGET" == *.app ]]; then
 fi
 
 echo ">> Submitting $(basename "$SUBMIT") to Apple notary service (can take a few minutes)…"
-if ! xcrun notarytool submit "$SUBMIT" "${CRED[@]}" --wait; then
-    echo "error: notarization failed. Inspect with:" >&2
-    echo "  xcrun notarytool log <submission-id> ${CRED[*]}" >&2
+# `notarytool submit --wait` exits 0 even when the verdict is "Invalid", so
+# inspect the status text ourselves and dump the detailed log on any non-Accepted
+# result rather than blindly stapling a missing ticket.
+OUT="$(xcrun notarytool submit "$SUBMIT" "${CRED[@]}" --wait 2>&1)" || true
+echo "$OUT"
+if ! grep -q "status: Accepted" <<<"$OUT"; then
+    SID="$(grep -m1 '  id:' <<<"$OUT" | awk '{print $2}')"
+    echo "error: notarization was not accepted — detailed log:" >&2
+    [[ -n "$SID" ]] && xcrun notarytool log "$SID" "${CRED[@]}" >&2 || true
     [[ -n "$CLEANUP" ]] && rm -f "$CLEANUP"
     exit 1
 fi

@@ -54,6 +54,31 @@ echo ">> Staging $APP_DIR"
 rm -rf "$APP_DIR"
 cp -R "$PRODUCT" "$APP_DIR"
 
+# xcodebuild re-signs the outer Sparkle.framework but NOT the code nested inside
+# it (Updater.app, Autoupdate, the XPC services), so they keep Sparkle's ad-hoc
+# signature with no secure timestamp — which makes Apple notarization fail. When
+# signing for real, re-sign those inside-out with our Developer ID + hardened
+# runtime + timestamp, preserving the XPC services' own entitlements, then
+# re-seal the framework and the whole app.
+if [[ "$SIGN_IDENTITY" != "-" ]]; then
+    FW="$APP_DIR/Contents/Frameworks/Sparkle.framework"
+    if [[ -d "$FW" ]]; then
+        echo ">> Re-signing nested Sparkle helpers with $SIGN_IDENTITY"
+        V="$FW/Versions/B"
+        for xpc in "$V/XPCServices/Downloader.xpc" "$V/XPCServices/Installer.xpc"; do
+            [[ -e "$xpc" ]] && codesign -f -s "$SIGN_IDENTITY" -o runtime --timestamp \
+                --preserve-metadata=entitlements "$xpc"
+        done
+        codesign -f -s "$SIGN_IDENTITY" -o runtime --timestamp "$V/Updater.app"
+        codesign -f -s "$SIGN_IDENTITY" -o runtime --timestamp "$V/Autoupdate"
+        codesign -f -s "$SIGN_IDENTITY" -o runtime --timestamp "$FW"
+    fi
+    echo ">> Re-sealing the app bundle"
+    codesign -f -s "$SIGN_IDENTITY" -o runtime --timestamp \
+        --entitlements Resources/WhisperMaster.entitlements "$APP_DIR"
+    codesign --verify --deep --strict "$APP_DIR"
+fi
+
 echo "Built $APP_DIR (signed: ${SIGN_IDENTITY})"
 echo "Run with: open \"$APP_DIR\""
 echo "Notarize with: bash Scripts/notarize.sh \"$APP_DIR\""
