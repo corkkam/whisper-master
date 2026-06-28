@@ -184,8 +184,6 @@ struct AccentButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
                     .fill(Theme.accent.opacity(configuration.isPressed ? 0.85 : 1))
             )
-            // Landing's `shadow-glow`: a soft indigo halo around the CTA.
-            .shadow(color: Theme.glow, radius: configuration.isPressed ? 8 : 16, x: 0, y: 0)
             .contentShape(Rectangle())
     }
 }
