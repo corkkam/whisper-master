@@ -23,22 +23,65 @@ enum ModelInstaller {
         case incompleteAfterUnpack
     }
 
+    /// Backoff between mirror attempts (a transient stall usually clears quickly).
+    private static let retryBackoffNanoseconds: UInt64 = 1_500_000_000
+
     /// Download `<archiveName>.zip` from the mirror and unpack it into
     /// `destinationRoot`. Skips the work when `isInstalled()` is already true.
+    /// Retries the download+unpack up to `maxAttempts` times before throwing, so
+    /// a transient stall doesn't immediately drop the caller to the slow
+    /// HuggingFace fallback.
     /// - Parameters:
     ///   - label: human name used in progress text (e.g. "voice engine").
+    ///   - maxAttempts: total mirror tries (≥ 1) before giving up.
     /// - Returns: `true` if it installed from the mirror, `false` if already present.
     @discardableResult
     static func installIfNeeded(
         archiveName: String,
         destinationRoot: URL,
         label: String,
+        maxAttempts: Int = 2,
         isInstalled: @Sendable () -> Bool,
         onProgress: @escaping @Sendable (Progress) -> Void = { _ in }
     ) async throws -> Bool {
         guard !isInstalled() else { return false }
 
         let archiveURL = mirrorBaseURL.appendingPathComponent("\(archiveName).zip")
+
+        var attempt = 1
+        while true {
+            do {
+                try await downloadAndUnpack(
+                    archiveURL: archiveURL,
+                    archiveName: archiveName,
+                    destinationRoot: destinationRoot,
+                    label: label,
+                    isInstalled: isInstalled,
+                    onProgress: onProgress
+                )
+                Log.modelPrep.notice(
+                    "Installed \(label, privacy: .public) from R2 mirror (attempt \(attempt))")
+                return true
+            } catch {
+                Log.modelPrep.error(
+                    "R2 mirror install of \(label, privacy: .public) failed (attempt \(attempt)/\(maxAttempts)): \(error.localizedDescription, privacy: .public)")
+                guard attempt < maxAttempts else { throw error }
+                attempt += 1
+                try? await Task.sleep(nanoseconds: retryBackoffNanoseconds)
+            }
+        }
+    }
+
+    /// One download+unpack attempt. A fresh temp zip per call keeps retries
+    /// independent; `isInstalled()` afterwards guards against a partial unpack.
+    private static func downloadAndUnpack(
+        archiveURL: URL,
+        archiveName: String,
+        destinationRoot: URL,
+        label: String,
+        isInstalled: @Sendable () -> Bool,
+        onProgress: @escaping @Sendable (Progress) -> Void
+    ) async throws {
         let tempZip = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(archiveName)-\(UUID().uuidString).zip")
         defer { try? FileManager.default.removeItem(at: tempZip) }
@@ -56,7 +99,6 @@ enum ModelInstaller {
         try await Archive.unzip(tempZip, into: destinationRoot)
 
         guard isInstalled() else { throw InstallError.incompleteAfterUnpack }
-        return true
     }
 }
 
