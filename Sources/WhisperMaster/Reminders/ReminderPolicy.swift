@@ -21,12 +21,12 @@ struct ReminderPolicy {
     let displayDuration: TimeInterval
 
     init(
-        backoffGaps: [TimeInterval] = [3 * 3600, 6 * 3600, 12 * 3600],
+        backoffGaps: [TimeInterval] = [3 * 3600.0, 6 * 3600.0, 12 * 3600.0],
         maxNudgesPerDay: Int = 3,
-        dailyWindow: TimeInterval = 24 * 3600,
+        dailyWindow: TimeInterval = 24 * 3600.0,
         displayDuration: TimeInterval = 5
     ) {
-        self.backoffGaps = backoffGaps.isEmpty ? [3 * 3600] : backoffGaps
+        self.backoffGaps = backoffGaps.isEmpty ? [3 * 3600.0] : backoffGaps
         self.maxNudgesPerDay = maxNudgesPerDay
         self.dailyWindow = dailyWindow
         self.displayDuration = displayDuration

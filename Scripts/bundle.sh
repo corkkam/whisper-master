@@ -47,7 +47,9 @@ xcodebuild \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
     ${SIGN_FLAGS[@]+"${SIGN_FLAGS[@]}"} \
-    clean build 2>&1 | tee "$BUILD_LOG" | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
+    clean build 2>&1 | tee "$BUILD_LOG" | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)"
+# PIPESTATUS[0] is xcodebuild's real exit code. (Do NOT append `|| true` to the
+# pipeline — that runs a new command and resets PIPESTATUS, masking failures.)
 xc_status=${PIPESTATUS[0]}
 set -e
 if [[ "$xc_status" -ne 0 ]]; then
@@ -60,6 +62,14 @@ APP_DIR="build/${APP_NAME}.app"
 
 if [[ ! -d "$PRODUCT" ]]; then
     echo "error: build product not found at $PRODUCT" >&2
+    exit 1
+fi
+
+# Sanity-check the product is a complete app before we ever stage/ship it —
+# the executable and the embedded Sparkle framework must be present. Guards
+# against publishing a partial bundle if a build half-succeeds.
+if [[ ! -x "$PRODUCT/Contents/MacOS/$SCHEME" || ! -d "$PRODUCT/Contents/Frameworks/Sparkle.framework" ]]; then
+    echo "error: build product at $PRODUCT looks incomplete (missing executable or Sparkle.framework). Full log: $BUILD_LOG" >&2
     exit 1
 fi
 
