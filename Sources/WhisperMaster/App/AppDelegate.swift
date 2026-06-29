@@ -59,10 +59,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Discover other Macs running Whisper Master on the network (the mesh).
         meshCoordinator.start()
 
-        // Request notification permission so Sparkle's gentle "update
-        // available" reminder can post a banner when the app is in the
-        // background. Without authorization Sparkle silently defers it.
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        // Sparkle's gentle "update available" reminder posts a macOS
+        // notification. The delegate is required so the banner shows even while
+        // the app is active (willPresent) and tapping it triggers the update
+        // (didReceive) — without it the notification is suppressed/inert.
+        let notificationCenter = UNUserNotificationCenter.current()
+        notificationCenter.delegate = self
+        notificationCenter.requestAuthorization(options: [.alert, .sound]) { _, _ in }
 
         // Touch the lazy updater so it starts now (startingUpdater: true) and
         // runs scheduled background checks. Without this it would only be
@@ -582,14 +585,22 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
         state: SPUUserUpdateState
     ) {
         if state.userInitiated {
-            // Manual check: bring the update window to the front.
+            // Manual check: bring Sparkle's update window to the front.
             NSApp.activate(ignoringOtherApps: true)
-        } else if !NSApp.isActive {
-            // Scheduled check while backgrounded: post the gentle reminder
-            // ourselves (Sparkle won't). Tapping it activates the app, which
-            // surfaces Sparkle's deferred update prompt to install.
+        } else {
+            // Scheduled check: post the gentle reminder. We don't gate on
+            // background — as a regular Dock app the user usually HAS us active,
+            // and `willPresent` makes the banner show in the foreground too.
+            // Tapping it triggers the update (`didReceive`).
             postUpdateAvailableNotification(for: update)
         }
+    }
+
+    /// Clear the delivered reminder once the user engages with the update, so a
+    /// stale notification doesn't linger (and the reused identifier can re-alert).
+    func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
+        UNUserNotificationCenter.current()
+            .removeDeliveredNotifications(withIdentifiers: [Self.updateNotificationIdentifier])
     }
 
     private func postUpdateAvailableNotification(for update: SUAppcastItem) {
@@ -597,10 +608,38 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
         content.title = "Update available"
         content.body = "Whisper Master \(update.displayVersionString) is ready to install."
         let request = UNNotificationRequest(
-            identifier: "app.whispermaster.update-available",
+            identifier: Self.updateNotificationIdentifier,
             content: content,
             trigger: nil
         )
         UNUserNotificationCenter.current().add(request)
+    }
+}
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    static let updateNotificationIdentifier = "app.whispermaster.update-available"
+
+    /// Show the update banner even when the app is frontmost (otherwise macOS
+    /// suppresses notifications for the active app).
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+
+    /// Tapping the update reminder kicks off the update flow.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        if response.notification.request.identifier == Self.updateNotificationIdentifier,
+           response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            NSApp.activate(ignoringOtherApps: true)
+            updaterController.checkForUpdates(nil)
+        }
+        completionHandler()
     }
 }
