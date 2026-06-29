@@ -1,5 +1,4 @@
 @preconcurrency import AVFoundation
-import AudioToolbox
 import Foundation
 
 final class MicrophoneCaptureService {
@@ -11,7 +10,7 @@ final class MicrophoneCaptureService {
     typealias BufferHandler = @Sendable (AVAudioPCMBuffer) -> Void
     typealias LevelHandler = @Sendable (Float) -> Void
 
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
     private var bufferHandler: BufferHandler?
     private var levelHandler: LevelHandler?
     private var isCapturing = false
@@ -31,13 +30,13 @@ final class MicrophoneCaptureService {
 
     /// Start capturing.
     ///
-    /// By default the system's current input device is used — but when that
-    /// device is Bluetooth, recording from it forces the headset into the
-    /// low-quality HFP "call" profile (mono, ~8–16 kHz), degrading both its
-    /// playback and what we transcribe. So when `avoidBluetoothMic` is on we
-    /// bind the engine to the built-in mic instead, keeping the headset in hi-fi
-    /// A2DP. A deliberately-chosen USB/studio mic is always respected;
-    /// `AudioInputResolver` only redirects away from Bluetooth.
+    /// When `avoidBluetoothMic` is on and the default input is a Bluetooth
+    /// device, we move the system default input to the built-in mic *and leave
+    /// it there* — recording from a Bluetooth mic forces the headset into the
+    /// low-quality HFP "call" profile, degrading its playback and our signal.
+    /// Leaving the input on the built-in mic (the established fix) means later
+    /// recordings don't re-route, so there's no race. Capture then uses the
+    /// system default as usual, which is now the built-in mic.
     func start(
         avoidBluetoothMic: Bool = true,
         bufferHandler: @escaping BufferHandler,
@@ -48,22 +47,14 @@ final class MicrophoneCaptureService {
         self.bufferHandler = bufferHandler
         self.levelHandler = levelHandler
 
-        let inputNode = engine.inputNode
-
-        // Bind to the built-in mic before reading the format, so the format and
-        // tap match the device we'll actually capture from.
-        if let deviceID = AudioInputResolver.captureDeviceID(avoidBluetooth: avoidBluetoothMic),
-           let audioUnit = inputNode.audioUnit {
-            var device = deviceID
-            AudioUnitSetProperty(
-                audioUnit,
-                kAudioOutputUnitProperty_CurrentDevice,
-                kAudioUnitScope_Global,
-                0,
-                &device,
-                UInt32(MemoryLayout<AudioDeviceID>.size))
+        if avoidBluetoothMic {
+            AudioInputResolver.switchInputAwayFromBluetooth()
         }
 
+        // Fresh engine so it binds to the current default input (now the
+        // built-in mic if we just switched) rather than a stale device.
+        engine = AVAudioEngine()
+        let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             // The input device is mid-route-switch (common right after a

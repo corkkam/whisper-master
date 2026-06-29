@@ -30,7 +30,7 @@ struct RecordingSettingsView: View {
                 }
                 RowDivider()
                 SettingsRow("Keep Bluetooth earphones in hi-fi",
-                            subtitle: "Record from the built-in mic so Bluetooth earphones stay high quality instead of dropping to call mode.") {
+                            subtitle: "Switches the mic input to the built-in mic so Bluetooth earphones stay high quality instead of dropping to call mode.") {
                     ThemeToggle(isOn: $state.keepBluetoothHiFi)
                 }
             }

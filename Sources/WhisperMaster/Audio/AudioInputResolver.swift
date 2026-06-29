@@ -1,28 +1,30 @@
 import CoreAudio
 import Foundation
 
-/// Resolves which input device the capture engine should bind to.
+/// Keeps Bluetooth headsets out of the microphone role so they stay in hi-fi.
 ///
-/// A Bluetooth headset can't stream hi-fi A2DP playback and microphone input at
-/// the same time — opening its mic forces the headset into the low-quality HFP
-/// "call" profile, which wrecks playback *and* hands us a worse signal to
-/// transcribe (mono, ~8–16 kHz). So when the system default input is a Bluetooth
-/// device we capture from the built-in mic instead, leaving the headset in
-/// hi-fi. This is a hard Bluetooth limitation, not something an app can tune
-/// around; the only fix is to not use the Bluetooth mic.
+/// A Bluetooth headset can't do hi-fi A2DP playback and mic input at once —
+/// using its mic forces it into the low-quality HFP "call" profile (mono,
+/// ~8 kHz), degrading playback *and* the signal we transcribe. This is a hard
+/// Bluetooth limitation, not something an app can tune around. The established
+/// fix (Apple's own guidance, and tools like the Hammerspoon audio fix) is to
+/// move the *system default input* to the built-in mic and **leave it there** —
+/// not swap it per use, which just thrashes the audio route.
 enum AudioInputResolver {
-    /// The device the capture engine should use, or `nil` to keep the system
-    /// default. Returns the built-in mic only when `avoidBluetooth` is on, the
-    /// current default input is Bluetooth, and a built-in mic exists (so a
-    /// deliberately-chosen USB/studio mic is always respected, and Macs without
-    /// a built-in mic fall back to the default).
-    static func captureDeviceID(avoidBluetooth: Bool) -> AudioDeviceID? {
-        guard avoidBluetooth,
-              let defaultInput = defaultInputDeviceID(),
-              isBluetooth(defaultInput),
-              let builtIn = builtInInputDeviceID()
-        else { return nil }
-        return builtIn
+    /// If the current default input is a Bluetooth device, switch the system
+    /// default input to the built-in mic and leave it. Persistent by design:
+    /// once the input is the built-in mic, later recordings don't re-route, so
+    /// there's no race or thrash. The user can re-select their Bluetooth mic
+    /// manually (or via the settings toggle) if they actually want it.
+    /// - Returns: `true` if it switched the input device.
+    @discardableResult
+    static func switchInputAwayFromBluetooth() -> Bool {
+        guard let current = defaultInputDeviceID(),
+              isBluetooth(current),
+              let builtIn = builtInInputDeviceID(),
+              builtIn != current
+        else { return false }
+        return setDefaultInputDevice(builtIn)
     }
 
     // MARK: - HAL queries
@@ -41,6 +43,18 @@ enum AudioInputResolver {
         return deviceID
     }
 
+    @discardableResult
+    private static func setDefaultInputDevice(_ device: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var id = device
+        let status = AudioObjectSetPropertyData(
+            systemObject, &address, 0, nil, UInt32(MemoryLayout<AudioDeviceID>.size), &id)
+        return status == noErr
+    }
+
     private static func isBluetooth(_ device: AudioDeviceID) -> Bool {
         switch transportType(of: device) {
         case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE:
@@ -51,8 +65,7 @@ enum AudioInputResolver {
     }
 
     /// First built-in device that actually has input channels — i.e. the
-    /// built-in mic, as opposed to the built-in speakers, which share the same
-    /// transport type.
+    /// built-in mic, not the built-in speakers (which share the transport type).
     private static func builtInInputDeviceID() -> AudioDeviceID? {
         allDeviceIDs().first { device in
             transportType(of: device) == kAudioDeviceTransportTypeBuiltIn
