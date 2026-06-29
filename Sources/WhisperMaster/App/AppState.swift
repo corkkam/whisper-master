@@ -57,6 +57,9 @@ final class AppState {
     var autoPasteEnabled: Bool = true
     var soundEnabled: Bool = true
     var hidePillWhenIdle: Bool = true
+    /// Record from the built-in mic when the default input is a Bluetooth device,
+    /// so earphones stay in hi-fi A2DP instead of dropping to mono "call mode".
+    var keepBluetoothHiFi: Bool = true
     var phase: RecordingPhase = .idle
     var download: ModelDownloadSnapshot?
     /// True while the R2 mirror was unavailable and the model is coming from the

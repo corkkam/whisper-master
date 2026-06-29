@@ -87,6 +87,7 @@ final class DictationViewModel {
                 }
 
                 try microphoneCapture.start(
+                    avoidBluetoothMic: state.keepBluetoothHiFi,
                     bufferHandler: { [weak self] buffer in
                         guard let self else { return }
                         Task { @MainActor in

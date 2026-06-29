@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import AudioToolbox
 import Foundation
 
 final class MicrophoneCaptureService {
@@ -28,13 +29,17 @@ final class MicrophoneCaptureService {
         }
     }
 
-    /// Start capturing from the system's current input device.
+    /// Start capturing.
     ///
-    /// We deliberately use the default input rather than pinning a specific
-    /// device: macOS keeps the built-in mic as the input even when AirPods are
-    /// connected for output (it only switches input if the user explicitly
-    /// selects the AirPods mic), so the default is already the right source.
+    /// By default the system's current input device is used — but when that
+    /// device is Bluetooth, recording from it forces the headset into the
+    /// low-quality HFP "call" profile (mono, ~8–16 kHz), degrading both its
+    /// playback and what we transcribe. So when `avoidBluetoothMic` is on we
+    /// bind the engine to the built-in mic instead, keeping the headset in hi-fi
+    /// A2DP. A deliberately-chosen USB/studio mic is always respected;
+    /// `AudioInputResolver` only redirects away from Bluetooth.
     func start(
+        avoidBluetoothMic: Bool = true,
         bufferHandler: @escaping BufferHandler,
         levelHandler: @escaping LevelHandler
     ) throws {
@@ -44,6 +49,21 @@ final class MicrophoneCaptureService {
         self.levelHandler = levelHandler
 
         let inputNode = engine.inputNode
+
+        // Bind to the built-in mic before reading the format, so the format and
+        // tap match the device we'll actually capture from.
+        if let deviceID = AudioInputResolver.captureDeviceID(avoidBluetooth: avoidBluetoothMic),
+           let audioUnit = inputNode.audioUnit {
+            var device = deviceID
+            AudioUnitSetProperty(
+                audioUnit,
+                kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global,
+                0,
+                &device,
+                UInt32(MemoryLayout<AudioDeviceID>.size))
+        }
+
         let inputFormat = inputNode.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             // The input device is mid-route-switch (common right after a
