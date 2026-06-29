@@ -28,11 +28,6 @@ struct RecordingSettingsView: View {
                             subtitle: "Subtle click when recording begins or ends.") {
                     ThemeToggle(isOn: $state.soundEnabled)
                 }
-                RowDivider()
-                SettingsRow("Keep Bluetooth earphones in hi-fi",
-                            subtitle: "Switches the mic input to the built-in mic so Bluetooth earphones stay high quality instead of dropping to call mode.") {
-                    ThemeToggle(isOn: $state.keepBluetoothHiFi)
-                }
             }
 
             SectionLabel("Appearance")

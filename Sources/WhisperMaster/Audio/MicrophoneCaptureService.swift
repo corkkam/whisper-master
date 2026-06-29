@@ -10,7 +10,7 @@ final class MicrophoneCaptureService {
     typealias BufferHandler = @Sendable (AVAudioPCMBuffer) -> Void
     typealias LevelHandler = @Sendable (Float) -> Void
 
-    private var engine = AVAudioEngine()
+    private let engine = AVAudioEngine()
     private var bufferHandler: BufferHandler?
     private var levelHandler: LevelHandler?
     private var isCapturing = false
@@ -28,17 +28,13 @@ final class MicrophoneCaptureService {
         }
     }
 
-    /// Start capturing.
+    /// Start capturing from the system's current input device.
     ///
-    /// When `avoidBluetoothMic` is on and the default input is a Bluetooth
-    /// device, we move the system default input to the built-in mic *and leave
-    /// it there* — recording from a Bluetooth mic forces the headset into the
-    /// low-quality HFP "call" profile, degrading its playback and our signal.
-    /// Leaving the input on the built-in mic (the established fix) means later
-    /// recordings don't re-route, so there's no race. Capture then uses the
-    /// system default as usual, which is now the built-in mic.
+    /// We deliberately use the default input rather than pinning a specific
+    /// device: macOS keeps the built-in mic as the input even when AirPods are
+    /// connected for output (it only switches input if the user explicitly
+    /// selects the AirPods mic), so the default is already the right source.
     func start(
-        avoidBluetoothMic: Bool = true,
         bufferHandler: @escaping BufferHandler,
         levelHandler: @escaping LevelHandler
     ) throws {
@@ -47,13 +43,6 @@ final class MicrophoneCaptureService {
         self.bufferHandler = bufferHandler
         self.levelHandler = levelHandler
 
-        if avoidBluetoothMic {
-            AudioInputResolver.switchInputAwayFromBluetooth()
-        }
-
-        // Fresh engine so it binds to the current default input (now the
-        // built-in mic if we just switched) rather than a stale device.
-        engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
