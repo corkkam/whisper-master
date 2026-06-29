@@ -37,6 +37,11 @@ struct RecordingSettingsView: View {
                             subtitle: "The floating dictation pill stays hidden between recordings.") {
                     ThemeToggle(isOn: $state.hidePillWhenIdle)
                 }
+                RowDivider()
+                SettingsRow("Gentle reminders",
+                            subtitle: "A quiet nudge in the notch if you haven't dictated in a while.") {
+                    ThemeToggle(isOn: $state.remindersEnabled)
+                }
             }
         }
     }

@@ -30,9 +30,12 @@ the user's context:
    out of the notch for ~5 seconds and retracts on its own. No sound, no banner,
    no stolen focus, nothing to click. Worst case — it appears at an unwanted
    moment — it is a brief, ambient non-event, not a dinging banner.
-2. **A guaranteed off-switch.** A "Gentle reminders" toggle in Settings (on by
-   default). One flip disables them permanently, with no dependency on any
-   detection logic. This is the user's hard guarantee.
+2. **Opt-in, with a guaranteed off-switch.** A "Gentle reminders" toggle in
+   Settings, **off by default** — reminders only ever appear after the user
+   explicitly turns them on, and one flip disables them again, with no
+   dependency on any detection logic. While off, the scheduler is fully dormant
+   and resets its cadence, so enabling later starts a clean idle gap from that
+   moment (never an immediate nudge from stale timestamps).
 3. **Conservative cadence.** Backoff plus a daily cap means few firings, so few
    chances to ever appear at a bad moment.
 
@@ -150,8 +153,9 @@ lives next to `ReminderPolicy` so copy is easy to edit.
 
 ## Settings
 
-A "Gentle reminders" toggle (on by default) added to the Recording settings
-section, bound to `state.remindersEnabled`. Off = no reminders, ever.
+A "Gentle reminders" toggle (**off by default** — opt-in) added to the Recording
+settings section, bound to `state.remindersEnabled`. Off = no reminders, and the
+scheduler resets its cadence so a later opt-in begins a fresh idle gap.
 
 ## Testing
 

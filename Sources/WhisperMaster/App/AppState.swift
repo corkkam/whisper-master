@@ -48,6 +48,7 @@ final class AppState {
     static let historyDefaultsKey = "WhisperMaster.transcriptHistory.v1"
     static let historyLimit = 50
     static let vocabularyDefaultsKey = "WhisperMaster.customVocabulary.v1"
+    static let remindersEnabledDefaultsKey = "WhisperMaster.remindersEnabled.v1"
 
     var selectedEngine: TranscriberEngine = .slidingWindow
     var preparedEngine: TranscriberEngine?
@@ -66,6 +67,14 @@ final class AppState {
     /// The user dismissed (or acted on) the Bluetooth-mic hint this session.
     /// Reset when the Bluetooth input goes away so the hint can return.
     var bluetoothBannerDismissed: Bool = false
+    /// The gentle-reminder line currently dropped down in the notch, or `nil`.
+    /// Transient (never persisted); written only by `ReminderScheduler`.
+    var activeReminder: String?
+    /// Whether gentle "you haven't used me in a while" reminders are enabled.
+    /// Persisted; **opt-in** — off until the user turns it on in Settings.
+    var remindersEnabled: Bool = false {
+        didSet { UserDefaults.standard.set(remindersEnabled, forKey: Self.remindersEnabledDefaultsKey) }
+    }
     /// True while the R2 mirror was unavailable and the model is coming from the
     /// slower HuggingFace fallback — surfaced in the UI so a slow prepare is
     /// never a silent mystery.
@@ -87,6 +96,8 @@ final class AppState {
     init() {
         history = Self.loadHistory()
         customVocabulary = Self.loadVocabulary()
+        // Opt-in: off until the user has explicitly turned it on.
+        remindersEnabled = UserDefaults.standard.object(forKey: Self.remindersEnabledDefaultsKey) as? Bool ?? false
     }
 
     var canStart: Bool {
@@ -106,6 +117,17 @@ final class AppState {
     /// recording) and the user hasn't dismissed it.
     var shouldShowBluetoothBanner: Bool {
         bluetoothInputActive && !bluetoothBannerDismissed && phase == .idle
+    }
+
+    /// Show a gentle reminder in the notch only when one is queued, the app is
+    /// idle, and nothing higher-priority (download, prepare, Bluetooth hint) is
+    /// occupying the surface.
+    var shouldShowReminder: Bool {
+        activeReminder != nil
+            && phase == .idle
+            && download == nil
+            && preparingEngine == nil
+            && !shouldShowBluetoothBanner
     }
 
     func resetTranscript() {

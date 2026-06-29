@@ -315,6 +315,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // is up, where its button needs to receive clicks.
         pillWindow?.setInteractive(state.shouldShowBluetoothBanner)
 
+        // Drive gentle reminders off the same poll — a cheap, idle-gated check.
+        viewModel.evaluateReminders()
+
         refreshHistoryMenu()
     }
 

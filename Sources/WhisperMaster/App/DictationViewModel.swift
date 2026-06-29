@@ -15,6 +15,8 @@ final class DictationViewModel {
     private var pendingAppendTasks: [UUID: Task<Void, Never>] = [:]
     private var preparationTask: Task<Void, Never>?
     private let releaseTailNanoseconds: UInt64 = 80_000_000
+    /// Drives gentle "you haven't used me in a while" reminders in the notch.
+    private lazy var reminderScheduler = ReminderScheduler(state: state)
 
     init(
         state: AppState,
@@ -49,8 +51,17 @@ final class DictationViewModel {
         )
     }
 
+    /// Consulted on each refresh tick to decide whether to drop a gentle
+    /// reminder into the notch. Cheap; a no-op unless idle and due.
+    func evaluateReminders() {
+        reminderScheduler.tick()
+    }
+
     func startRecording() {
         guard state.canStart else { return }
+
+        // A reminder showing now would be replaced by the live indicator anyway.
+        reminderScheduler.clear()
 
         state.phase = .preparingModels
         state.audioLevel = 0
@@ -128,6 +139,7 @@ final class DictationViewModel {
                     state.transcript.latestConfirmed = final
                     state.transcript.latestPartial = ""
                     state.appendHistory(text: final, engine: state.selectedEngine)
+                    reminderScheduler.noteUsed()
                     if state.autoPasteEnabled {
                         await injectFinalTextIfPossible(final)
                     }

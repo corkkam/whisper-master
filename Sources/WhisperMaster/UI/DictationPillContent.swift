@@ -15,8 +15,14 @@ struct DictationPillContent: View {
     /// uses a taller band to fit its text + button.
     private var showBanner: Bool { state.shouldShowBluetoothBanner }
 
+    /// A gentle reminder — lower priority than the Bluetooth hint, shown only
+    /// when idle (`AppState.shouldShowReminder` already gates that).
+    private var showReminder: Bool { !showBanner && state.shouldShowReminder }
+
     private var bandThickness: CGFloat {
-        showBanner ? layout.bannerThickness : layout.bottomThickness
+        if showBanner { return layout.bannerThickness }
+        if showReminder { return layout.reminderThickness }
+        return layout.bottomThickness
     }
 
     private var expandedHeight: CGFloat {
@@ -25,7 +31,7 @@ struct DictationPillContent: View {
 
     /// Whether the surface should be dropped down and visible.
     private var isExpanded: Bool {
-        if showBanner { return true } // the hint shows even when idle
+        if showBanner || showReminder { return true } // hints show even when idle
         guard hasContent else { return false }
         if state.phase == .idle && state.hidePillWhenIdle { return false }
         return true
@@ -67,12 +73,15 @@ struct DictationPillContent: View {
         .allowsHitTesting(showBanner)
         .animation(.spring(response: 0.38, dampingFraction: 0.78), value: isExpanded)
         .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showBanner)
+        .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showReminder)
     }
 
     @ViewBuilder
     private var band: some View {
         if showBanner {
             NotchBluetoothBanner(state: state)
+        } else if showReminder, let line = state.activeReminder {
+            NotchReminderBanner(text: line)
         } else {
             DictationStatusView(state: state)
         }
