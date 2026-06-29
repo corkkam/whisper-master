@@ -29,7 +29,14 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
 fi
 
 DERIVED="build/DerivedData"
+BUILD_LOG="build/xcodebuild-$CONFIG.log"
+mkdir -p build
 echo ">> Building $SCHEME ($CONFIG) with xcodebuild"
+# Don't swallow xcodebuild's output: keep a full log and surface
+# errors/warnings to the console (and CI logs) so a compile failure is
+# actually diagnosable. `PIPESTATUS[0]` preserves xcodebuild's real exit code
+# through the filter pipe.
+set +e
 xcodebuild \
     -project WhisperMaster.xcodeproj \
     -scheme "$SCHEME" \
@@ -40,7 +47,13 @@ xcodebuild \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
     ${SIGN_FLAGS[@]+"${SIGN_FLAGS[@]}"} \
-    clean build >/dev/null
+    clean build 2>&1 | tee "$BUILD_LOG" | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
+xc_status=${PIPESTATUS[0]}
+set -e
+if [[ "$xc_status" -ne 0 ]]; then
+    echo "error: xcodebuild failed (exit $xc_status). Full log: $BUILD_LOG" >&2
+    exit 1
+fi
 
 PRODUCT="$DERIVED/Build/Products/$CONFIG/$SCHEME.app"
 APP_DIR="build/${APP_NAME}.app"
