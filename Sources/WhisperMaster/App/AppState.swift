@@ -59,6 +59,13 @@ final class AppState {
     var hidePillWhenIdle: Bool = true
     var phase: RecordingPhase = .idle
     var download: ModelDownloadSnapshot?
+    /// True while the system default audio input is a Bluetooth device (set by
+    /// `BluetoothInputMonitor`). Such a mic forces the headset into low-quality
+    /// "call mode", so the notch offers a one-tap switch to the built-in mic.
+    var bluetoothInputActive: Bool = false
+    /// The user dismissed (or acted on) the Bluetooth-mic hint this session.
+    /// Reset when the Bluetooth input goes away so the hint can return.
+    var bluetoothBannerDismissed: Bool = false
     /// True while the R2 mirror was unavailable and the model is coming from the
     /// slower HuggingFace fallback — surfaced in the UI so a slow prepare is
     /// never a silent mystery.
@@ -93,6 +100,12 @@ final class AppState {
 
     var canStop: Bool {
         phase == .recording
+    }
+
+    /// Show the Bluetooth-mic hint in the notch only when idle (never mid-
+    /// recording) and the user hasn't dismissed it.
+    var shouldShowBluetoothBanner: Bool {
+        bluetoothInputActive && !bluetoothBannerDismissed && phase == .idle
     }
 
     func resetTranscript() {

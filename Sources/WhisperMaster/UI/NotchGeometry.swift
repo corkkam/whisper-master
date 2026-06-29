@@ -42,6 +42,9 @@ struct NotchSurfaceLayout {
     /// Thickness of the band below the notch that holds the content. Kept
     /// shallow so the surface reads as a wide, short shelf.
     var bottomThickness: CGFloat = 20
+    /// Taller band used when the notch hosts the Bluetooth-mic hint (icon + text
+    /// + button need more room than the thin dictation indicator).
+    var bannerThickness: CGFloat = 58
     /// Radius of the concave flare where the top meets the bezel.
     var topConcaveRadius: CGFloat = 12
     /// Radius of the surface's rounded bottom corners.
@@ -54,11 +57,12 @@ struct NotchSurfaceLayout {
         geometry.hasNotch ? geometry.notchWidth : fallbackBodyWidth
     }
 
-    /// Full size of the floating panel for a given geometry.
+    /// Full size of the floating panel for a given geometry. Height fits the
+    /// tallest band the surface can show (the banner) so the panel never clips.
     func panelSize(for geometry: NotchGeometry) -> CGSize {
         CGSize(
             width: bodyWidth(for: geometry) + sideExtension * 2,
-            height: geometry.notchHeight + bottomThickness
+            height: geometry.notchHeight + max(bottomThickness, bannerThickness)
         )
     }
 

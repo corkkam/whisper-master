@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server: transcriptionServer
     )
     private var pillWindow: DictationPillWindow?
+    private var bluetoothInputMonitor: BluetoothInputMonitor?
     private var onboardingWindow: OnboardingWindow?
     private var statusRefreshTimer: Timer?
     private var settingsItem: NSMenuItem?
@@ -310,6 +311,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stopItem?.isEnabled = state.canStop
         cancelItem?.isHidden = state.preparingEngine == nil
 
+        // The notch panel is click-through except while the Bluetooth-mic banner
+        // is up, where its button needs to receive clicks.
+        pillWindow?.setInteractive(state.shouldShowBluetoothBanner)
+
         refreshHistoryMenu()
     }
 
@@ -444,6 +449,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupPill() {
         pillWindow = DictationPillWindow(state: viewModel.state)
         pillWindow?.show()
+        // Watch for a Bluetooth mic input so the notch can offer to switch to
+        // the built-in mic (keeps earphones in hi-fi). Read-only detection.
+        bluetoothInputMonitor = BluetoothInputMonitor(state: viewModel.state)
+        bluetoothInputMonitor?.start()
     }
 
     private func setupHotkey() {
@@ -552,6 +561,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func quitApp() {
         statusRefreshTimer?.invalidate()
         statusRefreshTimer = nil
+        bluetoothInputMonitor?.stop()
         viewModel.shutdown()
         NSApp.terminate(nil)
     }

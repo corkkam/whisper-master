@@ -46,6 +46,13 @@ final class DictationPillWindow {
         panel.orderOut(nil)
     }
 
+    /// Let the panel receive clicks only while it shows an interactive element
+    /// (the Bluetooth-mic banner). Otherwise it stays click-through so the
+    /// passive dictation indicator never intercepts the menu bar.
+    func setInteractive(_ interactive: Bool) {
+        panel.ignoresMouseEvents = !interactive
+    }
+
     /// Prefer the display that actually has a notch; fall back to the main one.
     private var targetScreen: NSScreen? {
         NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
