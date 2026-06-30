@@ -62,10 +62,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Sparkle's gentle "update available" reminder posts a macOS
         // notification. The delegate is required so the banner shows even while
         // the app is active (willPresent) and tapping it triggers the update
-        // (didReceive) — without it the notification is suppressed/inert.
+        // (didReceive) — without it the notification is suppressed/inert. The
+        // authorization *request* is deferred below: when onboarding runs, its
+        // Notifications step owns the prompt so it doesn't surprise the user
+        // before the window even appears.
         let notificationCenter = UNUserNotificationCenter.current()
         notificationCenter.delegate = self
-        notificationCenter.requestAuthorization(options: [.alert, .sound]) { _, _ in }
 
         // Touch the lazy updater so it starts now (startingUpdater: true) and
         // runs scheduled background checks. Without this it would only be
@@ -81,8 +83,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if needsOnboarding {
             showOnboarding()
-        } else if !viewModel.state.selectedEngine.isInstalled {
-            showWindow()
+        } else {
+            // Past onboarding (it won't show), so ask for notification permission
+            // here instead — the onboarding step that normally owns the prompt
+            // never runs for these users.
+            notificationCenter.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            if !viewModel.state.selectedEngine.isInstalled {
+                showWindow()
+            }
         }
     }
 
