@@ -1,46 +1,112 @@
 import SwiftUI
 
-/// The progress dots + connectors shown across the top of the onboarding wizard.
-struct OnboardingStepHeader: View {
+// MARK: - Card chrome
+
+/// Shared boxed-card chrome for onboarding tiles (mic-test box, engine-status
+/// card, permission tiles). `highlighted` swaps the hairline for a success tint.
+extension View {
+    func onboardingCard(highlighted: Bool = false, radius: CGFloat = 16) -> some View {
+        modifier(OnboardingCardChrome(highlighted: highlighted, radius: radius))
+    }
+}
+
+private struct OnboardingCardChrome: ViewModifier {
+    let highlighted: Bool
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Theme.surface))
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(highlighted ? Theme.success.opacity(0.5) : Theme.stroke, lineWidth: 1)
+            )
+    }
+}
+
+// MARK: - Progress bar
+
+/// Labeled segmented progress for the wizard: one capsule per step (filled up to
+/// the current one), with the active step's name and an "02 / 06" counter below.
+struct OnboardingProgressBar: View {
     let step: OnboardingStep
 
+    private var steps: [OnboardingStep] { OnboardingStep.allCases }
+
     var body: some View {
-        HStack(spacing: 10) {
-            ForEach(OnboardingStep.allCases, id: \.rawValue) { value in
-                dot(for: value)
-                if value != OnboardingStep.allCases.last {
-                    Rectangle()
-                        .fill(value.rawValue < step.rawValue ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.stroke))
-                        .frame(height: 2)
+        VStack(spacing: 11) {
+            HStack(spacing: 6) {
+                ForEach(steps, id: \.rawValue) { value in
+                    Capsule(style: .continuous)
+                        .fill(value.rawValue <= step.rawValue ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.stroke))
+                        .frame(height: 4)
                         .frame(maxWidth: .infinity)
+                        .animation(.easeInOut(duration: 0.22), value: step)
                 }
             }
-        }
-    }
 
-    private func dot(for value: OnboardingStep) -> some View {
-        let isCurrent = value == step
-        let isComplete = value.rawValue < step.rawValue
-        return ZStack {
-            Circle()
-                .fill(isCurrent || isComplete ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.surface))
-                .frame(width: 22, height: 22)
-                .overlay(
-                    Circle().strokeBorder(isCurrent ? Color.white.opacity(0.3) : Theme.strokeStrong, lineWidth: 1)
-                )
-            if isComplete {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .heavy))
-                    .foregroundStyle(.white)
-            } else if isCurrent {
-                Circle().fill(.white).frame(width: 6, height: 6)
+            HStack {
+                Text(step.title.uppercased())
+                    .font(Typography.kicker)
+                    .tracking(2.2)
+                    .foregroundStyle(Theme.accent)
+                Spacer()
+                Text(String(format: "%02d / %02d", step.rawValue + 1, steps.count))
+                    .font(Typography.monoSmall)
+                    .foregroundStyle(Theme.textTertiary)
             }
         }
     }
 }
 
-/// A permission step page (microphone / accessibility): icon, heading, body, and
-/// a primary action with an optional secondary (e.g. "Skip for now").
+// MARK: - Waveform signature
+
+/// The voice-waveform motif that threads the whole flow. Two moods: `ambient`
+/// draws a calm, static silhouette (Welcome / Done); otherwise it reacts to a
+/// live mic `level` and glows in the accent while `active`.
+struct OnboardingWaveform: View {
+    var level: Float = 0
+    var active: Bool = false
+    var ambient: Bool = false
+
+    private let barCount = 32
+
+    var body: some View {
+        GeometryReader { geo in
+            let spacing: CGFloat = 4
+            let barWidth = max(2, (geo.size.width - spacing * CGFloat(barCount - 1)) / CGFloat(barCount))
+            HStack(alignment: .center, spacing: spacing) {
+                ForEach(0..<barCount, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(active ? Theme.accent : Theme.strokeStrong)
+                        .frame(width: barWidth, height: height(index: index, total: geo.size.height))
+                        .animation(.easeOut(duration: 0.08), value: level)
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .center)
+        }
+    }
+
+    /// Bars taper toward the edges (center-weighted envelope). Ambient mode adds
+    /// a fixed sine ripple so the resting shape reads as a waveform, not a flat row.
+    private func height(index: Int, total: CGFloat) -> CGFloat {
+        let center = Double(barCount - 1) / 2
+        let distance = abs(Double(index) - center) / center
+        let envelope = 1 - pow(distance, 2)
+        if ambient {
+            let ripple = 0.5 + 0.5 * sin(Double(index) * 0.9)
+            return max(3, CGFloat(envelope * (0.18 + 0.34 * ripple)) * total)
+        }
+        let normalized = min(1, Double(level) * 6)
+        return max(4, CGFloat(envelope * normalized) * total)
+    }
+}
+
+// MARK: - Permission page
+
+/// A permission step (microphone / accessibility / notifications): an icon tile,
+/// heading + live status line, body copy, and a primary action with an optional
+/// secondary (e.g. "Skip for now").
 struct OnboardingPermissionPage: View {
     let kicker: String
     let icon: String
@@ -53,6 +119,12 @@ struct OnboardingPermissionPage: View {
     let primaryAction: () -> Void
     var secondaryLabel: String?
     var secondaryAction: (() -> Void)?
+
+    private var statusLine: String {
+        if granted { return "Granted. You're good to go." }
+        if denied { return "Turned off — open Settings to allow it." }
+        return "Not yet granted."
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -68,9 +140,9 @@ struct OnboardingPermissionPage: View {
                 VStack(alignment: .leading, spacing: 4) {
                     KickerLabel(kicker)
                     Text(heading)
-                        .font(Typography.sans(22, .bold))
+                        .font(Typography.sans(23, .bold))
                         .foregroundStyle(Theme.textPrimary)
-                    Text(granted ? "Granted. You're good to go." : "Not yet granted.")
+                    Text(statusLine)
                         .font(Typography.body)
                         .foregroundStyle(granted ? Theme.success : Theme.textSecondary)
                 }
@@ -111,38 +183,7 @@ struct OnboardingPermissionPage: View {
     }
 }
 
-/// The center-weighted bar meter used for the live mic check.
-struct OnboardingLevelMeter: View {
-    let level: Float
-    let active: Bool
-
-    private let barCount = 32
-
-    var body: some View {
-        GeometryReader { geo in
-            let spacing: CGFloat = 4
-            let totalSpacing = spacing * CGFloat(barCount - 1)
-            let barWidth = max(2, (geo.size.width - totalSpacing) / CGFloat(barCount))
-            HStack(alignment: .center, spacing: spacing) {
-                ForEach(0..<barCount, id: \.self) { index in
-                    bar(index: index, width: barWidth, height: geo.size.height)
-                }
-            }
-        }
-    }
-
-    private func bar(index: Int, width: CGFloat, height: CGFloat) -> some View {
-        let center = Double(barCount - 1) / 2.0
-        let distance = abs(Double(index) - center) / center
-        let envelope = 1.0 - pow(distance, 2.0)
-        let normalized = min(1.0, Double(level) * 6.0)
-        let h = max(4, CGFloat(envelope * normalized) * height)
-        return RoundedRectangle(cornerRadius: 2, style: .continuous)
-            .fill(active ? Theme.accent : Theme.strokeStrong)
-            .frame(width: width, height: h)
-            .animation(.easeOut(duration: 0.08), value: level)
-    }
-}
+// MARK: - Welcome bullet
 
 /// A single accent-bulleted line on the welcome page.
 struct OnboardingBullet: View {
