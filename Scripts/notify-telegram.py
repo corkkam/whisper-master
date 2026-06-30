@@ -15,6 +15,8 @@ Configuration (all via env):
 If either of the two required vars is missing the script logs and exits 0, so a
 repo without Telegram configured still releases fine.
 """
+from __future__ import annotations
+
 import os
 import plistlib
 import subprocess
@@ -37,21 +39,53 @@ def git(*args: str) -> str:
     ).stdout.strip()
 
 
-def release_notes() -> list[str]:
-    """Commit subjects introduced by this push, newest first, de-noised."""
-    before = os.environ.get("RANGE_BEFORE", "").strip()
-    after = os.environ.get("RANGE_AFTER", "").strip() or "HEAD"
+def previous_release_tag() -> str | None:
+    """The most recent `v*` tag reachable from HEAD — i.e. the previous release.
 
-    rng = f"{before}..{after}" if before and before != ZEROS else f"{after}~20..{after}"
+    This runs *before* the current release is tagged, so `git describe` returns
+    the prior release tag, giving an accurate "everything since last release"
+    range even when the changes were spread across several pushes.
+    """
+    try:
+        return git("describe", "--tags", "--abbrev=0", "--match", "v*", "HEAD")
+    except subprocess.CalledProcessError:
+        return None
+
+
+def commit_range() -> str:
+    """Range to read commits from: prefer last-release-tag..HEAD; otherwise fall
+    back to this push's range, then to the last 20 commits."""
+    after = os.environ.get("RANGE_AFTER", "").strip() or "HEAD"
+    tag = previous_release_tag()
+    if tag:
+        return f"{tag}..{after}"
+    before = os.environ.get("RANGE_BEFORE", "").strip()
+    if before and before != ZEROS:
+        return f"{before}..{after}"
+    return f"{after}~20..{after}"
+
+
+def is_noise(subject: str) -> bool:
+    """Housekeeping commits not worth announcing."""
+    if "[skip release]" in subject:
+        return True
+    if subject.startswith(("Merge ", "release:", "bump ")):
+        return True
+    if subject.startswith("build:") and "bump" in subject:
+        return True
+    return False
+
+
+def release_notes() -> list[str]:
+    """Commit subjects since the last release, newest first, de-noised."""
+    rng = commit_range()
     try:
         raw = git("log", "--no-merges", "--pretty=format:%s", rng)
     except subprocess.CalledProcessError:
         raw = git("log", "--no-merges", "-1", "--pretty=format:%s")
 
     subjects = [s.strip() for s in raw.splitlines() if s.strip()]
-    # Drop housekeeping commits that aren't worth announcing.
-    skip = ("[skip release]", "Merge ", "bump to ", "bump version", "build: bump")
-    notes = [s for s in subjects if not any(tok in s for tok in skip)]
+    notes = [s for s in subjects if not is_noise(s)]
     return notes or subjects  # fall back to raw if filtering emptied it
 
 

@@ -58,12 +58,15 @@ jobs:
     needs: gate
     if: ${{ needs.gate.outputs.release == 'true' && !contains(github.event.head_commit.message, '[skip release]') }}
     runs-on: macos-15
+    permissions:
+      contents: write   # push the v<version> release tag
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history so the Telegram step can build release notes from the
-          # commits in this push (github.event.before..github.sha).
+          # Full history + tags so the Telegram step can build release notes
+          # spanning everything since the previous release tag.
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Show toolchain
         run: xcodebuild -version
@@ -118,7 +121,9 @@ jobs:
 
       - name: Announce release on Telegram
         # Only after a successful upload. No-ops (exit 0) if the Telegram secrets
-        # aren't configured, so it never blocks a release.
+        # aren't configured. continue-on-error so a notification hiccup never
+        # fails the release (or skips the release-tag step below).
+        continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -126,3 +131,18 @@ jobs:
           RANGE_BEFORE: ${{ github.event.before }}
           RANGE_AFTER: ${{ github.sha }}
         run: python3 Scripts/notify-telegram.py
+
+      - name: Tag the release
+        # Runs after the announcement so this release's own tag doesn't shrink
+        # its notes range. The tag becomes the baseline for the NEXT release's
+        # "everything since last release" notes. Idempotent; ignored by the
+        # push trigger (branches-only), so it can't loop.
+        run: |
+          set -euo pipefail
+          VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          if git rev-parse "v$VER" >/dev/null 2>&1; then
+            echo "tag v$VER already exists; skipping"
+            exit 0
+          fi
+          git tag "v$VER" "${{ github.sha }}"
+          git push origin "v$VER"
