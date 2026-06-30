@@ -122,7 +122,8 @@ jobs:
       - name: Announce release on Telegram
         # Only after a successful upload. No-ops (exit 0) if the Telegram secrets
         # aren't configured. continue-on-error so a notification hiccup never
-        # fails the release (or skips the release-tag step below).
+        # fails the release (or skips the release-tag step below). Posts the
+        # release commit message and attaches the built app zip.
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

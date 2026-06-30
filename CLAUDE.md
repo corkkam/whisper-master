@@ -98,6 +98,15 @@ A "release" = put a newer, EdDSA-signed `.zip` + an updated `appcast.xml` on R2;
 
 **What a tester sees:** their installed app's Sparkle polls `SUFeedURL`, sees a higher `CFBundleVersion`, downloads the signed zip, swaps the app in place, and relaunches — no reinstall. Builds are now **Developer ID-signed and notarized**, so first-ever installs open without any Gatekeeper warning — the `xattr -dr com.apple.quarantine` step is no longer needed.
 
+### Release announcements (Telegram) — the commit message IS the post
+
+After a successful CI release, `Scripts/notify-telegram.py` (final step in `release.yml`) posts to the Telegram group `Corkkam.com` (chat id stored in the `TELEGRAM_CHAT_ID` secret; bot token in `TELEGRAM_BOT_TOKEN`) **and attaches the built app zip** (`build/sparkle/WhisperMaster-<version>.zip` — the Sparkle archive, i.e. the actual `.app`, not a DMG) so people download it straight from the group. **No LLM is involved** — the announcement text is taken verbatim from the release commit message, so write that message as finished, post-ready copy:
+
+- The **body** of the release commit (everything after the subject line) is posted verbatim as the announcement, then reused for X/Twitter. Write it for users, not developers: lead with what's new in plain language (translate `feat:`/`fix:` jargon into benefits), keep it tight (a few lines), friendly and concrete, at most one tasteful emoji, no hashtags/markdown. Don't claim features that aren't in the release.
+- If the release commit has **no body**, the script falls back to a `🚀 Whisper Master <version>` heading plus a bullet list of the commit subjects since the last `v*` tag — so even subjects should read as user-facing release-note lines (`Merge`, `release:`, `bump`, and `[skip release]` commits are filtered out).
+- The version header and download link are NOT auto-added when a body is present — put whatever headline/version mention you want in the body itself. A `[skip release]` trailer is stripped from the posted text.
+- The step is `continue-on-error` and no-ops without the Telegram secrets, so a notification hiccup never fails a release.
+
 **Publishing a model to R2** (separate from app releases): from `~/Library/Application Support/FluidAudio/Models`, `ditto -c -k --keepParent <dir> <dir>.zip`, then `rclone` it to `whisper-master/models/` (creds from `.env`). Done for the engine (`parakeet-tdt-0.6b-v3`) and CTC (`parakeet-ctc-110m-coreml`) models; the app installs them mirror-first via `ModelInstaller`.
 
 ## Architecture
