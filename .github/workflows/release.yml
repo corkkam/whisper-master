@@ -60,6 +60,10 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so the Telegram step can build release notes from the
+          # commits in this push (github.event.before..github.sha).
+          fetch-depth: 0
 
       - name: Show toolchain
         run: xcodebuild -version
@@ -111,3 +115,14 @@ jobs:
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
         run: bash Scripts/release.sh
+
+      - name: Announce release on Telegram
+        # Only after a successful upload. No-ops (exit 0) if the Telegram secrets
+        # aren't configured, so it never blocks a release.
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+          RANGE_BEFORE: ${{ github.event.before }}
+          RANGE_AFTER: ${{ github.sha }}
+        run: python3 Scripts/notify-telegram.py
