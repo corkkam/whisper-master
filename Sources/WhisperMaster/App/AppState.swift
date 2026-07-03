@@ -101,10 +101,11 @@ final class AppState {
             }
         }
     }
-    /// Opt-in to share anonymous usage analytics (TelemetryDeck). **Off by
-    /// default.** Never includes transcripts — only app version, OS, and coarse
-    /// feature counts. Toggling here starts/stops the analytics SDK live.
-    var analyticsEnabled: Bool = false {
+    /// Share anonymous usage analytics (TelemetryDeck). **On by default —
+    /// opt-out.** Safe to default on because the data carries no PII: never
+    /// transcripts, only app version, OS, and coarse feature counts. Users can
+    /// switch it off in Settings → About. Toggling starts/stops the SDK live.
+    var analyticsEnabled: Bool = true {
         didSet {
             UserDefaults.standard.set(analyticsEnabled, forKey: Self.analyticsEnabledDefaultsKey)
             Analytics.shared.setEnabled(analyticsEnabled)
@@ -138,8 +139,8 @@ final class AppState {
         remindersEnabled = UserDefaults.standard.object(forKey: Self.remindersEnabledDefaultsKey) as? Bool ?? false
         // Opt-in: off until the user has explicitly turned it on.
         keepAwakeForRemote = UserDefaults.standard.object(forKey: Self.keepAwakeForRemoteDefaultsKey) as? Bool ?? false
-        // Opt-in: off until the user has explicitly turned it on.
-        analyticsEnabled = UserDefaults.standard.object(forKey: Self.analyticsEnabledDefaultsKey) as? Bool ?? false
+        // Opt-out: on unless the user has explicitly turned it off.
+        analyticsEnabled = UserDefaults.standard.object(forKey: Self.analyticsEnabledDefaultsKey) as? Bool ?? true
         // On by default; absent key means a fresh install → enabled.
         itnEnabled = FormattingPreference.isEnabled
         // Off by default; the deterministic rules handle formatting unless opted in.
