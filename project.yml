@@ -23,6 +23,9 @@ packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: "2.6.0"
+  TelemetryDeck:
+    url: https://github.com/TelemetryDeck/SwiftSDK
+    from: "2.0.0"
 
 targets:
   WhisperMaster:
@@ -35,6 +38,8 @@ targets:
     dependencies:
       - package: FluidAudio
       - package: Sparkle
+      - package: TelemetryDeck
+        product: TelemetryDeck
     settings:
       base:
         PRODUCT_NAME: WhisperMaster

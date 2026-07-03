@@ -15,6 +15,9 @@ final class DictationViewModel {
     private var pendingAppendTasks: [UUID: Task<Void, Never>] = [:]
     private var preparationTask: Task<Void, Never>?
     private let releaseTailNanoseconds: UInt64 = 80_000_000
+    /// When the current recording actually started capturing, for the analytics
+    /// duration bucket. `nil` between sessions.
+    private var recordingStartedAt: Date?
     /// Drives gentle "you haven't used me in a while" reminders in the notch.
     private lazy var reminderScheduler = ReminderScheduler(state: state)
 
@@ -116,6 +119,7 @@ final class DictationViewModel {
                     }
                 )
 
+                recordingStartedAt = Date()
                 state.phase = .recording
                 state.statusMessage = "Recording with \(state.selectedEngine.displayName)..."
             } catch {
@@ -126,6 +130,11 @@ final class DictationViewModel {
 
     func stopRecording() {
         guard state.canStop else { return }
+
+        // Capture session length now, at the user's stop, before the async
+        // finalize work; cleared so a cancelled/failed run can't reuse it.
+        let sessionDuration = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        recordingStartedAt = nil
 
         state.phase = .stopping
         state.audioLevel = 0
@@ -146,6 +155,11 @@ final class DictationViewModel {
                     state.transcript.latestPartial = ""
                     state.appendHistory(text: final, engine: state.selectedEngine)
                     reminderScheduler.noteUsed()
+                    Analytics.shared.send(.dictationCompleted(
+                        engine: state.selectedEngine.rawValue,
+                        duration: sessionDuration,
+                        wordCount: final.split(whereSeparator: \.isWhitespace).count
+                    ))
                     if state.autoPasteEnabled {
                         await injectFinalTextIfPossible(final)
                     }

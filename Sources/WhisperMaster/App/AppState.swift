@@ -50,6 +50,7 @@ final class AppState {
     static let vocabularyDefaultsKey = "WhisperMaster.customVocabulary.v1"
     static let remindersEnabledDefaultsKey = "WhisperMaster.remindersEnabled.v1"
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
+    static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
 
     var selectedEngine: TranscriberEngine = .slidingWindow
     var preparedEngine: TranscriberEngine?
@@ -100,6 +101,15 @@ final class AppState {
             }
         }
     }
+    /// Opt-in to share anonymous usage analytics (TelemetryDeck). **Off by
+    /// default.** Never includes transcripts — only app version, OS, and coarse
+    /// feature counts. Toggling here starts/stops the analytics SDK live.
+    var analyticsEnabled: Bool = false {
+        didSet {
+            UserDefaults.standard.set(analyticsEnabled, forKey: Self.analyticsEnabledDefaultsKey)
+            Analytics.shared.setEnabled(analyticsEnabled)
+        }
+    }
     /// Availability of Apple's on-device model (drives the Settings hint).
     /// Refreshed by the status loop so it updates live as the model downloads.
     var appleIntelligenceStatus: AppleIntelligenceStatus = .current
@@ -128,6 +138,8 @@ final class AppState {
         remindersEnabled = UserDefaults.standard.object(forKey: Self.remindersEnabledDefaultsKey) as? Bool ?? false
         // Opt-in: off until the user has explicitly turned it on.
         keepAwakeForRemote = UserDefaults.standard.object(forKey: Self.keepAwakeForRemoteDefaultsKey) as? Bool ?? false
+        // Opt-in: off until the user has explicitly turned it on.
+        analyticsEnabled = UserDefaults.standard.object(forKey: Self.analyticsEnabledDefaultsKey) as? Bool ?? false
         // On by default; absent key means a fresh install → enabled.
         itnEnabled = FormattingPreference.isEnabled
         // Off by default; the deterministic rules handle formatting unless opted in.

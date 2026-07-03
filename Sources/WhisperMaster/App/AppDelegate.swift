@@ -81,6 +81,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the user reaches the last step it's ideally already ready.
         viewModel.prepareDefaultEngineOnLaunch()
 
+        // Anonymous, opt-in usage analytics (off unless the user enabled it in
+        // Settings). Configure from the persisted flag, then record this launch.
+        Analytics.shared.configure(enabled: viewModel.state.analyticsEnabled)
+        reportLaunchAnalytics()
+
         if needsOnboarding {
             showOnboarding()
         } else {
@@ -96,6 +101,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// Fire the launch-time analytics signals. No-ops entirely when the user
+    /// hasn't opted in (the `Analytics` wrapper gates every send).
+    private func reportLaunchAnalytics() {
+        Analytics.shared.send(.appLaunched)
+        Analytics.shared.send(.permissionState(
+            accessibility: permissionsManager.accessibilityGranted(),
+            microphone: permissionsManager.microphoneStatus() == .granted
+        ))
+        // Fired only on the first launch after an update; commits the version
+        // regardless, so opting in later never reports a stale update.
+        if let from = AnalyticsIdentity.consumeVersionChange() {
+            Analytics.shared.send(.updateInstalled(from: from, to: AnalyticsIdentity.currentVersion))
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -515,6 +535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.onboardingWindow?.close()
             self.onboardingWindow = nil
+            Analytics.shared.send(.onboardingFinished)
             // Engine prep was kicked off at launch; retry here only if it
             // never started or previously failed (the call is idempotent).
             self.viewModel.prepareDefaultEngineOnLaunch()

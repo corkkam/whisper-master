@@ -50,6 +50,15 @@ struct AboutSettingsView: View {
                         .foregroundStyle(Theme.textSecondary)
                 }
             }
+
+            SectionLabel("Analytics")
+
+            SettingsCard {
+                SettingsRow("Share anonymous usage",
+                            subtitle: "App version, macOS, and feature counts — never your transcripts. Helps improve the app.") {
+                    ThemeToggle(isOn: $state.analyticsEnabled)
+                }
+            }
         }
     }
 }
