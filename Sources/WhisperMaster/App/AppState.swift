@@ -49,6 +49,7 @@ final class AppState {
     static let historyLimit = 50
     static let vocabularyDefaultsKey = "WhisperMaster.customVocabulary.v1"
     static let remindersEnabledDefaultsKey = "WhisperMaster.remindersEnabled.v1"
+    static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
 
     var selectedEngine: TranscriberEngine = .slidingWindow
     var preparedEngine: TranscriberEngine?
@@ -75,6 +76,33 @@ final class AppState {
     var remindersEnabled: Bool = false {
         didSet { UserDefaults.standard.set(remindersEnabled, forKey: Self.remindersEnabledDefaultsKey) }
     }
+    /// Keep this Mac awake so the phone can reach it for remote dictation even
+    /// after it's been sitting locked and idle. Persisted; **opt-in** — off by
+    /// default because it prevents idle sleep entirely (a battery cost). When off,
+    /// an in-progress remote session still holds the Mac awake on its own.
+    var keepAwakeForRemote: Bool = false {
+        didSet { UserDefaults.standard.set(keepAwakeForRemote, forKey: Self.keepAwakeForRemoteDefaultsKey) }
+    }
+    /// Whether spoken numbers/symbols are rewritten to written form (ITN) on the
+    /// final transcript — "twenty five" → "25", "at gmail dot com" → "@gmail.com".
+    /// Persisted; **on by default**. The escape hatch if a conversion ever misfires.
+    var itnEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(itnEnabled, forKey: FormattingPreference.defaultsKey) }
+    }
+    /// Opt-in to use Apple's on-device LLM for formatting instead of the built-in
+    /// rules. **Off by default.** Turning it off drops the model session so it
+    /// stops consuming resources — nothing Apple-Intelligence-related stays loaded.
+    var useAppleIntelligence: Bool = false {
+        didSet {
+            UserDefaults.standard.set(useAppleIntelligence, forKey: AppleIntelligencePreference.defaultsKey)
+            if !useAppleIntelligence {
+                Task { await TextFormatterProvider.shared.releaseApple() }
+            }
+        }
+    }
+    /// Availability of Apple's on-device model (drives the Settings hint).
+    /// Refreshed by the status loop so it updates live as the model downloads.
+    var appleIntelligenceStatus: AppleIntelligenceStatus = .current
     /// True while the R2 mirror was unavailable and the model is coming from the
     /// slower HuggingFace fallback — surfaced in the UI so a slow prepare is
     /// never a silent mystery.
@@ -98,6 +126,12 @@ final class AppState {
         customVocabulary = Self.loadVocabulary()
         // Opt-in: off until the user has explicitly turned it on.
         remindersEnabled = UserDefaults.standard.object(forKey: Self.remindersEnabledDefaultsKey) as? Bool ?? false
+        // Opt-in: off until the user has explicitly turned it on.
+        keepAwakeForRemote = UserDefaults.standard.object(forKey: Self.keepAwakeForRemoteDefaultsKey) as? Bool ?? false
+        // On by default; absent key means a fresh install → enabled.
+        itnEnabled = FormattingPreference.isEnabled
+        // Off by default; the deterministic rules handle formatting unless opted in.
+        useAppleIntelligence = AppleIntelligencePreference.isEnabled
     }
 
     var canStart: Bool {

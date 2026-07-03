@@ -13,6 +13,7 @@ struct MeshSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             summary
+            keepAwake
             roster
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.8), value: peers)
@@ -36,6 +37,17 @@ struct MeshSettingsView: View {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.system(size: 22, weight: .regular))
                     .foregroundStyle(Theme.accent)
+            }
+        }
+    }
+
+    // MARK: Keep awake
+
+    private var keepAwake: some View {
+        SettingsCard {
+            SettingsRow("Keep this Mac awake for phone dictation",
+                        subtitle: "Stops the Mac from sleeping while idle so your phone can reach it even after the screen locks. Uses more battery; a dictation already in progress keeps the Mac awake on its own.") {
+                ThemeToggle(isOn: $state.keepAwakeForRemote)
             }
         }
     }

@@ -329,6 +329,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
 
+        // Sync the "keep this Mac awake for phone dictation" opt-in to the server.
+        // `setKeepAwakeAlways` is transition-guarded, so calling it every tick is
+        // cheap — the timer is our bridge from @Observable state to AppKit.
+        transcriptionServer.setKeepAwakeAlways(state.keepAwakeForRemote)
+
+        // Keep Apple Intelligence availability fresh so the Settings hint updates
+        // live as the model finishes downloading. Only write on change.
+        let aiStatus = AppleIntelligenceStatus.current
+        if state.appleIntelligenceStatus != aiStatus {
+            state.appleIntelligenceStatus = aiStatus
+        }
+
         refreshHistoryMenu()
     }
 

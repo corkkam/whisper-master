@@ -128,7 +128,11 @@ actor RemoteTranscriptionSession {
         isRunning = false
         onRecordingChange(false)
         do {
-            let final = try await transcriber.stop()
+            let rawFinal = try await transcriber.stop()
+            let formatter = await TextFormatterProvider.shared.current()
+            let shouldFormat = FormattingPreference.isEnabled && formatter.isAvailable
+                && FormattingHeuristic.mightNeedFormatting(rawFinal)
+            let final = shouldFormat ? await formatter.format(rawFinal) : rawFinal
             emit(.finalTranscript(text: final))
         } catch {
             emit(.state(.error(message: "Failed to finalize: \(error.localizedDescription)")))

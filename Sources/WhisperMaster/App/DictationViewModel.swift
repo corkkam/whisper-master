@@ -63,6 +63,11 @@ final class DictationViewModel {
         // A reminder showing now would be replaced by the live indicator anyway.
         reminderScheduler.clear()
 
+        // If the Apple Intelligence pass is opted in, warm it while the user talks
+        // so the post-dictation formatting is hot instead of a cold start. The
+        // default deterministic formatter's prewarm is a no-op.
+        Task { await TextFormatterProvider.shared.current().prewarm() }
+
         state.phase = .preparingModels
         state.audioLevel = 0
         state.resetTranscript()
@@ -132,7 +137,8 @@ final class DictationViewModel {
                 microphoneCapture.stop()
                 await drainPendingAudioBuffers()
                 state.statusMessage = "Finalizing local transcript..."
-                let final = try await transcriber.stop()
+                let rawFinal = try await transcriber.stop()
+                let final = await formatFinalTranscript(rawFinal)
                 state.phase = .idle
                 state.transcript.finalText = final
                 if !final.isEmpty {
@@ -149,6 +155,19 @@ final class DictationViewModel {
                 await handleFailure(error)
             }
         }
+    }
+
+    /// Run the on-device formatting pass on the final transcript when enabled
+    /// and available; otherwise return it unchanged. Never throws.
+    private func formatFinalTranscript(_ raw: String) async -> String {
+        guard state.itnEnabled, !raw.isEmpty,
+              FormattingHeuristic.mightNeedFormatting(raw)
+        else { return raw }
+        let formatter = await TextFormatterProvider.shared.current()
+        guard formatter.isAvailable else { return raw }
+        // Instant rules need no status; only the LLM pass shows "Formatting…".
+        if !formatter.isInstant { state.statusMessage = "Formatting…" }
+        return await formatter.format(raw)
     }
 
     func cancelSession() {
@@ -385,6 +404,11 @@ final class DictationViewModel {
 
         guard !Task.isCancelled else { return }
         Log.modelPrep.notice("Voice engine ready (\(engine.displayName, privacy: .public))")
+        Task {
+            let formatter = await TextFormatterProvider.shared.current()
+            Log.formatter.notice("formatter: \(String(describing: type(of: formatter)), privacy: .public)")
+            await formatter.prewarm()
+        }
         state.preparedEngine = engine
         state.preparingEngine = nil
         state.download = nil

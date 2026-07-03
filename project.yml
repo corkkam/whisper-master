@@ -12,6 +12,9 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+    # arm64-only (Apple Silicon). Matches the vendored arm64 ITN xcframework and
+    # how Scripts/bundle.sh already builds (-destination arch=arm64).
+    ARCHS: arm64
 
 packages:
   FluidAudio:

@@ -24,9 +24,13 @@ struct EngineSettingsView: View {
 
             SectionLabel("Words to get right")
             vocabularyCard
+
+            SectionLabel("Formatting")
+            formattingCard
         }
         .onAppear {
             vocabularyDraft = state.customVocabulary.joined(separator: "\n")
+            state.appleIntelligenceStatus = .current
         }
     }
 
@@ -120,6 +124,46 @@ struct EngineSettingsView: View {
     }
 
     // MARK: - Vocabulary card
+
+    private var formattingCard: some View {
+        SettingsCard {
+            SettingsRow("Format numbers & symbols",
+                        subtitle: "Writes spoken numbers and symbols short — \u{201C}twenty five\u{201D} becomes \u{201C}25\u{201D}, \u{201C}at gmail dot com\u{201D} becomes \u{201C}@gmail.com\u{201D}. Runs instantly on-device.") {
+                ThemeToggle(isOn: $state.itnEnabled)
+            }
+
+            RowDivider()
+
+            SettingsRow("Use Apple Intelligence",
+                        subtitle: "Experimental: format with Apple\u{2019}s on-device language model instead of the built-in rules. Slower, and needs Apple Intelligence turned on. Off keeps the model unloaded.") {
+                ThemeToggle(isOn: $state.useAppleIntelligence)
+            }
+
+            if state.useAppleIntelligence, let hint = state.appleIntelligenceStatus.settingsHint {
+                RowDivider()
+                HStack(alignment: .top, spacing: 10) {
+                    Text(hint)
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    if state.appleIntelligenceStatus.canOpenSettings {
+                        Button("Open Settings") { openAppleIntelligenceSettings() }
+                            .buttonStyle(.link)
+                            .font(Typography.caption)
+                            .fixedSize()
+                    }
+                }
+                .padding(.vertical, 13)
+            }
+        }
+    }
+
+    private func openAppleIntelligenceSettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.AppleIntelligence-Settings.extension")
+            ?? URL(string: "x-apple.systempreferences:")!
+        NSWorkspace.shared.open(url)
+    }
 
     private var vocabularyCard: some View {
         // Hairline group; the editor text sits flush at the same left edge as the

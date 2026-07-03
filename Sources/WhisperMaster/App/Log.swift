@@ -12,4 +12,7 @@ enum Log {
 
     /// Model download / install / load pipeline (R2 mirror, unzip, FluidAudio).
     static let modelPrep = Logger(subsystem: subsystem, category: "model-prep")
+
+    /// On-device text formatting (spoken → written form) via Apple's model.
+    static let formatter = Logger(subsystem: subsystem, category: "formatter")
 }

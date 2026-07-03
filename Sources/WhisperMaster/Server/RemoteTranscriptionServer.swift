@@ -29,6 +29,11 @@ final class RemoteTranscriptionServer {
     private var sessions: [UUID: SessionHandle] = [:]
     private var recordingCount = 0
 
+    /// Keeps the Mac from idle-sleeping while a session is active (and, when the
+    /// user opts in, whenever the app is running) so the phone stays reachable.
+    private let sleepPreventer = SleepPreventer()
+    private var keepAwakeAlways = false
+
     /// A dedicated queue keeps socket I/O off the main thread (audio frames
     /// arrive continuously while recording).
     private let queue = DispatchQueue(label: "app.whispermaster.server")
@@ -98,7 +103,19 @@ final class RemoteTranscriptionServer {
 
     private func recordingDidChange(_ active: Bool) {
         recordingCount = max(0, recordingCount + (active ? 1 : -1))
+        // Sessions toggle `active` in balanced true/false pairs, so acquiring on
+        // start and releasing on stop refcounts correctly across concurrent ones.
+        if active { sleepPreventer.acquire() } else { sleepPreventer.release() }
         loadDidChange()
+    }
+
+    /// Opt-in from Settings: hold exactly one persistent wake-lock while enabled,
+    /// so the Mac stays reachable even after sitting locked and idle. Idempotent —
+    /// the AppDelegate refresh loop calls this every tick.
+    func setKeepAwakeAlways(_ on: Bool) {
+        guard on != keepAwakeAlways else { return }
+        keepAwakeAlways = on
+        if on { sleepPreventer.acquire() } else { sleepPreventer.release() }
     }
 
     /// Re-publish the TXT record with the new load and notify observers.
