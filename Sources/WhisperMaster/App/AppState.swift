@@ -51,6 +51,9 @@ final class AppState {
     static let remindersEnabledDefaultsKey = "WhisperMaster.remindersEnabled.v1"
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
     static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
+    /// How long the "nowhere to type that" notch hint stays down before it
+    /// retracts on its own.
+    static let undeliveredBannerDuration: TimeInterval = 7
 
     var selectedEngine: TranscriberEngine = .slidingWindow
     var preparedEngine: TranscriberEngine?
@@ -72,6 +75,11 @@ final class AppState {
     /// The gentle-reminder line currently dropped down in the notch, or `nil`.
     /// Transient (never persisted); written only by `ReminderScheduler`.
     var activeReminder: String?
+    /// When the last dictation finished with no focused text field to paste
+    /// into — so it was saved to history and surfaced as a notch hint instead.
+    /// Transient (never persisted); set by the view model, auto-expired by the
+    /// AppDelegate refresh loop once `undeliveredBannerDuration` has passed.
+    var undeliveredTranscriptAt: Date?
     /// Whether gentle "you haven't used me in a while" reminders are enabled.
     /// Persisted; **opt-in** — off until the user turns it on in Settings.
     var remindersEnabled: Bool = false {
@@ -166,15 +174,28 @@ final class AppState {
         bluetoothInputActive && !bluetoothBannerDismissed && phase == .idle
     }
 
+    /// Show the "saved, nowhere to paste" hint when a recent dictation had no
+    /// target field, the app is idle, and nothing higher-priority (download,
+    /// prepare) owns the surface. Takes precedence over the Bluetooth hint and
+    /// the gentle reminder — it's the immediate result of the user's action.
+    var shouldShowUndeliveredBanner: Bool {
+        guard let at = undeliveredTranscriptAt else { return false }
+        return Date().timeIntervalSince(at) < Self.undeliveredBannerDuration
+            && phase == .idle
+            && download == nil
+            && preparingEngine == nil
+    }
+
     /// Show a gentle reminder in the notch only when one is queued, the app is
-    /// idle, and nothing higher-priority (download, prepare, Bluetooth hint) is
-    /// occupying the surface.
+    /// idle, and nothing higher-priority (download, prepare, Bluetooth hint,
+    /// undelivered hint) is occupying the surface.
     var shouldShowReminder: Bool {
         activeReminder != nil
             && phase == .idle
             && download == nil
             && preparingEngine == nil
             && !shouldShowBluetoothBanner
+            && !shouldShowUndeliveredBanner
     }
 
     func resetTranscript() {

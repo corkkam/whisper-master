@@ -48,6 +48,9 @@ struct NotchSurfaceLayout {
     /// Band used for a gentle reminder — one short text line, between the thin
     /// indicator and the full Bluetooth banner.
     var reminderThickness: CGFloat = 32
+    /// Band used for the "nowhere to paste" hint — a headline plus a short
+    /// second line, so it needs about as much room as the Bluetooth banner.
+    var undeliveredThickness: CGFloat = 52
     /// Radius of the concave flare where the top meets the bezel.
     var topConcaveRadius: CGFloat = 12
     /// Radius of the surface's rounded bottom corners.
@@ -65,7 +68,7 @@ struct NotchSurfaceLayout {
     func panelSize(for geometry: NotchGeometry) -> CGSize {
         CGSize(
             width: bodyWidth(for: geometry) + sideExtension * 2,
-            height: geometry.notchHeight + max(bottomThickness, max(reminderThickness, bannerThickness))
+            height: geometry.notchHeight + max(bottomThickness, max(reminderThickness, max(undeliveredThickness, bannerThickness)))
         )
     }
 

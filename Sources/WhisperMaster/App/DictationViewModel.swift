@@ -65,6 +65,8 @@ final class DictationViewModel {
 
         // A reminder showing now would be replaced by the live indicator anyway.
         reminderScheduler.clear()
+        // Any pending "nowhere to paste" hint is stale once a new session starts.
+        state.undeliveredTranscriptAt = nil
 
         // If the Apple Intelligence pass is opted in, warm it while the user talks
         // so the post-dictation formatting is hot instead of a cold start. The
@@ -253,6 +255,8 @@ final class DictationViewModel {
 
     func pasteText(_ text: String) {
         copyToClipboard(text)
+        // The user is recovering the text, so retract the "nowhere to paste" hint.
+        state.undeliveredTranscriptAt = nil
         guard permissionsManager.accessibilityGranted() else {
             state.statusMessage = "Copied to clipboard. Enable Accessibility for auto-paste."
             return
@@ -479,6 +483,15 @@ final class DictationViewModel {
             await MainActor.run {
                 self.state.statusMessage = "Transcript ready. Enable Accessibility for auto-paste."
             }
+            return
+        }
+
+        // Nothing editable is focused, so synthesized keystrokes would vanish.
+        // The transcript is already in history, so surface a notch hint telling
+        // the user where it went instead of typing into the void.
+        if FocusedElementInspector.noEditableTarget() {
+            state.undeliveredTranscriptAt = Date()
+            state.statusMessage = "No text field focused. Saved to history. Press ⇧⌘V to paste."
             return
         }
 

@@ -11,15 +11,20 @@ struct DictationPillContent: View {
     var geometry: NotchGeometry = .none
     var layout: NotchSurfaceLayout = NotchSurfaceLayout()
 
+    /// The "nowhere to paste" hint is the highest-priority band — it's the
+    /// immediate consequence of the dictation the user just finished.
+    private var showUndelivered: Bool { state.shouldShowUndeliveredBanner }
+
     /// The Bluetooth-mic hint takes precedence over the dictation indicator and
     /// uses a taller band to fit its text + button.
-    private var showBanner: Bool { state.shouldShowBluetoothBanner }
+    private var showBanner: Bool { !showUndelivered && state.shouldShowBluetoothBanner }
 
-    /// A gentle reminder — lower priority than the Bluetooth hint, shown only
-    /// when idle (`AppState.shouldShowReminder` already gates that).
-    private var showReminder: Bool { !showBanner && state.shouldShowReminder }
+    /// A gentle reminder — lower priority than the hints above, shown only when
+    /// idle (`AppState.shouldShowReminder` already gates that).
+    private var showReminder: Bool { !showUndelivered && !showBanner && state.shouldShowReminder }
 
     private var bandThickness: CGFloat {
+        if showUndelivered { return layout.undeliveredThickness }
         if showBanner { return layout.bannerThickness }
         if showReminder { return layout.reminderThickness }
         return layout.bottomThickness
@@ -31,7 +36,7 @@ struct DictationPillContent: View {
 
     /// Whether the surface should be dropped down and visible.
     private var isExpanded: Bool {
-        if showBanner || showReminder { return true } // hints show even when idle
+        if showUndelivered || showBanner || showReminder { return true } // hints show even when idle
         guard hasContent else { return false }
         if state.phase == .idle && state.hidePillWhenIdle { return false }
         return true
@@ -72,13 +77,16 @@ struct DictationPillContent: View {
         // click-through (the panel toggles ignoresMouseEvents to match).
         .allowsHitTesting(showBanner)
         .animation(.spring(response: 0.38, dampingFraction: 0.78), value: isExpanded)
+        .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showUndelivered)
         .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showBanner)
         .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showReminder)
     }
 
     @ViewBuilder
     private var band: some View {
-        if showBanner {
+        if showUndelivered {
+            NotchUndeliveredBanner()
+        } else if showBanner {
             NotchBluetoothBanner(state: state)
         } else if showReminder, let line = state.activeReminder {
             NotchReminderBanner(text: line)

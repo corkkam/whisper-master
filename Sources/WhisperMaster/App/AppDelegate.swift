@@ -349,6 +349,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
 
+        // Retract the "nowhere to paste" hint once its display window elapses.
+        if let at = state.undeliveredTranscriptAt,
+           Date().timeIntervalSince(at) >= AppState.undeliveredBannerDuration {
+            state.undeliveredTranscriptAt = nil
+        }
+
         // Sync the "keep this Mac awake for phone dictation" opt-in to the server.
         // `setKeepAwakeAlways` is transition-guarded, so calling it every tick is
         // cheap — the timer is our bridge from @Observable state to AppKit.
