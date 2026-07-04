@@ -138,6 +138,7 @@ After a successful CI release, `Scripts/notify-telegram.py` (final step in `rele
   - Sound like a person: casual, first-person-ish, contractions, plain words. Lowercase-y is fine. Short punchy lines.
   - Lead with the single thing a user actually cares about. Don't open with a tidy headline like "Fresh X and smoother Y."
   - **Banned AI tells:** the "This release redesigns/introduces/brings…" framing, balanced tricolons (three things joined by em-dashes), "now with X" parentheticals, "seamless/effortless/powerful/robust," marketing CTAs ("Download right here"), and more than one emoji.
+  - **No dashes.** Don't use em dashes (—) or hyphens as sentence punctuation in the announcement. Break the thought into separate sentences with periods or commas instead. (Dashes read as an AI tell.)
   - Keep it short enough to paste into X (a few lines, well under 280 chars). No hashtags, no markdown. Don't claim features that aren't in the release.
   - **Bad (AI slop, don't do this):** "Fresh onboarding and smoother updates. This release redesigns the first-run setup (now with a notifications step), makes update alerts actually show up, and adds a gentle nudge when a Bluetooth mic is hurting audio quality — one tap switches you to the built-in mic. Download the app right here. 🎙️"
   - **Good (human, tweetable):** "new build's up 🎙️ setup's way cleaner, update alerts actually fire now, and if a bluetooth mic is wrecking your audio it'll nudge you to switch to the built-in one (one tap). file's attached, give it a spin."
