@@ -57,14 +57,16 @@ only — the Xcode app target is untouched). Run with `swift test`.
 - **`AudioReplayTests`** — a regression *bench*, not a pure unit test. It replays
   real recordings through the actual `FluidAudioStreamingTranscriber` streaming
   path (feeding a file reproduces live streaming exactly — windowing keys off
-  absolute sample position) and writes `.context/test-audio/results.md`. It
-  **skips** (never fails) when no recordings are present. To use it: read the
-  paragraphs in `.context/test-audio/paragraphs.md` aloud, save them as
-  `paragraph-N.{m4a,wav}` in that folder (`.context/` is git-ignored, so the
-  audio is local-only), then `swift test --filter AudioReplayTests`. This bench
-  is how the FluidAudio streaming-vocabulary corruption bug was found and
-  verified — use it to validate any change to the transcription/post-processing
-  pipeline against known audio before shipping.
+  absolute sample position) and writes results to `.context/test-audio/results.md`
+  (git-ignored scratch). The reference recordings live in
+  `Tests/WhisperMasterTests/Fixtures/audio/` (committed: `paragraph-N.m4a` +
+  `paragraphs.md`, ~1.2 MB), so the bench runs in any clone / CI. The harness
+  **also** scans `.context/test-audio/` so you can drop ad-hoc local recordings
+  there without committing them (same-named file: the committed fixture wins). It
+  **skips** (never fails) when no recordings are found. Run with
+  `swift test --filter AudioReplayTests`. This bench is how the FluidAudio
+  streaming-vocabulary corruption bug was found and verified — use it to validate
+  any change to the transcription/post-processing pipeline before shipping.
 
 **Custom vocabulary is post-processing, not engine biasing.** FluidAudio's
 streaming CTC vocabulary rescorer corrupts transcripts (empties vocab-dense
