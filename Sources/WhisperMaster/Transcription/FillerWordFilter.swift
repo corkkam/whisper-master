@@ -16,7 +16,7 @@ enum FillerWordFilter {
         "er", "erm", "ermm",
         "ah", "ahh", "ahhh",
         "hm", "hmm", "hmmm", "hmmmm",
-        "mm", "mmm", "mmmm",
+        "m", "mm", "mmm", "mmmm",
         "mhm", "mhmm", "mm-hmm", "mmhmm",
         "uh-huh", "uhhuh", "huh",
     ]
@@ -74,6 +74,11 @@ enum FillerWordFilter {
         // "ER", "UM" etc. spoken as initialisms come through all-caps; a real
         // filler never does.
         if core.count > 1, core == core.uppercased(), core != core.lowercased() {
+            return false
+        }
+        // A lone "m"/"M" is a filler only when lowercase — preserve an
+        // intentional capital letter (e.g. "plan M", a grade "M").
+        if core.count == 1, core != core.lowercased() {
             return false
         }
         return fillers.contains(core.lowercased())

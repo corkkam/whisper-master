@@ -129,7 +129,7 @@ actor RemoteTranscriptionSession {
         isRunning = false
         onRecordingChange(false)
         do {
-            let rawFinal = try await transcriber.stop()
+            let rawFinal = TranscriptSpacingRepair.repair(try await transcriber.stop())
             let formatter = await TextFormatterProvider.shared.current()
             let shouldFormat = FormattingPreference.isEnabled && formatter.isAvailable
                 && FormattingHeuristic.mightNeedFormatting(rawFinal)

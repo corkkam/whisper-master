@@ -34,7 +34,10 @@ let package = Package(
         ),
         .testTarget(
             name: "WhisperMasterTests",
-            dependencies: ["WhisperMaster"],
+            dependencies: [
+                "WhisperMaster",
+                .product(name: "FluidAudio", package: "FluidAudio")
+            ],
             path: "Tests/WhisperMasterTests"
         )
     ]

@@ -51,6 +51,18 @@ final class FillerWordFilterTests: XCTestCase {
         )
     }
 
+    func testBareMIsRemoved() {
+        // The ASR renders a filler "um" sound as a lone "m" — strip it.
+        XCTAssertEqual(FillerWordFilter.clean("it's m faster than before"), "it's faster than before")
+        // At a sentence start it's dropped and the next word recapitalized.
+        XCTAssertEqual(FillerWordFilter.clean("m so anyway."), "So anyway.")
+    }
+
+    func testCapitalMIsPreserved() {
+        // An intentional capital letter must survive.
+        XCTAssertEqual(FillerWordFilter.clean("we went with plan M today"), "we went with plan M today")
+    }
+
     func testAllCapsAcronymsAreNotFillers() {
         XCTAssertEqual(
             FillerWordFilter.clean("she went to the ER yesterday"),

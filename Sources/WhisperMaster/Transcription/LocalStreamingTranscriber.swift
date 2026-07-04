@@ -32,13 +32,15 @@ enum TranscriberEngine: String, CaseIterable, Identifiable {
 
     var subtitle: String { "Best accuracy local dictation" }
 
-    var estimatedDownloadSize: String { "~643 MB" }
+    var estimatedDownloadSize: String { "~450 MB" }
 
     var userFacingName: String {
         "\(displayName) (\(estimatedDownloadSize))"
     }
 
-    var cacheDirectoryName: String { "parakeet-tdt-0.6b-v3" }
+    // English-only Parakeet v2: more accurate on English and without v3's
+    // multilingual long-form chunk-boundary content drops (FluidAudio #594).
+    var cacheDirectoryName: String { "parakeet-tdt-0.6b-v2" }
 
     var localModelsRoot: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -51,10 +53,11 @@ enum TranscriberEngine: String, CaseIterable, Identifiable {
     }
 
     /// The compiled CoreML bundles FluidAudio requires to load this engine,
-    /// mirroring `ModelNames.ASR.requiredModelsV3` (int8) inside FluidAudio.
-    /// Kept here so `isInstalled` can verify a *complete* install.
+    /// mirroring the v2 model layout inside FluidAudio. Kept here so
+    /// `isInstalled` can verify a *complete* install. (v2 uses `JointDecision`;
+    /// v3 named it `JointDecisionv3`.)
     var requiredModelComponents: [String] {
-        ["Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc", "JointDecisionv3.mlmodelc"]
+        ["Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc", "JointDecision.mlmodelc"]
     }
 
     /// True only when every required CoreML bundle is present *and* compiled
