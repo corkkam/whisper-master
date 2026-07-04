@@ -88,10 +88,10 @@ enum ModelInstaller {
 
         onProgress(Progress(fractionCompleted: 0, detail: "Downloading \(label)…"))
         let downloader = FileDownloader(destination: tempZip) { fraction in
-            onProgress(Progress(
-                fractionCompleted: fraction,
-                detail: "Downloading \(label)… \(Int(fraction * 100))%"
-            ))
+            // Detail is just the message; every view renders the percentage
+            // itself from `fractionCompleted`, so baking it in here duplicated
+            // it ("Downloading voice engine… 40% 40%").
+            onProgress(Progress(fractionCompleted: fraction, detail: "Downloading \(label)…"))
         }
         try await downloader.download(from: archiveURL)
 
