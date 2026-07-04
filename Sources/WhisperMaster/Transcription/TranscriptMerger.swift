@@ -47,6 +47,20 @@ enum TranscriptMerger {
         return partial
     }
 
+    /// Best-effort full transcript from the streaming engine's two tracks: the
+    /// accumulated `confirmed` text plus the current `volatile` window. The two
+    /// are disjoint consecutive segments (each confirmation promotes the old
+    /// volatile into confirmed and starts a fresh window), so a plain join —
+    /// exactly what the engine's own `finish()` does — is the faithful
+    /// reconstruction. Used to recover the transcript when the final decode
+    /// fails or returns empty, so we never fall back to the last window alone.
+    static func bestEffort(confirmed: String, volatile: String) -> String {
+        [confirmed, volatile]
+            .map { normalizedSpaces(in: $0) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
     /// Collapse newlines and runs of whitespace into single spaces.
     static func normalizedSpaces(in text: String) -> String {
         text

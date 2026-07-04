@@ -19,6 +19,12 @@ open WhisperMaster.xcodeproj # work in Xcode normally
 # Quick compile check (no .app bundle)
 swift build
 
+# Run the test suite (pure unit tests — fast, no models, no audio)
+swift test
+
+# Replay recorded audio through the real streaming pipeline (regression bench)
+swift test --filter AudioReplayTests
+
 # Build + sign the distributable .app (xcodegen → xcodebuild → stage)
 bash Scripts/bundle.sh                       # → build/Whisper Master.app (Release, signed "whisper master")
 CONFIG=Debug bash Scripts/bundle.sh          # debug-config variant
@@ -39,7 +45,33 @@ bash Scripts/release.sh                 # build → sign → appcast → upload 
 REBUILD=0 bash Scripts/release.sh       # re-upload without rebuilding
 ```
 
-There is no test suite.
+### Tests
+
+`Tests/WhisperMasterTests/` (SwiftPM test target, declared in `Package.swift`
+only — the Xcode app target is untouched). Run with `swift test`.
+
+- **Pure unit tests** — fast, deterministic, no models/network/audio. Cover the
+  text-processing pipeline: `FillerWordFilter`, `VocabularyTermParser`,
+  `VocabularyPostProcessor`, `CorrectionDetector`, `TranscriptMerger.bestEffort`.
+  These run everywhere (CI, fresh clone) and should stay green.
+- **`AudioReplayTests`** — a regression *bench*, not a pure unit test. It replays
+  real recordings through the actual `FluidAudioStreamingTranscriber` streaming
+  path (feeding a file reproduces live streaming exactly — windowing keys off
+  absolute sample position) and writes `.context/test-audio/results.md`. It
+  **skips** (never fails) when no recordings are present. To use it: read the
+  paragraphs in `.context/test-audio/paragraphs.md` aloud, save them as
+  `paragraph-N.{m4a,wav}` in that folder (`.context/` is git-ignored, so the
+  audio is local-only), then `swift test --filter AudioReplayTests`. This bench
+  is how the FluidAudio streaming-vocabulary corruption bug was found and
+  verified — use it to validate any change to the transcription/post-processing
+  pipeline against known audio before shipping.
+
+**Custom vocabulary is post-processing, not engine biasing.** FluidAudio's
+streaming CTC vocabulary rescorer corrupts transcripts (empties vocab-dense
+utterances, truncates others — proven by `AudioReplayTests`), so it is **not
+used**. `VocabularyPostProcessor` applies the glossary as a safe whole-word
+text replacement on the finished transcript instead. Do not re-enable
+`configureVocabularyBoosting` to "improve accuracy" — it regresses correctness.
 
 ### Toolchain & prerequisites
 

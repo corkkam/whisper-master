@@ -51,6 +51,8 @@ final class AppState {
     static let remindersEnabledDefaultsKey = "WhisperMaster.remindersEnabled.v1"
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
     static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
+    static let removeFillerWordsDefaultsKey = "WhisperMaster.removeFillerWords.v1"
+    static let learnCorrectionsDefaultsKey = "WhisperMaster.learnCorrections.v1"
     /// How long the "nowhere to type that" notch hint stays down before it
     /// retracts on its own.
     static let undeliveredBannerDuration: TimeInterval = 7
@@ -91,6 +93,19 @@ final class AppState {
     /// an in-progress remote session still holds the Mac awake on its own.
     var keepAwakeForRemote: Bool = false {
         didSet { UserDefaults.standard.set(keepAwakeForRemote, forKey: Self.keepAwakeForRemoteDefaultsKey) }
+    }
+    /// Learn vocabulary from corrections: after a paste, if the user replaces
+    /// one misheard word, add "typed: heard" to the glossary automatically.
+    /// Persisted; **on by default** — it only ever reads the field we pasted
+    /// into, briefly, and the toggle is the opt-out.
+    var learnCorrectionsEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(learnCorrectionsEnabled, forKey: Self.learnCorrectionsDefaultsKey) }
+    }
+    /// Strip unambiguous spoken fillers ("um", "uh", "hmm") from transcripts.
+    /// Persisted; **on by default** — nobody dictates "um" on purpose, and the
+    /// toggle is the escape hatch if it ever eats something intentional.
+    var removeFillerWordsEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(removeFillerWordsEnabled, forKey: Self.removeFillerWordsDefaultsKey) }
     }
     /// Whether spoken numbers/symbols are rewritten to written form (ITN) on the
     /// final transcript — "twenty five" → "25", "at gmail dot com" → "@gmail.com".
@@ -149,6 +164,10 @@ final class AppState {
         keepAwakeForRemote = UserDefaults.standard.object(forKey: Self.keepAwakeForRemoteDefaultsKey) as? Bool ?? false
         // Opt-out: on unless the user has explicitly turned it off.
         analyticsEnabled = UserDefaults.standard.object(forKey: Self.analyticsEnabledDefaultsKey) as? Bool ?? true
+        // Opt-out: on unless the user has explicitly turned it off.
+        removeFillerWordsEnabled = UserDefaults.standard.object(forKey: Self.removeFillerWordsDefaultsKey) as? Bool ?? true
+        // Opt-out: on unless the user has explicitly turned it off.
+        learnCorrectionsEnabled = UserDefaults.standard.object(forKey: Self.learnCorrectionsDefaultsKey) as? Bool ?? true
         // On by default; absent key means a fresh install → enabled.
         itnEnabled = FormattingPreference.isEnabled
         // Off by default; the deterministic rules handle formatting unless opted in.
@@ -237,6 +256,29 @@ final class AppState {
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(entries) else { return }
         UserDefaults.standard.set(data, forKey: historyDefaultsKey)
+    }
+
+    /// Fold a learned correction into the glossary: extend the canonical
+    /// term's alias list if it already exists, otherwise add a new
+    /// "canonical: heard" line. No-op when the pair is already covered.
+    func learnVocabularyCorrection(canonical: String, heard: String) {
+        let canonicalLower = canonical.lowercased()
+        let heardLower = heard.lowercased()
+        guard canonicalLower != heardLower else { return }
+
+        var lines = customVocabulary
+        for (index, line) in lines.enumerated() {
+            guard let parsed = VocabularyTermParser.parse(line),
+                  parsed.text.lowercased() == canonicalLower
+            else { continue }
+            let known = [parsed.text.lowercased()] + parsed.aliases.map { $0.lowercased() }
+            guard !known.contains(heardLower) else { return }
+            lines[index] = "\(parsed.text): \((parsed.aliases + [heard]).joined(separator: ", "))"
+            customVocabulary = lines
+            return
+        }
+        lines.append("\(canonical): \(heard)")
+        customVocabulary = lines
     }
 
     private static func loadVocabulary() -> [String] {

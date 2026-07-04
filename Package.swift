@@ -13,7 +13,9 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.14.7"),
+        // Pinned exactly: 0.15.x changed sliding-window finish()/splicing behavior
+        // and coincided with vanished transcripts + cut-off sentences in the field.
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.14.7"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
         .package(url: "https://github.com/TelemetryDeck/SwiftSDK", from: "2.0.0")
     ],
@@ -29,6 +31,11 @@ let package = Package(
             resources: [
                 .process("Resources")
             ]
+        ),
+        .testTarget(
+            name: "WhisperMasterTests",
+            dependencies: ["WhisperMaster"],
+            path: "Tests/WhisperMasterTests"
         )
     ]
 )

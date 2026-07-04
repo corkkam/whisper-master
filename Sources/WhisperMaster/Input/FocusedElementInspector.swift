@@ -55,6 +55,25 @@ enum FocusedElementInspector {
         }
     }
 
+    /// The element that currently holds keyboard focus, if any.
+    static func focusedElement() -> AXUIElement? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            systemWide, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+            let focused
+        else { return nil }
+        return (focused as! AXUIElement)
+    }
+
+    /// The element's text content, when it exposes one as a string.
+    static func stringValue(of element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value) == .success
+        else { return nil }
+        return value as? String
+    }
+
     private static func stringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success

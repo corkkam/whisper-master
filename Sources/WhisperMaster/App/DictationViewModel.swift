@@ -20,6 +20,16 @@ final class DictationViewModel {
     private var recordingStartedAt: Date?
     /// Drives gentle "you haven't used me in a while" reminders in the notch.
     private lazy var reminderScheduler = ReminderScheduler(state: state)
+    /// Watches pasted text for the user's fix-ups and grows the vocabulary.
+    private let correctionLearner = CorrectionLearner()
+    /// Merge accumulator for confirmed streaming chunks. Kept unfiltered so
+    /// `TranscriptMerger`'s overlap detection always compares raw engine text
+    /// against raw engine text; only what goes into `state` is filler-filtered.
+    private var rawConfirmedTranscript = ""
+    /// Latest full volatile track from the engine (the current sliding window),
+    /// kept so a failed/empty engine finish can still deliver what streaming
+    /// produced. The full window — not the truncated live-pill remainder.
+    private var rawVolatileTranscript = ""
 
     init(
         state: AppState,
@@ -65,6 +75,8 @@ final class DictationViewModel {
 
         // A reminder showing now would be replaced by the live indicator anyway.
         reminderScheduler.clear()
+        // A new dictation supersedes any correction watch on the previous one.
+        correctionLearner.cancel()
         // Any pending "nowhere to paste" hint is stale once a new session starts.
         state.undeliveredTranscriptAt = nil
 
@@ -76,6 +88,8 @@ final class DictationViewModel {
         state.phase = .preparingModels
         state.audioLevel = 0
         state.resetTranscript()
+        rawConfirmedTranscript = ""
+        rawVolatileTranscript = ""
         state.statusMessage = "Getting voice engine ready..."
 
         Task {
@@ -86,11 +100,6 @@ final class DictationViewModel {
                 }
 
                 try await prepareSelectedEngineIfNeeded()
-
-                // Custom vocabulary: register terms now (cheap) and load the
-                // CTC model in the background, so recording starts immediately
-                // and biasing kicks in once it's ready — never blocking.
-                refreshCustomVocabulary()
 
                 state.download = nil
                 state.statusMessage = "Voice engine ready. Starting microphone..."
@@ -148,8 +157,28 @@ final class DictationViewModel {
                 microphoneCapture.stop()
                 await drainPendingAudioBuffers()
                 state.statusMessage = "Finalizing local transcript..."
-                let rawFinal = try await transcriber.stop()
-                let final = await formatFinalTranscript(rawFinal)
+                var rawFinal: String
+                do {
+                    rawFinal = try await transcriber.stop()
+                } catch {
+                    // The final decode failed after real speech already
+                    // streamed through. Recreate the engine session, then fall
+                    // back to the streamed text rather than losing the words.
+                    await transcriber.cancel()
+                    rawFinal = ""
+                }
+                if rawFinal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    rawFinal = salvagedStreamingTranscript()
+                }
+                let formatted = await formatFinalTranscript(rawFinal)
+                // May leave the text empty (a recording that was only "hmm" /
+                // a silence hallucination) — the guard below then skips
+                // history and injection entirely.
+                let deFillered = filterFillersIfEnabled(formatted)
+                // Apply the glossary as a safe text replacement (casing + known
+                // mishearings) — the substitute for FluidAudio's transcript-
+                // corrupting streaming rescorer.
+                let final = VocabularyPostProcessor.apply(deFillered, glossary: state.customVocabulary)
                 state.phase = .idle
                 state.transcript.finalText = final
                 if !final.isEmpty {
@@ -214,6 +243,7 @@ final class DictationViewModel {
     }
 
     func shutdown() {
+        correctionLearner.cancel()
         preparationTask?.cancel()
         microphoneCapture.stop()
         pendingAppendTasks.values.forEach { $0.cancel() }
@@ -331,25 +361,10 @@ final class DictationViewModel {
             guard let self else { return }
             do {
                 try await self.prepareEngine(engine)
-                // Warm the custom-vocabulary (CTC) model in the background once
-                // the main engine is ready, so biasing is available by the
-                // first recording instead of on the second.
-                self.refreshCustomVocabulary()
             } catch {
                 guard !Task.isCancelled else { return }
                 await self.handlePreparationFailure(error, engine: engine)
             }
-        }
-    }
-
-    /// Push the current glossary to the transcriber and load the CTC model in
-    /// the background (non-blocking). Safe to call repeatedly — the transcriber
-    /// guards against duplicate loads.
-    private func refreshCustomVocabulary() {
-        let terms = state.customVocabulary
-        Task { [transcriber] in
-            await transcriber.setVocabulary(terms)
-            await transcriber.loadVocabularyResources()
         }
     }
 
@@ -465,17 +480,35 @@ final class DictationViewModel {
 
     private func applyTranscriptUpdate(_ update: StreamingTranscriptUpdate) {
         if update.isConfirmed, !update.confirmedText.isEmpty {
-            state.transcript.latestConfirmed = TranscriptMerger.mergedConfirmed(
-                current: state.transcript.latestConfirmed,
+            rawConfirmedTranscript = TranscriptMerger.mergedConfirmed(
+                current: rawConfirmedTranscript,
                 new: update.confirmedText
             )
+            state.transcript.latestConfirmed = filterFillersIfEnabled(rawConfirmedTranscript)
         }
 
+        // Keep the full volatile window for salvage; the pill preview can use
+        // the shorter latest hypothesis for snappier live feedback.
+        rawVolatileTranscript = update.partialText
         let latestSource = !update.latestText.isEmpty ? update.latestText : update.partialText
-        state.transcript.latestPartial = TranscriptMerger.partialRemainder(
+        let remainder = TranscriptMerger.partialRemainder(
             partialText: latestSource,
-            confirmedText: state.transcript.latestConfirmed
+            confirmedText: rawConfirmedTranscript
         )
+        state.transcript.latestPartial = filterFillersIfEnabled(remainder)
+    }
+
+    /// What streaming already produced (confirmed + current volatile window) —
+    /// the last-resort fallback if the transcriber itself couldn't return text.
+    private func salvagedStreamingTranscript() -> String {
+        TranscriptMerger.bestEffort(
+            confirmed: rawConfirmedTranscript,
+            volatile: rawVolatileTranscript
+        )
+    }
+
+    private func filterFillersIfEnabled(_ text: String) -> String {
+        state.removeFillerWordsEnabled ? FillerWordFilter.clean(text) : text
     }
 
     private func injectFinalTextIfPossible(_ text: String) async {
@@ -498,6 +531,17 @@ final class DictationViewModel {
         await textInjector.inject(text)
         await MainActor.run {
             self.state.statusMessage = "Finished local transcription and pasted at cursor."
+        }
+        if state.learnCorrectionsEnabled {
+            correctionLearner.watch(injected: text) { [weak self] correction in
+                guard let self else { return }
+                self.state.learnVocabularyCorrection(
+                    canonical: correction.typed,
+                    heard: correction.heard
+                )
+                self.state.statusMessage =
+                    "Learned \"\(correction.typed)\" — added to Words to get right."
+            }
         }
     }
 }

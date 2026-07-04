@@ -17,9 +17,11 @@ settings:
     ARCHS: arm64
 
 packages:
+  # Pinned exactly: 0.15.x changed sliding-window finish()/splicing behavior and
+  # coincided with vanished transcripts + cut-off sentences in the field.
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio.git
-    from: "0.14.7"
+    exactVersion: "0.14.7"
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: "2.6.0"

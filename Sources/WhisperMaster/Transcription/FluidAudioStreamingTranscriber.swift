@@ -12,55 +12,18 @@ actor FluidAudioStreamingTranscriber {
     private var updatesTask: Task<Void, Never>?
     private var started = false
     private var modelsLoaded = false
-    private var vocabularyTerms: [String] = []
-    private var ctcModels: CtcModels?
-    private var isLoadingVocabulary = false
 
     init(config: SlidingWindowAsrConfig = .streaming) {
         self.config = config
         self.manager = SlidingWindowAsrManager(config: config)
     }
 
-    /// Store the terms to bias decoding toward (proper nouns, jargon like
-    /// "RAG"). Cheap — no I/O; the model loading happens in
-    /// `loadVocabularyResources()`.
-    func setVocabulary(_ terms: [String]) {
-        vocabularyTerms = terms
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-    }
-
-    /// Ensure the CTC keyword model is loaded and the biasing is applied. Meant
-    /// to run in the background after the main models are ready: transcription
-    /// works (unbiased) until this finishes and it never blocks recording.
-    /// Best-effort — failures leave transcription working without biasing.
-    func loadVocabularyResources() async {
-        guard !vocabularyTerms.isEmpty else { return }
-        if ctcModels == nil {
-            guard !isLoadingVocabulary else { return } // a load is already in flight
-            isLoadingVocabulary = true
-            defer { isLoadingVocabulary = false }
-            // Mirror-first: pre-place the CTC model so `downloadAndLoad` reads
-            // from disk instead of HuggingFace; it falls back to HF on a miss.
-            let cacheDirectory = CtcModels.defaultCacheDirectory(for: .ctc110m)
-            try? await ModelInstaller.installIfNeeded(
-                archiveName: cacheDirectory.lastPathComponent,
-                destinationRoot: cacheDirectory.deletingLastPathComponent(),
-                label: "vocabulary model",
-                isInstalled: { CtcModels.modelsExist(at: cacheDirectory) }
-            )
-            ctcModels = try? await CtcModels.downloadAndLoad()
-        }
-        await applyVocabularyBoosting()
-    }
-
-    private func applyVocabularyBoosting() async {
-        guard !vocabularyTerms.isEmpty, let ctcModels else { return }
-        let context = CustomVocabularyContext(
-            terms: vocabularyTerms.map { CustomVocabularyTerm(text: $0) }
-        )
-        try? await manager.configureVocabularyBoosting(vocabulary: context, ctcModels: ctcModels)
-    }
+    // NOTE: FluidAudio's CTC vocabulary boosting is deliberately NOT used.
+    // In streaming mode its rescorer corrupts the transcript — it empties a
+    // vocabulary-dense utterance entirely and truncates others by half (proven
+    // by the AudioReplayTests A/B: vocab ON → P5 0 words, P2 halved). Custom
+    // vocabulary is instead applied as a safe post-processing text replacement
+    // (`VocabularyPostProcessor`) on the finished transcript.
 }
 
 extension FluidAudioStreamingTranscriber: LocalStreamingTranscriber {
@@ -104,17 +67,42 @@ extension FluidAudioStreamingTranscriber: LocalStreamingTranscriber {
     func stop() async throws -> String {
         guard started else { throw TranscriberError.notStarted }
         started = false
-        let final = try await manager.finish()
+
+        // Capture the engine's own two tracks *before* finish() — which can
+        // throw after a window-processing failure — and before we recreate the
+        // manager. This is the same confirmed+volatile reconstruction finish()
+        // performs, so a failed final decode recovers the whole streamed
+        // transcript instead of collapsing to the last sliding-window tail.
+        let confirmedTrack = await manager.confirmedTranscript
+        let volatileTrack = await manager.volatileTranscript
+        let salvage = TranscriptMerger.bestEffort(confirmed: confirmedTrack, volatile: volatileTrack)
+
+        let final: String
+        do {
+            let finished = try await manager.finish()
+            final = finished.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? salvage : finished
+        } catch {
+            Log.transcription.error(
+                "finish() failed; recovering \(salvage.count, privacy: .public) chars of streamed transcript: \(error.localizedDescription, privacy: .public)")
+            final = salvage
+        }
+
         updatesTask?.cancel()
         updatesTask = nil
         // SlidingWindowAsrManager finishes its internal AsyncStream on `finish()`,
         // so we recreate the manager between sessions instead of reusing a closed stream.
         let replacement = SlidingWindowAsrManager(config: config)
         if modelsLoaded {
-            try await replacement.loadModels()
+            // A reload failure must not lose the transcript we already have; the
+            // next recording re-prepares. Log loudly rather than throwing.
+            do {
+                try await replacement.loadModels()
+            } catch {
+                Log.transcription.error(
+                    "Post-stop model reload failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
         manager = replacement
-        await applyVocabularyBoosting()
         return final
     }
 
@@ -128,6 +116,5 @@ extension FluidAudioStreamingTranscriber: LocalStreamingTranscriber {
             try? await replacement.loadModels()
         }
         manager = replacement
-        await applyVocabularyBoosting()
     }
 }

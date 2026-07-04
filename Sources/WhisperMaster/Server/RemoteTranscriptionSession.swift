@@ -34,6 +34,11 @@ actor RemoteTranscriptionSession {
 
     private var isRunning = false
 
+    /// The client's glossary, applied to the final transcript as a safe text
+    /// replacement (see `VocabularyPostProcessor`) — FluidAudio's streaming
+    /// vocabulary rescorer corrupts transcripts, so it is not used.
+    private var vocabulary: [String] = []
+
     init(channel: MessageChannel, onRecordingChange: @escaping @Sendable (Bool) -> Void = { _ in }) {
         self.channel = channel
         self.onRecordingChange = onRecordingChange
@@ -80,8 +85,7 @@ actor RemoteTranscriptionSession {
 
         let transcriber = self.transcriber ?? FluidAudioStreamingTranscriber()
         self.transcriber = transcriber
-
-        await transcriber.setVocabulary(config.vocabulary)
+        self.vocabulary = config.vocabulary
 
         do {
             try await transcriber.prepareModels { [weak self] snapshot in
@@ -118,9 +122,6 @@ actor RemoteTranscriptionSession {
         isRunning = true
         onRecordingChange(true)
         emit(.state(.recording))
-
-        // Load vocabulary biasing in the background — never blocks recording.
-        Task { await transcriber.loadVocabularyResources() }
     }
 
     private func stopSession() async {
@@ -132,7 +133,8 @@ actor RemoteTranscriptionSession {
             let formatter = await TextFormatterProvider.shared.current()
             let shouldFormat = FormattingPreference.isEnabled && formatter.isAvailable
                 && FormattingHeuristic.mightNeedFormatting(rawFinal)
-            let final = shouldFormat ? await formatter.format(rawFinal) : rawFinal
+            let formatted = shouldFormat ? await formatter.format(rawFinal) : rawFinal
+            let final = VocabularyPostProcessor.apply(formatted, glossary: vocabulary)
             emit(.finalTranscript(text: final))
         } catch {
             emit(.state(.error(message: "Failed to finalize: \(error.localizedDescription)")))

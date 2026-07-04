@@ -180,7 +180,7 @@ struct EngineSettingsView: View {
 
                 ZStack(alignment: .topLeading) {
                     if vocabularyDraft.isEmpty {
-                        Text("RAG\nParakeet\nLyzr")
+                        Text("Parakeet\nRAG: rag, rack\nLyzr: liser, lizer")
                             .font(.system(size: 13, design: .monospaced))
                             .foregroundStyle(Theme.textTertiary)
                             .allowsHitTesting(false)
@@ -207,10 +207,17 @@ struct EngineSettingsView: View {
 
                 RowDivider()
 
-                Text("One word or phrase per line. Saved automatically.")
+                Text("One word or phrase per line. If a word keeps coming out wrong, teach it the mishearing with a colon — RAG: rack. Saved automatically.")
                     .font(Typography.caption)
                     .foregroundStyle(Theme.textTertiary)
                     .padding(.vertical, 13)
+
+                RowDivider()
+
+                SettingsRow("Learn from corrections",
+                            subtitle: "Fix a misheard word right after it's pasted and it's added here automatically.") {
+                    ThemeToggle(isOn: $state.learnCorrectionsEnabled)
+                }
             }
         }
     }

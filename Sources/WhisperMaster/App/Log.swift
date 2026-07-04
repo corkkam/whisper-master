@@ -16,6 +16,9 @@ enum Log {
     /// On-device text formatting (spoken → written form) via Apple's model.
     static let formatter = Logger(subsystem: subsystem, category: "formatter")
 
+    /// Streaming transcription lifecycle — final decode, recovery fallbacks.
+    static let transcription = Logger(subsystem: subsystem, category: "transcription")
+
     /// Anonymous, opt-in usage analytics (TelemetryDeck) — configuration and gating.
     static let analytics = Logger(subsystem: subsystem, category: "analytics")
 }
