@@ -200,6 +200,16 @@ enum DeterministicITN {
             }
             guard let value = SpokenNumber.value(run) else { out.append(toks[i]); i += 1; continue }
 
+            // A bare "one" is nearly always a word, not a count — "one day",
+            // "one of them", "one honest footnote". Digitize it only when a
+            // unit that demands a figure follows ("one percent" → 1%,
+            // "one dollar" → $1). Times are unaffected (matchTime runs first).
+            if run == ["one"] {
+                let unitFollows = j < toks.count
+                    && ["dollar", "dollars", "buck", "bucks", "percent", "cent", "cents"].contains(toks[j].lower)
+                if !unitFollows { out.append(toks[i]); i += 1; continue }
+            }
+
             let lead = toks[i].lead
             var replacement = "\(value)", trail = toks[j - 1].trail, next = j
             if j < toks.count, ["dollar", "dollars", "buck", "bucks"].contains(toks[j].lower) {
