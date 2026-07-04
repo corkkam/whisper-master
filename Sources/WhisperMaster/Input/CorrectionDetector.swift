@@ -54,9 +54,29 @@ enum CorrectionDetector {
         guard let found,
               !found.typed.isEmpty, !found.heard.isEmpty,
               found.heard.lowercased() != found.typed.lowercased(),
+              isPlausibleWord(found.typed),
+              !isGluingArtifact(found),
               similarity(found.heard, found.typed) >= minSimilarity
         else { return nil }
         return found
+    }
+
+    /// A learnable canonical must look like a word the user typed — letters,
+    /// digits, hyphens, apostrophes. Sentence punctuation inside the token
+    /// ("right?The", "guess.Yeah") is stale field text mis-aligned against a
+    /// fresh paste, never a real correction. (Terms like "Node.js" can still
+    /// be added by hand in Settings; auto-learn stays conservative.)
+    private static func isPlausibleWord(_ word: String) -> Bool {
+        word.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "'" }
+    }
+
+    /// If one side wholly contains the other ("offEverything" ⊇ "Everything"),
+    /// the "correction" is two fragments glued in the field, not a respelling.
+    /// Learning it would make the glossary rewrite the contained word forever.
+    private static func isGluingArtifact(_ correction: Correction) -> Bool {
+        let typed = correction.typed.lowercased()
+        let heard = correction.heard.lowercased()
+        return typed.contains(heard) || heard.contains(typed)
     }
 
     private static func words(from text: String) -> [String] {
