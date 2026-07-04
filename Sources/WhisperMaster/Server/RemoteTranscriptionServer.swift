@@ -46,7 +46,10 @@ final class RemoteTranscriptionServer {
     func start() {
         guard listener == nil else { return }
         do {
-            let listener = try NWListener(using: .tcp)
+            // Bind a fixed port so an off-LAN client (Tailscale) can reach us at
+            // a known host:port; Bonjour still advertises the same port on the LAN.
+            let port = NWEndpoint.Port(rawValue: WireProtocol.fixedPort)!
+            let listener = try NWListener(using: .tcp, on: port)
             listener.service = makeService(load: 0)
             listener.stateUpdateHandler = { state in
                 switch state {

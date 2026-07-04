@@ -4,11 +4,12 @@ import Foundation
 //
 // The contract between the Mac transcription server and the iOS client.
 //
-// IMPORTANT: keep the transcription messages byte-identical with the copy in the
-// iOS repo (`whisper-master-ios`) — the two processes only interoperate if both
-// sides encode/decode the same shapes. The mesh `ping`/`pong` cases are
-// Mac-to-Mac only and intentionally absent from the iOS copy (iOS never sends or
-// receives them, so the divergence is safe).
+// IMPORTANT: keep the message shapes byte-identical with the copy in the iOS
+// repo (`whisper-master-ios`) — the two processes only interoperate if both
+// sides encode/decode the same shapes. `ping`/`pong` serve two callers: Macs use
+// them for mesh latency probes, and the iOS client sends them as a liveness
+// heartbeat to detect zombie connections (e.g. a dead Tailscale path that never
+// reports a failure).
 
 /// Bonjour / framing constants.
 enum WireProtocol {
@@ -16,8 +17,11 @@ enum WireProtocol {
     static let serviceType = "_whispermaster._tcp"
     /// Bonjour domain (the local Wi-Fi/LAN).
     static let serviceDomain = "local."
-    /// TCP port is assigned dynamically by `NWListener`; clients resolve it
-    /// through Bonjour, so no fixed port is baked in.
+    /// Fixed TCP port the server listens on. Bonjour advertises it for LAN
+    /// clients, but the fixed value is what lets an off-LAN client (e.g. over
+    /// Tailscale, where mDNS can't reach) dial the Mac directly at a known
+    /// host:port. Must match the iOS copy.
+    static let fixedPort: UInt16 = 47823
 }
 
 /// Audio format streamed by the client and expected by the server: the
