@@ -542,6 +542,9 @@ final class DictationViewModel {
                     canonical: correction.typed,
                     heard: correction.heard
                 )
+                // Surface the otherwise-silent addition as a brief notch banner.
+                self.state.learnedTerm = correction.typed
+                self.state.learnedTermAt = Date()
                 self.state.statusMessage =
                     "Learned \"\(correction.typed)\" — added to Words to get right."
             }

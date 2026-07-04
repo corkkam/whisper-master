@@ -56,6 +56,8 @@ final class AppState {
     /// How long the "nowhere to type that" notch hint stays down before it
     /// retracts on its own.
     static let undeliveredBannerDuration: TimeInterval = 7
+    /// How long the "learned a correction" notch confirmation stays down.
+    static let learnedBannerDuration: TimeInterval = 4
 
     var selectedEngine: TranscriberEngine = .slidingWindow
     var preparedEngine: TranscriberEngine?
@@ -82,6 +84,12 @@ final class AppState {
     /// Transient (never persisted); set by the view model, auto-expired by the
     /// AppDelegate refresh loop once `undeliveredBannerDuration` has passed.
     var undeliveredTranscriptAt: Date?
+    /// The canonical word just auto-learned into the glossary, and when — drives
+    /// a brief notch confirmation so the silent addition is visible. Transient
+    /// (never persisted); auto-expired by the AppDelegate refresh loop after
+    /// `learnedBannerDuration`.
+    var learnedTerm: String?
+    var learnedTermAt: Date?
     /// Whether gentle "you haven't used me in a while" reminders are enabled.
     /// Persisted; **opt-in** — off until the user turns it on in Settings.
     var remindersEnabled: Bool = false {
@@ -205,9 +213,20 @@ final class AppState {
             && preparingEngine == nil
     }
 
+    /// Show a brief "learned <word>" confirmation right after auto-learn adds a
+    /// term. Same immediacy tier as the undelivered hint; sits just under it.
+    var shouldShowLearnedBanner: Bool {
+        guard let at = learnedTermAt, learnedTerm != nil else { return false }
+        return Date().timeIntervalSince(at) < Self.learnedBannerDuration
+            && phase == .idle
+            && download == nil
+            && preparingEngine == nil
+            && !shouldShowUndeliveredBanner
+    }
+
     /// Show a gentle reminder in the notch only when one is queued, the app is
     /// idle, and nothing higher-priority (download, prepare, Bluetooth hint,
-    /// undelivered hint) is occupying the surface.
+    /// undelivered/learned hints) is occupying the surface.
     var shouldShowReminder: Bool {
         activeReminder != nil
             && phase == .idle
@@ -215,6 +234,7 @@ final class AppState {
             && preparingEngine == nil
             && !shouldShowBluetoothBanner
             && !shouldShowUndeliveredBanner
+            && !shouldShowLearnedBanner
     }
 
     func resetTranscript() {

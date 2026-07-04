@@ -51,6 +51,9 @@ struct NotchSurfaceLayout {
     /// Band used for the "nowhere to paste" hint — a headline plus a short
     /// second line, so it needs about as much room as the Bluetooth banner.
     var undeliveredThickness: CGFloat = 52
+    /// Band for the "learned a word" confirmation — headline plus a short second
+    /// line, same footprint as the undelivered hint.
+    var learnedThickness: CGFloat = 52
     /// Radius of the concave flare where the top meets the bezel.
     var topConcaveRadius: CGFloat = 12
     /// Radius of the surface's rounded bottom corners.

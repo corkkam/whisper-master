@@ -355,6 +355,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.undeliveredTranscriptAt = nil
         }
 
+        // Retract the "learned a word" confirmation once its window elapses.
+        if let at = state.learnedTermAt,
+           Date().timeIntervalSince(at) >= AppState.learnedBannerDuration {
+            state.learnedTerm = nil
+            state.learnedTermAt = nil
+        }
+
         // Sync the "keep this Mac awake for phone dictation" opt-in to the server.
         // `setKeepAwakeAlways` is transition-guarded, so calling it every tick is
         // cheap — the timer is our bridge from @Observable state to AppKit.
