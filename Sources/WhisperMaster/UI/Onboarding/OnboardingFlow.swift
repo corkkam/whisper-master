@@ -121,9 +121,18 @@ struct OnboardingView: View {
                 onStart: startMicTest,
                 onStop: stopMicTest
             )
+        case .smartCleanup:
+            SmartCleanupPage(enabled: state.llmCleanupEnabled, onEnable: enableSmartCleanup)
         case .done:
             DonePage(state: state, retryEngine: retryEngine)
         }
+    }
+
+    /// Opt into smart cleanup: flip the toggle (starts the background download
+    /// via the refresh-loop reconcile) and move on.
+    private func enableSmartCleanup() {
+        state.llmCleanupEnabled = true
+        advance()
     }
 
     // MARK: Permission pages
@@ -193,6 +202,7 @@ struct OnboardingView: View {
         case .accessibility: return accessibilityGranted ? "Continue" : "Skip"
         case .notifications: return notifGranted ? "Continue" : "Skip"
         case .micTest: return "Continue"
+        case .smartCleanup: return state.llmCleanupEnabled ? "Continue" : "Skip"
         case .done: return "Start dictating"
         }
     }

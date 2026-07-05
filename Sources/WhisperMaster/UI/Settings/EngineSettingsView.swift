@@ -27,6 +27,9 @@ struct EngineSettingsView: View {
 
             SectionLabel("Formatting")
             formattingCard
+
+            SectionLabel("Smart cleanup")
+            SmartCleanupSettingsSection(state: state)
         }
         .onAppear {
             vocabularyDraft = state.customVocabulary.joined(separator: "\n")

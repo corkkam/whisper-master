@@ -20,6 +20,9 @@ final class DictationViewModel {
     private var recordingStartedAt: Date?
     /// Drives gentle "you haven't used me in a while" reminders in the notch.
     private lazy var reminderScheduler = ReminderScheduler(state: state)
+    /// Owns the optional on-device cleanup model: background download, progress
+    /// (Settings only), and the one-shot ready banner. Dormant unless opted in.
+    private lazy var cleanupModelManager = CleanupModelManager(state: state)
     /// Watches pasted text for the user's fix-ups and grows the vocabulary.
     private let correctionLearner = CorrectionLearner()
     /// Merge accumulator for confirmed streaming chunks. Kept unfiltered so
@@ -181,7 +184,11 @@ final class DictationViewModel {
                 // Apply the glossary as a safe text replacement (casing + known
                 // mishearings) — the substitute for FluidAudio's transcript-
                 // corrupting streaming rescorer.
-                let final = VocabularyPostProcessor.apply(deFillered, glossary: state.customVocabulary)
+                let cleaned = VocabularyPostProcessor.apply(deFillered, glossary: state.customVocabulary)
+                // Optional on-device qwen polish (self-corrections, false starts).
+                // A passthrough unless opted in AND the model is loaded AND its
+                // output passes the faithfulness guard — never blocks the paste.
+                let final = await cleanupWithLlmIfEnabled(cleaned)
                 state.phase = .idle
                 state.transcript.finalText = final
                 if !final.isEmpty {
@@ -203,6 +210,27 @@ final class DictationViewModel {
                 await handleFailure(error)
             }
         }
+    }
+
+    /// Optional on-device qwen cleanup of the final transcript. Returns `input`
+    /// unchanged unless the feature is enabled, the model is loaded, and the
+    /// model's output survives `CleanupFaithfulnessGuard` — so it can only ever
+    /// improve the text, never block dictation or type something unspoken. Runs
+    /// off the mic path (already inside the stop `Task`).
+    private func cleanupWithLlmIfEnabled(_ input: String) async -> String {
+        guard state.llmCleanupEnabled, !input.isEmpty else { return input }
+        guard await MlxCleanupService.shared.isReady else { return input }
+        state.statusMessage = "Polishing…"
+        guard let cleaned = await MlxCleanupService.shared.clean(input) else { return input }
+        return CleanupFaithfulnessGuard.accept(original: input, cleaned: cleaned) ? cleaned : input
+    }
+
+    /// Reconcile the cleanup model with the `llmCleanupEnabled` toggle. Called
+    /// each refresh tick (edge-triggered inside, so it's a no-op unless the
+    /// toggle changed): starts the background download on opt-in, frees the
+    /// model on opt-out.
+    func reconcileCleanupModel() {
+        cleanupModelManager.syncWithToggle()
     }
 
     /// Run the on-device formatting pass on the final transcript when enabled

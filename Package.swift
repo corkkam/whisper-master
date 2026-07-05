@@ -17,7 +17,10 @@ let package = Package(
         // and coincided with vanished transcripts + cut-off sentences in the field.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.14.7"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
-        .package(url: "https://github.com/TelemetryDeck/SwiftSDK", from: "2.0.0")
+        .package(url: "https://github.com/TelemetryDeck/SwiftSDK", from: "2.0.0"),
+        // On-device qwen cleanup (MLX). Pinned exact: the MLXLMCommon/ChatSession
+        // API churns between minors; the service is written against 2.29.1.
+        .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", exact: "2.29.1")
     ],
     targets: [
         .executableTarget(
@@ -25,7 +28,9 @@ let package = Package(
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "Sparkle", package: "Sparkle"),
-                .product(name: "TelemetryDeck", package: "SwiftSDK")
+                .product(name: "TelemetryDeck", package: "SwiftSDK"),
+                .product(name: "MLXLLM", package: "mlx-swift-examples"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-examples")
             ],
             path: "Sources/WhisperMaster",
             resources: [
@@ -37,6 +42,10 @@ let package = Package(
             dependencies: [
                 "WhisperMaster",
                 .product(name: "FluidAudio", package: "FluidAudio")
+                // Note: MLX is intentionally NOT a test dependency. mlx-swift's
+                // Metal shaders only compile under xcodebuild (not SwiftPM CLI),
+                // so MLX inference can't run under `swift test`. The cleanup guard
+                // tests are pure Swift; qwen inference is validated in the app.
             ],
             path: "Tests/WhisperMasterTests"
         )

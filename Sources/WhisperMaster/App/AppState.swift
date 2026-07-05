@@ -53,11 +53,14 @@ final class AppState {
     static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
     static let removeFillerWordsDefaultsKey = "WhisperMaster.removeFillerWords.v1"
     static let learnCorrectionsDefaultsKey = "WhisperMaster.learnCorrections.v1"
+    static let llmCleanupDefaultsKey = "WhisperMaster.llmCleanup.v1"
     /// How long the "nowhere to type that" notch hint stays down before it
     /// retracts on its own.
     static let undeliveredBannerDuration: TimeInterval = 7
     /// How long the "learned a correction" notch confirmation stays down.
     static let learnedBannerDuration: TimeInterval = 4
+    /// How long the "smart cleanup is ready" notch confirmation stays down.
+    static let cleanupReadyBannerDuration: TimeInterval = 5
 
     var selectedEngine: TranscriberEngine = .slidingWindow
     var preparedEngine: TranscriberEngine?
@@ -90,6 +93,19 @@ final class AppState {
     /// `learnedBannerDuration`.
     var learnedTerm: String?
     var learnedTermAt: Date?
+    /// Live progress of the on-device cleanup-model download, shown **only** in
+    /// Settings (never the notch or tray — that's a hard UX rule). `nil` when no
+    /// download is in flight. Transient; written by `CleanupModelManager`.
+    var cleanupModelDownload: ModelInstaller.Progress?
+    /// When the cleanup model finished downloading + warming — drives a one-shot
+    /// "smart cleanup is ready" notch banner. Transient (never persisted),
+    /// auto-expired by the AppDelegate refresh loop after `cleanupReadyBannerDuration`.
+    var cleanupModelReadyAt: Date?
+    /// Whether the cleanup model is currently loaded and usable. Transient;
+    /// mirrors `MlxCleanupService.isReady` synchronously for the Settings status
+    /// (works for both the R2 and Hugging Face load paths). Written by
+    /// `CleanupModelManager`.
+    var cleanupModelReady: Bool = false
     /// Whether gentle "you haven't used me in a while" reminders are enabled.
     /// Persisted; **opt-in** — off until the user turns it on in Settings.
     var remindersEnabled: Bool = false {
@@ -114,6 +130,13 @@ final class AppState {
     /// toggle is the escape hatch if it ever eats something intentional.
     var removeFillerWordsEnabled: Bool = true {
         didSet { UserDefaults.standard.set(removeFillerWordsEnabled, forKey: Self.removeFillerWordsDefaultsKey) }
+    }
+    /// Run the finished transcript through the on-device qwen "smart cleanup"
+    /// pass (fixes self-corrections/false starts). Persisted; **opt-in** — off
+    /// until the user turns it on (onboarding or Settings), since it downloads a
+    /// ~1.8 GB model. Dictation works normally whether or not it's ready.
+    var llmCleanupEnabled: Bool = false {
+        didSet { UserDefaults.standard.set(llmCleanupEnabled, forKey: Self.llmCleanupDefaultsKey) }
     }
     /// Whether spoken numbers/symbols are rewritten to written form (ITN) on the
     /// final transcript — "twenty five" → "25", "at gmail dot com" → "@gmail.com".
@@ -176,6 +199,8 @@ final class AppState {
         removeFillerWordsEnabled = UserDefaults.standard.object(forKey: Self.removeFillerWordsDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         learnCorrectionsEnabled = UserDefaults.standard.object(forKey: Self.learnCorrectionsDefaultsKey) as? Bool ?? true
+        // Opt-in: off until the user has explicitly turned it on (~1.8 GB model).
+        llmCleanupEnabled = UserDefaults.standard.object(forKey: Self.llmCleanupDefaultsKey) as? Bool ?? false
         // On by default; absent key means a fresh install → enabled.
         itnEnabled = FormattingPreference.isEnabled
         // Off by default; the deterministic rules handle formatting unless opted in.
@@ -224,6 +249,20 @@ final class AppState {
             && !shouldShowUndeliveredBanner
     }
 
+    /// Show a one-shot "smart cleanup is ready" confirmation right after the
+    /// model finishes downloading + warming. Same immediacy tier as the learned
+    /// hint; sits just under it. (Download *progress* never touches the notch —
+    /// only this completion signal does.)
+    var shouldShowCleanupReadyBanner: Bool {
+        guard let at = cleanupModelReadyAt else { return false }
+        return Date().timeIntervalSince(at) < Self.cleanupReadyBannerDuration
+            && phase == .idle
+            && download == nil
+            && preparingEngine == nil
+            && !shouldShowUndeliveredBanner
+            && !shouldShowLearnedBanner
+    }
+
     /// Show a gentle reminder in the notch only when one is queued, the app is
     /// idle, and nothing higher-priority (download, prepare, Bluetooth hint,
     /// undelivered/learned hints) is occupying the surface.
@@ -235,6 +274,7 @@ final class AppState {
             && !shouldShowBluetoothBanner
             && !shouldShowUndeliveredBanner
             && !shouldShowLearnedBanner
+            && !shouldShowCleanupReadyBanner
     }
 
     func resetTranscript() {

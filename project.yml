@@ -28,6 +28,11 @@ packages:
   TelemetryDeck:
     url: https://github.com/TelemetryDeck/SwiftSDK
     from: "2.0.0"
+  # On-device qwen cleanup (MLX). Pinned exact: the MLXLMCommon/ChatSession API
+  # churns between minors; the service is written against 2.29.1.
+  MLXSwiftExamples:
+    url: https://github.com/ml-explore/mlx-swift-examples.git
+    exactVersion: "2.29.1"
 
 targets:
   WhisperMaster:
@@ -42,6 +47,10 @@ targets:
       - package: Sparkle
       - package: TelemetryDeck
         product: TelemetryDeck
+      - package: MLXSwiftExamples
+        product: MLXLLM
+      - package: MLXSwiftExamples
+        product: MLXLMCommon
     settings:
       base:
         PRODUCT_NAME: WhisperMaster

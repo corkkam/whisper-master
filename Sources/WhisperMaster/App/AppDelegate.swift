@@ -349,6 +349,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
 
+        // Reconcile the optional cleanup model with its toggle (edge-triggered
+        // inside, so this is a no-op unless the user just flipped it).
+        viewModel.reconcileCleanupModel()
+
         // Retract the "nowhere to paste" hint once its display window elapses.
         if let at = state.undeliveredTranscriptAt,
            Date().timeIntervalSince(at) >= AppState.undeliveredBannerDuration {
@@ -360,6 +364,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            Date().timeIntervalSince(at) >= AppState.learnedBannerDuration {
             state.learnedTerm = nil
             state.learnedTermAt = nil
+        }
+
+        // Retract the "smart cleanup is ready" confirmation once its window elapses.
+        if let at = state.cleanupModelReadyAt,
+           Date().timeIntervalSince(at) >= AppState.cleanupReadyBannerDuration {
+            state.cleanupModelReadyAt = nil
         }
 
         // Sync the "keep this Mac awake for phone dictation" opt-in to the server.
