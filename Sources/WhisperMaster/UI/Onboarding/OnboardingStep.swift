@@ -8,6 +8,7 @@ enum OnboardingStep: Int, CaseIterable {
     case accessibility
     case notifications
     case micTest
+    case smartCleanup
     case done
 
     /// Shown in the progress bar for the current step.
@@ -18,6 +19,7 @@ enum OnboardingStep: Int, CaseIterable {
         case .accessibility: return "Accessibility"
         case .notifications: return "Notifications"
         case .micTest: return "Mic check"
+        case .smartCleanup: return "Cleanup"
         case .done: return "All set"
         }
     }

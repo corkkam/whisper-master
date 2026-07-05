@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 @preconcurrency import AVFoundation
 import FluidAudio
 import Foundation
@@ -20,8 +21,15 @@ final class DictationViewModel {
     private var recordingStartedAt: Date?
     /// Drives gentle "you haven't used me in a while" reminders in the notch.
     private lazy var reminderScheduler = ReminderScheduler(state: state)
+    /// Owns the optional on-device cleanup model: background download, progress
+    /// (Settings only), and the one-shot ready banner. Dormant unless opted in.
+    private lazy var cleanupModelManager = CleanupModelManager(state: state)
     /// Watches pasted text for the user's fix-ups and grows the vocabulary.
     private let correctionLearner = CorrectionLearner()
+    /// The in-flight background polish for the last dictation (qwen cleanup +
+    /// in-place refine). Cancelled when a new recording starts so a stale refine
+    /// never edits the next session's field.
+    private var refinementTask: Task<Void, Never>?
     /// Merge accumulator for confirmed streaming chunks. Kept unfiltered so
     /// `TranscriptMerger`'s overlap detection always compares raw engine text
     /// against raw engine text; only what goes into `state` is filler-filtered.
@@ -75,8 +83,10 @@ final class DictationViewModel {
 
         // A reminder showing now would be replaced by the live indicator anyway.
         reminderScheduler.clear()
-        // A new dictation supersedes any correction watch on the previous one.
+        // A new dictation supersedes any correction watch or pending polish on
+        // the previous one.
         correctionLearner.cancel()
+        refinementTask?.cancel()
         // Any pending "nowhere to paste" hint is stale once a new session starts.
         state.undeliveredTranscriptAt = nil
 
@@ -181,28 +191,108 @@ final class DictationViewModel {
                 // Apply the glossary as a safe text replacement (casing + known
                 // mishearings) — the substitute for FluidAudio's transcript-
                 // corrupting streaming rescorer.
-                let final = VocabularyPostProcessor.apply(deFillered, glossary: state.customVocabulary)
+                let cleaned = VocabularyPostProcessor.apply(deFillered, glossary: state.customVocabulary)
+                // Paste the deterministic cleanup *instantly* — dictation never
+                // waits on the LLM. The optional on-device qwen polish then runs
+                // in the background and refines this text in place a beat later
+                // (see scheduleRefinement), so the field ends up as clean as if
+                // we'd waited, but the user never did.
                 state.phase = .idle
-                state.transcript.finalText = final
-                if !final.isEmpty {
-                    state.transcript.latestConfirmed = final
-                    state.transcript.latestPartial = ""
-                    state.appendHistory(text: final, engine: state.selectedEngine)
-                    reminderScheduler.noteUsed()
-                    Analytics.shared.send(.dictationCompleted(
-                        engine: state.selectedEngine.rawValue,
-                        duration: sessionDuration,
-                        wordCount: final.split(whereSeparator: \.isWhitespace).count
-                    ))
-                    if state.autoPasteEnabled {
-                        await injectFinalTextIfPossible(final)
-                    }
+                state.transcript.finalText = cleaned
+                guard !cleaned.isEmpty else {
+                    // Nothing to paste (only "hmm" / a silence hallucination).
+                    state.statusMessage = "Finished local transcription."
+                    return
                 }
+                state.transcript.latestConfirmed = cleaned
+                state.transcript.latestPartial = ""
+                let entryID = state.appendHistory(text: cleaned, engine: state.selectedEngine)
+                reminderScheduler.noteUsed()
+                Analytics.shared.send(.dictationCompleted(
+                    engine: state.selectedEngine.rawValue,
+                    duration: sessionDuration,
+                    wordCount: cleaned.split(whereSeparator: \.isWhitespace).count
+                ))
+                var pasteTarget: AXUIElement?
+                if state.autoPasteEnabled {
+                    pasteTarget = await injectFinalTextIfPossible(cleaned)
+                }
+                scheduleRefinement(pasted: cleaned, entryID: entryID, target: pasteTarget)
                 state.statusMessage = "Finished local transcription."
             } catch {
                 await handleFailure(error)
             }
         }
+    }
+
+    /// Kick the optional on-device qwen polish in the background and, when it
+    /// produces a better transcript, rewrite the already-pasted text (and the
+    /// saved history entry) in place — never blocking, since the deterministic
+    /// text was already pasted. Also arms the correction learner on whatever text
+    /// ends up on screen, so it never mistakes our own refine for a user fix-up.
+    private func scheduleRefinement(pasted: String, entryID: UUID?, target: AXUIElement?) {
+        refinementTask?.cancel()
+        refinementTask = Task { [weak self] in
+            guard let self else { return }
+            var onScreen = pasted
+            if let refined = await self.llmRefined(pasted), refined != pasted, !Task.isCancelled {
+                if let target {
+                    // We pasted into a live field — try to fix it in place. Only
+                    // mirror the change into history if the field edit actually
+                    // took, so history matches what the user sees.
+                    let applied = await InPlaceRefiner.apply(
+                        pasted: pasted, refined: refined, element: target, injector: self.textInjector)
+                    if applied {
+                        onScreen = refined
+                        if let entryID { self.state.updateHistoryText(entryID, to: refined) }
+                    }
+                } else if let entryID {
+                    // Nothing was pasted (no editable target) — history is the
+                    // only artifact, so the polish belongs there.
+                    self.state.updateHistoryText(entryID, to: refined)
+                }
+            }
+            guard !Task.isCancelled else { return }
+            self.armCorrectionLearner(for: onScreen, hasTarget: target != nil)
+        }
+    }
+
+    /// Run the optional on-device qwen cleanup and return the polished text only
+    /// if the feature is enabled, the model is loaded, and the output survives
+    /// `CleanupFaithfulnessGuard`. Returns `nil` (→ keep the deterministic paste)
+    /// otherwise. Near-instant when disabled or not-yet-ready.
+    private func llmRefined(_ input: String) async -> String? {
+        guard state.llmCleanupEnabled, !input.isEmpty else { return nil }
+        guard await MlxCleanupService.shared.isReady else { return nil }
+        guard let cleaned = await MlxCleanupService.shared.clean(input) else { return nil }
+        return CleanupFaithfulnessGuard.accept(original: input, cleaned: cleaned) ? cleaned : nil
+    }
+
+    /// Start watching the pasted field for the user's own fix-ups (to grow the
+    /// vocabulary). Deferred until after refinement so the baseline is the text
+    /// actually on screen, and never armed when nothing was pasted.
+    private func armCorrectionLearner(for text: String, hasTarget: Bool) {
+        guard hasTarget, state.autoPasteEnabled, state.learnCorrectionsEnabled, !text.isEmpty else { return }
+        correctionLearner.watch(injected: text) { [weak self] correction in
+            guard let self else { return }
+            self.state.learnVocabularyCorrection(
+                canonical: correction.typed,
+                heard: correction.heard
+            )
+            // Surface the otherwise-silent addition as a brief notch banner.
+            self.state.learnedTerm = correction.typed
+            self.state.learnedTermAt = Date()
+            self.state.statusMessage =
+                "Learned \"\(correction.typed)\" — added to Words to get right."
+        }
+    }
+
+    /// Reconcile the cleanup model with the `llmCleanupEnabled` toggle. Called
+    /// each refresh tick (edge-triggered inside, so it's a no-op unless the
+    /// toggle changed): starts the background download on opt-in, frees the
+    /// model on opt-out.
+    func reconcileCleanupModel() {
+        cleanupModelManager.syncWithToggle()
     }
 
     /// Run the on-device formatting pass on the final transcript when enabled
@@ -247,6 +337,7 @@ final class DictationViewModel {
 
     func shutdown() {
         correctionLearner.cancel()
+        refinementTask?.cancel()
         preparationTask?.cancel()
         microphoneCapture.stop()
         pendingAppendTasks.values.forEach { $0.cancel() }
@@ -514,12 +605,15 @@ final class DictationViewModel {
         state.removeFillerWordsEnabled ? FillerWordFilter.clean(text) : text
     }
 
-    private func injectFinalTextIfPossible(_ text: String) async {
+    /// Paste `text` at the cursor when possible, returning the focused element we
+    /// typed into (so a later in-place refine can safely edit exactly that
+    /// field), or `nil` when nothing was injected (no Accessibility, or no
+    /// editable target). Does NOT arm the correction learner — that happens after
+    /// refinement settles, on whatever text ends up on screen.
+    private func injectFinalTextIfPossible(_ text: String) async -> AXUIElement? {
         guard permissionsManager.accessibilityGranted() else {
-            await MainActor.run {
-                self.state.statusMessage = "Transcript ready. Enable Accessibility for auto-paste."
-            }
-            return
+            state.statusMessage = "Transcript ready. Enable Accessibility for auto-paste."
+            return nil
         }
 
         // Nothing editable is focused, so synthesized keystrokes would vanish.
@@ -528,26 +622,12 @@ final class DictationViewModel {
         if FocusedElementInspector.noEditableTarget() {
             state.undeliveredTranscriptAt = Date()
             state.statusMessage = "No text field focused. Saved to history. Press ⇧⌘V to paste."
-            return
+            return nil
         }
 
+        let target = FocusedElementInspector.focusedElement()
         await textInjector.inject(text)
-        await MainActor.run {
-            self.state.statusMessage = "Finished local transcription and pasted at cursor."
-        }
-        if state.learnCorrectionsEnabled {
-            correctionLearner.watch(injected: text) { [weak self] correction in
-                guard let self else { return }
-                self.state.learnVocabularyCorrection(
-                    canonical: correction.typed,
-                    heard: correction.heard
-                )
-                // Surface the otherwise-silent addition as a brief notch banner.
-                self.state.learnedTerm = correction.typed
-                self.state.learnedTermAt = Date()
-                self.state.statusMessage =
-                    "Learned \"\(correction.typed)\" — added to Words to get right."
-            }
-        }
+        state.statusMessage = "Finished local transcription and pasted at cursor."
+        return target
     }
 }

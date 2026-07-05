@@ -72,8 +72,11 @@ enum ModelInstaller {
         }
     }
 
-    /// One download+unpack attempt. A fresh temp zip per call keeps retries
-    /// independent; `isInstalled()` afterwards guards against a partial unpack.
+    /// One download+unpack attempt. Downloads to a **stable** path under
+    /// `<destinationRoot>/.downloads/` (resume needs a fixed destination, unlike
+    /// the old random temp zip) via the background downloader, so an interrupted
+    /// transfer resumes instead of restarting. `isInstalled()` afterwards guards
+    /// against a partial unpack.
     private static func downloadAndUnpack(
         archiveURL: URL,
         archiveName: String,
@@ -82,23 +85,26 @@ enum ModelInstaller {
         isInstalled: @Sendable () -> Bool,
         onProgress: @escaping @Sendable (Progress) -> Void
     ) async throws {
-        let tempZip = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(archiveName)-\(UUID().uuidString).zip")
-        defer { try? FileManager.default.removeItem(at: tempZip) }
+        let archiveZip = destinationRoot
+            .appendingPathComponent(".downloads", isDirectory: true)
+            .appendingPathComponent("\(archiveName).zip")
 
         onProgress(Progress(fractionCompleted: 0, detail: "Downloading \(label)…"))
-        let downloader = FileDownloader(destination: tempZip) { fraction in
+        try await BackgroundFileDownloader.shared.download(from: archiveURL, to: archiveZip) { fraction in
             // Detail is just the message; every view renders the percentage
             // itself from `fractionCompleted`, so baking it in here duplicated
             // it ("Downloading voice engine… 40% 40%").
             onProgress(Progress(fractionCompleted: fraction, detail: "Downloading \(label)…"))
         }
-        try await downloader.download(from: archiveURL)
 
         onProgress(Progress(fractionCompleted: 1, detail: "Unpacking \(label)…"))
-        try await Archive.unzip(tempZip, into: destinationRoot)
+        try await Archive.unzip(archiveZip, into: destinationRoot)
 
         guard isInstalled() else { throw InstallError.incompleteAfterUnpack }
+
+        // Installed and validated — drop the zip and the resume bookkeeping.
+        try? FileManager.default.removeItem(at: archiveZip)
+        BackgroundFileDownloader.shared.forget(url: archiveURL)
     }
 }
 

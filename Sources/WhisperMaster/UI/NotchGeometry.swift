@@ -54,6 +54,9 @@ struct NotchSurfaceLayout {
     /// Band for the "learned a word" confirmation — headline plus a short second
     /// line, same footprint as the undelivered hint.
     var learnedThickness: CGFloat = 52
+    /// Band for the "smart cleanup is ready" confirmation — same footprint as the
+    /// learned hint. (≤ bannerThickness, so `panelSize` already accommodates it.)
+    var cleanupReadyThickness: CGFloat = 52
     /// Radius of the concave flare where the top meets the bezel.
     var topConcaveRadius: CGFloat = 12
     /// Radius of the surface's rounded bottom corners.

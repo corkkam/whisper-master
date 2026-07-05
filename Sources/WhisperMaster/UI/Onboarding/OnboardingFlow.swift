@@ -121,6 +121,8 @@ struct OnboardingView: View {
                 onStart: startMicTest,
                 onStop: stopMicTest
             )
+        case .smartCleanup:
+            SmartCleanupPage(state: state)
         case .done:
             DonePage(state: state, retryEngine: retryEngine)
         }
@@ -193,6 +195,7 @@ struct OnboardingView: View {
         case .accessibility: return accessibilityGranted ? "Continue" : "Skip"
         case .notifications: return notifGranted ? "Continue" : "Skip"
         case .micTest: return "Continue"
+        case .smartCleanup: return state.llmCleanupEnabled ? "Continue" : "Skip"
         case .done: return "Start dictating"
         }
     }
