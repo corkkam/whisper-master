@@ -122,17 +122,10 @@ struct OnboardingView: View {
                 onStop: stopMicTest
             )
         case .smartCleanup:
-            SmartCleanupPage(enabled: state.llmCleanupEnabled, onEnable: enableSmartCleanup)
+            SmartCleanupPage(state: state)
         case .done:
             DonePage(state: state, retryEngine: retryEngine)
         }
-    }
-
-    /// Opt into smart cleanup: flip the toggle (starts the background download
-    /// via the refresh-loop reconcile) and move on.
-    private func enableSmartCleanup() {
-        state.llmCleanupEnabled = true
-        advance()
     }
 
     // MARK: Permission pages

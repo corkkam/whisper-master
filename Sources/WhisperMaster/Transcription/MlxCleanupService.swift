@@ -78,10 +78,17 @@ actor MlxCleanupService {
     }
 
     /// Drop the model + cache to free memory (feature turned off).
+    ///
+    /// Dropping the container releases the weight arrays, but MLX pools freed
+    /// Metal buffers for reuse instead of returning them to the OS — so the
+    /// ~1.8 GB stays resident until we explicitly clear that pool. Order matters:
+    /// release the container first, then clear the cache so the just-freed
+    /// buffers are actually handed back.
     func release() {
         state = .idle
         box.cache = []
         box.primed = false
+        MLX.GPU.clearCache()
     }
 
     /// Clean one transcript. Returns `nil` (→ caller keeps original) if the model

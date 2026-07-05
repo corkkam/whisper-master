@@ -66,6 +66,31 @@ enum FocusedElementInspector {
         return (focused as! AXUIElement)
     }
 
+    /// True when `element` is still the system's focused element — an identity
+    /// check (not value equality) so an in-place refine only ever edits the exact
+    /// field it pasted into.
+    static func isFocused(_ element: AXUIElement) -> Bool {
+        guard let current = focusedElement() else { return false }
+        return CFEqual(current, element)
+    }
+
+    /// The element's selected-text range in UTF-16 offsets, when it exposes one.
+    /// A collapsed range (`length == 0`) at the value's end means the caret sits
+    /// right after everything we typed — the only state where synthesized
+    /// backspaces walk back over our own text rather than the user's.
+    static func selectedRange(of element: AXUIElement) -> CFRange? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
+            let value
+        else { return nil }
+        let axValue = value as! AXValue
+        guard AXValueGetType(axValue) == .cfRange else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(axValue, .cfRange, &range) else { return nil }
+        return range
+    }
+
     /// The element's text content, when it exposes one as a string.
     static func stringValue(of element: AXUIElement) -> String? {
         var value: CFTypeRef?

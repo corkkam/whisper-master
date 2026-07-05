@@ -281,15 +281,37 @@ final class AppState {
         transcript = TranscriptSnapshot()
     }
 
-    func appendHistory(text: String, engine: TranscriberEngine) {
+    /// Prepend a new transcript to history, returning its id so a later
+    /// background refinement can update the same entry (or `nil` if the text was
+    /// empty and nothing was stored).
+    @discardableResult
+    func appendHistory(text: String, engine: TranscriberEngine) -> UUID? {
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else { return }
+        guard !cleaned.isEmpty else { return nil }
         let entry = TranscriptHistoryEntry(text: cleaned, engineRawValue: engine.rawValue)
         var next = history
         next.insert(entry, at: 0)
         if next.count > Self.historyLimit {
             next.removeLast(next.count - Self.historyLimit)
         }
+        history = next
+        Self.persistHistory(next)
+        return entry.id
+    }
+
+    /// Replace the text of an existing history entry in place (keeping its id,
+    /// timestamp and engine) — used when the on-device polish lands after the
+    /// entry was already saved. No-op if the id is gone or the text is unchanged.
+    func updateHistoryText(_ id: UUID, to text: String) {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty,
+              let idx = history.firstIndex(where: { $0.id == id }),
+              history[idx].text != cleaned
+        else { return }
+        let old = history[idx]
+        var next = history
+        next[idx] = TranscriptHistoryEntry(
+            id: old.id, text: cleaned, createdAt: old.createdAt, engineRawValue: old.engineRawValue)
         history = next
         Self.persistHistory(next)
     }
