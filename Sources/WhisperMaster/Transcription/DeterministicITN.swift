@@ -198,7 +198,13 @@ enum DeterministicITN {
                     break
                 }
             }
-            guard let value = SpokenNumber.value(run) else { out.append(toks[i]); i += 1; continue }
+            guard let value = SpokenNumber.value(run) else {
+                // Not a well-formed cardinal (e.g. "one two three") — leave the
+                // whole run as spoken words instead of digitizing part of it.
+                for k in i..<j { out.append(toks[k]) }
+                i = j
+                continue
+            }
 
             // A bare "one" is nearly always a word, not a count — "one day",
             // "one of them", "one honest footnote". Digitize it only when a

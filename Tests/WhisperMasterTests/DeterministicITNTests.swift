@@ -29,4 +29,23 @@ final class DeterministicITNTests: XCTestCase {
         XCTAssertEqual(DeterministicITN.normalize("meet at one thirty"), "meet at 1:30")
         XCTAssertEqual(DeterministicITN.normalize("meet at four thirty today"), "meet at 4:30 today")
     }
+
+    // Regression: "mic testing one two three" came out as "mic testing 6" —
+    // consecutive unit words were summed (1+2+3). A run of number words that
+    // isn't a well-formed single cardinal must stay as spoken words, never
+    // collapse to a number.
+    func testDigitSequencesAreNotSummed() {
+        XCTAssertEqual(DeterministicITN.normalize("mic testing one two three"), "mic testing one two three")
+        XCTAssertEqual(DeterministicITN.normalize("testing one two three"), "testing one two three")
+        XCTAssertEqual(DeterministicITN.normalize("five three seven nine"), "five three seven nine")
+        XCTAssertEqual(DeterministicITN.normalize("count down five four three two one"), "count down five four three two one")
+    }
+
+    // The fix must not regress genuinely valid multi-word cardinals.
+    func testValidCompoundNumbersStillDigitize() {
+        XCTAssertEqual(DeterministicITN.normalize("one hundred twenty three"), "123")
+        XCTAssertEqual(DeterministicITN.normalize("three thousand five hundred"), "3500")
+        XCTAssertEqual(DeterministicITN.normalize("twenty one"), "21")
+        XCTAssertEqual(DeterministicITN.normalize("one hundred and five"), "105")
+    }
 }

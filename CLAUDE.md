@@ -75,6 +75,25 @@ used**. `VocabularyPostProcessor` applies the glossary as a safe whole-word
 text replacement on the finished transcript instead. Do not re-enable
 `configureVocabularyBoosting` to "improve accuracy" — it regresses correctness.
 
+**Deterministic ITN, and why it must not sum digit sequences.** The finished
+transcript runs through `DeterministicTextFormatter` → `DeterministicITN.normalize`
+(the default `TextFormatting`; the Apple on-device LLM formatter is opt-in only).
+This is a pure, rule-based inverse-text-normalization engine — spoken numbers →
+digits, currency, %, times, emails — written in Swift (no model, instant,
+deterministic). `SpokenNumber.value` combines number words **additively**, which
+is only valid for a tens word (20–90) + a ones word (1–9) ("twenty five" → 25) or
+across a scale word ("one hundred twenty three" → 123). A run of bare unit words
+like "one two three" is a spoken *sequence*, not a cardinal, so it must return
+`nil` and stay as words — **do not** let it fall through to the additive sum,
+which produced the "mic testing one two three" → "mic testing 6" bug (1+2+3).
+When a run isn't a well-formed cardinal, `convertNumbers` emits the *whole* run as
+words rather than digitizing a trailing token. Cover any ITN change with
+`DeterministicITNTests` (fast, pure). A heavier long-term alternative — swapping
+this hand-rolled engine for FluidInference's `text-processing-rs` (a Rust/NeMo
+ITN port with Swift xcframework bindings, same vendor as FluidAudio) — was
+evaluated but not adopted: it adds a native binary + build/signing complexity for
+coverage we don't yet need.
+
 ### Toolchain & prerequisites
 
 - **Apple Silicon, macOS 14+.** Build is **arm64-only**; deployment target macOS 14.0. Developed on macOS 26 / **Xcode 26.5**; Swift language mode **5.0** (`SWIFT_VERSION` in `project.yml`).
