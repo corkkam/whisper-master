@@ -75,6 +75,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // notifications would never fire.
         _ = updaterController
 
+        // Create the background download session now, before any model prep
+        // asks for a download. On relaunch this lets `nsurlsessiond` replay
+        // completion events for transfers it finished while we were quit — moving
+        // finished archives into place — so a subsequent download() sees the file
+        // already present instead of racing and re-downloading it.
+        _ = BackgroundFileDownloader.shared
+
         // Start downloading/loading the voice engine immediately, in parallel
         // with onboarding. Model preparation only needs the network, not the
         // mic/accessibility permissions the wizard collects — so by the time
