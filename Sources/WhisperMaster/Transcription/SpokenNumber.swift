@@ -18,16 +18,30 @@ enum SpokenNumber {
     static func isWord(_ w: String) -> Bool { units[w] != nil || scales[w] != nil }
 
     /// Value of a run of number words, or `nil` if the run isn't a valid number.
+    ///
+    /// Adjacent unit words are only additive in one well-formed case: a tens
+    /// word (20–90) followed by a ones word (1–9), e.g. "twenty five" → 25.
+    /// Any other back-to-back unit words ("one two three", "five three") are
+    /// a spoken sequence, not a cardinal, so the run is rejected (`nil`) rather
+    /// than summed — otherwise "one two three" would collapse to 6.
     static func value(_ words: [String]) -> Int? {
         var result = 0, current = 0, used = false
+        // The last unit word folded into `current` since the last scale/hundred
+        // reset; `nil` means the next unit starts a fresh sub-block.
+        var prevUnit: Int?
         for w in words {
             if w == "and" || w == "a" || w == "an" { continue }
             if let u = units[w] {
-                current += u; used = true
+                if let p = prevUnit {
+                    let prevIsTens = p >= 20 && p % 10 == 0
+                    let uIsOnes = (1...9).contains(u)
+                    guard prevIsTens && uIsOnes else { return nil }
+                }
+                current += u; used = true; prevUnit = u
             } else if w == "hundred" {
-                current = (current == 0 ? 1 : current) * 100; used = true
+                current = (current == 0 ? 1 : current) * 100; used = true; prevUnit = nil
             } else if let s = scales[w] {
-                result += (current == 0 ? 1 : current) * s; current = 0; used = true
+                result += (current == 0 ? 1 : current) * s; current = 0; used = true; prevUnit = nil
             } else {
                 return nil
             }

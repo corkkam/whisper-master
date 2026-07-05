@@ -75,6 +75,25 @@ used**. `VocabularyPostProcessor` applies the glossary as a safe whole-word
 text replacement on the finished transcript instead. Do not re-enable
 `configureVocabularyBoosting` to "improve accuracy" — it regresses correctness.
 
+**Deterministic ITN, and why it must not sum digit sequences.** The finished
+transcript runs through `DeterministicTextFormatter` → `DeterministicITN.normalize`
+(the default `TextFormatting`; the Apple on-device LLM formatter is opt-in only).
+This is a pure, rule-based inverse-text-normalization engine — spoken numbers →
+digits, currency, %, times, emails — written in Swift (no model, instant,
+deterministic). `SpokenNumber.value` combines number words **additively**, which
+is only valid for a tens word (20–90) + a ones word (1–9) ("twenty five" → 25) or
+across a scale word ("one hundred twenty three" → 123). A run of bare unit words
+like "one two three" is a spoken *sequence*, not a cardinal, so it must return
+`nil` and stay as words — **do not** let it fall through to the additive sum,
+which produced the "mic testing one two three" → "mic testing 6" bug (1+2+3).
+When a run isn't a well-formed cardinal, `convertNumbers` emits the *whole* run as
+words rather than digitizing a trailing token. Cover any ITN change with
+`DeterministicITNTests` (fast, pure). A heavier long-term alternative — swapping
+this hand-rolled engine for FluidInference's `text-processing-rs` (a Rust/NeMo
+ITN port with Swift xcframework bindings, same vendor as FluidAudio) — was
+evaluated but not adopted: it adds a native binary + build/signing complexity for
+coverage we don't yet need.
+
 ### Toolchain & prerequisites
 
 - **Apple Silicon, macOS 14+.** Build is **arm64-only**; deployment target macOS 14.0. Developed on macOS 26 / **Xcode 26.5**; Swift language mode **5.0** (`SWIFT_VERSION` in `project.yml`).
@@ -118,6 +137,7 @@ Product: `WhisperMaster.app`, bundle id `app.whispermaster.mac`, executable `Whi
 - **`.github/workflows/release.yml`** has two jobs. A cheap **`gate`** job (Ubuntu, 1× billing) checks whether `CFBundleShortVersionString` changed versus `github.event.before`; only if it did (or on manual `workflow_dispatch`) does the **`release`** job run on `macos-15`: checkout → `brew install xcodegen rclone` → import the **Developer ID** cert from secrets into a temporary keychain → set `CFBundleVersion` to **epoch seconds** (`date +%s`) so it always strictly increases and can't be undercut by an earlier manual build → decode the notary `.p8` → run `release.sh` (which build+sign+**notarize+staple**s). Add **`[skip release]`** to the commit message to skip even a version-bump push.
 - **Required repo secrets:** `DEVELOPER_ID_CERT_P12_BASE64` (base64 of the Developer ID `.p12`), `DEVELOPER_ID_CERT_PASSWORD`, `NOTARY_KEY_P8_BASE64` (base64 of the App Store Connect `AuthKey_*.p8`), `NOTARY_KEY_ID`, `NOTARY_ISSUER`, `SPARKLE_ED_PRIVATE_KEY`, plus the five `R2_*` values above. (The CI workflow decodes the `.p8` to `$RUNNER_TEMP` and exports `NOTARY_KEY_P8` for `notarize.sh`.)
 - macOS runner minutes bill **~10×** and the Apple notary wait keeps the runner allocated for the whole submission (often 5–30 min today), so each release run is expensive (~hundreds of billed minutes). The **version-bump `gate`** is the primary cost guard — a normal `dev` push that doesn't change `CFBundleShortVersionString` only burns a few Ubuntu seconds; `[skip release]` remains a manual override.
+- **Two independent skip switches (don't confuse them):** `[skip release]` skips the *whole* macOS `release` job (no build/sign/notarize/upload — nothing ships). `[skip announce]` still runs the full release (builds, signs, notarizes, uploads to R2 — testers **do** get the Sparkle update) but skips **only** the final Telegram announcement step (`if: !contains(head_commit.message, '[skip announce]')`). So to ship a build without posting to the group, bump the version **and** add `[skip announce]`.
 
 ### Release flow, end to end (two ways)
 
@@ -147,6 +167,7 @@ After a successful CI release, `Scripts/notify-telegram.py` (final step in `rele
 - If the release commit has **no body**, the script falls back to a `🚀 Whisper Master <version>` heading plus a bullet list of the commit subjects since the last `v*` tag — so even subjects should read as user-facing release-note lines (`Merge`, `release:`, `bump`, and `[skip release]` commits are filtered out).
 - The version header and download link are NOT auto-added when a body is present — put whatever headline/version mention you want in the body itself. A `[skip release]` trailer is stripped from the posted text.
 - The step is `continue-on-error` and no-ops without the Telegram secrets, so a notification hiccup never fails a release.
+- **To release without announcing:** put `[skip announce]` in the commit message. The release job still builds/signs/notarizes/uploads (the Sparkle update ships to testers) — only this Telegram step is skipped. This is distinct from `[skip release]`, which skips the entire release.
 
 **Publishing a model to R2** (separate from app releases): from `~/Library/Application Support/FluidAudio/Models`, `ditto -c -k --keepParent <dir> <dir>.zip`, then `rclone` it to `whisper-master/models/` (creds from `.env`). Done for the engine (`parakeet-tdt-0.6b-v3`) and CTC (`parakeet-ctc-110m-coreml`) models; the app installs them mirror-first via `ModelInstaller`.
 
