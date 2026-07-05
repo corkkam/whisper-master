@@ -124,6 +124,8 @@ jobs:
         # aren't configured. continue-on-error so a notification hiccup never
         # fails the release (or skips the release-tag step below). Posts the
         # release commit message and attaches the built app zip.
+        # Put [skip announce] in the commit message to release without posting.
+        if: ${{ !contains(github.event.head_commit.message, '[skip announce]') }}
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
