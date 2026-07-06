@@ -2,8 +2,8 @@
   import { createQuery, keepPreviousData } from '@tanstack/svelte-query';
   import { fetchRuns, runsKey, RUNS_PAGE_SIZE } from '$lib/api';
   import type { RunSummary } from '$lib/types';
-  import StatCard from '$lib/components/StatCard.svelte';
-  import HowItWorks from '$lib/components/HowItWorks.svelte';
+  import HeroDemo from '$lib/components/HeroDemo.svelte';
+  import Pipeline from '$lib/components/Pipeline.svelte';
   import TrendChart from '$lib/components/TrendChart.svelte';
   import RunRow from '$lib/components/RunRow.svelte';
   import Pagination from '$lib/components/Pagination.svelte';
@@ -76,40 +76,29 @@
     <p class="err mono">{data.dbError}</p>
   </div>
 {:else}
-  <!-- A: the trust headline -->
+  <!-- A: show it working -->
   <section class="hero">
     <p class="eyebrow">Whisper Master · evaluation</p>
     <h1>How well does it clean up your dictation?</h1>
     <p class="lead">
-      Whisper Master turns messy speech into clean text, entirely on your Mac. On every change we
-      grade the <b>real, shipped</b> pipeline. How accurately it hears you, how well it cleans up,
-      and whether it ever answers instead of just cleaning. Here's the evidence.
+      Watch the <b>real, shipped</b> pipeline turn messy speech into clean text. Then see exactly how
+      we prove it, on every change.
     </p>
 
-    <div class="stats">
-      <StatCard
-        label="Cleanup accuracy"
-        value={cleanupPct !== null ? String(cleanupPct) : 'n/a'}
-        unit={cleanupPct !== null ? '%' : ''}
-        sub="of test cases pass the cleanup rules"
-      />
-      <StatCard
-        label="Hears real speech"
-        value={wer ?? 'n/a'}
-        unit={wer ? '%' : ''}
-        sub="word error on real human speech, lower is better"
-      />
-      <StatCard
-        label="On device speed"
-        value={speedMs ?? 'n/a'}
-        unit={speedMs ? 'ms' : ''}
-        sub="typical cleanup time, nothing leaves your Mac"
-      />
+    <HeroDemo />
+
+    <div class="strip">
+      <div class="s">
+        <b>{cleanupPct !== null ? cleanupPct + '%' : 'n/a'}</b><span>cleanup accuracy</span>
+      </div>
+      <div class="s"><b>{wer ? wer + '%' : 'n/a'}</b><span>word error, real speech</span></div>
+      <div class="s"><b>{speedMs ? speedMs + 'ms' : 'n/a'}</b><span>typical cleanup</span></div>
+      <div class="s"><b>100%</b><span>on device, always</span></div>
     </div>
   </section>
 
   <!-- B: credibility -->
-  <HowItWorks />
+  <Pipeline />
 
   {#if trendRuns.length >= 2}
     <section class="trend">
@@ -157,15 +146,34 @@
     margin-bottom: 10px;
   }
   .lead {
-    max-width: 60ch;
+    max-width: 56ch;
     font-size: 17px;
     line-height: 1.55;
-    margin: 16px 0 30px;
+    margin: 16px 0 28px;
   }
-  .stats {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
+  .strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 38px;
+    margin-top: 26px;
+    padding-left: 2px;
+  }
+  .strip .s {
+    display: flex;
+    flex-direction: column;
+  }
+  .strip .s b {
+    font-family: var(--display);
+    font-size: 27px;
+    font-weight: 600;
+    color: var(--pen);
+    line-height: 1;
+    letter-spacing: -0.01em;
+  }
+  .strip .s span {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 5px;
   }
   h2 {
     margin-bottom: 4px;
@@ -211,8 +219,8 @@
     margin-top: 10px;
   }
   @media (max-width: 640px) {
-    .stats {
-      grid-template-columns: 1fr;
+    .strip {
+      gap: 16px 28px;
     }
   }
 </style>
