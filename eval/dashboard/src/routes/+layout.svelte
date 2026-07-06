@@ -34,8 +34,8 @@
 <style>
   .site {
     display: flex;
-    align-items: baseline;
-    gap: 14px;
+    align-items: center;
+    gap: 8px 14px;
     padding: 26px 0 20px;
     border-bottom: 1px solid var(--rule);
     margin-bottom: 30px;
