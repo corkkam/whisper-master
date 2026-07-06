@@ -31,7 +31,19 @@ npm run dev                 # http://localhost:5173
 
 ## Storing a run (history)
 
-After a Swift eval run writes `results.json`, push it into history:
+**One command — run the eval and push it in one shot** (recommended):
+
+```bash
+# dev server running on :5173, from eval/text-cleanup
+bash run-eval.sh                         # cases.jsonl, auto-labelled
+bash run-eval.sh cases.jsonl "my label"  # explicit
+```
+
+`run-eval.sh` launches the app for the eval, waits for `results.json`, then
+pushes it here automatically. `NO_PUSH=1` runs the eval only; `DASHBOARD_URL`
+retargets the push.
+
+**Or push an existing `results.json` manually:**
 
 ```bash
 # dev server running on :5173
