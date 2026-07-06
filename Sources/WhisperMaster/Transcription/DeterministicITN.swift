@@ -171,6 +171,38 @@ enum DeterministicITN {
         return out
     }
 
+    // MARK: - Room / suite numbers ("room two oh five" → "room 205")
+
+    private static let roomKeywords: Set<String> = ["room", "suite", "apartment", "apt", "unit", "rm"]
+
+    /// A room/suite number spoken as digit-chunks, read as a concatenated digit
+    /// sequence rather than a clock time or a summed cardinal. Each unit/teen
+    /// word is one chunk; a tens word (20–90) may absorb a following ones word
+    /// into a two-digit chunk ("twenty five" → "25"); "oh"/"o"/"zero" is a literal
+    /// 0. "two oh five" → "205", "two fourteen" → "214", "one twenty" → "120".
+    /// Requires ≥ 2 digits so a single "room five" falls through to the normal
+    /// number pass ("room 5"), not this path.
+    private static func matchRoomNumber(_ toks: [Tok], at i: Int) -> (tok: Tok, next: Int)? {
+        var digits = "", j = i, trail = ""
+        while j < toks.count {
+            let w = toks[j].lower
+            if w == "oh" || w == "o" || w == "zero" {
+                digits += "0"; trail = toks[j].trail; j += 1
+            } else if let u = SpokenNumber.units[w] {
+                if u >= 20, u % 10 == 0, j + 1 < toks.count,
+                   let o = SpokenNumber.units[toks[j + 1].lower], (1...9).contains(o) {
+                    digits += String(u + o); trail = toks[j + 1].trail; j += 2
+                } else {
+                    digits += String(u); trail = toks[j].trail; j += 1
+                }
+            } else {
+                break
+            }
+        }
+        guard digits.count >= 2 else { return nil }
+        return (Tok(lead: toks[i].lead, core: digits, trail: trail), j)
+    }
+
     // MARK: - Numbers, currency, percentages
 
     private static func convertNumbers(_ toks: [Tok]) -> [Tok] {
@@ -178,6 +210,12 @@ enum DeterministicITN {
         var i = 0
         while i < toks.count {
             let w0 = toks[i].lower
+            // Room/suite numbers before time/cardinal parsing, so "room two oh
+            // five" reads as 205 rather than the clock time 2:05.
+            if let prev = out.last?.lower, roomKeywords.contains(prev),
+               let r = matchRoomNumber(toks, at: i) {
+                out.append(r.tok); i = r.next; continue
+            }
             if let hour = SpokenNumber.units[w0], (1...12).contains(hour),
                let t = matchTime(toks, hour: hour, at: i) {
                 out.append(t.tok); i = t.next; continue

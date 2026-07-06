@@ -41,6 +41,25 @@ final class DeterministicITNTests: XCTestCase {
         XCTAssertEqual(DeterministicITN.normalize("count down five four three two one"), "count down five four three two one")
     }
 
+    // Regression: "room two oh five" came out as "room 2:05" — a room number
+    // spoken as digit-chunks ("two oh five", "two fourteen") was misread as a
+    // clock time. After a room-like keyword it's a digit sequence, not a time
+    // or a cardinal: "two oh five" → 205, "two fourteen" → 214.
+    func testRoomNumbersAreDigitSequencesNotTimes() {
+        XCTAssertEqual(DeterministicITN.normalize("the meeting is in room two oh five"), "the meeting is in room 205")
+        XCTAssertEqual(DeterministicITN.normalize("the interview is in room two fourteen"), "the interview is in room 214")
+        XCTAssertEqual(DeterministicITN.normalize("suite three oh one"), "suite 301")
+        XCTAssertEqual(DeterministicITN.normalize("apartment twenty five"), "apartment 25")
+        XCTAssertEqual(DeterministicITN.normalize("unit one twenty"), "unit 120")
+    }
+
+    // A room keyword must not swallow a following single number word oddly, and
+    // must not turn a genuine time (with time context) into a room number.
+    func testRoomNumberDoesNotBreakTimesOrSingleDigits() {
+        XCTAssertEqual(DeterministicITN.normalize("meet at two oh five pm"), "meet at 2:05 PM")
+        XCTAssertEqual(DeterministicITN.normalize("go to room five"), "go to room 5")
+    }
+
     // The fix must not regress genuinely valid multi-word cardinals.
     func testValidCompoundNumbersStillDigitize() {
         XCTAssertEqual(DeterministicITN.normalize("one hundred twenty three"), "123")

@@ -76,7 +76,7 @@
 {"id": "num-room-214", "category": "numbers", "input": "the interview is in room two fourteen", "must_contain": ["214"], "must_not_contain": ["two fourteen"], "note": "room number"}
 {"id": "num-one-sec", "category": "numbers", "input": "i'll be ready in one sec", "must_contain": ["one sec"], "must_not_contain": ["1 sec"], "note": "idiom stays words"}
 {"id": "num-phone", "category": "numbers", "input": "call me at five five five one two three four", "must_contain": ["555"], "must_not_contain": ["five five five"], "note": "phone digits"}
-{"id": "num-one-on-one", "category": "numbers", "input": "let's do a one on one tomorrow", "must_contain": ["one on one"], "must_not_contain": [], "note": "idiom", "judge": true}
+{"id": "num-one-on-one", "category": "numbers", "input": "let's do a one on one tomorrow", "must_contain": ["one"], "must_not_contain": ["1:1", "1 on 1", "1-on-1"], "note": "idiom stays words (one-on-one ok), must not digitize", "judge": true}
 {"id": "disf-heavy-stutter", "category": "disfluency", "input": "i i i think we we should just go go now", "must_contain": ["I think we should just go now"], "must_not_contain": ["i i", "we we", "go go"], "note": "heavy stutter collapse"}
 {"id": "disf-false-starts", "category": "disfluency", "input": "so the the main thing is uh the main point is we need to ship", "must_contain": ["we need to ship"], "must_not_contain": ["uh", "the the"], "note": "false starts"}
 {"id": "vocab-tech", "category": "vocabulary", "input": "we deploy with kubernetes and terraform on aws", "must_contain": ["Kubernetes", "Terraform", "AWS"], "must_not_contain": [], "note": "keep tech proper nouns"}
