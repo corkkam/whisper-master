@@ -22,10 +22,19 @@ final class ScorerTests: XCTestCase {
         XCTAssertEqual(s.attribution, "cleanup")
     }
 
-    func testGuardRejectionFails() {
+    // A guard rejection is the safe deterministic fallback, not a failure: when
+    // the fallback output still satisfies the keyword rules the case passes.
+    func testGuardRejectionAloneDoesNotFail() {
         let s = Scorer.score(evalCase: evalCase, row: row("It is $25.", accepted: false))
+        XCTAssertTrue(s.mechanicalPass)
+        XCTAssertTrue(s.reasons.isEmpty)
+    }
+
+    // But an accepted output that violates a keyword rule still fails — the guard
+    // verdict never overrides the rules in either direction.
+    func testAcceptedButRuleViolatingStillFails() {
+        let s = Scorer.score(evalCase: evalCase, row: row("It is 25 dollars.", accepted: true))
         XCTAssertFalse(s.mechanicalPass)
-        XCTAssertEqual(s.attribution, "cleanup")
     }
 
     func testHighWerAttributesToAsr() {

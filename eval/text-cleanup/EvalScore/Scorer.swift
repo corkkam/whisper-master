@@ -43,9 +43,17 @@ public struct RunScore {
     public let attribution: String?
 }
 
-/// Objective (mechanical) scoring: keyword rules + guard verdict + WER threshold,
-/// with the failure attributed to the stage that caused it. The subjective
-/// quality call is Claude Code's, not here.
+/// Objective (mechanical) scoring: keyword rules + WER threshold, with the
+/// failure attributed to the stage that caused it. The subjective quality call
+/// is Claude Code's, not here.
+///
+/// The guard verdict is **diagnostic, not a pass/fail criterion**. A guard
+/// rejection means the LLM output was discarded and the safe deterministic
+/// fallback was used — for a faithfulness case that fallback is the *correct*
+/// result and it satisfies the keyword rules, so it must not be marked failed.
+/// Conversely, a guard *acceptance* that lets an unfaithful answer through is
+/// still caught by `must_not_contain`. So the final output's keyword compliance
+/// is the sole mechanical arbiter; `guardVerdict` is surfaced for display only.
 public enum Scorer {
     public static let werFailThreshold = 0.15
 
@@ -58,7 +66,6 @@ public enum Scorer {
         for term in evalCase.mustNotContain where low.contains(term.lowercased()) {
             reasons.append("forbidden '\(term)'")
         }
-        if !row.guardVerdict.accepted { reasons.append("guard rejected") }
 
         var attribution: String?
         if let w = row.wer, w > werFailThreshold {

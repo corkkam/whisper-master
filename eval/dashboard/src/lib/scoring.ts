@@ -59,7 +59,15 @@ export function sourceOf(id: string): Source {
   return 'Text';
 }
 
-/** Mechanical score: keyword rules + guard verdict + WER threshold, attributed. */
+/**
+ * Mechanical score: keyword rules + WER threshold, attributed.
+ *
+ * The guard verdict is diagnostic, not a pass/fail criterion (kept in sync with
+ * the Swift `Scorer`): a guard rejection means the safe deterministic fallback
+ * was used, which for a faithfulness case is the correct result and satisfies
+ * the keyword rules; an unfaithful acceptance is still caught by mustNotContain.
+ * So the final output's keyword compliance is the sole mechanical arbiter.
+ */
 export function scoreRow(row: ResultRow, rule: Rule | undefined, werValue: number | null): Scored {
   const reasons: string[] = [];
   const low = (row.llm_output ?? '').toLowerCase();
@@ -69,7 +77,6 @@ export function scoreRow(row: ResultRow, rule: Rule | undefined, werValue: numbe
   for (const t of rule?.mustNotContain ?? []) {
     if (low.includes(t.toLowerCase())) reasons.push(`forbidden '${t}'`);
   }
-  if (row.guard?.accepted === false) reasons.push('guard rejected');
 
   let attribution: 'asr' | 'cleanup' | null = null;
   if (werValue != null && werValue > WER_FAIL_THRESHOLD) {
