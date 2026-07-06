@@ -1,0 +1,140 @@
+/* Proof-sheet design system — warm paper, red editing pen, monospace transcripts.
+   Shared across the dashboard (mirrors the standalone report.html). */
+:root {
+  --paper: #f5f1e8;
+  --card: #fbf8f1;
+  --ink: #211e18;
+  --muted: #8c8578;
+  --pen: #e4572e;
+  --approve: #4e7a51;
+  --flag: #c0392b;
+  --rule: #e4dcc9;
+  --rule-2: #efe9da;
+  --sans: 'Avenir Next', 'SF Pro Text', system-ui, -apple-system, sans-serif;
+  --mono: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #181510;
+    --card: #211d16;
+    --ink: #f1eadb;
+    --muted: #9a9080;
+    --rule: #332c20;
+    --rule-2: #2a241a;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+}
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+.wrap {
+  max-width: 1060px;
+  margin: 0 auto;
+  padding: 0 24px 96px;
+}
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--pen);
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+.mono {
+  font-family: var(--mono);
+}
+.muted {
+  color: var(--muted);
+}
+
+/* proofreading marks (shared by DiffText) */
+.txt {
+  font-family: var(--mono);
+  font-size: 13.5px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+.txt .ins {
+  color: var(--pen);
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+.txt .del {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--pen);
+}
+
+/* chips + verdicts */
+.chip {
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--rule);
+  background: var(--card);
+  color: var(--muted);
+  border-radius: 20px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.chip[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+.chip.pen[aria-pressed='true'] {
+  background: var(--pen);
+  border-color: var(--pen);
+  color: #fff;
+}
+.tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 1px 7px;
+}
+.verdict {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 6px;
+}
+.verdict.pass {
+  color: var(--approve);
+  background: color-mix(in srgb, var(--approve) 12%, transparent);
+}
+.verdict.fail {
+  color: var(--flag);
+  background: color-mix(in srgb, var(--flag) 12%, transparent);
+}
+:focus-visible {
+  outline: 2px solid var(--pen);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

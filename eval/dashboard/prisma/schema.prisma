@@ -1,0 +1,51 @@
+// Prisma 6 + MongoDB (no driver adapter needed on 6.x). Run `prisma db push`
+// once DATABASE_URL points at your Atlas cluster — Mongo has no migrations.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+/// One evaluation run — an ingested results.json plus its computed aggregate.
+model Run {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  createdAt  DateTime @default(now())
+  label      String?
+  gitCommit  String?
+  branch     String?
+  totalRuns  Int // number of case x target rows
+  totalCases Int
+  audioCases Int
+  /// Rolled-up metrics: { byTarget: {light:{pass,total,latency}}, werBySource, attribution }
+  aggregate  Json
+  results    Result[]
+
+  @@index([createdAt])
+}
+
+/// One scored case x target row within a run.
+model Result {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  run            Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  runId          String   @db.ObjectId
+  caseId         String
+  category       String?
+  source         String // Text | TTS | LibriSpeech | Bluetooth | Noise
+  target         String // light | polish
+  inputKind      String // text | audio
+  deterministic  String
+  llmOutput      String
+  guardAccepted  Boolean
+  wer            Float?
+  latencyMs      Json
+  asrText        String?
+  asrReference   String?
+  mechanicalPass Boolean
+  attribution    String? // asr | cleanup | null
+  reasons        String[]
+
+  @@index([runId])
+}
