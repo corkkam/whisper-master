@@ -35,6 +35,10 @@ actor MlxCleanupService {
         var cache: [KVCache] = []
         var systemOffset = 0
         var primed = false
+        /// Which system prompt the cache was primed for. When the caller switches
+        /// modes (light cleanup vs grammar polish) the prompt changes, so the KV
+        /// prefix is stale and must be re-primed.
+        var primedPrompt: String?
     }
 
     private enum LoadState {
@@ -94,7 +98,7 @@ actor MlxCleanupService {
     /// Clean one transcript. Returns `nil` (→ caller keeps original) if the model
     /// isn't ready, input is empty, or generation times out / throws. Output is
     /// *not* trusted here — `CleanupFaithfulnessGuard` vets it upstream.
-    func clean(_ text: String) async -> String? {
+    func clean(_ text: String, systemPrompt: String = CleanupPrompt.system) async -> String? {
         guard case .ready(let container) = state else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -105,7 +109,9 @@ actor MlxCleanupService {
         let box = self.box
         do {
             let raw = try await container.perform { (context: ModelContext) in
-                try Self.generateCached(context: context, box: box, user: trimmed, maxTokens: maxTokens)
+                try Self.generateCached(
+                    context: context, box: box, user: trimmed,
+                    maxTokens: maxTokens, systemPrompt: systemPrompt)
             }
             return Self.sanitize(raw)
         } catch {
@@ -117,18 +123,20 @@ actor MlxCleanupService {
 
     /// Ensure the persistent cache holds exactly the system-prompt KV. Cheap when
     /// already primed; re-prefills if never primed or left in a bad offset.
-    private static func primeSystemPrompt(container: ModelContainer, box: CacheBox) async throws {
+    private static func primeSystemPrompt(
+        container: ModelContainer, box: CacheBox, systemPrompt: String = CleanupPrompt.system
+    ) async throws {
         try await container.perform { (context: ModelContext) in
-            try ensurePrimed(context: context, box: box)
+            try ensurePrimed(context: context, box: box, systemPrompt: systemPrompt)
             Stream.gpu.synchronize()
         }
     }
 
-    private static func ensurePrimed(context: ModelContext, box: CacheBox) throws {
-        if box.primed, box.cache.first?.offset == box.systemOffset { return }
+    private static func ensurePrimed(context: ModelContext, box: CacheBox, systemPrompt: String) throws {
+        if box.primed, box.primedPrompt == systemPrompt, box.cache.first?.offset == box.systemOffset { return }
 
         let sysTokens = try context.tokenizer.applyChatTemplate(
-            messages: [["role": "system", "content": CleanupPrompt.system]],
+            messages: [["role": "system", "content": systemPrompt]],
             chatTemplate: nil, addGenerationPrompt: false,
             truncation: false, maxLength: nil, tools: nil)
         box.systemOffset = sysTokens.count
@@ -142,19 +150,20 @@ actor MlxCleanupService {
         let iterator = try TokenIterator(input: input, model: context.model, cache: box.cache, parameters: params)
         _ = MLXLMCommon.generate(input: input, context: context, iterator: iterator) { (_: [Int]) in .stop }
         box.primed = true
+        box.primedPrompt = systemPrompt
     }
 
     /// Generate a cleanup for `user` reusing the cached system prefix, then trim
     /// the cache back to the system offset for the next call.
     private static func generateCached(
-        context: ModelContext, box: CacheBox, user: String, maxTokens: Int
+        context: ModelContext, box: CacheBox, user: String, maxTokens: Int, systemPrompt: String
     ) throws -> String {
-        try ensurePrimed(context: context, box: box)
+        try ensurePrimed(context: context, box: box, systemPrompt: systemPrompt)
 
         // Delta = the [system,user] tokenization minus the cached system prefix.
         let full = try context.tokenizer.applyChatTemplate(
             messages: [
-                ["role": "system", "content": CleanupPrompt.system],
+                ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": user],
             ],
             chatTemplate: nil, addGenerationPrompt: true,

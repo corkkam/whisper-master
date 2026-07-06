@@ -3,15 +3,15 @@ import SwiftUI
 /// Optional onboarding step offering the on-device "smart cleanup" model.
 ///
 /// The in-card toggle flips `llmCleanupEnabled` (which starts the background
-/// download via the refresh-loop reconcile) and shows live status right here —
-/// downloading %, then "Ready" — so the user can watch it land before moving on.
+/// download via the refresh-loop reconcile) and shows live status right here
+/// (downloading %, then "Ready"), so the user can watch it land before moving on.
 /// The footer's "Skip"/"Continue" handles navigation. Either way dictation works
 /// immediately; the model only ever adds polish once it's ready.
 struct SmartCleanupPage: View {
     @Bindable var state: AppState
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             Spacer(minLength: 0)
 
             ZStack {
@@ -28,24 +28,24 @@ struct SmartCleanupPage: View {
                 Text("Smart cleanup")
                     .font(Typography.sans(24, .bold))
                     .foregroundStyle(Theme.textPrimary)
-                Text("A small on-device model that fixes spoken self-corrections and false starts — so \u{201C}three no wait four\u{201D} comes out as \u{201C}four\u{201D}.")
+                Text("A small model that runs on your Mac and cleans up how you talk. Say \u{201C}three no wait four\u{201D} and it just types \u{201C}four\u{201D}.")
                     .font(Typography.sans(15))
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 440)
+                    .frame(maxWidth: 460)
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                OnboardingBullet(text: "Runs fully on your Mac. Nothing is sent anywhere.")
-                OnboardingBullet(text: "About 1.8 GB, downloaded quietly in the background.")
-                OnboardingBullet(text: "Dictation works right away while it downloads.")
+                OnboardingBullet(text: "Runs on your Mac. Nothing you say is uploaded.")
+                OnboardingBullet(text: "Works right away. It downloads 1.8 GB in the background.")
+                OnboardingBullet(text: "Bad wifi is fine. If it drops or you quit, the download resumes where it left off.")
             }
-            .frame(maxWidth: 440, alignment: .leading)
+            .frame(maxWidth: 460, alignment: .leading)
 
             toggleCard
-                .frame(maxWidth: 440)
+                .frame(maxWidth: 460)
 
             Text("Change this anytime in Settings \u{203A} Voice engine.")
                 .font(Typography.caption)

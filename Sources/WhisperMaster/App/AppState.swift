@@ -54,6 +54,7 @@ final class AppState {
     static let removeFillerWordsDefaultsKey = "WhisperMaster.removeFillerWords.v1"
     static let learnCorrectionsDefaultsKey = "WhisperMaster.learnCorrections.v1"
     static let llmCleanupDefaultsKey = "WhisperMaster.llmCleanup.v1"
+    static let llmGrammarPolishDefaultsKey = "WhisperMaster.llmGrammarPolish.v1"
     /// How long the "nowhere to type that" notch hint stays down before it
     /// retracts on its own.
     static let undeliveredBannerDuration: TimeInterval = 7
@@ -138,6 +139,12 @@ final class AppState {
     var llmCleanupEnabled: Bool = false {
         didSet { UserDefaults.standard.set(llmCleanupEnabled, forKey: Self.llmCleanupDefaultsKey) }
     }
+    /// Experimental sub-mode of smart cleanup: when on, the model fully polishes
+    /// grammar and wording (reads well) instead of only trimming disfluencies.
+    /// Off by default; only meaningful while `llmCleanupEnabled` is on.
+    var llmGrammarPolishEnabled: Bool = false {
+        didSet { UserDefaults.standard.set(llmGrammarPolishEnabled, forKey: Self.llmGrammarPolishDefaultsKey) }
+    }
     /// Whether spoken numbers/symbols are rewritten to written form (ITN) on the
     /// final transcript — "twenty five" → "25", "at gmail dot com" → "@gmail.com".
     /// Persisted; **on by default**. The escape hatch if a conversion ever misfires.
@@ -201,6 +208,7 @@ final class AppState {
         learnCorrectionsEnabled = UserDefaults.standard.object(forKey: Self.learnCorrectionsDefaultsKey) as? Bool ?? true
         // Opt-in: off until the user has explicitly turned it on (~1.8 GB model).
         llmCleanupEnabled = UserDefaults.standard.object(forKey: Self.llmCleanupDefaultsKey) as? Bool ?? false
+        llmGrammarPolishEnabled = UserDefaults.standard.object(forKey: Self.llmGrammarPolishDefaultsKey) as? Bool ?? false
         // On by default; absent key means a fresh install → enabled.
         itnEnabled = FormattingPreference.isEnabled
         // Off by default; the deterministic rules handle formatting unless opted in.

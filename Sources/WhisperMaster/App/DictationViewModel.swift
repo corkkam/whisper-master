@@ -264,8 +264,10 @@ final class DictationViewModel {
     private func llmRefined(_ input: String) async -> String? {
         guard state.llmCleanupEnabled, !input.isEmpty else { return nil }
         guard await MlxCleanupService.shared.isReady else { return nil }
-        guard let cleaned = await MlxCleanupService.shared.clean(input) else { return nil }
-        return CleanupFaithfulnessGuard.accept(original: input, cleaned: cleaned) ? cleaned : nil
+        let polish = state.llmGrammarPolishEnabled
+        let prompt = CleanupPrompt.resolved(grammarPolish: polish)
+        guard let cleaned = await MlxCleanupService.shared.clean(input, systemPrompt: prompt) else { return nil }
+        return CleanupFaithfulnessGuard.accept(original: input, cleaned: cleaned, allowRephrase: polish) ? cleaned : nil
     }
 
     /// Start watching the pasted field for the user's own fix-ups (to grow the

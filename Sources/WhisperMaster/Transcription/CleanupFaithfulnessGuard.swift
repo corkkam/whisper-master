@@ -43,9 +43,19 @@ enum CleanupFaithfulnessGuard {
     static let minRetentionRatio = 0.3
     static let truncationFloorMinWords = 5
 
+    /// Grammar-polish mode rephrases, so it needs a looser band: a wider
+    /// expansion ceiling (connectives/articles get added) and, instead of exact
+    /// content-word containment, a cap on how much of the output can be *new*
+    /// content the input never had (real polishing keeps most of the original
+    /// nouns/names; wholesale-new content means the model answered or expanded).
+    static let rephraseMaxExpansionRatio = 2.0
+    static let rephraseMaxNovelContentFraction = 0.5
+
     /// Returns `true` when `cleaned` is a plausibly faithful cleanup of
     /// `original`, `false` when the caller should discard it and keep `original`.
-    static func accept(original: String, cleaned: String) -> Bool {
+    /// `allowRephrase` loosens the content check for the "Polish my English" mode,
+    /// which legitimately rewrites wording rather than only trimming disfluencies.
+    static func accept(original: String, cleaned: String, allowRephrase: Bool = false) -> Bool {
         let out = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !out.isEmpty else { return false }
 
@@ -58,7 +68,8 @@ enum CleanupFaithfulnessGuard {
         // Length band (loose — see doc comment).
         if inputWords > 0 {
             let ratio = Double(outputWords) / Double(inputWords)
-            if ratio > maxExpansionRatio { return false }
+            let ceiling = allowRephrase ? rephraseMaxExpansionRatio : maxExpansionRatio
+            if ratio > ceiling { return false }
             if inputWords >= truncationFloorMinWords, ratio < minRetentionRatio { return false }
         }
 
@@ -68,15 +79,27 @@ enum CleanupFaithfulnessGuard {
         // the utterance instead of cleaning it.
         if !contentTokens(original).isEmpty, contentTokens(out).isEmpty { return false }
 
-        // Invented-content + invented-repetition check: a faithful cleanup only
-        // removes / reorders / reformats — it never introduces a content word the
-        // input didn't have, and never *multiplies* one (e.g. a prompt injection
-        // echoing "pineapple pineapple pineapple"). So each output content word
-        // must not occur more times than it did in the input.
+        let outputStems = contentTokens(out).map(stem)
+
+        if allowRephrase {
+            // Rephrasing adds synonyms/connectives, so exact containment is too
+            // strict. Reject only when MOST of the output is content the input
+            // never had — the tell for answering/expanding rather than polishing.
+            guard !outputStems.isEmpty else { return true }
+            let inputStems = Set(alphabeticTokens(original).map(stem))
+            let novel = outputStems.filter { !inputStems.contains($0) }.count
+            return Double(novel) / Double(outputStems.count) <= rephraseMaxNovelContentFraction
+        }
+
+        // Strict mode: a faithful cleanup only removes / reorders / reformats — it
+        // never introduces a content word the input didn't have, and never
+        // *multiplies* one (e.g. a prompt injection echoing "pineapple pineapple
+        // pineapple"). So each output content word must not occur more times than
+        // it did in the input.
         var inputCounts: [String: Int] = [:]
         for stemmed in alphabeticTokens(original).map(stem) { inputCounts[stemmed, default: 0] += 1 }
         var outputCounts: [String: Int] = [:]
-        for token in contentTokens(out) { outputCounts[stem(token), default: 0] += 1 }
+        for token in outputStems { outputCounts[token, default: 0] += 1 }
         for (word, count) in outputCounts where count > (inputCounts[word] ?? 0) {
             return false
         }

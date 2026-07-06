@@ -13,11 +13,16 @@ struct SmartCleanupSettingsSection: View {
     var body: some View {
         SettingsCard {
             SettingsRow("Smart cleanup",
-                        subtitle: "Uses a local language model to fix self-corrections and false starts — \u{201C}three no wait four\u{201D} becomes \u{201C}four\u{201D}. About 1.8 GB, downloads in the background. Dictation works right away, and nothing leaves your Mac.") {
+                        subtitle: "Uses a local model to clean up how you talk. \u{201C}three no wait four\u{201D} becomes \u{201C}four\u{201D}. About 1.8 GB, downloads in the background. Dictation works right away, and nothing leaves your Mac.") {
                 ThemeToggle(isOn: $state.llmCleanupEnabled)
             }
 
             if state.llmCleanupEnabled {
+                RowDivider()
+                SettingsRow("Polish my English",
+                            subtitle: "Rewrites your dictation into clear, grammatical English instead of only removing fillers. Your facts, names, and numbers stay exact. Experimental.") {
+                    ThemeToggle(isOn: $state.llmGrammarPolishEnabled)
+                }
                 RowDivider()
                 statusRow
             }
