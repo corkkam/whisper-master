@@ -145,8 +145,16 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
   proof-sheet UI, with a pass-rate trend across runs. `src/lib/scoring.ts` is a
   TS port of `EvalScoreKit` so runs score identically. Feed it with
   `scripts/push-run.mjs <results.json> <cases.jsonl>` → `POST /api/ingest`. Needs
-  `DATABASE_URL` (any Atlas cluster is a replica set); `npm run db:push` then
-  `npm run dev`. Pure SvelteKit full-stack (no separate Hono) — one deployable.
+  `DATABASE_URL` (any Atlas cluster is a replica set — **the SRV string must
+  include a database name in the path**, e.g. `…mongodb.net/evaldash?…`, or
+  Prisma rejects it with P1013); `npm run db:push` then `npm run dev`. Pure
+  SvelteKit full-stack (no separate Hono) — one deployable. Ingest is **not**
+  automatic: after an eval writes `results.json` it must be pushed. The one-shot
+  path is `eval/text-cleanup/run-eval.sh [cases.jsonl] [label]` — it launches the
+  app for the eval (`launchctl setenv` + `open`), waits for `results.json`, then
+  pushes it here (needs the dev server up; `NO_PUSH=1` runs the eval only,
+  `DASHBOARD_URL` retargets). `push-run` is the manual equivalent for an existing
+  `results.json`.
 
 ### Toolchain & prerequisites
 
