@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Proof Sheet — dictation cleanup eval</title>
+<style>
+  :root{
+    --paper:#F5F1E8; --card:#FBF8F1; --ink:#211E18; --muted:#8C8578;
+    --pen:#E4572E; --approve:#4E7A51; --flag:#C0392B; --rule:#E4DCC9; --rule-2:#EFE9DA;
+    --sans:"Avenir Next","SF Pro Text",system-ui,-apple-system,sans-serif;
+    --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --paper:#181510; --card:#211D16; --ink:#F1EADB; --muted:#9A9080;
+           --rule:#332C20; --rule-2:#2A241A; }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--paper); color:var(--ink); font-family:var(--sans);
+    font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased;
+    padding:0 24px 96px;
+  }
+  .wrap{max-width:1060px; margin:0 auto}
+
+  /* Masthead ------------------------------------------------------------ */
+  header.masthead{padding:48px 0 22px; border-bottom:2px solid var(--ink)}
+  .eyebrow{font-size:11px; letter-spacing:.28em; text-transform:uppercase;
+    color:var(--pen); font-weight:600; margin:0 0 10px}
+  .masthead h1{font-family:var(--mono); font-weight:600; letter-spacing:-.01em;
+    font-size:clamp(30px,5vw,46px); margin:0; line-height:1.02}
+  .thesis{max-width:52ch; color:var(--muted); margin:12px 0 0; font-size:15px}
+  .thesis b{color:var(--ink); font-weight:600}
+  .runmeta{font-family:var(--mono); font-size:12px; color:var(--muted);
+    margin-top:16px; display:flex; gap:20px; flex-wrap:wrap}
+  .runmeta b{color:var(--ink)}
+  .wave{height:26px; width:100%; margin-top:22px; display:block; overflow:visible}
+  .wave rect{fill:var(--rule)}
+  .wave rect.hot{fill:var(--pen)}
+
+  /* Drop / empty state -------------------------------------------------- */
+  .drop{margin:40px 0; border:1.5px dashed var(--rule); border-radius:14px;
+    padding:52px 28px; text-align:center; background:var(--card); transition:.15s}
+  .drop.over{border-color:var(--pen); background:color-mix(in srgb,var(--pen) 6%,var(--card))}
+  .drop h2{font-family:var(--mono); font-weight:600; margin:0 0 8px; font-size:18px}
+  .drop p{color:var(--muted); margin:4px 0}
+  .drop .pick{display:inline-block; margin-top:16px; font-family:var(--mono);
+    font-size:13px; color:var(--pen); border:1.5px solid var(--pen);
+    border-radius:8px; padding:9px 16px; cursor:pointer; font-weight:600}
+  .drop code{font-family:var(--mono); background:var(--rule-2); padding:1px 6px;
+    border-radius:5px; color:var(--ink)}
+
+  /* Proof strip (the hero answer) --------------------------------------- */
+  .strip{display:grid; grid-template-columns:1fr 1fr; gap:26px; margin:34px 0 8px}
+  @media (max-width:720px){ .strip{grid-template-columns:1fr} }
+  .panel h3{font-size:11px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 14px; font-weight:600}
+  .panel h3 .k{color:var(--ink)}
+  .werbar{display:grid; grid-template-columns:96px 1fr 52px; align-items:center;
+    gap:12px; margin:0 0 11px; font-size:13px}
+  .werbar .lab{font-family:var(--mono); color:var(--muted)}
+  .track{height:9px; border-radius:5px; background:var(--rule-2); overflow:hidden}
+  .track > i{display:block; height:100%; border-radius:5px}
+  .werbar .val{font-family:var(--mono); text-align:right; font-weight:600}
+  .tiles{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+  .tile{background:var(--card); border:1px solid var(--rule); border-radius:12px;
+    padding:14px 16px}
+  .tile .big{font-family:var(--mono); font-size:26px; font-weight:600; line-height:1}
+  .tile .cap{font-size:12px; color:var(--muted); margin-top:6px}
+  .tile .sub{font-family:var(--mono); font-size:12px; color:var(--muted); margin-top:2px}
+
+  /* Filters ------------------------------------------------------------- */
+  .controls{position:sticky; top:0; z-index:5; background:var(--paper);
+    padding:16px 0 12px; margin-top:26px; border-bottom:1px solid var(--rule)}
+  .controls .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+  .search{flex:1; min-width:200px; font-family:var(--mono); font-size:13px;
+    background:var(--card); border:1px solid var(--rule); border-radius:9px;
+    padding:9px 12px; color:var(--ink)}
+  .search::placeholder{color:var(--muted)}
+  .search:focus,.chip:focus-visible{outline:2px solid var(--pen); outline-offset:1px}
+  .chips{display:flex; gap:7px; flex-wrap:wrap}
+  .chip{font-family:var(--mono); font-size:12px; border:1px solid var(--rule);
+    background:var(--card); color:var(--muted); border-radius:20px;
+    padding:6px 12px; cursor:pointer; font-weight:600}
+  .chip[aria-pressed="true"]{background:var(--ink); color:var(--paper); border-color:var(--ink)}
+  .chip.pen[aria-pressed="true"]{background:var(--pen); border-color:var(--pen); color:#fff}
+  .count{font-family:var(--mono); font-size:12px; color:var(--muted); margin-left:auto}
+
+  /* Case cards ---------------------------------------------------------- */
+  .cases{margin-top:8px}
+  .case{border-bottom:1px solid var(--rule); padding:22px 0}
+  .case .top{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
+  .case .id{font-family:var(--mono); font-weight:600; font-size:14px}
+  .tag{font-family:var(--mono); font-size:11px; color:var(--muted);
+    border:1px solid var(--rule); border-radius:6px; padding:1px 7px}
+  .verdict{margin-left:auto; font-family:var(--mono); font-size:11px; font-weight:700;
+    letter-spacing:.06em; text-transform:uppercase; padding:3px 9px; border-radius:6px}
+  .verdict.pass{color:var(--approve); background:color-mix(in srgb,var(--approve) 12%,transparent)}
+  .verdict.fail{color:var(--flag); background:color-mix(in srgb,var(--flag) 12%,transparent)}
+  .attr{font-family:var(--mono); font-size:11px; color:var(--muted)}
+  .attr b.asr{color:var(--pen)} .attr b.cleanup{color:var(--flag)}
+
+  .lines{margin-top:14px; display:grid; gap:9px}
+  .line{display:grid; grid-template-columns:78px 1fr; gap:14px; align-items:baseline}
+  .line .role{font-family:var(--mono); font-size:11px; letter-spacing:.04em;
+    text-transform:uppercase; color:var(--muted); text-align:right; padding-top:2px}
+  .line .role.pen{color:var(--pen)}
+  .txt{font-family:var(--mono); font-size:13.5px; line-height:1.55; word-break:break-word}
+  .txt .ins{color:var(--pen); text-decoration:underline; text-decoration-thickness:1.5px;
+    text-underline-offset:2px}
+  .txt .del{color:var(--muted); text-decoration:line-through; text-decoration-color:var(--pen)}
+  .wer{font-family:var(--mono); font-size:11px; font-weight:700; padding:2px 7px;
+    border-radius:5px; margin-left:8px; white-space:nowrap}
+  .lat{font-family:var(--mono); font-size:11px; color:var(--muted); margin-left:2px}
+  .rej{font-family:var(--mono); font-size:11px; color:var(--flag)}
+
+  footer{margin-top:40px; font-family:var(--mono); font-size:11px; color:var(--muted)}
+  a{color:var(--pen)}
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important; transition:none!important} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Proof sheet</p>
+    <h1>Dictation cleanup, marked up.</h1>
+    <p class="thesis">Every case run through the real pipeline. The question isn't
+      just "did it pass" — it's <b>the ear vs the pen</b>: did Parakeet mishear you,
+      or did the cleanup break faith? Edits are marked in red.</p>
+    <div class="runmeta" id="runmeta" hidden></div>
+    <svg class="wave" id="wave" preserveAspectRatio="none" aria-hidden="true"></svg>
+  </header>
+
+  <section class="drop" id="drop">
+    <h2>Drop <code>results.json</code> here</h2>
+    <p>or drop <code>results.json</code> + <code>cases.jsonl</code> together for full pass/fail scoring.</p>
+    <p style="font-size:13px">Everything stays on your Mac — nothing is uploaded.</p>
+    <label class="pick">Choose files…<input id="file" type="file" accept=".json,.jsonl" multiple hidden></label>
+  </section>
+
+  <main id="report" hidden>
+    <div class="strip">
+      <div class="panel">
+        <h3>The ear — <span class="k">ASR word error rate by source</span></h3>
+        <div id="werbars"></div>
+      </div>
+      <div class="panel">
+        <h3>The pen — <span class="k">cleanup outcome</span></h3>
+        <div class="tiles" id="tiles"></div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="row">
+        <input class="search" id="search" placeholder="filter transcripts, ids, categories…" />
+        <span class="count" id="count"></span>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="chips" id="chips-target"></div>
+        <div class="chips" id="chips-verdict"></div>
+        <div class="chips" id="chips-source"></div>
+      </div>
+    </div>
+
+    <div class="cases" id="cases"></div>
+    <footer>Whisper Master · eval engine · proofreading marks: <span class="txt"><span class="del">struck</span> <span class="ins">inserted</span></span></footer>
+  </main>
+</div>
+
+<script>
+"use strict";
+const $ = (s,r=document)=>r.querySelector(s);
+const el = (t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
+const esc = s => (s||"").replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));
+
+// --- text utils -------------------------------------------------------------
+const normWords = s => ((s||"").toLowerCase().match(/[a-z0-9']+/g))||[];
+function wer(ref,hyp){
+  const r=normWords(ref), h=normWords(hyp);
+  if(!r.length) return h.length?1:0;
+  const dp=Array.from({length:r.length+1},()=>new Array(h.length+1).fill(0));
+  for(let i=0;i<=r.length;i++)dp[i][0]=i;
+  for(let j=0;j<=h.length;j++)dp[0][j]=j;
+  for(let i=1;i<=r.length;i++)for(let j=1;j<=h.length;j++)
+    dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+(r[i-1]===h[j-1]?0:1));
+  return dp[r.length][h.length]/r.length;
+}
+// LCS word diff, rendered as proofreading marks (del struck, ins in red pen).
+function diffHTML(a,b){
+  // Compare on an alphanumeric key so punctuation/case-only changes ("logs" ->
+  // "logs.", "3" -> "3.") don't render as word swaps — only real word-level
+  // insertions/deletions/substitutions get proofreading marks.
+  const key=w=>w.toLowerCase().replace(/[^a-z0-9']/g,"");
+  const A=(a||"").split(/\s+/).filter(Boolean), B=(b||"").split(/\s+/).filter(Boolean);
+  const m=A.length,n=B.length;
+  const dp=Array.from({length:m+1},()=>new Array(n+1).fill(0));
+  for(let i=m-1;i>=0;i--)for(let j=n-1;j>=0;j--)
+    dp[i][j]=key(A[i])===key(B[j])?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  let i=0,j=0,out=[];
+  const push=(cls,w)=>out.push(cls?`<span class="${cls}">${esc(w)}</span>`:esc(w));
+  while(i<m&&j<n){
+    if(key(A[i])===key(B[j])){push("",B[j]);i++;j++;}
+    else if(dp[i+1][j]>=dp[i][j+1]){push("del",A[i]);i++;}
+    else{push("ins",B[j]);j++;}
+  }
+  while(i<m)push("del",A[i++]);
+  while(j<n)push("ins",B[j++]);
+  return out.join(" ");
+}
+const sourceOf = id =>
+  id.startsWith("ls-")?"LibriSpeech": id.startsWith("hfp-")?"Bluetooth":
+  id.startsWith("noisy-")?"Noise": id.startsWith("tts-")?"TTS":"Text";
+const werColor = w => w==null?"var(--muted)":
+  w<0.05?"var(--approve)": w<0.15?"#8a8f3a": w<0.30?"var(--pen)":"var(--flag)";
+const median = a => a.length? a.slice().sort((x,y)=>x-y)[Math.floor(a.length/2)] : 0;
+
+// --- state ------------------------------------------------------------------
+let ROWS=[], CASES=[], RULES={};      // RULES[id] = {must_contain, must_not_contain}
+const filters={target:new Set(), verdict:new Set(), source:new Set(), q:""};
+
+function ingest(text, name){
+  const t=text.trim();
+  if(name.endsWith(".jsonl") || (t && !t.startsWith("["))){
+    t.split("\n").filter(Boolean).forEach(l=>{try{const c=JSON.parse(l);
+      RULES[c.id]={mc:c.must_contain||[],mnc:c.must_not_contain||[]};}catch{}});
+  } else {
+    ROWS = JSON.parse(t);
+  }
+}
+function score(row){                    // mirrors eval-score
+  const out=(row.llm_output||""), low=out.toLowerCase(), reasons=[];
+  const r=RULES[row.id];
+  if(r){ r.mc.forEach(x=>{ if(!low.includes(x.toLowerCase())) reasons.push("missing '"+x+"'"); });
+         r.mnc.forEach(x=>{ if(low.includes(x.toLowerCase())) reasons.push("forbidden '"+x+"'"); }); }
+  if(row.guard && row.guard.accepted===false) reasons.push("guard rejected");
+  let attribution=null;
+  const w=row._wer;
+  if(w!=null && w>0.15){ attribution="asr"; reasons.push("asr wer "+Math.round(w*100)+"%"); }
+  else if(reasons.length) attribution="cleanup";
+  return {pass:reasons.length===0, reasons, attribution};
+}
+
+function build(){
+  ROWS.forEach(r=>{ r._wer = (r.input_kind==="audio" && r.asr_reference!=null && r.asr_text!=null)
+    ? wer(r.asr_reference,r.asr_text) : null;
+    r._src = sourceOf(r.id); r._score = score(r); });
+  const byId=new Map();
+  ROWS.forEach(r=>{ if(!byId.has(r.id)) byId.set(r.id,{id:r.id, category:r.category||"", src:r._src,
+    input_kind:r.input_kind, asr_text:r.asr_text, asr_reference:r.asr_reference, wer:r._wer,
+    deterministic:r.deterministic, targets:{}}); byId.get(r.id).targets[r.target]=r; });
+  CASES=[...byId.values()];
+  renderStrip(); renderChips(); renderCases();
+  $("#drop").hidden=true; $("#report").hidden=false;
+  const meta=$("#runmeta"); meta.hidden=false;
+  const nAudio=CASES.filter(c=>c.input_kind==="audio").length;
+  meta.innerHTML=`<span><b>${CASES.length}</b> cases</span><span><b>${ROWS.length}</b> runs</span>`
+    +`<span><b>${nAudio}</b> audio</span>`+(Object.keys(RULES).length?`<span>scored vs cases.jsonl</span>`:`<span>guard/WER only — add cases.jsonl</span>`);
+}
+
+function renderStrip(){
+  const sources=["Text","TTS","LibriSpeech","Bluetooth","Noise"];
+  const bars=$("#werbars"); bars.innerHTML="";
+  sources.forEach(s=>{
+    const ws=ROWS.filter(r=>r.target==="light" && r._src===s && r._wer!=null).map(r=>r._wer);
+    if(!ws.length) return;
+    const med=median(ws);
+    const b=el("div","werbar");
+    b.innerHTML=`<span class="lab">${s}</span>
+      <span class="track"><i style="width:${Math.min(100,med*100).toFixed(0)}%;background:${werColor(med)}"></i></span>
+      <span class="val" style="color:${werColor(med)}">${(med*100).toFixed(0)}%</span>`;
+    bars.appendChild(b);
+  });
+  if(!bars.children.length) bars.innerHTML=`<p style="color:var(--muted);font-size:13px;margin:0">No audio cases in this run.</p>`;
+
+  const tiles=$("#tiles"); tiles.innerHTML="";
+  ["light","polish"].forEach(t=>{
+    const rs=ROWS.filter(r=>r.target===t); if(!rs.length) return;
+    const pass=rs.filter(r=>r._score.pass).length;
+    const lat=median(rs.map(r=>(r.latency_ms&&r.latency_ms.llm)||0));
+    const tile=el("div","tile");
+    tile.innerHTML=`<div class="big">${pass}/${rs.length}</div>
+      <div class="cap">${t} · passed</div><div class="sub">llm ${lat}ms median</div>`;
+    tiles.appendChild(tile);
+  });
+  const fails=ROWS.filter(r=>!r._score.pass);
+  const asr=fails.filter(r=>r._score.attribution==="asr").length;
+  const cl=fails.filter(r=>r._score.attribution==="cleanup").length;
+  const tile=el("div","tile"); tile.style.gridColumn="1 / -1";
+  tile.innerHTML=`<div class="cap">Where failures come from</div>
+    <div class="sub" style="font-size:14px;margin-top:6px">
+      <b style="color:var(--pen)">${asr}</b> the ear (ASR) &nbsp;·&nbsp; <b style="color:var(--flag)">${cl}</b> the pen (cleanup)</div>`;
+  tiles.appendChild(tile);
+}
+
+function chipRow(host,key,vals){
+  const h=$(host); h.innerHTML="";
+  vals.forEach(v=>{
+    const c=el("button","chip"+(key==="verdict"?" pen":"")); c.textContent=v; c.setAttribute("aria-pressed","false");
+    c.onclick=()=>{ filters[key].has(v)?filters[key].delete(v):filters[key].add(v);
+      c.setAttribute("aria-pressed",filters[key].has(v)); renderCases(); };
+    h.appendChild(c);
+  });
+}
+function renderChips(){
+  chipRow("#chips-target","target",["light","polish"].filter(t=>ROWS.some(r=>r.target===t)));
+  chipRow("#chips-verdict","verdict",["fail","pass"]);
+  chipRow("#chips-source","source",["Text","TTS","LibriSpeech","Bluetooth","Noise"]
+    .filter(s=>CASES.some(c=>c.src===s)));
+}
+
+function caseMatches(c){
+  if(filters.source.size && !filters.source.has(c.src)) return false;
+  const rows=Object.entries(c.targets).filter(([t])=>!filters.target.size||filters.target.has(t));
+  if(!rows.length) return false;
+  if(filters.verdict.size){
+    const v=rows.some(([,r])=> filters.verdict.has(r._score.pass?"pass":"fail"));
+    if(!v) return false;
+  }
+  if(filters.q){
+    const hay=(c.id+" "+c.category+" "+(c.deterministic||"")+" "+(c.asr_text||"")+" "+
+      Object.values(c.targets).map(r=>r.llm_output).join(" ")).toLowerCase();
+    if(!hay.includes(filters.q)) return false;
+  }
+  return true;
+}
+
+function line(role,base,text,extraHTML,penRole){
+  const l=el("div","line");
+  l.innerHTML=`<span class="role${penRole?" pen":""}">${role}</span>`
+    +`<span class="txt">${base==null?esc(text):diffHTML(base,text)}${extraHTML||""}</span>`;
+  return l;
+}
+function renderCases(){
+  const host=$("#cases"); host.innerHTML="";
+  const shown=CASES.filter(caseMatches);
+  $("#count").textContent=`${shown.length} / ${CASES.length} cases`;
+  shown.forEach(c=>{
+    const anyFail=Object.values(c.targets).some(r=>!r._score.pass);
+    const card=el("div","case");
+    const top=el("div","top");
+    top.innerHTML=`<span class="id">${esc(c.id)}</span>`
+      +`<span class="tag">${esc(c.category||"—")}</span>`
+      +`<span class="tag">${c.src}</span>`;
+    const v=el("span","verdict "+(anyFail?"fail":"pass")); v.textContent=anyFail?"needs review":"clean";
+    top.appendChild(v);
+    card.appendChild(top);
+
+    const lines=el("div","lines");
+    // Audio: what Parakeet heard vs the reference (the ear).
+    if(c.input_kind==="audio" && c.asr_reference!=null){
+      const werPct = c.wer!=null? `<span class="wer" style="color:${werColor(c.wer)};background:color-mix(in srgb,${werColor(c.wer)} 12%,transparent)">WER ${Math.round(c.wer*100)}%</span>`:"";
+      lines.appendChild(line("heard", c.asr_reference, c.asr_text||"", werPct, true));
+    }
+    // Deterministic baseline, then each LLM target diffed against it (the pen).
+    lines.appendChild(line("det", null, c.deterministic||""));
+    ["light","polish"].forEach(t=>{
+      const r=c.targets[t]; if(!r) return;
+      const lat = r.latency_ms&&r.latency_ms.llm!=null? `<span class="lat">· ${r.latency_ms.llm}ms</span>`:"";
+      const rej = r.guard&&r.guard.accepted===false? `<span class="rej"> · guard rejected → kept deterministic</span>`:"";
+      lines.appendChild(line(t, c.deterministic||"", r.llm_output||"", lat+rej));
+    });
+    // Failure reasons + attribution.
+    Object.entries(c.targets).forEach(([t,r])=>{
+      if(r._score.pass) return;
+      const a=r._score.attribution;
+      const at = a? `<span class="attr"> — <b class="${a}">${a}</b></span>`:"";
+      lines.appendChild(line("✕ "+t, null, r._score.reasons.join("; ")+ (a?"":""), at));
+    });
+    card.appendChild(lines);
+    host.appendChild(card);
+  });
+}
+
+// --- loading ----------------------------------------------------------------
+function loadFiles(files){
+  let pending=files.length;
+  [...files].forEach(f=>{ const rd=new FileReader();
+    rd.onload=()=>{ try{ingest(rd.result,f.name);}catch(e){console.error(e);}
+      if(--pending===0){ if(ROWS.length) build(); else alert("No results.json found in the dropped files."); } };
+    rd.readAsText(f); });
+}
+const drop=$("#drop");
+["dragenter","dragover"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("over");}));
+["dragleave","drop"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove("over");}));
+drop.addEventListener("drop",ev=>loadFiles(ev.dataTransfer.files));
+$("#file").addEventListener("change",ev=>loadFiles(ev.target.files));
+$("#search").addEventListener("input",ev=>{filters.q=ev.target.value.trim().toLowerCase(); renderCases();});
+
+// masthead waveform (a small nod to voice), drawn once.
+(function(){ const svg=$("#wave"), n=120; let h="";
+  for(let i=0;i<n;i++){ const x=(i/n*100).toFixed(3);
+    const amp=Math.abs(Math.sin(i*0.5)*Math.cos(i*0.17))*0.8+0.12;
+    const hh=(amp*22).toFixed(1); const hot=i%9===0?' class="hot"':"";
+    h+=`<rect${hot} x="${x}%" y="${(13-hh/2).toFixed(1)}" width="0.45%" height="${hh}" rx="0.6"/>`; }
+  svg.innerHTML=h; svg.setAttribute("viewBox",`0 0 100 26`);
+})();
+
+// Convenience: if served (python3 -m http.server) results.json auto-loads.
+fetch("results.json").then(r=>r.ok?r.text():Promise.reject()).then(t=>{
+  ingest(t,"results.json");
+  fetch("cases.jsonl").then(r=>r.ok?r.text():Promise.reject())
+    .then(c=>ingest(c,"cases.jsonl")).catch(()=>{}).finally(()=>{ if(ROWS.length) build(); });
+}).catch(()=>{/* file:// — use drop/picker */});
+</script>
+</body>
+</html>

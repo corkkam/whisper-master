@@ -1,0 +1,256 @@
+import AppKit
+import SwiftUI
+
+/// Voice-engine section: engine selection, install status + model location, and
+/// the custom-vocabulary ("Words to get right") editor.
+struct EngineSettingsView: View {
+    let viewModel: DictationViewModel
+    @Bindable var state: AppState
+    @Environment(\.isSnapshot) private var isSnapshot
+
+    /// Raw editor text for the custom-words field. Kept separate from the parsed
+    /// `[String]` glossary so typing newlines/blank lines isn't fought by a
+    /// normalizing binding — flows draft → state only, never back.
+    @State private var vocabularyDraft = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            ForEach(TranscriberEngine.allCases) { engine in
+                engineCard(engine)
+            }
+
+            SectionLabel("Engine status")
+            statusCard
+
+            SectionLabel("Words to get right")
+            vocabularyCard
+
+            SectionLabel("Formatting")
+            formattingCard
+
+            SectionLabel("Smart cleanup")
+            SmartCleanupSettingsSection(state: state)
+        }
+        .onAppear {
+            vocabularyDraft = state.customVocabulary.joined(separator: "\n")
+            state.appleIntelligenceStatus = .current
+        }
+    }
+
+    // MARK: - Engine card
+
+    private func engineCard(_ engine: TranscriberEngine) -> some View {
+        let isSelected = state.selectedEngine == engine
+        return Button {
+            viewModel.selectEngine(engine)
+        } label: {
+            HStack(spacing: 16) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(isSelected ? Theme.accent : Theme.textTertiary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(engine.displayName)
+                        .font(Typography.headline)
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(engine.subtitle)
+                        .font(Typography.subheadline)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(engine.estimatedDownloadSize)
+                        .font(Typography.sans(16, .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(engine.isInstalled ? "Installed" : "Not installed")
+                        .font(Typography.caption)
+                        .foregroundStyle(engine.isInstalled ? Theme.success : Theme.textTertiary)
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                    .fill(Theme.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                    .strokeBorder(isSelected ? Theme.accent.opacity(0.5) : Theme.stroke, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!engineSelectionEnabled)
+        .opacity(engineSelectionEnabled ? 1 : 0.55)
+    }
+
+    // MARK: - Status card
+
+    private var statusCard: some View {
+        SettingsCard {
+            SettingsRow("Status") {
+                engineStatusBadge
+            }
+            RowDivider()
+            SettingsRow("Model location") {
+                HStack(spacing: 12) {
+                    Text("~/Library/…/FluidAudio/Models")
+                        .font(Typography.mono)
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    SecondaryButton(title: "Reveal", icon: "folder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([state.selectedEngine.localModelURL])
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var engineStatusBadge: some View {
+        if state.preparingEngine == state.selectedEngine {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(modelStatusText)
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+        } else {
+            let ready = state.selectedEngine.isInstalled
+            HStack(spacing: 8) {
+                StatusDot(color: ready ? Theme.success : Theme.textTertiary, size: 9)
+                Text(ready ? "Ready" : "Setup needed")
+                    .font(Typography.caption)
+                    .foregroundStyle(ready ? Theme.success : Theme.textSecondary)
+            }
+        }
+    }
+
+    // MARK: - Vocabulary card
+
+    private var formattingCard: some View {
+        SettingsCard {
+            SettingsRow("Format numbers & symbols",
+                        subtitle: "Writes spoken numbers and symbols short — \u{201C}twenty five\u{201D} becomes \u{201C}25\u{201D}, \u{201C}at gmail dot com\u{201D} becomes \u{201C}@gmail.com\u{201D}. Runs instantly on-device.") {
+                ThemeToggle(isOn: $state.itnEnabled)
+            }
+
+            RowDivider()
+
+            SettingsRow("Use Apple Intelligence",
+                        subtitle: "Experimental: format with Apple\u{2019}s on-device language model instead of the built-in rules. Slower, and needs Apple Intelligence turned on. Off keeps the model unloaded.") {
+                ThemeToggle(isOn: $state.useAppleIntelligence)
+            }
+
+            if state.useAppleIntelligence, let hint = state.appleIntelligenceStatus.settingsHint {
+                RowDivider()
+                HStack(alignment: .top, spacing: 10) {
+                    Text(hint)
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    if state.appleIntelligenceStatus.canOpenSettings {
+                        Button("Open Settings") { openAppleIntelligenceSettings() }
+                            .buttonStyle(.link)
+                            .font(Typography.caption)
+                            .fixedSize()
+                    }
+                }
+                .padding(.vertical, 13)
+            }
+        }
+    }
+
+    private func openAppleIntelligenceSettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.AppleIntelligence-Settings.extension")
+            ?? URL(string: "x-apple.systempreferences:")!
+        NSWorkspace.shared.open(url)
+    }
+
+    private var vocabularyCard: some View {
+        // Hairline group; the editor text sits flush at the same left edge as the
+        // description and helper (no nested box) so everything lines up.
+        SettingsCard {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Names, acronyms, or jargon the app keeps mishearing — one per line. It listens harder for these, so e.g. \u{201C}RAG\u{201D} stops coming out as \u{201C}rack\u{201D}.")
+                    .font(Typography.body)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 16)
+
+                RowDivider()
+
+                ZStack(alignment: .topLeading) {
+                    if vocabularyDraft.isEmpty {
+                        Text("Parakeet\nRAG: rag, rack\nLyzr: liser, lizer")
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(Theme.textTertiary)
+                            .allowsHitTesting(false)
+                    }
+                    if isSnapshot {
+                        // Static stand-in: TextEditor (NSTextView) can't render in ImageRenderer.
+                        Text(vocabularyDraft.isEmpty ? " " : vocabularyDraft)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(Theme.textPrimary)
+                            .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
+                    } else {
+                        TextEditor(text: $vocabularyDraft)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(Theme.textPrimary)
+                            .scrollContentBackground(.hidden)
+                            .frame(height: 92)
+                            .padding(.leading, -5)   // cancel NSTextView's inset so text aligns flush
+                            .onChange(of: vocabularyDraft) { _, text in
+                                updateVocabulary(from: text)
+                            }
+                    }
+                }
+                .padding(.vertical, 13)
+
+                RowDivider()
+
+                Text("One word or phrase per line. If a word keeps coming out wrong, teach it the mishearing with a colon — RAG: rack. Saved automatically.")
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textTertiary)
+                    .padding(.vertical, 13)
+
+                RowDivider()
+
+                SettingsRow("Learn from corrections",
+                            subtitle: "Fix a misheard word right after it's pasted and it's added here automatically.") {
+                    ThemeToggle(isOn: $state.learnCorrectionsEnabled)
+                }
+            }
+        }
+    }
+
+    /// Parse the raw editor text into the stored glossary (one term per line,
+    /// blanks ignored). One-way: draft → state.
+    private func updateVocabulary(from text: String) {
+        state.customVocabulary = text
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    // MARK: - Derived
+
+    private var engineSelectionEnabled: Bool {
+        switch state.phase {
+        case .idle, .failed: return true
+        case .preparingModels, .recording, .stopping: return false
+        }
+    }
+
+    private var modelStatusText: String {
+        if let download = state.download, state.preparingEngine == state.selectedEngine {
+            return "\(download.detail) \(Int(download.fractionCompleted * 100))%"
+        }
+        if state.preparingEngine == state.selectedEngine {
+            return state.selectedEngine.isInstalled ? "Loading…" : "Downloading…"
+        }
+        if state.preparedEngine == state.selectedEngine { return "Ready" }
+        return state.selectedEngine.isInstalled ? "Ready on this Mac" : "Setup needed"
+    }
+}

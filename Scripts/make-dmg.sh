@@ -8,6 +8,7 @@ APP_PATH="build/${APP_NAME}.app"
 DMG_PATH="build/${APP_NAME}.dmg"
 VOLUME_NAME="Whisper Master"
 REBUILD="${REBUILD:-1}"
+SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}" # pass "-" to skip DMG signing
 
 if [[ "$REBUILD" == "1" || ! -d "$APP_PATH" ]]; then
     echo ">> Building .app via bundle.sh"
@@ -18,6 +19,11 @@ if [[ ! -d "$APP_PATH" ]]; then
     echo "error: $APP_PATH does not exist after build" >&2
     exit 1
 fi
+
+# Notarize + staple the app first so the copy inside the DMG carries the ticket.
+# No-op if NOTARY_* credentials aren't set.
+echo ">> Notarizing the app"
+bash Scripts/notarize.sh "$APP_PATH"
 
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
@@ -38,6 +44,19 @@ hdiutil create \
     -format UDZO \
     -ov \
     "$DMG_PATH" >/dev/null
+
+# Code-sign the DMG BEFORE notarizing: Gatekeeper's disk-image assessment needs
+# a Developer ID signature for the stapled notarization ticket to validate
+# against (a notarized-but-unsigned DMG is still rejected with "no usable
+# signature"). Signing must precede notarization since it changes the bytes.
+if [[ "$SIGN_IDENTITY" != "-" ]]; then
+    echo ">> Code-signing the DMG"
+    codesign -s "$SIGN_IDENTITY" --timestamp "$DMG_PATH"
+fi
+
+# Notarize + staple the DMG itself so Gatekeeper is satisfied at mount time too.
+echo ">> Notarizing the DMG"
+bash Scripts/notarize.sh "$DMG_PATH"
 
 echo "Built $DMG_PATH"
 ls -lh "$DMG_PATH"

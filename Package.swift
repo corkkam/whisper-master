@@ -2,32 +2,70 @@
 import PackageDescription
 
 let package = Package(
-    name: "WhisperMasterPrototype",
+    name: "WhisperMaster",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .executable(
-            name: "WhisperMasterPrototype",
-            targets: ["WhisperMasterPrototype"]
+            name: "WhisperMaster",
+            targets: ["WhisperMaster"]
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.4")
+        // Pinned exactly: 0.15.x changed sliding-window finish()/splicing behavior
+        // and coincided with vanished transcripts + cut-off sentences in the field.
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.14.7"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
+        .package(url: "https://github.com/TelemetryDeck/SwiftSDK", from: "2.0.0"),
+        // On-device qwen cleanup (MLX). Pinned exact: the MLXLMCommon/ChatSession
+        // API churns between minors; the service is written against 2.29.1.
+        .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", exact: "2.29.1")
     ],
     targets: [
         .executableTarget(
-            name: "WhisperMasterPrototype",
+            name: "WhisperMaster",
             dependencies: [
-                .product(name: "FluidAudio", package: "FluidAudio")
+                .product(name: "FluidAudio", package: "FluidAudio"),
+                .product(name: "Sparkle", package: "Sparkle"),
+                .product(name: "TelemetryDeck", package: "SwiftSDK"),
+                .product(name: "MLXLLM", package: "mlx-swift-examples"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-examples")
             ],
-            path: "Sources/WhisperMasterPrototype",
+            path: "Sources/WhisperMaster",
             resources: [
                 .process("Resources")
-            ],
-            linkerSettings: [
-                .linkedFramework("EventKit")
             ]
+        ),
+        .testTarget(
+            name: "WhisperMasterTests",
+            dependencies: [
+                "WhisperMaster",
+                .product(name: "FluidAudio", package: "FluidAudio")
+                // Note: MLX is intentionally NOT a test dependency. mlx-swift's
+                // Metal shaders only compile under xcodebuild (not SwiftPM CLI),
+                // so MLX inference can't run under `swift test`. The cleanup guard
+                // tests are pure Swift; qwen inference is validated in the app.
+            ],
+            path: "Tests/WhisperMasterTests"
+        ),
+        // Evaluation engine scoring (pure Swift, no app/MLX deps). The in-app
+        // runner grades the real pipeline and writes results.json; this CLI reads
+        // it and does keyword/WER/attribution scoring. Reuses the real guard via
+        // the runner (no ported guard), so nothing here duplicates app logic.
+        .target(
+            name: "EvalScoreKit",
+            path: "eval/text-cleanup/EvalScore"
+        ),
+        .executableTarget(
+            name: "eval-score",
+            dependencies: ["EvalScoreKit"],
+            path: "eval/text-cleanup/EvalScoreCLI"
+        ),
+        .testTarget(
+            name: "EvalScoreKitTests",
+            dependencies: ["EvalScoreKit"],
+            path: "eval/text-cleanup/EvalScoreTests"
         )
     ]
 )

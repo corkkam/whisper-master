@@ -1,0 +1,78 @@
+name: WhisperMaster
+
+options:
+  bundleIdPrefix: app.whispermaster
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # arm64-only (Apple Silicon). Matches the vendored arm64 ITN xcframework and
+    # how Scripts/bundle.sh already builds (-destination arch=arm64).
+    ARCHS: arm64
+
+packages:
+  # Pinned exactly: 0.15.x changed sliding-window finish()/splicing behavior and
+  # coincided with vanished transcripts + cut-off sentences in the field.
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio.git
+    exactVersion: "0.14.7"
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
+  TelemetryDeck:
+    url: https://github.com/TelemetryDeck/SwiftSDK
+    from: "2.0.0"
+  # On-device qwen cleanup (MLX). Pinned exact: the MLXLMCommon/ChatSession API
+  # churns between minors; the service is written against 2.29.1.
+  MLXSwiftExamples:
+    url: https://github.com/ml-explore/mlx-swift-examples.git
+    exactVersion: "2.29.1"
+
+targets:
+  WhisperMaster:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/WhisperMaster
+      - path: Resources/AppIcon.icns
+        buildPhase: resources
+    dependencies:
+      - package: FluidAudio
+      - package: Sparkle
+      - package: TelemetryDeck
+        product: TelemetryDeck
+      - package: MLXSwiftExamples
+        product: MLXLLM
+      - package: MLXSwiftExamples
+        product: MLXLMCommon
+    settings:
+      base:
+        PRODUCT_NAME: WhisperMaster
+        PRODUCT_BUNDLE_IDENTIFIER: app.whispermaster.mac
+        INFOPLIST_FILE: Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        # Hardened runtime is required for Apple notarization. The entitlements
+        # file declares only what the (non-sandboxed) app actually uses.
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_ENTITLEMENTS: Resources/WhisperMaster.entitlements
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+
+schemes:
+  WhisperMaster:
+    build:
+      targets:
+        WhisperMaster: all
+    run:
+      config: Debug
+    archive:
+      config: Release
