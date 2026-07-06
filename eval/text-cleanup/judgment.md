@@ -84,3 +84,15 @@ a specific, reproducible faithfulness break with a named root cause.
 
 - Wire the WER-by-source table + latency medians into `eval-score` (`Scorer.aggregate`) so it's one command, not ad-hoc Python.
 - Address the deferred `polish` faithfulness break (answers questions) — the guard fix.
+
+---
+
+# Leftovers closed
+
+- **`eval-score` aggregate report:** now prints per-target pass rate + latency
+  median/p90 per stage + the asr-vs-cleanup attribution split in one command
+  (was ad-hoc Python). `Scorer.aggregate`, unit-tested.
+- **Polish faithfulness fix (verified):** the anti-answer guard rule ships. Re-run
+  of the real pipeline confirms "what is the capital of france" now stays
+  unanswered under polish (guard rejects "…is Paris", falls back to
+  deterministic). Guard tests: 24 green.
