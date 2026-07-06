@@ -149,4 +149,28 @@ final class CleanupFaithfulnessGuardTests: XCTestCase {
         assertAccept("we hit ninety nine point nine percent uptime", "We hit 99.9% uptime.")
         assertAccept("twenty five", "25")   // pure number, no content words either side
     }
+
+    // MARK: Polish (allowRephrase) mode — must still refuse to answer.
+
+    /// The eval-caught bug: polish mode turned a question into its answer. The
+    /// invented mid-sentence entity "Paris" must be rejected even under rephrase.
+    func testRephraseRejectsAnsweredQuestion() {
+        XCTAssertFalse(CleanupFaithfulnessGuard.accept(
+            original: "what is the capital of france",
+            cleaned: "The capital of France is Paris.", allowRephrase: true))
+    }
+
+    /// A legitimate grammar polish that only reworks spoken words is still kept.
+    func testRephraseAcceptsGrammarFix() {
+        XCTAssertTrue(CleanupFaithfulnessGuard.accept(
+            original: "me and him was gonna go to the store",
+            cleaned: "He and I were going to the store.", allowRephrase: true))
+    }
+
+    /// Capitalizing a spoken name ("jane" → "Jane") is fine — it traces to input.
+    func testRephraseAcceptsCapitalizedSpokenName() {
+        XCTAssertTrue(CleanupFaithfulnessGuard.accept(
+            original: "send it to john i mean jane",
+            cleaned: "Send it to Jane.", allowRephrase: true))
+    }
 }

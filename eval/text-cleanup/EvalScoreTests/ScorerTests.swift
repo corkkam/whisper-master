@@ -32,4 +32,18 @@ final class ScorerTests: XCTestCase {
         let s = Scorer.score(evalCase: evalCase, row: row("wrong", wer: 0.5))
         XCTAssertEqual(s.attribution, "asr")
     }
+
+    func testAggregatePassAndLatency() {
+        func r(_ out: String, _ llm: Int) -> ResultRow {
+            ResultRow(id: "x", target: "light", inputKind: "text", asrText: nil, asrReference: nil,
+                      llmOutput: out, guardVerdict: .init(accepted: true),
+                      latencyMs: ["llm": llm], wer: nil)
+        }
+        let rows = [r("It is $25.", 100), r("It is 25 dollars.", 300)]
+        let scores = rows.map { Scorer.score(evalCase: evalCase, row: $0) }
+        let agg = Scorer.aggregate(scores: scores, rows: rows)
+        XCTAssertEqual(agg["light"]?.total, 2)
+        XCTAssertEqual(agg["light"]?.pass, 1)                 // one passes, one misses $25
+        XCTAssertEqual(agg["light"]?.latency["llm"]?.median, 300)  // sorted [100,300] -> [1]
+    }
 }

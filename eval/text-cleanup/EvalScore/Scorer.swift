@@ -72,4 +72,37 @@ public enum Scorer {
                         mechanicalPass: reasons.isEmpty, reasons: reasons,
                         attribution: attribution)
     }
+
+    public struct StageLatency: Equatable { public let median, p90: Int }
+    public struct TargetAggregate: Equatable {
+        public let pass, total: Int
+        public let latency: [String: StageLatency]  // stage -> latency
+    }
+
+    /// Per-target pass rate + latency median/p90 for each stage — the report roll-up.
+    public static func aggregate(scores: [RunScore], rows: [ResultRow]) -> [String: TargetAggregate] {
+        var passByTarget: [String: (pass: Int, total: Int)] = [:]
+        for s in scores {
+            var t = passByTarget[s.target] ?? (0, 0)
+            t.total += 1; if s.mechanicalPass { t.pass += 1 }
+            passByTarget[s.target] = t
+        }
+        var rowsByTarget: [String: [ResultRow]] = [:]
+        for r in rows { rowsByTarget[r.target, default: []].append(r) }
+
+        var out: [String: TargetAggregate] = [:]
+        for (target, rs) in rowsByTarget {
+            var stageVals: [String: [Int]] = [:]
+            for r in rs { for (stage, ms) in r.latencyMs { stageVals[stage, default: []].append(ms) } }
+            var latency: [String: StageLatency] = [:]
+            for (stage, vals) in stageVals {
+                let s = vals.sorted()
+                let p90 = s[Swift.min(s.count - 1, Int(0.9 * Double(s.count - 1)))]
+                latency[stage] = StageLatency(median: s[s.count / 2], p90: p90)
+            }
+            let pt = passByTarget[target] ?? (0, 0)
+            out[target] = TargetAggregate(pass: pt.pass, total: pt.total, latency: latency)
+        }
+        return out
+    }
 }

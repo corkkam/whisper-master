@@ -82,11 +82,18 @@ enum CleanupFaithfulnessGuard {
         let outputStems = contentTokens(out).map(stem)
 
         if allowRephrase {
+            let inputStems = Set(alphabeticTokens(original).map(stem))
+            // Anti-answer rule: a mid-sentence capitalized word the input never had
+            // is a named entity the model *introduced* — the tell for answering a
+            // question ("capital of france" → "…is Paris"). Sentence-initial caps
+            // are exempt (legitimate). This catches the short answers the
+            // novel-fraction cap below can't (1 new word out of 3 slips under it).
+            if introducesForeignEntity(output: out, inputStems: inputStems) { return false }
+
             // Rephrasing adds synonyms/connectives, so exact containment is too
             // strict. Reject only when MOST of the output is content the input
-            // never had — the tell for answering/expanding rather than polishing.
+            // never had — the tell for expanding rather than polishing.
             guard !outputStems.isEmpty else { return true }
-            let inputStems = Set(alphabeticTokens(original).map(stem))
             let novel = outputStems.filter { !inputStems.contains($0) }.count
             return Double(novel) / Double(outputStems.count) <= rephraseMaxNovelContentFraction
         }
@@ -104,6 +111,32 @@ enum CleanupFaithfulnessGuard {
             return false
         }
         return true
+    }
+
+    // MARK: - Anti-answer
+
+    /// True if `output` contains a *mid-sentence* capitalized alphabetic word
+    /// whose lowercased stem isn't in `inputStems` — an invented named entity
+    /// (the signature of the model answering with a fact). Sentence-initial words
+    /// are exempt (they're capitalized regardless), and words that trace to the
+    /// input (spoken lowercase, capitalized on cleanup, e.g. "jane" → "Jane") are
+    /// fine because their stem is in `inputStems`.
+    private static func introducesForeignEntity(output: String, inputStems: Set<String>) -> Bool {
+        var atSentenceStart = true
+        for raw in output.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }) {
+            let word = String(raw)
+            let endsSentence = word.contains(".") || word.contains("?") || word.contains("!")
+            defer { atSentenceStart = endsSentence }
+            let core = word.trimmingCharacters(in: CharacterSet.letters.inverted)
+            guard let first = core.first, core.count > 1, core.allSatisfy(\.isLetter) else { continue }
+            let lower = core.lowercased()
+            if !atSentenceStart, first.isUppercase,
+               !stopwords.contains(lower), !numberWords.contains(lower),
+               !inputStems.contains(stem(lower)) {
+                return true
+            }
+        }
+        return false
     }
 
     // MARK: - Tokenizing

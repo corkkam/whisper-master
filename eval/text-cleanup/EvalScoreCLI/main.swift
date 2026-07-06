@@ -29,6 +29,20 @@ do {
     let scores = rows.compactMap { row in cases[row.id].map { Scorer.score(evalCase: $0, row: row) } }
     let fails = scores.filter { !$0.mechanicalPass }
     print("total \(scores.count), pass \(scores.count - fails.count), fail \(fails.count)")
+
+    // Per-target roll-up: pass rate + latency (median/p90 ms) per stage.
+    let agg = Scorer.aggregate(scores: scores, rows: rows)
+    for target in agg.keys.sorted() {
+        guard let a = agg[target] else { continue }
+        let lat = a.latency.keys.sorted().map { "\($0) \(a.latency[$0]!.median)/\(a.latency[$0]!.p90)" }.joined(separator: "  ")
+        print("  [\(target)] pass \(a.pass)/\(a.total)  latency(med/p90 ms): \(lat)")
+    }
+
+    // ASR-vs-cleanup attribution split.
+    let asr = fails.filter { $0.attribution == "asr" }.count
+    let cleanup = fails.filter { $0.attribution == "cleanup" }.count
+    if asr + cleanup > 0 { print("  attribution: asr \(asr), cleanup \(cleanup)") }
+
     for f in fails {
         print("  FAIL [\(f.target)] \(f.id): \(f.reasons.joined(separator: "; ")) (\(f.attribution ?? "-"))")
     }
