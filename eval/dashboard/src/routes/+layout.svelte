@@ -21,7 +21,10 @@
 <QueryClientProvider client={queryClient}>
   <div class="wrap">
     <header class="site">
-      <a href="/" class="brand">Whisper&nbsp;Master <span class="pen">· eval</span></a>
+      <a href="/" class="brand">
+        <img class="logo" src="/logo.png" alt="Whisper Master" width="30" height="30" />
+        <span>Whisper&nbsp;Master <span class="pen">· eval</span></span>
+      </a>
       <span class="muted sub">how we test on device dictation cleanup</span>
     </header>
     {@render children()}
@@ -39,9 +42,16 @@
     flex-wrap: wrap;
   }
   .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 11px;
     font-family: var(--display);
     font-weight: 600;
     font-size: 19px;
+  }
+  .logo {
+    display: block;
+    flex: none;
   }
   .brand .pen {
     color: var(--pen);
