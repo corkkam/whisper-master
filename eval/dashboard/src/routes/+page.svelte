@@ -1,85 +1,200 @@
 <script lang="ts">
-  import TrendChart from '$lib/components/TrendChart.svelte';
-  import type { PageData } from './$types';
+  import { createQuery, keepPreviousData } from '@tanstack/svelte-query';
+  import { fetchRuns, runsKey, RUNS_PAGE_SIZE } from '$lib/api';
   import type { RunSummary } from '$lib/types';
+  import StatCard from '$lib/components/StatCard.svelte';
+  import HowItWorks from '$lib/components/HowItWorks.svelte';
+  import TrendChart from '$lib/components/TrendChart.svelte';
+  import RunRow from '$lib/components/RunRow.svelte';
+  import Pagination from '$lib/components/Pagination.svelte';
+  import Term from '$lib/components/Term.svelte';
+  import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
-  const runs = $derived(data.runs as RunSummary[]);
-  const chrono = $derived([...runs].reverse()); // oldest -> newest for the trend
+  let page = $state(1);
 
-  function passRate(r: RunSummary, t: string): string {
-    const a = r.aggregate?.byTarget?.[t];
-    return a && a.total ? `${a.pass}/${a.total}` : '—';
+  const query = createQuery(() => ({
+    queryKey: runsKey(page),
+    queryFn: () => fetchRuns(page),
+    initialData: page === 1 ? (data.initial ?? undefined) : undefined,
+    placeholderData: keepPreviousData
+  }));
+
+  // Hero + trend read the SSR'd first page (always the newest runs), so they
+  // stay stable while the list below paginates.
+  const heroRuns = $derived(data.initial?.runs ?? []);
+  const latest = $derived<RunSummary | undefined>(heroRuns[0]);
+
+  function overallPass(r: RunSummary): number | null {
+    const t = r.aggregate?.byTarget ?? {};
+    let pass = 0;
+    let total = 0;
+    for (const k of Object.keys(t)) {
+      pass += t[k].pass;
+      total += t[k].total;
+    }
+    return total ? Math.round((pass / total) * 100) : null;
   }
-  function bestWer(r: RunSummary): string {
-    const ls = r.aggregate?.werBySource?.LibriSpeech;
-    return ls ? `${(ls.mean * 100).toFixed(1)}%` : '—';
-  }
-  function when(iso: string): string {
-    return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  }
+
+  // Each headline number comes from the most relevant recent run: cleanup
+  // accuracy + speed from the latest text-only run (so mishearing on audio
+  // doesn't drag the cleanup figure down), transcription from the latest run
+  // that has real-speech WER. Fall back to the latest run if needed.
+  const textRun = $derived<RunSummary | undefined>(
+    heroRuns.find((r) => r.audioCases === 0) ?? latest
+  );
+  const cleanupPct = $derived(textRun ? overallPass(textRun) : null);
+  const wer = $derived.by(() => {
+    const r = heroRuns.find((x) => x.aggregate?.werBySource?.LibriSpeech);
+    const ls = r?.aggregate?.werBySource?.LibriSpeech;
+    return ls ? (ls.mean * 100).toFixed(1) : null;
+  });
+  const speedMs = $derived.by(() => {
+    const l = textRun?.aggregate?.byTarget?.light?.latency?.llm?.median;
+    return typeof l === 'number' ? String(l) : null;
+  });
+
+  // Trend: the recent runs (page 1), oldest -> newest.
+  const trendRuns = $derived([...heroRuns].reverse());
 </script>
 
-<svelte:head><title>Eval proof sheet · history</title></svelte:head>
-
-<p class="eyebrow">History</p>
-<h1 class="mono">Runs over time.</h1>
-<p class="muted lead">Each stored run is the real pipeline graded end to end. Watch pass rate move as the prompts and guards change.</p>
+<svelte:head>
+  <title>Whisper Master · how we test dictation cleanup</title>
+  <meta
+    name="description"
+    content="How well Whisper Master cleans up your dictation — graded on the real, shipped pipeline: transcription accuracy, cleanup quality, and faithfulness."
+  />
+</svelte:head>
 
 {#if data.dbError}
-  <div class="notice">
+  <div class="notice card">
     <b>Database not connected.</b>
-    <p class="muted">Set <code>DATABASE_URL</code> to your MongoDB Atlas cluster in <code>.env</code>, then run <code>npm run db:push</code>. Once runs are ingested they'll appear here.</p>
+    <p class="muted">
+      Set <code>DATABASE_URL</code> to your MongoDB Atlas cluster, then run
+      <code>npm run db:push</code>. Runs appear here once ingested.
+    </p>
     <p class="err mono">{data.dbError}</p>
   </div>
-{:else if runs.length === 0}
-  <div class="notice">
-    <b>No runs yet.</b>
-    <p class="muted">Ingest one: <code>npm run push-run -- ../text-cleanup/.eval-scratch/results.json ../text-cleanup/cases.jsonl</code></p>
-  </div>
 {:else}
-  <section class="trend">
-    <h2 class="mono">Pass rate</h2>
-    <TrendChart runs={chrono} />
+  <!-- A: the trust headline -->
+  <section class="hero">
+    <p class="eyebrow">Whisper Master · evaluation</p>
+    <h1>How well does it clean up your dictation?</h1>
+    <p class="lead">
+      Whisper Master turns messy speech into clean text, entirely on your Mac. On every change we
+      grade the <b>real, shipped</b> pipeline — how accurately it hears you, how well it cleans up,
+      and whether it ever answers instead of just cleaning. Here's the evidence.
+    </p>
+
+    <div class="stats">
+      <StatCard
+        label="Cleanup accuracy"
+        value={cleanupPct !== null ? String(cleanupPct) : '—'}
+        unit={cleanupPct !== null ? '%' : ''}
+        sub="of test cases pass the cleanup rules"
+      />
+      <StatCard
+        label="Hears real speech"
+        value={wer ?? '—'}
+        unit={wer ? '%' : ''}
+        sub="word error on real human speech — lower is better"
+      />
+      <StatCard
+        label="On-device speed"
+        value={speedMs ?? '—'}
+        unit={speedMs ? 'ms' : ''}
+        sub="typical cleanup time, nothing leaves your Mac"
+      />
+    </div>
   </section>
 
+  <!-- B: credibility -->
+  <HowItWorks />
+
+  {#if trendRuns.length >= 2}
+    <section class="trend">
+      <h2>Is it getting better?</h2>
+      <p class="muted cap">
+        Share of test cases that pass, across recent runs. <Term
+          title="The default, conservative cleanup mode that ships on by default.">Light</Term
+        >
+        is what ships;
+        <Term title="An experimental mode that also rewrites grammar; off by default.">polish</Term
+        > is experimental.
+      </p>
+      <TrendChart runs={trendRuns} />
+    </section>
+  {/if}
+
+  <!-- C entry point: the runs -->
   <section class="list">
-    {#each runs as r (r.id)}
-      <a class="run" href="/runs/{r.id}">
-        <div class="rmeta">
-          <span class="rlabel mono">{r.label ?? 'run'}</span>
-          <span class="tag">{r.branch ?? '—'}</span>
-          {#if r.gitCommit}<span class="tag">{r.gitCommit.slice(0, 7)}</span>{/if}
-          <span class="muted mono when">{when(r.createdAt)}</span>
-        </div>
-        <div class="stats mono">
-          <span><b>{passRate(r, 'light')}</b> light</span>
-          <span><b>{passRate(r, 'polish')}</b> polish</span>
-          <span class="muted">{r.totalCases} cases · {r.audioCases} audio</span>
-          <span class="muted">LibriSpeech WER {bestWer(r)}</span>
-        </div>
-      </a>
-    {/each}
+    <h2>Every run</h2>
+    <p class="muted cap">Each row is one full evaluation. Open it to see every case, marked up.</p>
+
+    {#if query.isError}
+      <p class="err">Couldn't load runs. {query.error?.message}</p>
+    {:else if (query.data?.runs?.length ?? 0) === 0}
+      <p class="muted">No runs yet. Ingest one with <code class="mono">npm run push-run</code>.</p>
+    {:else}
+      <div class="rows" class:dim={query.isPlaceholderData}>
+        {#each query.data?.runs ?? [] as run (run.id)}
+          <RunRow {run} />
+        {/each}
+      </div>
+      <Pagination
+        {page}
+        total={query.data?.total ?? 0}
+        pageSize={RUNS_PAGE_SIZE}
+        loading={query.isPlaceholderData}
+        onchange={(p) => (page = p)}
+      />
+    {/if}
   </section>
 {/if}
 
 <style>
-  h1 {
-    font-size: clamp(28px, 5vw, 42px);
-    margin: 0;
-    letter-spacing: -0.01em;
+  .hero {
+    margin-bottom: 10px;
   }
   .lead {
-    max-width: 54ch;
-    margin: 12px 0 28px;
+    max-width: 60ch;
+    font-size: 17px;
+    line-height: 1.55;
+    margin: 16px 0 30px;
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  h2 {
+    margin-bottom: 4px;
+  }
+  .cap {
+    font-size: 14px;
+    margin: 0 0 16px;
+    max-width: 62ch;
+  }
+  .trend {
+    margin: 44px 0;
+  }
+  .list {
+    margin-top: 44px;
+  }
+  .rows {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: opacity 0.15s;
+  }
+  .rows.dim {
+    opacity: 0.55;
   }
   .notice {
-    background: var(--card);
-    border: 1px solid var(--rule);
-    border-radius: 14px;
-    padding: 22px 24px;
+    padding: 24px;
   }
-  .notice code {
+  .notice code,
+  code {
     font-family: var(--mono);
     background: var(--rule-2);
     padding: 1px 6px;
@@ -87,47 +202,17 @@
     font-size: 12.5px;
   }
   .err {
-    font-size: 11px;
     color: var(--flag);
-    margin: 10px 0 0;
-    word-break: break-all;
-  }
-  .trend h2 {
-    font-size: 11px;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .trend {
-    margin-bottom: 30px;
-  }
-  .run {
-    display: block;
-    padding: 16px 0;
-    border-bottom: 1px solid var(--rule);
-  }
-  .run:hover .rlabel {
-    color: var(--pen);
-  }
-  .rmeta {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .rlabel {
-    font-weight: 600;
-    font-size: 14px;
-  }
-  .when {
-    margin-left: auto;
-    font-size: 12px;
-  }
-  .stats {
-    display: flex;
-    gap: 20px;
-    margin-top: 8px;
     font-size: 13px;
-    flex-wrap: wrap;
+  }
+  .notice .err {
+    font-size: 11px;
+    word-break: break-all;
+    margin-top: 10px;
+  }
+  @media (max-width: 640px) {
+    .stats {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

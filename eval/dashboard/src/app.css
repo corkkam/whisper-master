@@ -1,5 +1,6 @@
-/* Proof-sheet design system — warm paper, red editing pen, monospace transcripts.
-   Shared across the dashboard (mirrors the standalone report.html). */
+/* Warm "Daylight" brand — cream paper, vermillion pen — with a real type system:
+   Fraunces (display headlines) · Inter (body/UI) · JetBrains Mono (transcripts
+   ONLY). Fonts are self-hosted via @fontsource, imported in +layout.svelte. */
 :root {
   --paper: #f5f1e8;
   --card: #fbf8f1;
@@ -10,8 +11,10 @@
   --flag: #c0392b;
   --rule: #e4dcc9;
   --rule-2: #efe9da;
-  --sans: 'Avenir Next', 'SF Pro Text', system-ui, -apple-system, sans-serif;
-  --mono: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  --display: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
+  --sans: 'Inter Variable', 'SF Pro Text', system-ui, -apple-system, sans-serif;
+  --mono: 'JetBrains Mono Variable', 'SF Mono', ui-monospace, Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -34,26 +37,46 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: 16px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  margin: 0;
+}
+h1 {
+  font-size: clamp(30px, 5vw, 46px);
+}
+h2 {
+  font-size: clamp(21px, 3vw, 27px);
 }
 a {
   color: inherit;
   text-decoration: none;
 }
 .wrap {
-  max-width: 1060px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 0 24px 96px;
+  padding: 0 24px 110px;
 }
 .eyebrow {
-  font-size: 11px;
-  letter-spacing: 0.28em;
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--pen);
-  font-weight: 600;
+  font-weight: 650;
   margin: 0 0 10px;
+}
+.display {
+  font-family: var(--display);
 }
 .mono {
   font-family: var(--mono);
@@ -62,11 +85,11 @@ a {
   color: var(--muted);
 }
 
-/* proofreading marks (shared by DiffText) */
+/* transcripts + proofreading marks (the only monospace surface) */
 .txt {
   font-family: var(--mono);
   font-size: 13.5px;
-  line-height: 1.55;
+  line-height: 1.6;
   word-break: break-word;
 }
 .txt .ins {
@@ -81,17 +104,17 @@ a {
   text-decoration-color: var(--pen);
 }
 
-/* chips + verdicts */
+/* chips + tags + verdicts — now Inter, not monospace */
 .chip {
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--sans);
+  font-size: 13px;
   border: 1px solid var(--rule);
   background: var(--card);
   color: var(--muted);
   border-radius: 20px;
-  padding: 6px 12px;
+  padding: 6px 13px;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 550;
 }
 .chip[aria-pressed='true'] {
   background: var(--ink);
@@ -104,18 +127,18 @@ a {
   color: #fff;
 }
 .tag {
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--sans);
+  font-size: 12px;
   color: var(--muted);
   border: 1px solid var(--rule);
   border-radius: 6px;
-  padding: 1px 7px;
+  padding: 2px 8px;
 }
 .verdict {
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--sans);
+  font-size: 11.5px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   padding: 3px 9px;
   border-radius: 6px;
@@ -127,6 +150,11 @@ a {
 .verdict.fail {
   color: var(--flag);
   background: color-mix(in srgb, var(--flag) 12%, transparent);
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
 }
 :focus-visible {
   outline: 2px solid var(--pen);

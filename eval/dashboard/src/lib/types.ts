@@ -45,6 +45,21 @@ export interface RunSummary {
   aggregate: Aggregate;
 }
 
+/** Paginated API response shapes (shared by the server + the client fetchers). */
+export interface RunsPage {
+  runs: RunSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface CasesPage {
+  cases: CaseGroup[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export function groupByCase(results: ResultDTO[]): CaseGroup[] {
   const map = new Map<string, CaseGroup>();
   for (const r of results) {

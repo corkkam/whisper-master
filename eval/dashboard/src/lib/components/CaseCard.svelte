@@ -4,6 +4,7 @@
 
   let { c }: { c: CaseGroup } = $props();
   const order = ['light', 'polish'];
+  const roleLabel: Record<string, string> = { light: 'Light', polish: 'Polish' };
 
   function werColor(w: number): string {
     if (w < 0.05) return 'var(--approve)';
@@ -15,8 +16,8 @@
 
 <div class="case">
   <div class="top">
-    <span class="id mono">{c.caseId}</span>
-    <span class="tag">{c.category ?? '—'}</span>
+    <span class="id">{c.caseId}</span>
+    {#if c.category}<span class="tag">{c.category}</span>{/if}
     <span class="tag">{c.source}</span>
     <span class="verdict {c.anyFail ? 'fail' : 'pass'}">{c.anyFail ? 'needs review' : 'clean'}</span>
   </div>
@@ -24,14 +25,15 @@
   <div class="lines">
     {#if c.inputKind === 'audio' && c.asrReference != null}
       <div class="line">
-        <span class="role pen">heard</span>
-        <span>
+        <span class="role heard">Heard</span>
+        <span class="txt">
           <DiffText base={c.asrReference} text={c.asrText ?? ''} />
           {#if c.wer != null}
             <span
               class="wer"
-              style="color:{werColor(c.wer)};background:color-mix(in srgb,{werColor(c.wer)} 12%,transparent)"
-              >WER {Math.round(c.wer * 100)}%</span
+              style="color:{werColor(c.wer)};background:color-mix(in srgb,{werColor(
+                c.wer
+              )} 12%,transparent)">{Math.round(c.wer * 100)}% misheard</span
             >
           {/if}
         </span>
@@ -39,19 +41,20 @@
     {/if}
 
     <div class="line">
-      <span class="role">det</span>
-      <span><DiffText text={c.deterministic} /></span>
+      <span class="role">Instant</span>
+      <span class="txt"><DiffText text={c.deterministic} /></span>
     </div>
 
     {#each order as t (t)}
       {#if c.targets[t]}
         {@const r = c.targets[t]}
         <div class="line">
-          <span class="role">{t}</span>
-          <span>
+          <span class="role">{roleLabel[t]}</span>
+          <span class="txt">
             <DiffText base={c.deterministic} text={r.llmOutput} />
-            {#if r.latencyMs?.llm != null}<span class="lat mono muted"> · {r.latencyMs.llm}ms</span>{/if}
-            {#if !r.guardAccepted}<span class="rej"> · guard rejected → kept deterministic</span>{/if}
+            {#if r.latencyMs?.llm != null}<span class="lat muted"> · {r.latencyMs.llm}ms</span>{/if}
+            {#if !r.guardAccepted}<span class="rej"> · kept safe: cleanup rejected, original kept</span
+              >{/if}
           </span>
         </div>
       {/if}
@@ -60,12 +63,9 @@
     {#each order as t (t)}
       {#if c.targets[t] && !c.targets[t].mechanicalPass}
         {@const r = c.targets[t]}
-        <div class="line">
-          <span class="role fail">✕ {t}</span>
-          <span class="txt muted">
-            {r.reasons.join('; ')}
-            {#if r.attribution}<b class="attr {r.attribution}">— {r.attribution}</b>{/if}
-          </span>
+        <div class="line why">
+          <span class="role fail">Why {roleLabel[t]}?</span>
+          <span class="txt muted">{r.reasons.join('; ')}</span>
         </div>
       {/if}
     {/each}
@@ -80,12 +80,13 @@
   .top {
     display: flex;
     align-items: baseline;
-    gap: 12px;
+    gap: 10px;
     flex-wrap: wrap;
   }
   .id {
+    font-family: var(--mono);
     font-weight: 600;
-    font-size: 14px;
+    font-size: 13.5px;
   }
   .top .verdict {
     margin-left: auto;
@@ -97,27 +98,25 @@
   }
   .line {
     display: grid;
-    grid-template-columns: 78px 1fr;
+    grid-template-columns: 84px 1fr;
     gap: 14px;
     align-items: baseline;
   }
   .role {
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    font-size: 11.5px;
+    font-weight: 650;
+    letter-spacing: 0.02em;
     color: var(--muted);
     text-align: right;
     padding-top: 2px;
   }
-  .role.pen {
+  .role.heard {
     color: var(--pen);
   }
   .role.fail {
     color: var(--flag);
   }
   .wer {
-    font-family: var(--mono);
     font-size: 11px;
     font-weight: 700;
     padding: 2px 7px;
@@ -125,15 +124,22 @@
     margin-left: 8px;
     white-space: nowrap;
   }
-  .rej {
+  .lat {
     font-family: var(--mono);
     font-size: 11px;
-    color: var(--flag);
   }
-  .attr.asr {
-    color: var(--pen);
+  .rej {
+    font-size: 11.5px;
+    color: var(--approve);
   }
-  .attr.cleanup {
-    color: var(--flag);
+  .why .txt {
+    font-family: var(--sans);
+    font-size: 12.5px;
+  }
+  @media (max-width: 520px) {
+    .line {
+      grid-template-columns: 66px 1fr;
+      gap: 10px;
+    }
   }
 </style>

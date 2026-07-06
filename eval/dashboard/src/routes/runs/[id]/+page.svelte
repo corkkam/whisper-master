@@ -1,130 +1,207 @@
 <script lang="ts">
+  import { createQuery, keepPreviousData } from '@tanstack/svelte-query';
+  import { fetchRun, fetchCases, runKey, casesKey, CASES_PAGE_SIZE } from '$lib/api';
+  import type { RunSummary } from '$lib/types';
   import WerBars from '$lib/components/WerBars.svelte';
   import OutcomeTiles from '$lib/components/OutcomeTiles.svelte';
   import CaseCard from '$lib/components/CaseCard.svelte';
-  import type { CaseGroup, RunSummary } from '$lib/types';
+  import Pagination from '$lib/components/Pagination.svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
-  const run = $derived(data.run as RunSummary);
-  const cases = $derived(data.cases as CaseGroup[]);
 
-  const sources = ['Text', 'TTS', 'LibriSpeech', 'Bluetooth', 'Noise'];
+  const runQuery = createQuery(() => ({
+    queryKey: runKey(data.id),
+    queryFn: () => fetchRun(data.id),
+    initialData: data.run ?? undefined
+  }));
+  const run = $derived<RunSummary | undefined>(runQuery.data);
+
+  // Filters (server-side, via the cases query).
+  let page = $state(1);
+  let outcome = $state<'all' | 'pass' | 'fail'>('all');
+  let source = $state('all');
+  let rawSearch = $state('');
   let q = $state('');
-  let verdict = $state<'all' | 'fail' | 'pass'>('all');
-  let source = $state<string | null>(null);
 
-  const shown = $derived(
-    cases.filter((c) => {
-      if (source && c.source !== source) return false;
-      if (verdict === 'fail' && !c.anyFail) return false;
-      if (verdict === 'pass' && c.anyFail) return false;
-      if (q) {
-        const hay = (
-          c.caseId +
-          ' ' +
-          (c.category ?? '') +
-          ' ' +
-          c.deterministic +
-          ' ' +
-          (c.asrText ?? '') +
-          ' ' +
-          Object.values(c.targets)
-            .map((r) => r.llmOutput)
-            .join(' ')
-        ).toLowerCase();
-        if (!hay.includes(q.toLowerCase())) return false;
-      }
-      return true;
-    })
-  );
+  // Debounce the search box so we don't fire a query per keystroke.
+  $effect(() => {
+    const v = rawSearch;
+    const t = setTimeout(() => {
+      q = v;
+      page = 1;
+    }, 300);
+    return () => clearTimeout(t);
+  });
+
+  const filters = $derived({ page, outcome, source, q });
+  const isDefault = $derived(page === 1 && outcome === 'all' && source === 'all' && q === '');
+
+  const casesQuery = createQuery(() => ({
+    queryKey: casesKey(data.id, filters),
+    queryFn: () => fetchCases(data.id, filters),
+    initialData: isDefault ? (data.cases ?? undefined) : undefined,
+    placeholderData: keepPreviousData
+  }));
+
+  function setOutcome(v: 'all' | 'pass' | 'fail') {
+    outcome = outcome === v ? 'all' : v;
+    page = 1;
+  }
+  function setSource(v: string) {
+    source = source === v ? 'all' : v;
+    page = 1;
+  }
+
+  const overallPass = $derived.by(() => {
+    const t = run?.aggregate?.byTarget ?? {};
+    let pass = 0;
+    let total = 0;
+    for (const k of Object.keys(t)) {
+      pass += t[k].pass;
+      total += t[k].total;
+    }
+    return total ? Math.round((pass / total) * 100) : null;
+  });
+
+  const SOURCE_LABEL: Record<string, string> = {
+    LibriSpeech: 'Real speech',
+    TTS: 'Synthetic',
+    Bluetooth: 'Bluetooth',
+    Noise: 'Noisy',
+    Text: 'Typed'
+  };
+  const sources = $derived.by(() => {
+    const out: string[] = [];
+    const w = run?.aggregate?.werBySource ?? {};
+    for (const k of ['LibriSpeech', 'TTS', 'Bluetooth', 'Noise'] as const) if (w[k]) out.push(k);
+    if (run && run.totalCases > run.audioCases) out.push('Text');
+    return out;
+  });
+
+  const when = $derived(run ? new Date(run.createdAt).toLocaleString() : '');
 </script>
 
-<svelte:head><title>{run.label ?? 'run'} · eval proof sheet</title></svelte:head>
+<svelte:head><title>{run?.label ?? 'Run'} · eval</title></svelte:head>
 
-<p class="eyebrow">Proof sheet</p>
-<h1 class="mono">{run.label ?? 'Run'}</h1>
-<div class="runmeta mono muted">
-  <span><b>{run.totalCases}</b> cases</span>
-  <span><b>{run.totalRuns}</b> runs</span>
-  <span><b>{run.audioCases}</b> audio</span>
-  {#if run.branch}<span>{run.branch}</span>{/if}
-  {#if run.gitCommit}<span>{run.gitCommit.slice(0, 7)}</span>{/if}
-  <span>{new Date(run.createdAt).toLocaleString()}</span>
-</div>
+{#if data.loadError}
+  <p class="err">Couldn't load this run. {data.loadError}</p>
+{:else if run}
+  <a class="back muted" href="/">← all runs</a>
+  <p class="eyebrow">Evaluation run</p>
+  <h1>{run.label ?? 'Run'}</h1>
+  <p class="sub muted">
+    {#if overallPass !== null}<b class="pen">{overallPass}% of cases passed</b> · {/if}
+    {run.totalCases} cases{#if run.audioCases > 0}, {run.audioCases} audio{/if} · {when}
+    {#if run.branch} · {run.branch}{/if}{#if run.gitCommit} · {run.gitCommit.slice(0, 7)}{/if}
+  </p>
 
-<div class="strip">
-  <div class="panel">
-    <h3>The ear — <span class="k">ASR word error rate by source</span></h3>
-    <WerBars werBySource={run.aggregate.werBySource} />
+  <div class="strip">
+    <section class="panel card">
+      <h2>Did it hear the words right?</h2>
+      <WerBars werBySource={run.aggregate.werBySource} />
+    </section>
+    <section class="panel card">
+      <h2>Did it clean up correctly and safely?</h2>
+      <OutcomeTiles aggregate={run.aggregate} />
+    </section>
   </div>
-  <div class="panel">
-    <h3>The pen — <span class="k">cleanup outcome</span></h3>
-    <OutcomeTiles aggregate={run.aggregate} />
-  </div>
-</div>
 
-<div class="controls">
-  <input class="search" placeholder="filter transcripts, ids, categories…" bind:value={q} />
-  <span class="count mono muted">{shown.length} / {cases.length}</span>
-  <div class="chips">
-    <button class="chip pen" aria-pressed={verdict === 'fail'} onclick={() => (verdict = verdict === 'fail' ? 'all' : 'fail')}>fail</button>
-    <button class="chip" aria-pressed={verdict === 'pass'} onclick={() => (verdict = verdict === 'pass' ? 'all' : 'pass')}>pass</button>
-    {#each sources as s (s)}
-      {#if cases.some((c) => c.source === s)}
-        <button class="chip" aria-pressed={source === s} onclick={() => (source = source === s ? null : s)}>{s}</button>
-      {/if}
-    {/each}
-  </div>
-</div>
+  <section class="cases-section">
+    <h2>Every case</h2>
+    <p class="legend muted">
+      Each case shows the instant on-device cleanup, then the <b>Light</b> and
+      <b>Polish</b> passes marked up against it (<span class="ins">red</span> = added,
+      <span class="del">struck</span> = removed). For audio, <b>Heard</b> is what the mic transcribed.
+    </p>
 
-<div class="cases">
-  {#each shown as c (c.caseId)}
-    <CaseCard {c} />
-  {/each}
-</div>
+    <div class="controls">
+      <input class="search" placeholder="Search transcripts, ids…" bind:value={rawSearch} />
+      <div class="chips">
+        <button class="chip pen" aria-pressed={outcome === 'fail'} onclick={() => setOutcome('fail')}
+          >Needs review</button
+        >
+        <button class="chip" aria-pressed={outcome === 'pass'} onclick={() => setOutcome('pass')}
+          >Clean</button
+        >
+        {#each sources as s (s)}
+          <button class="chip" aria-pressed={source === s} onclick={() => setSource(s)}
+            >{SOURCE_LABEL[s] ?? s}</button
+          >
+        {/each}
+      </div>
+    </div>
+
+    {#if casesQuery.isError}
+      <p class="err">Couldn't load cases. {casesQuery.error?.message}</p>
+    {:else if (casesQuery.data?.cases?.length ?? 0) === 0}
+      <p class="muted none">No cases match these filters.</p>
+    {:else}
+      <p class="count muted">
+        {casesQuery.data?.total} case{(casesQuery.data?.total ?? 0) === 1 ? '' : 's'} match
+      </p>
+      <div class="cases" class:dim={casesQuery.isPlaceholderData}>
+        {#each casesQuery.data?.cases ?? [] as c (c.caseId)}
+          <CaseCard {c} />
+        {/each}
+      </div>
+      <Pagination
+        {page}
+        total={casesQuery.data?.total ?? 0}
+        pageSize={CASES_PAGE_SIZE}
+        loading={casesQuery.isPlaceholderData}
+        onchange={(p) => (page = p)}
+      />
+    {/if}
+  </section>
+{/if}
 
 <style>
-  h1 {
-    font-size: clamp(26px, 4.5vw, 40px);
-    margin: 0;
+  .back {
+    display: inline-block;
+    font-size: 13px;
+    margin-bottom: 18px;
   }
-  .runmeta {
-    display: flex;
-    gap: 18px;
-    flex-wrap: wrap;
-    font-size: 12px;
-    margin-top: 12px;
+  .sub {
+    font-size: 14px;
+    margin: 8px 0 0;
   }
   .strip {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 26px;
-    margin: 28px 0 8px;
+    gap: 16px;
+    margin: 30px 0 8px;
   }
-  @media (max-width: 720px) {
-    .strip {
-      grid-template-columns: 1fr;
-    }
+  .panel {
+    padding: 22px 24px;
   }
-  .panel h3 {
-    font-size: 11px;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin: 0 0 14px;
+  .panel h2 {
+    font-size: 18px;
+    margin: 0 0 16px;
+  }
+  .cases-section {
+    margin-top: 40px;
+  }
+  .legend {
+    font-size: 13.5px;
+    line-height: 1.5;
+    margin: 6px 0 16px;
+    max-width: 68ch;
+  }
+  .legend .ins {
+    color: var(--pen);
     font-weight: 600;
   }
-  .panel h3 .k {
-    color: var(--ink);
+  .legend .del {
+    text-decoration: line-through;
+    text-decoration-color: var(--pen);
   }
   .controls {
     position: sticky;
     top: 0;
     z-index: 5;
     background: var(--paper);
-    padding: 16px 0 12px;
-    margin-top: 24px;
+    padding: 14px 0 12px;
     border-bottom: 1px solid var(--rule);
     display: flex;
     gap: 10px;
@@ -134,21 +211,38 @@
   .search {
     flex: 1;
     min-width: 200px;
-    font-family: var(--mono);
-    font-size: 13px;
+    font-size: 14px;
     background: var(--card);
     border: 1px solid var(--rule);
     border-radius: 9px;
-    padding: 9px 12px;
+    padding: 9px 13px;
     color: var(--ink);
-  }
-  .count {
-    font-size: 12px;
+    font-family: var(--sans);
   }
   .chips {
     display: flex;
     gap: 7px;
     flex-wrap: wrap;
-    width: 100%;
+  }
+  .count {
+    font-size: 13px;
+    margin: 14px 0 0;
+  }
+  .cases {
+    transition: opacity 0.15s;
+  }
+  .cases.dim {
+    opacity: 0.55;
+  }
+  .none {
+    margin-top: 20px;
+  }
+  .err {
+    color: var(--flag);
+  }
+  @media (max-width: 720px) {
+    .strip {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
