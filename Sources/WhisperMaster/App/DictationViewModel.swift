@@ -624,10 +624,18 @@ final class DictationViewModel {
             return nil
         }
 
-        // Only bail when focus is a clearly non-text control (a button, etc.).
-        // Web / Electron / unknown focus falls through to the real ⌘V paste
-        // below — those apps honor it even when Accessibility can't see the field
-        // (which is exactly why per-character typing failed there before).
+        // A native, Accessibility-readable text field: type it in with keystrokes
+        // (as before) and return the element, so the in-place LLM refiner can find
+        // the caret and polish the text afterward. This is the path where polish
+        // works, so it must stay keystroke-based.
+        if let editable = FocusedElementInspector.editableTarget() {
+            await textInjector.inject(text)
+            state.statusMessage = "Finished local transcription and pasted at cursor."
+            return editable
+        }
+
+        // Focus is a clearly non-text control (a button, etc.) → don't paste into
+        // the void; leave it on the clipboard for a manual ⌘V.
         if FocusedElementInspector.focusIsConfidentlyNonEditable() {
             copyToClipboard(text)
             state.undeliveredTranscriptAt = Date()
@@ -635,10 +643,13 @@ final class DictationViewModel {
             return nil
         }
 
-        let target = FocusedElementInspector.focusedElement()
+        // Web / Electron / unreadable focus: Accessibility can't see the field, so
+        // per-character typing gets dropped. Use a real ⌘V paste, which those apps
+        // honor. In-place refinement isn't possible here (nothing to read/edit via
+        // AX), so we return nil — the deterministic paste stands.
         await pasteViaClipboard(text)
         state.statusMessage = "Finished local transcription and pasted at cursor."
-        return target
+        return nil
     }
 
     /// Paste `text` with a real ⌘V — a system paste that lands in web/Electron

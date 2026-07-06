@@ -44,6 +44,25 @@ enum FocusedElementInspector {
         return isConfidentlyNonEditable(focused as! AXUIElement)
     }
 
+    /// The focused element **only when it's a confidently editable, AX-readable
+    /// text target** (a settable value, or a text-field/area/combo role). This is
+    /// the case where per-character typing works *and* the in-place refiner can
+    /// later find and edit the text — i.e. native fields. Returns `nil` for web /
+    /// Electron / unreadable focus, where the caller should paste via ⌘V instead.
+    static func editableTarget() -> AXUIElement? {
+        guard let element = focusedElement() else { return nil }
+        var settable: DarwinBoolean = false
+        if AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success,
+           settable.boolValue {
+            return element
+        }
+        if let role = stringAttribute(element, kAXRoleAttribute),
+           role == kAXTextFieldRole || role == kAXTextAreaRole || role == kAXComboBoxRole {
+            return element
+        }
+        return nil
+    }
+
     private static func isConfidentlyNonEditable(_ element: AXUIElement) -> Bool {
         // A settable value means we can type here → definitely a target.
         var settable: DarwinBoolean = false
