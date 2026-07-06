@@ -140,6 +140,13 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
   france" → "…Paris") — fixed by an anti-answer rule in the guard (reject a
   mid-sentence capitalized entity the input never had); `polish` stays
   off-by-default/experimental regardless.
+- **Run history (`eval/dashboard/`):** a SvelteKit (adapter-node) + Prisma 6 +
+  MongoDB Atlas app that stores runs over time and renders each as the same
+  proof-sheet UI, with a pass-rate trend across runs. `src/lib/scoring.ts` is a
+  TS port of `EvalScoreKit` so runs score identically. Feed it with
+  `scripts/push-run.mjs <results.json> <cases.jsonl>` → `POST /api/ingest`. Needs
+  `DATABASE_URL` (any Atlas cluster is a replica set); `npm run db:push` then
+  `npm run dev`. Pure SvelteKit full-stack (no separate Hono) — one deployable.
 
 ### Toolchain & prerequisites
 
