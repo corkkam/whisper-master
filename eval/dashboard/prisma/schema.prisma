@@ -1,7 +1,9 @@
 // Prisma 6 + MongoDB (no driver adapter needed on 6.x). Run `prisma db push`
 // once DATABASE_URL points at your Atlas cluster — Mongo has no migrations.
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" for local dev + Vercel's serverless runtime (Node 20 / AL2023).
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
