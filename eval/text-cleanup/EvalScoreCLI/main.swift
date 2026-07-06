@@ -19,7 +19,13 @@ do {
             rows[i].wer = WER.score(reference: ref, hypothesis: hyp)
         }
     }
-    let cases = Dictionary(uniqueKeysWithValues: try EvalCase.load(args[2]).map { ($0.id, $0) })
+    let loaded = try EvalCase.load(args[2])
+    var seen = Set<String>(), dupes = Set<String>()
+    for c in loaded where !seen.insert(c.id).inserted { dupes.insert(c.id) }
+    if !dupes.isEmpty {
+        FileHandle.standardError.write(Data("warning: duplicate case ids: \(dupes.sorted().joined(separator: ", "))\n".utf8))
+    }
+    let cases = Dictionary(loaded.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     let scores = rows.compactMap { row in cases[row.id].map { Scorer.score(evalCase: $0, row: row) } }
     let fails = scores.filter { !$0.mechanicalPass }
     print("total \(scores.count), pass \(scores.count - fails.count), fail \(fails.count)")

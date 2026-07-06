@@ -88,6 +88,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the user reaches the last step it's ideally already ready.
         viewModel.prepareDefaultEngineOnLaunch()
 
+        // Dev-only: when WM_EVAL_CASES is set, grade the real pipeline over those
+        // cases and write results.json, then leave the app running for inspection.
+        if ProcessInfo.processInfo.environment["WM_EVAL_CASES"] != nil {
+            Task { await EvalRunner.runIfRequested() }
+        }
+
         // Anonymous, opt-in usage analytics (off unless the user enabled it in
         // Settings). Configure from the persisted flag, then record this launch.
         Analytics.shared.configure(enabled: viewModel.state.analyticsEnabled)
