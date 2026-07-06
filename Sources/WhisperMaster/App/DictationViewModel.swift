@@ -183,7 +183,10 @@ final class DictationViewModel {
                 // Repair spaces the ASR dropped at pause/segment boundaries
                 // ("right?The" → "right? The") before the rest of the pipeline.
                 let spaced = TranscriptSpacingRepair.repair(rawFinal)
-                let formatted = await formatFinalTranscript(spaced)
+                // Collapse spoken number self-corrections ("twenty no thirty" →
+                // "thirty") before ITN, so the survivor is what gets formatted.
+                let corrected = SelfCorrectionCollapser.collapse(spaced)
+                let formatted = await formatFinalTranscript(corrected)
                 // May leave the text empty (a recording that was only "hmm" /
                 // a silence hallucination) — the guard below then skips
                 // history and injection entirely.

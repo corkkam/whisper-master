@@ -127,7 +127,8 @@ enum EvalRunner {
     /// and always-on ITN/filler removal so the eval is reproducible.
     private static func deterministic(_ raw: String) -> String {
         let spaced = TranscriptSpacingRepair.repair(raw)
-        let itn = DeterministicITN.normalize(spaced)
+        let corrected = SelfCorrectionCollapser.collapse(spaced)
+        let itn = DeterministicITN.normalize(corrected)
         let deFillered = FillerWordFilter.clean(itn)
         return VocabularyPostProcessor.apply(deFillered, glossary: [])
     }

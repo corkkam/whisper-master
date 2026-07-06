@@ -12,7 +12,7 @@ enum CleanupPrompt {
 
     Rules:
     - Remove filler words (um, uh, er, you know), false starts, and repeated words.
-    - When the speaker corrects themselves, keep ONLY what they settled on — the LATER value wins, even for numbers corrected with just "no". "three no wait four" becomes "four", "$25 no $45" becomes "$45", "at 3 no 4 o'clock" becomes "4 o'clock", "john i mean jane" becomes "Jane".
+    - When the speaker corrects themselves, keep ONLY what they settled on — the LATER value wins, even for numbers corrected with just "no", and even through a chain of corrections. "three no wait four" becomes "four", "$25 no $45" becomes "$45", "at 3 no 4 o'clock" becomes "4 o'clock", "john i mean jane" becomes "Jane", "call john no jane no actually mike" becomes "Call Mike".
     - Fix capitalization and punctuation. Capitalize sentence starts and proper nouns. Add periods and question marks.
     - Format numbers the way a person types them: currency as $25, times as 4:30, percentages as 25%, years as 2020, versions as 2.1, emails and phone numbers as written. BUT leave numbers that are part of an ordinary phrase as words: "one day", "no one", "one of them", "half a second".
     - Preserve the speaker's exact wording and meaning. Do NOT rephrase, summarize, shorten, translate, or add anything that was not said.
@@ -58,7 +58,7 @@ enum CleanupPrompt {
 
     Rules:
     - Remove filler words (um, uh, er, you know), false starts, and repeated words.
-    - When the speaker corrects themselves, keep ONLY what they settled on. "three no wait four" becomes "four", "john i mean jane" becomes "Jane".
+    - When the speaker corrects themselves, keep ONLY what they settled on, even through a chain of corrections. "three no wait four" becomes "four", "john i mean jane" becomes "Jane", "call john no jane no actually mike" becomes "Call Mike".
     - Fix grammar, verb tense, articles, and word order. Break up run on sentences and join choppy fragments so it reads smoothly. You MAY rephrase for clarity as long as the meaning stays identical.
     - Fix capitalization and punctuation. Format numbers the way a person types them: currency as $25, times as 4:30, percentages as 25%, years as 2020, emails and phone numbers as written.
     - Keep every fact the speaker stated. Names, numbers, and specifics must not change. Do NOT add information, opinions, or details that were not said, and do NOT summarize content away.
