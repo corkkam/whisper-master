@@ -48,6 +48,24 @@ let package = Package(
                 // tests are pure Swift; qwen inference is validated in the app.
             ],
             path: "Tests/WhisperMasterTests"
+        ),
+        // Evaluation engine scoring (pure Swift, no app/MLX deps). The in-app
+        // runner grades the real pipeline and writes results.json; this CLI reads
+        // it and does keyword/WER/attribution scoring. Reuses the real guard via
+        // the runner (no ported guard), so nothing here duplicates app logic.
+        .target(
+            name: "EvalScoreKit",
+            path: "eval/text-cleanup/EvalScore"
+        ),
+        .executableTarget(
+            name: "eval-score",
+            dependencies: ["EvalScoreKit"],
+            path: "eval/text-cleanup/EvalScoreCLI"
+        ),
+        .testTarget(
+            name: "EvalScoreKitTests",
+            dependencies: ["EvalScoreKit"],
+            path: "eval/text-cleanup/EvalScoreTests"
         )
     ]
 )
