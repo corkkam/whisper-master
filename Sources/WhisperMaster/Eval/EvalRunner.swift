@@ -1,44 +1,45 @@
 import Foundation
+@preconcurrency import AVFoundation
 
 /// Dev-only evaluation runner. Activated by `WM_EVAL_CASES=<path>`: after the
-/// cleanup model is loaded, it pushes every **text** case through the real
-/// pipeline (the same deterministic passes as `DictationViewModel`, then the
-/// light and polish LLM modes with the real `CleanupFaithfulnessGuard`) and
+/// cleanup model is loaded, it pushes every case through the real pipeline and
 /// writes per-stage outputs, guard verdicts, and latency to `results.json`.
 ///
-/// This is how the eval grades what actually ships. Audio cases are handled in a
-/// later task; here they are skipped. Output path is `WM_EVAL_OUT` or a
-/// `results.json` next to the cases file.
+/// - **Text cases** inject at the deterministic stage (the same passes as
+///   `DictationViewModel`), then run the light and polish LLM modes with the real
+///   `CleanupFaithfulnessGuard`.
+/// - **Audio cases** inject at the top: the file is replayed through the real
+///   `FluidAudioStreamingTranscriber` (chunked exactly like the live mic), and the
+///   ASR text + reference are recorded (WER is computed later by `eval-score`),
+///   then the same deterministic + LLM stages run.
+///
+/// Launch via LaunchServices (`open`), passing env through `launchctl setenv` —
+/// a directly-exec'd bundle fails TCC's Info.plist lookup and the mesh Bluetooth
+/// scan hard-crashes.
 enum EvalRunner {
+    private struct Item {
+        let id, det, inputKind: String
+        let asrText, asrReference: String?
+        let asrMs: Int?
+        let targets: [String]
+    }
+
     static func runIfRequested() async {
         let env = ProcessInfo.processInfo.environment
         guard let casesPath = env["WM_EVAL_CASES"] else { return }
         let outPath = env["WM_EVAL_OUT"]
             ?? (casesPath as NSString).deletingLastPathComponent + "/results.json"
 
-        // Grade the real model — load it explicitly so the run doesn't depend on
-        // the user's smart-cleanup toggle being on.
-        await MlxCleanupService.shared.prepare(
-            configuration: .init(directory: CleanupModel.directory))
+        await MlxCleanupService.shared.prepare(configuration: .init(directory: CleanupModel.directory))
         guard await MlxCleanupService.shared.isReady else {
             Log.modelPrep.error("EvalRunner: cleanup model not ready; aborting")
             return
         }
 
-        // Precompute the deterministic stage per text case (audio skipped for now).
-        struct Item { let id: String; let det: String; let targets: [String] }
-        var items: [Item] = []
-        for c in loadCases(casesPath) {
-            guard let input = (c["input"] as? [String: Any]) ?? wrap(c["input"]),
-                  let text = input["text"] as? String else { continue }
-            items.append(Item(id: c["id"] as? String ?? "",
-                              det: deterministic(text),
-                              targets: c["targets"] as? [String] ?? ["light", "polish"]))
-        }
+        let items = await buildItems(casesPath)
 
-        // Group by target so the system-prompt KV cache stays primed within a
-        // target — alternating modes would re-prime every call and inflate the
-        // measured latency past what a user (who stays in one mode) sees.
+        // LLM stage grouped by target so the system-prompt KV cache stays primed
+        // within a target (alternating modes re-primes every call → wrong latency).
         var rows: [[String: Any]] = []
         for target in ["light", "polish"] {
             let polish = target == "polish"
@@ -49,20 +50,81 @@ enum EvalRunner {
                 let llmMs = Int(Date().timeIntervalSince(start) * 1000)
                 let accepted = CleanupFaithfulnessGuard.accept(
                     original: item.det, cleaned: llm, allowRephrase: polish)
-                rows.append([
-                    "id": item.id, "target": target, "input_kind": "text",
+                var latency: [String: Int] = ["deterministic": 0, "llm": llmMs, "total": llmMs]
+                if let asrMs = item.asrMs { latency["asr"] = asrMs; latency["total"] = asrMs + llmMs }
+                var row: [String: Any] = [
+                    "id": item.id, "target": target, "input_kind": item.inputKind,
                     "deterministic": item.det, "llm_output": accepted ? llm : item.det,
-                    "guard": ["accepted": accepted], "wer": NSNull(),
-                    "latency_ms": ["deterministic": 0, "llm": llmMs, "total": llmMs],
-                ])
+                    "guard": ["accepted": accepted], "wer": NSNull(), "latency_ms": latency,
+                ]
+                if item.inputKind == "audio" {
+                    row["asr_text"] = item.asrText ?? ""
+                    row["asr_reference"] = item.asrReference ?? ""
+                }
+                rows.append(row)
             }
         }
         writeJSON(rows, to: outPath)
         Log.modelPrep.notice("EvalRunner wrote \(rows.count) rows to \(outPath, privacy: .public)")
     }
 
-    /// Mirror `DictationViewModel`'s non-LLM pipeline order exactly. Uses an empty
-    /// glossary and always-on ITN/filler removal so the eval is reproducible.
+    /// Resolve each case to its deterministic input, running ASR for audio cases.
+    private static func buildItems(_ casesPath: String) async -> [Item] {
+        var transcriber: FluidAudioStreamingTranscriber?
+        var items: [Item] = []
+        for c in loadCases(casesPath) {
+            let id = c["id"] as? String ?? ""
+            let targets = c["targets"] as? [String] ?? ["light", "polish"]
+            let input = (c["input"] as? [String: Any]) ?? wrap(c["input"])
+            if let text = input?["text"] as? String {
+                items.append(Item(id: id, det: deterministic(text), inputKind: "text",
+                                  asrText: nil, asrReference: nil, asrMs: nil, targets: targets))
+            } else if let audioPath = input?["audio"] as? String {
+                if transcriber == nil {
+                    let t = FluidAudioStreamingTranscriber()
+                    do { try await t.prepareModels { _ in } } catch {
+                        Log.modelPrep.error("EvalRunner: ASR prepare failed: \(error.localizedDescription, privacy: .public)")
+                        continue
+                    }
+                    transcriber = t
+                }
+                guard let t = transcriber, let (asr, ms) = await transcribe(audioPath, with: t) else { continue }
+                items.append(Item(id: id, det: deterministic(asr), inputKind: "audio",
+                                  asrText: asr, asrReference: c["asr_reference"] as? String ?? "",
+                                  asrMs: ms, targets: targets))
+            }
+        }
+        return items
+    }
+
+    /// Replay a file through the transcriber in ~100 ms chunks, the way the live
+    /// mic tap does (mirrors `AudioReplayTests`). Returns the final ASR text + ms.
+    private static func transcribe(
+        _ path: String, with transcriber: FluidAudioStreamingTranscriber
+    ) async -> (String, Int)? {
+        let url = URL(fileURLWithPath: path)
+        guard let file = try? AVAudioFile(forReading: url), file.length > 0 else { return nil }
+        let format = file.processingFormat
+        let chunk = AVAudioFrameCount(format.sampleRate * 0.1)
+        let start = Date()
+        do {
+            try await transcriber.start { _ in }
+            while file.framePosition < file.length {
+                let remaining = AVAudioFrameCount(file.length - file.framePosition)
+                let n = min(chunk, remaining)
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: n) else { break }
+                try file.read(into: buffer, frameCount: n)
+                try await transcriber.append(buffer)
+            }
+            let text = try await transcriber.stop()
+            return (text, Int(Date().timeIntervalSince(start) * 1000))
+        } catch {
+            return nil
+        }
+    }
+
+    /// Mirror `DictationViewModel`'s non-LLM pipeline order exactly. Empty glossary
+    /// and always-on ITN/filler removal so the eval is reproducible.
     private static func deterministic(_ raw: String) -> String {
         let spaced = TranscriptSpacingRepair.repair(raw)
         let itn = DeterministicITN.normalize(spaced)
@@ -70,7 +132,6 @@ enum EvalRunner {
         return VocabularyPostProcessor.apply(deFillered, glossary: [])
     }
 
-    /// Accept both the new `{text: …}` shape and a legacy bare-string `input`.
     private static func wrap(_ value: Any?) -> [String: Any]? {
         (value as? String).map { ["text": $0] }
     }
