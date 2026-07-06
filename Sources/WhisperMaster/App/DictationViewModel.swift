@@ -216,11 +216,11 @@ final class DictationViewModel {
                     duration: sessionDuration,
                     wordCount: cleaned.split(whereSeparator: \.isWhitespace).count
                 ))
-                var pasteTarget: AXUIElement?
                 if state.autoPasteEnabled {
-                    pasteTarget = await injectFinalTextIfPossible(cleaned)
+                    await pasteFinal(cleaned, entryID: entryID)
+                } else {
+                    scheduleRefinement(pasted: cleaned, entryID: entryID, target: nil)
                 }
-                scheduleRefinement(pasted: cleaned, entryID: entryID, target: pasteTarget)
                 state.statusMessage = "Finished local transcription."
             } catch {
                 await handleFailure(error)
@@ -612,44 +612,50 @@ final class DictationViewModel {
         state.removeFillerWordsEnabled ? FillerWordFilter.clean(text) : text
     }
 
-    /// Paste `text` at the cursor when possible, returning the focused element we
-    /// typed into (so a later in-place refine can safely edit exactly that
-    /// field), or `nil` when nothing was injected (no Accessibility, or no
-    /// editable target). Does NOT arm the correction learner — that happens after
-    /// refinement settles, on whatever text ends up on screen.
-    private func injectFinalTextIfPossible(_ text: String) async -> AXUIElement? {
+    /// Paste the finished transcript and set up polish, choosing the mechanism by
+    /// what the focused field allows:
+    ///  - **Native, Accessibility-readable field:** instant keystroke paste of the
+    ///    deterministic text, then a background in-place refine (`scheduleRefinement`)
+    ///    edits it to the polished version — the user never waits.
+    ///  - **Web / Electron field (AX can't see it):** we can't safely edit in place,
+    ///    so compute the polish *first* and paste the final text once with a real
+    ///    ⌘V. Polish still applies; the only cost is the LLM's brief latency.
+    ///  - **No editable focus:** copy to the clipboard and hint ⌘V; polish the
+    ///    history entry in the background.
+    private func pasteFinal(_ deterministic: String, entryID: UUID?) async {
         guard permissionsManager.accessibilityGranted() else {
-            copyToClipboard(text)
+            copyToClipboard(deterministic)
             state.statusMessage = "Copied to clipboard, press ⌘V. Enable Accessibility for auto-paste."
-            return nil
+            scheduleRefinement(pasted: deterministic, entryID: entryID, target: nil)
+            return
         }
 
-        // A native, Accessibility-readable text field: type it in with keystrokes
-        // (as before) and return the element, so the in-place LLM refiner can find
-        // the caret and polish the text afterward. This is the path where polish
-        // works, so it must stay keystroke-based.
         if let editable = FocusedElementInspector.editableTarget() {
-            await textInjector.inject(text)
+            await textInjector.inject(deterministic)
             state.statusMessage = "Finished local transcription and pasted at cursor."
-            return editable
+            scheduleRefinement(pasted: deterministic, entryID: entryID, target: editable)
+            return
         }
 
-        // Focus is a clearly non-text control (a button, etc.) → don't paste into
-        // the void; leave it on the clipboard for a manual ⌘V.
         if FocusedElementInspector.focusIsConfidentlyNonEditable() {
-            copyToClipboard(text)
+            copyToClipboard(deterministic)
             state.undeliveredTranscriptAt = Date()
             state.statusMessage = "No text field found. Copied to clipboard, press ⌘V to paste."
-            return nil
+            scheduleRefinement(pasted: deterministic, entryID: entryID, target: nil)
+            return
         }
 
-        // Web / Electron / unreadable focus: Accessibility can't see the field, so
-        // per-character typing gets dropped. Use a real ⌘V paste, which those apps
-        // honor. In-place refinement isn't possible here (nothing to read/edit via
-        // AX), so we return nil — the deterministic paste stands.
-        await pasteViaClipboard(text)
+        // Web / Electron: Accessibility can't read the field, so in-place refine
+        // isn't safe. Polish up front (best-effort — nil keeps the deterministic
+        // text), then paste the final result once with a real ⌘V, which these apps
+        // honor. This is how polish reaches WhatsApp, Slack, browsers, etc.
+        if state.llmCleanupEnabled { state.statusMessage = "Polishing\u{2026}" }
+        let finalText = (await llmRefined(deterministic)) ?? deterministic
+        await pasteViaClipboard(finalText)
         state.statusMessage = "Finished local transcription and pasted at cursor."
-        return nil
+        if finalText != deterministic, let entryID {
+            state.updateHistoryText(entryID, to: finalText)
+        }
     }
 
     /// Paste `text` with a real ⌘V — a system paste that lands in web/Electron
