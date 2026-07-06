@@ -188,15 +188,19 @@ function wer(ref,hyp){
 }
 // LCS word diff, rendered as proofreading marks (del struck, ins in red pen).
 function diffHTML(a,b){
+  // Compare on an alphanumeric key so punctuation/case-only changes ("logs" ->
+  // "logs.", "3" -> "3.") don't render as word swaps — only real word-level
+  // insertions/deletions/substitutions get proofreading marks.
+  const key=w=>w.toLowerCase().replace(/[^a-z0-9']/g,"");
   const A=(a||"").split(/\s+/).filter(Boolean), B=(b||"").split(/\s+/).filter(Boolean);
   const m=A.length,n=B.length;
   const dp=Array.from({length:m+1},()=>new Array(n+1).fill(0));
   for(let i=m-1;i>=0;i--)for(let j=n-1;j>=0;j--)
-    dp[i][j]=A[i].toLowerCase()===B[j].toLowerCase()?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+    dp[i][j]=key(A[i])===key(B[j])?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
   let i=0,j=0,out=[];
   const push=(cls,w)=>out.push(cls?`<span class="${cls}">${esc(w)}</span>`:esc(w));
   while(i<m&&j<n){
-    if(A[i].toLowerCase()===B[j].toLowerCase()){push("",B[j]);i++;j++;}
+    if(key(A[i])===key(B[j])){push("",B[j]);i++;j++;}
     else if(dp[i+1][j]>=dp[i][j+1]){push("del",A[i]);i++;}
     else{push("ins",B[j]);j++;}
   }
