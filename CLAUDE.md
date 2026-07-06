@@ -87,12 +87,29 @@ like "one two three" is a spoken *sequence*, not a cardinal, so it must return
 `nil` and stay as words — **do not** let it fall through to the additive sum,
 which produced the "mic testing one two three" → "mic testing 6" bug (1+2+3).
 When a run isn't a well-formed cardinal, `convertNumbers` emits the *whole* run as
-words rather than digitizing a trailing token. Cover any ITN change with
+words rather than digitizing a trailing token. **Room/suite numbers** spoken as
+digit-chunks ("room two oh five" → "room 205", "room two fourteen" → 214) are
+read by a room-keyword-gated pass (`matchRoomNumber`) as a concatenated digit
+sequence, **not** a clock time — without the gate `matchTime` greedily turned
+them into "2:05"/"2:14". Cover any ITN change with
 `DeterministicITNTests` (fast, pure). A heavier long-term alternative — swapping
 this hand-rolled engine for FluidInference's `text-processing-rs` (a Rust/NeMo
 ITN port with Swift xcframework bindings, same vendor as FluidAudio) — was
 evaluated but not adopted: it adds a native binary + build/signing complexity for
 coverage we don't yet need.
+
+**Spoken number self-corrections collapse deterministically, before ITN.**
+`SelfCorrectionCollapser` (pure, `SelfCorrectionCollapserTests`) rewrites
+"twenty five no forty dollars" → "forty dollars", "three no four thirty" →
+"four thirty", and chains "twenty no thirty no forty units" → "forty units"
+(keep-last). It fires **only** when a number run flanks a correction marker
+(`no` / `no wait` / `no actually` / `actually` / `i mean` / `scratch that` /
+`or rather`) on both sides, so ordinary "no"/"actually" in running speech is
+never touched. It runs in the shipped pipeline (`DictationViewModel`, right after
+`TranscriptSpacingRepair`, before `DeterministicITN`) **and** the eval runner, in
+the same order — keep them in sync. Name-correction chains ("call john no jane no
+actually mike") can't be number-gated safely, so they stay with the LLM (a chain
+example in `CleanupPrompt`); a 3B model still misses some — a known limitation.
 
 ### Evaluation engine (`eval/text-cleanup/`)
 
@@ -105,8 +122,8 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
   is a dev-only in-app runner: set `WM_EVAL_CASES=<cases.jsonl>` (+ optional
   `WM_EVAL_OUT`), launch the built app **via LaunchServices (`open`), not the raw
   binary**, and after the MLX model loads it runs every text case through the
-  shipped deterministic passes (`TranscriptSpacingRepair` → `DeterministicITN` →
-  `FillerWordFilter` → `VocabularyPostProcessor`) + both LLM modes (`light`,
+  shipped deterministic passes (`TranscriptSpacingRepair` → `SelfCorrectionCollapser`
+  → `DeterministicITN` → `FillerWordFilter` → `VocabularyPostProcessor`) + both LLM modes (`light`,
   `polish`) with the **real** `CleanupFaithfulnessGuard`, grouped by target so the
   KV cache stays primed, and writes `results.json` (per-stage outputs, guard
   verdict, per-stage latency). **Directly exec'ing the bundle's Mach-O crashes**
@@ -115,9 +132,12 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
 - **`eval-score`** — a dependency-free SwiftPM library (`EvalScoreKit`: `EvalCase`
   schema loader, `WER`, `Scorer`) + CLI (`swift run eval-score <results.json>
   <cases.jsonl>`). Objective scoring only: keyword `must_contain`/`must_not_contain`
-  + guard verdict + WER threshold, with failures attributed to **ASR vs cleanup**.
-  It reuses the shipped guard *through the runner's verdict* — there is no ported
-  guard to drift (the old `guard.py` is legacy for the Ollama `run.py` only). Unit
+  + WER threshold, with failures attributed to **ASR vs cleanup**. The **guard
+  verdict is diagnostic, not a pass/fail criterion** (Swift `Scorer` + the
+  dashboard `scoring.ts` port, kept in sync): a guard *rejection* means the safe
+  deterministic fallback was used, and for a faithfulness case that fallback is
+  the correct result that satisfies the keyword rules — so it must not be marked
+  failed; an unfaithful *acceptance* is still caught by `must_not_contain`. Unit
   tests: `swift test --filter EvalScoreKitTests`.
 - **Claude Code is the judge.** After a run, Claude reads `results.json` and writes
   `judgment.md` (faithfulness + quality per target, light-vs-polish, latency,
@@ -140,21 +160,38 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
   france" → "…Paris") — fixed by an anti-answer rule in the guard (reject a
   mid-sentence capitalized entity the input never had); `polish` stays
   off-by-default/experimental regardless.
-- **Run history (`eval/dashboard/`):** a SvelteKit (adapter-node) + Prisma 6 +
-  MongoDB Atlas app that stores runs over time and renders each as the same
-  proof-sheet UI, with a pass-rate trend across runs. `src/lib/scoring.ts` is a
-  TS port of `EvalScoreKit` so runs score identically. Feed it with
-  `scripts/push-run.mjs <results.json> <cases.jsonl>` → `POST /api/ingest`. Needs
-  `DATABASE_URL` (any Atlas cluster is a replica set — **the SRV string must
-  include a database name in the path**, e.g. `…mongodb.net/evaldash?…`, or
-  Prisma rejects it with P1013); `npm run db:push` then `npm run dev`. Pure
-  SvelteKit full-stack (no separate Hono) — one deployable. Ingest is **not**
-  automatic: after an eval writes `results.json` it must be pushed. The one-shot
-  path is `eval/text-cleanup/run-eval.sh [cases.jsonl] [label]` — it launches the
-  app for the eval (`launchctl setenv` + `open`), waits for `results.json`, then
-  pushes it here (needs the dev server up; `NO_PUSH=1` runs the eval only,
-  `DASHBOARD_URL` retargets). `push-run` is the manual equivalent for an existing
-  `results.json`.
+- **Run history + public dashboard (`eval/dashboard/`):** a SvelteKit + Prisma 6 +
+  MongoDB Atlas app that stores runs over time and renders them for a **public**
+  audience. `src/lib/scoring.ts` is a TS port of `EvalScoreKit` so runs score
+  identically (guard verdict diagnostic, as above).
+  - **Deployed on Vercel** (`@sveltejs/adapter-vercel`, nodejs20.x) at
+    **https://whisper-eval-dashboard.vercel.app**; the GitHub integration
+    **auto-deploys from `dev`** (Vercel project **Root Directory = `eval/dashboard`**
+    + an ignored-build-step `git diff --quiet HEAD^ HEAD -- .` so it only rebuilds
+    when the dashboard changes). Manual redeploy: `vercel --prod` from
+    `eval/dashboard`. **`dev` must carry the `adapter-vercel` + auth commits** or a
+    deploy builds wrong/unsecured.
+  - **Prisma on Vercel:** `binaryTargets = ["native","rhel-openssl-3.0.x"]` in
+    `schema.prisma`, and `build` runs `prisma generate` first (Vercel caches deps
+    and can skip postinstall).
+  - **Env** (Vercel prod+preview *and* local `.env`): `DATABASE_URL` — any Atlas
+    cluster is a replica set, but **the SRV string must include a db name in the
+    path** (`…mongodb.net/evaldash?…`) or Prisma rejects it P1013 — and
+    `INGEST_TOKEN`.
+  - **Reads are public; writes are not.** `POST /api/ingest` requires an
+    `x-ingest-token` header equal to `INGEST_TOKEN` (else 401); `push-run` sends it
+    (from the env or the dashboard `.env`).
+  - **Data:** SSR-hybrid **`@tanstack/svelte-query` v6** (runes) — `load` SSRs page 1
+    as `initialData`, the client paginates with `keepPreviousData` against
+    `GET /api/runs?page=` and `GET /api/runs/[id]/cases?page=` (Prisma stays behind
+    those endpoints). UI matches the app's **light-only Daylight** theme (white
+    canvas, brick `#c0381a`; Fraunces/Inter, mono for transcripts only); the home
+    hero is a rotating real before/after "watch it work" demo + a pipeline flow.
+  - **Ingest is not automatic:** after an eval writes `results.json` it must be
+    pushed — one-shot `eval/text-cleanup/run-eval.sh [cases.jsonl] [label]`
+    (launches the app via `launchctl setenv` + `open`, waits for `results.json`,
+    pushes; `DASHBOARD_URL` retargets to prod, `NO_PUSH=1` skips). `push-run` is the
+    manual equivalent. Local dev: `npm run db:push` then `npm run dev`.
 
 ### Toolchain & prerequisites
 
