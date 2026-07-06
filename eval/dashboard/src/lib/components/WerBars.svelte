@@ -34,11 +34,11 @@
     </div>
   {/each}
   <p class="reading muted">
-    The share of words misheard — lower is better. Real human speech is the number to trust; noise
+    The share of words misheard, lower is better. Real human speech is the number to trust. Noise
     and Bluetooth mics are where hearing gets hard.
   </p>
 {:else}
-  <p class="muted empty">This run graded typed text only — no audio, so there's nothing to hear here.</p>
+  <p class="muted empty">This run graded typed text only. No audio, so there's nothing to hear here.</p>
 {/if}
 
 <style>

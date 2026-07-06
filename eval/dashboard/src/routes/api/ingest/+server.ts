@@ -28,6 +28,6 @@ export const POST: RequestHandler = async ({ request }) => {
     const id = await createRun(prepared);
     return json({ id, totalRuns: prepared.totalRuns, totalCases: prepared.totalCases });
   } catch (e) {
-    throw error(500, e instanceof Error ? e.message : 'database error — is DATABASE_URL set?');
+    throw error(500, e instanceof Error ? e.message : 'database error. Is DATABASE_URL set?');
   }
 };

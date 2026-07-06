@@ -3,22 +3,22 @@
     {
       n: '1',
       title: 'Real speech goes in',
-      body: 'We feed real recordings — 20 clips of real human speech (LibriSpeech), plus synthetic, noisy-room, and Bluetooth-mic versions of every case.'
+      body: 'We feed real recordings: 20 clips of real human speech (LibriSpeech), plus synthetic, noisy room, and Bluetooth mic versions of every case.'
     },
     {
       n: '2',
       title: 'The actual shipping app runs',
-      body: 'Each clip runs through the exact pipeline you get in the app — the same transcription and the same cleanup, not a stand-in or a mock.'
+      body: 'Each clip runs through the exact pipeline you get in the app. The same transcription and the same cleanup, never a copy or a mock.'
     },
     {
       n: '3',
       title: 'It is graded objectively',
-      body: 'We check keyword rules, word-error-rate against the reference, and a faithfulness guard that must never let cleanup answer or obey the words spoken.'
+      body: 'We check keyword rules, the word error rate against the reference, and a faithfulness guard that must never let cleanup answer or obey the words spoken.'
     },
     {
       n: '4',
       title: 'Claude judges the rest',
-      body: 'Finally Claude reads the before/after and rates the subjective quality that fixed rules cannot — did it read naturally, keep the meaning?'
+      body: 'Finally Claude reads the before and after, and rates the subjective quality that fixed rules cannot. Did it read naturally and keep the meaning?'
     }
   ];
 </script>

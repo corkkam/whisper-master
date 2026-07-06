@@ -5,7 +5,7 @@
   const targets = $derived(Object.keys(aggregate.byTarget));
 
   const label = (t: string) =>
-    t === 'light' ? 'Light — ships by default' : t === 'polish' ? 'Polish — experimental' : t;
+    t === 'light' ? 'Light, ships by default' : t === 'polish' ? 'Polish, experimental' : t;
 </script>
 
 <div class="tiles">
@@ -22,7 +22,7 @@
   <div class="tile span">
     <div class="cap">When a case fails, whose fault is it?</div>
     <div class="attr">
-      <b style="color:var(--pen)">{aggregate.attribution.asr}</b> the mic mis­heard the words
+      <b style="color:var(--pen)">{aggregate.attribution.asr}</b> the mic misheard the words
       &nbsp;·&nbsp;
       <b style="color:var(--flag)">{aggregate.attribution.cleanup}</b> the cleanup itself slipped
     </div>

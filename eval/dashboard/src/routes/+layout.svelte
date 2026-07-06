@@ -22,7 +22,7 @@
   <div class="wrap">
     <header class="site">
       <a href="/" class="brand">Whisper&nbsp;Master <span class="pen">· eval</span></a>
-      <span class="muted sub">how we test on-device dictation cleanup</span>
+      <span class="muted sub">how we test on device dictation cleanup</span>
     </header>
     {@render children()}
   </div>

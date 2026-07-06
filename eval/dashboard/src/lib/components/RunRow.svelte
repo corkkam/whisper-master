@@ -37,7 +37,7 @@
     <span class="when muted">{when}</span>
   </div>
   <div class="stats">
-    <span class="big">{passRate ?? '—'}{#if passRate !== null}<small>%</small>{/if}</span>
+    <span class="big">{passRate ?? 'n/a'}{#if passRate !== null}<small>%</small>{/if}</span>
     <span class="muted lbl">of cases passed</span>
     <span class="dot">·</span>
     <span class="muted">{run.totalCases} cases{#if run.audioCases > 0}, {run.audioCases} audio{/if}</span>

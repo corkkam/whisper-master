@@ -110,9 +110,9 @@
   <section class="cases-section">
     <h2>Every case</h2>
     <p class="legend muted">
-      Each case shows the instant on-device cleanup, then the <b>Light</b> and
-      <b>Polish</b> passes marked up against it (<span class="ins">red</span> = added,
-      <span class="del">struck</span> = removed). For audio, <b>Heard</b> is what the mic transcribed.
+      Each case shows the instant on device cleanup, then the <b>Light</b> and
+      <b>Polish</b> passes marked up against it (<span class="ins">red</span> is added,
+      <span class="del">struck</span> is removed). For audio, <b>Heard</b> is what the mic transcribed.
     </p>
 
     <div class="controls">

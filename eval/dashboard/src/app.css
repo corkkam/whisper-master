@@ -1,16 +1,19 @@
-/* Warm "Daylight" brand — cream paper, vermillion pen — with a real type system:
-   Fraunces (display headlines) · Inter (body/UI) · JetBrains Mono (transcripts
-   ONLY). Fonts are self-hosted via @fontsource, imported in +layout.svelte. */
+/* Colors match the Whisper Master app's "Daylight" theme exactly (Theme.swift):
+   white canvas, off-white surface, warm near-black ink, brick-red accent.
+   Type: Fraunces (display) · Inter (body, the web stand-in for the app's
+   Avenir Next) · JetBrains Mono (transcripts only). Self-hosted via @fontsource. */
 :root {
-  --paper: #f5f1e8;
-  --card: #fbf8f1;
-  --ink: #211e18;
-  --muted: #8c8578;
-  --pen: #e4572e;
-  --approve: #4e7a51;
-  --flag: #c0392b;
-  --rule: #e4dcc9;
-  --rule-2: #efe9da;
+  --paper: #ffffff;
+  --card: #f8f7f5;
+  --ink: #211c15;
+  --muted: #7c7264;
+  --faint: #a79e8e;
+  --pen: #c0381a;
+  --approve: #3c7a4e;
+  --flag: #c0381a;
+  --rule: rgba(33, 28, 21, 0.12);
+  --rule-2: #ece9e3;
+  --selection: #eae1ce;
 
   --display: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
   --sans: 'Inter Variable', 'SF Pro Text', system-ui, -apple-system, sans-serif;
@@ -18,12 +21,16 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #181510;
-    --card: #211d16;
-    --ink: #f1eadb;
-    --muted: #9a9080;
-    --rule: #332c20;
-    --rule-2: #2a241a;
+    --paper: #17130d;
+    --card: #201b13;
+    --ink: #f2ece0;
+    --muted: #a79e8e;
+    --faint: #7c7264;
+    --pen: #db5636;
+    --flag: #db5636;
+    --rule: rgba(242, 236, 224, 0.13);
+    --rule-2: #29231a;
+    --selection: #3a3220;
   }
 }
 * {
@@ -104,7 +111,7 @@ a {
   text-decoration-color: var(--pen);
 }
 
-/* chips + tags + verdicts — now Inter, not monospace */
+/* chips + tags + verdicts: now Inter, not monospace */
 .chip {
   font-family: var(--sans);
   font-size: 13px;

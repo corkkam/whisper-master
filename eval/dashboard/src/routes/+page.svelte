@@ -62,7 +62,7 @@
   <title>Whisper Master · how we test dictation cleanup</title>
   <meta
     name="description"
-    content="How well Whisper Master cleans up your dictation — graded on the real, shipped pipeline: transcription accuracy, cleanup quality, and faithfulness."
+    content="How well Whisper Master cleans up your dictation, graded on the real shipped pipeline: transcription accuracy, cleanup quality, and faithfulness."
   />
 </svelte:head>
 
@@ -82,26 +82,26 @@
     <h1>How well does it clean up your dictation?</h1>
     <p class="lead">
       Whisper Master turns messy speech into clean text, entirely on your Mac. On every change we
-      grade the <b>real, shipped</b> pipeline — how accurately it hears you, how well it cleans up,
+      grade the <b>real, shipped</b> pipeline. How accurately it hears you, how well it cleans up,
       and whether it ever answers instead of just cleaning. Here's the evidence.
     </p>
 
     <div class="stats">
       <StatCard
         label="Cleanup accuracy"
-        value={cleanupPct !== null ? String(cleanupPct) : '—'}
+        value={cleanupPct !== null ? String(cleanupPct) : 'n/a'}
         unit={cleanupPct !== null ? '%' : ''}
         sub="of test cases pass the cleanup rules"
       />
       <StatCard
         label="Hears real speech"
-        value={wer ?? '—'}
+        value={wer ?? 'n/a'}
         unit={wer ? '%' : ''}
-        sub="word error on real human speech — lower is better"
+        sub="word error on real human speech, lower is better"
       />
       <StatCard
-        label="On-device speed"
-        value={speedMs ?? '—'}
+        label="On device speed"
+        value={speedMs ?? 'n/a'}
         unit={speedMs ? 'ms' : ''}
         sub="typical cleanup time, nothing leaves your Mac"
       />
