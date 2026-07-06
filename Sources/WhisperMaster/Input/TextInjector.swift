@@ -17,6 +17,18 @@ actor TextInjector {
         }
     }
 
+    /// Synthesize a Command-V paste. Unlike `inject` (per-character Unicode key
+    /// events, which web/Electron content silently drops), this is a *real*
+    /// system paste that goes through the app's paste handler, so it lands in
+    /// browsers, Electron apps, terminals, and native fields alike. The caller
+    /// must put the text on the pasteboard first.
+    func pressCommandV() {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let vKey: CGKeyCode = 0x09 // kVK_ANSI_V
+        postKey(source: source, virtualKey: vKey, keyDown: true, flags: .maskCommand)
+        postKey(source: source, virtualKey: vKey, keyDown: false, flags: .maskCommand)
+    }
+
     /// Synthesize `count` backspace keystrokes (virtual key 0x33) at the current
     /// caret, used to walk back over text we ourselves just typed before retyping
     /// a refined suffix. Caller is responsible for confirming the caret is where

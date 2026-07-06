@@ -390,8 +390,10 @@ final class DictationViewModel {
             state.statusMessage = "Copied to clipboard. Enable Accessibility for auto-paste."
             return
         }
+        // Real ⌘V (text is already on the clipboard) so it lands in web/Electron
+        // apps too. Left on the clipboard on purpose — this is a recovery action.
         Task { [textInjector] in
-            await textInjector.inject(text)
+            await textInjector.pressCommandV()
         }
     }
 
@@ -622,12 +624,11 @@ final class DictationViewModel {
             return nil
         }
 
-        // Nothing editable is focused, so synthesized keystrokes would vanish.
-        // Put the transcript on the clipboard (it's in history too) so a plain ⌘V
-        // recovers it — that's a real system paste and works in whatever app the
-        // user is in, unlike our ⇧⌘V menu shortcut, which only fires when this app
-        // is frontmost.
-        if FocusedElementInspector.noEditableTarget() {
+        // Only bail when focus is a clearly non-text control (a button, etc.).
+        // Web / Electron / unknown focus falls through to the real ⌘V paste
+        // below — those apps honor it even when Accessibility can't see the field
+        // (which is exactly why per-character typing failed there before).
+        if FocusedElementInspector.focusIsConfidentlyNonEditable() {
             copyToClipboard(text)
             state.undeliveredTranscriptAt = Date()
             state.statusMessage = "No text field found. Copied to clipboard, press ⌘V to paste."
@@ -635,8 +636,24 @@ final class DictationViewModel {
         }
 
         let target = FocusedElementInspector.focusedElement()
-        await textInjector.inject(text)
+        await pasteViaClipboard(text)
         state.statusMessage = "Finished local transcription and pasted at cursor."
         return target
+    }
+
+    /// Paste `text` with a real ⌘V — a system paste that lands in web/Electron
+    /// apps, unlike synthesized per-character key events. Saves and restores the
+    /// user's clipboard around the paste, and only restores if the transcript is
+    /// still there, so it never clobbers something copied in the meantime.
+    private func pasteViaClipboard(_ text: String) async {
+        let pasteboard = NSPasteboard.general
+        let saved = pasteboard.string(forType: .string)
+        copyToClipboard(text)
+        await textInjector.pressCommandV()
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        if pasteboard.string(forType: .string) == text {
+            pasteboard.clearContents()
+            if let saved { pasteboard.setString(saved, forType: .string) }
+        }
     }
 }

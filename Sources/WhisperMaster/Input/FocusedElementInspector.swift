@@ -29,6 +29,21 @@ enum FocusedElementInspector {
         return isConfidentlyNonEditable(focused as! AXUIElement)
     }
 
+    /// True only when a focused element with a clearly non-text role (a button,
+    /// checkbox, slider, …) holds focus. Unlike `noEditableTarget()`, this is
+    /// `false` when **nothing** is focused or focus is unreadable/ambiguous (web
+    /// areas, Electron views) — so callers still attempt a ⌘V paste there, the
+    /// case Accessibility can't see but a real paste handles fine.
+    static func focusIsConfidentlyNonEditable() -> Bool {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            systemWide, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+            let focused
+        else { return false }
+        return isConfidentlyNonEditable(focused as! AXUIElement)
+    }
+
     private static func isConfidentlyNonEditable(_ element: AXUIElement) -> Bool {
         // A settable value means we can type here → definitely a target.
         var settable: DarwinBoolean = false
