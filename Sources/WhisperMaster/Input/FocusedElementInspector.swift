@@ -46,12 +46,15 @@ enum FocusedElementInspector {
             return false // editable text input
         case kAXButtonRole, kAXCheckBoxRole, kAXRadioButtonRole,
              kAXPopUpButtonRole, kAXMenuButtonRole, kAXMenuItemRole,
-             kAXImageRole, kAXStaticTextRole, kAXSliderRole,
-             kAXWindowRole, kAXScrollAreaRole, kAXOutlineRole,
-             kAXTableRole, kAXListRole:
-            return true // focus is somewhere text can't go
+             kAXImageRole, kAXStaticTextRole, kAXSliderRole:
+            return true // an interactive non-text control clearly holds focus
         default:
-            return false // unknown (web view / custom) → ambiguous → don't warn
+            // Everything else is ambiguous → attempt the paste. Container roles
+            // (scroll area, window, list, table, outline, web area) are commonly
+            // what Electron / browser / custom-UI apps report *while the real
+            // editable field is focused* — flagging them "no target" wrongly
+            // blocked a paste that actually works, so we no longer do.
+            return false
         }
     }
 

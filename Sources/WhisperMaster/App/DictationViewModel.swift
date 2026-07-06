@@ -617,16 +617,20 @@ final class DictationViewModel {
     /// refinement settles, on whatever text ends up on screen.
     private func injectFinalTextIfPossible(_ text: String) async -> AXUIElement? {
         guard permissionsManager.accessibilityGranted() else {
-            state.statusMessage = "Transcript ready. Enable Accessibility for auto-paste."
+            copyToClipboard(text)
+            state.statusMessage = "Copied to clipboard, press ⌘V. Enable Accessibility for auto-paste."
             return nil
         }
 
         // Nothing editable is focused, so synthesized keystrokes would vanish.
-        // The transcript is already in history, so surface a notch hint telling
-        // the user where it went instead of typing into the void.
+        // Put the transcript on the clipboard (it's in history too) so a plain ⌘V
+        // recovers it — that's a real system paste and works in whatever app the
+        // user is in, unlike our ⇧⌘V menu shortcut, which only fires when this app
+        // is frontmost.
         if FocusedElementInspector.noEditableTarget() {
+            copyToClipboard(text)
             state.undeliveredTranscriptAt = Date()
-            state.statusMessage = "No text field focused. Saved to history. Press ⇧⌘V to paste."
+            state.statusMessage = "No text field found. Copied to clipboard, press ⌘V to paste."
             return nil
         }
 
