@@ -18,20 +18,10 @@
   --display: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
   --sans: 'Inter Variable', 'SF Pro Text', system-ui, -apple-system, sans-serif;
   --mono: 'JetBrains Mono Variable', 'SF Mono', ui-monospace, Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #17130d;
-    --card: #201b13;
-    --ink: #f2ece0;
-    --muted: #a79e8e;
-    --faint: #7c7264;
-    --pen: #db5636;
-    --flag: #db5636;
-    --rule: rgba(242, 236, 224, 0.13);
-    --rule-2: #29231a;
-    --selection: #3a3220;
-  }
+
+  /* The app is a light-only "Daylight" theme, so the dashboard is too — it stays
+     white even when the OS is in dark mode, to match the app exactly. */
+  color-scheme: light;
 }
 * {
   box-sizing: border-box;
