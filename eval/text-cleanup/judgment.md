@@ -58,3 +58,29 @@ light. Both comfortably sub-second — latency is not the problem.
 **Verdict:** the polish ("Polish my English") mode is **not safe to ship as-is** —
 it answers questions. The eval did its job: it turned "something feels off" into
 a specific, reproducible faithfulness break with a named root cause.
+
+---
+
+# Audio layer — first full run (141 clips)
+
+**Sources:** 89 TTS (from the text cases), 32 augmented (16 Bluetooth-HFP + 16 pink-noise), 20 LibriSpeech dev-clean (real human, CC BY 4.0). 260 rows.
+
+## ASR accuracy (Parakeet WER by source)
+
+| Source | median WER | mean WER | clean (<15%) |
+|---|---|---|---|
+| **LibriSpeech (real human, clean)** | **0.0%** | **3.4%** | 19/20 |
+| TTS (synthetic) | 8.3% | 19.2% | 50/89 |
+| Bluetooth-HFP sim | 6.7% | 16.3% | 9/15 |
+| Pink noise | 11.8% | 23.5% | 9/16 |
+
+## Conclusion
+
+- **ASR is not the bottleneck in good conditions.** On real clean human speech Parakeet is near-perfect (3.4% mean WER). The earlier "is it Parakeet or the cleanup" question is answered: in clean audio, neither — it hears you fine.
+- **Noise and Bluetooth are the real ASR bottlenecks.** Pink noise pushes mean WER from 3.4% to 23.5%; the Bluetooth-HFP profile to 16.3%. This quantifies the documented "bad mic / noisy room" degradation and the Bluetooth call-mode issue.
+- **TTS is a controlled-coverage tool, not an accuracy measure.** Its mean WER (19.2%) is inflated by synthesis artifacts the real anchor doesn't have — which is exactly why the LibriSpeech anchor matters. Use TTS to exercise specific patterns end-to-end; trust LibriSpeech for the true accuracy number.
+
+## Next
+
+- Wire the WER-by-source table + latency medians into `eval-score` (`Scorer.aggregate`) so it's one command, not ad-hoc Python.
+- Address the deferred `polish` faithfulness break (answers questions) — the guard fix.
