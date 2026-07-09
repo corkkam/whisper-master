@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import CoreAudio
 import Foundation
 
 final class MicrophoneCaptureService {
@@ -14,6 +15,13 @@ final class MicrophoneCaptureService {
     private var bufferHandler: BufferHandler?
     private var levelHandler: LevelHandler?
     private var isCapturing = false
+
+    private var rewarmWork: DispatchWorkItem?
+    private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
+    private static var deviceListAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDevices,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain)
 
     func ensurePermission() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -47,6 +55,41 @@ final class MicrophoneCaptureService {
             engine.stop()
         } catch {
             // Warm-up is advisory only.
+        }
+    }
+
+    /// Keep the warm state fresh: re-warm whenever the audio device topology
+    /// changes (e.g. AirPods connect/disconnect), which invalidates the launch-
+    /// time warm — the next `start()` would otherwise pay the full cold cost
+    /// again. Read-only Core Audio observation; the actual re-warm is debounced
+    /// and only runs while idle. Installs the listener once.
+    func startAutoRewarm() {
+        guard deviceListenerBlock == nil else { return }
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.scheduleRewarm()
+        }
+        deviceListenerBlock = block
+        AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &Self.deviceListAddress, DispatchQueue.main, block)
+    }
+
+    private func scheduleRewarm() {
+        // Device changes arrive in bursts; warm once, after the route settles.
+        rewarmWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.isCapturing,
+                  AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+            else { return }
+            self.prewarm()
+        }
+        rewarmWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+
+    deinit {
+        if let block = deviceListenerBlock {
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject), &Self.deviceListAddress, DispatchQueue.main, block)
         }
     }
 

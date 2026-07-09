@@ -596,6 +596,9 @@ final class DictationViewModel {
         if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
             microphoneCapture.prewarm()
         }
+        // Keep it warm across AirPods connect/disconnect, which otherwise stales
+        // the launch-time warm and brings the ~500ms cold start back.
+        microphoneCapture.startAutoRewarm()
     }
 
     /// Prefer the fast R2 model mirror (accurate %, free egress); on any
