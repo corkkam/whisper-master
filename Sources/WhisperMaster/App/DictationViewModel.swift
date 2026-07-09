@@ -715,7 +715,7 @@ final class DictationViewModel {
             return "native"
         }
 
-        if FocusedElementInspector.focusIsConfidentlyNonEditable() {
+        if FocusedElementInspector.focusHasNoTextTarget() {
             copyToClipboard(deterministic)
             state.undeliveredTranscriptAt = Date()
             state.statusMessage = "No text field found. Copied to clipboard, press ⌘V to paste."

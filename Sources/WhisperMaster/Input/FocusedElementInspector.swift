@@ -63,6 +63,33 @@ enum FocusedElementInspector {
         return nil
     }
 
+    /// True when a focused element holds focus but exposes **no way to type** —
+    /// not settable, no text role, and no caret (`kAXSelectedTextRange`). This is
+    /// the "nowhere to type" case AX *can* see: a web area / container / button
+    /// that has focus while no actual text field does (e.g. clicking off the
+    /// message box in an Electron app), which is where a blind ⌘V vanished.
+    ///
+    /// A genuine text target — including a web / Electron `contentEditable` that
+    /// AX won't label a text field — still exposes a caret, so it returns `false`
+    /// here and keeps the ⌘V paste path. When focus is entirely unreadable (`nil`)
+    /// we stay conservative and return `false`, leaving that to ⌘V as before.
+    static func focusHasNoTextTarget() -> Bool {
+        guard let element = focusedElement() else { return false }
+
+        var settable: DarwinBoolean = false
+        if AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success,
+           settable.boolValue {
+            return false
+        }
+        if let role = stringAttribute(element, kAXRoleAttribute),
+           role == kAXTextFieldRole || role == kAXTextAreaRole || role == kAXComboBoxRole {
+            return false
+        }
+        // Present, not typeable by role/settability: a real text target still has
+        // a caret; its absence means there's nowhere for the text to land.
+        return selectedRange(of: element) == nil
+    }
+
     /// Compact, read-only description of the focused element for diagnostics —
     /// its role plus which text-editing affordances it exposes. Lets us see, after
     /// the fact, exactly why a paste took the native / web / nowhere route, so the
