@@ -520,12 +520,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Light "Daylight" chrome: paper titlebar that blends with the theme.
         window.appearance = NSAppearance(named: .aqua)
         window.backgroundColor = Theme.canvasNSColor
-        window.center()
         window.contentViewController = host
         window.isReleasedWhenClosed = false
         window.hidesOnDeactivate = false
-        window.setFrameAutosaveName("WhisperMaster.SettingsWindow")
+        // No frame autosave: the window opens at a consistent default size every
+        // time (applied in showWindow), rather than restoring a prior resize.
         self.window = window
+    }
+
+    /// Size the settings window to 80% of the screen's usable width and its full
+    /// usable height, centered horizontally — applied on every open.
+    private func applyDefaultWindowFrame(_ window: NSWindow) {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        let width = visible.width * 0.8
+        let height = visible.height
+        let origin = NSPoint(x: visible.minX + (visible.width - width) / 2, y: visible.minY)
+        window.setFrame(NSRect(origin: origin, size: NSSize(width: width, height: height)), display: true)
     }
 
     private func setupPill() {
@@ -583,6 +594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func showWindow() {
         NSApp.activate(ignoringOtherApps: true)
+        if let window { applyDefaultWindowFrame(window) }
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
     }

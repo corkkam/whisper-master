@@ -90,19 +90,6 @@ struct EngineSettingsView: View {
             SettingsRow("Status") {
                 engineStatusBadge
             }
-            RowDivider()
-            SettingsRow("Model location") {
-                HStack(spacing: 12) {
-                    Text("~/Library/…/FluidAudio/Models")
-                        .font(Typography.mono)
-                        .foregroundStyle(Theme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    SecondaryButton(title: "Reveal", icon: "folder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([state.selectedEngine.localModelURL])
-                    }
-                }
-            }
         }
     }
 
