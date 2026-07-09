@@ -81,6 +81,10 @@ final class DictationViewModel {
     func startRecording() {
         guard state.canStart else { return }
 
+        // Open a diagnostics session at the true key-press instant (this runs
+        // synchronously from the hotkey handler). No-op unless a DIAGNOSTICS build.
+        Diagnostics.shared.begin(context: makeDiagnosticsContext())
+
         // A reminder showing now would be replaced by the live indicator anyway.
         reminderScheduler.clear()
         // A new dictation supersedes any correction watch or pending polish on
@@ -125,6 +129,7 @@ final class DictationViewModel {
                         }
                     }
                 }
+                Diagnostics.shared.mark(.engineStarted)
 
                 try microphoneCapture.start(
                     bufferHandler: { [weak self] buffer in
@@ -139,6 +144,10 @@ final class DictationViewModel {
                         }
                     }
                 )
+                Diagnostics.shared.mark(.micStarted)
+                Diagnostics.shared.noteInputDevice(
+                    name: AudioInputDevices.currentInputName(),
+                    isBluetooth: state.bluetoothInputActive)
 
                 recordingStartedAt = Date()
                 state.phase = .recording
@@ -160,6 +169,7 @@ final class DictationViewModel {
         state.phase = .stopping
         state.audioLevel = 0
         state.statusMessage = "Catching final words..."
+        Diagnostics.shared.mark(.stopRequested)
 
         Task {
             do {
@@ -167,7 +177,9 @@ final class DictationViewModel {
                 microphoneCapture.stop()
                 await drainPendingAudioBuffers()
                 state.statusMessage = "Finalizing local transcript..."
+                Diagnostics.shared.mark(.finalizeStart)
                 var rawFinal: String
+                var usedSalvage = false
                 do {
                     rawFinal = try await transcriber.stop()
                 } catch {
@@ -179,22 +191,33 @@ final class DictationViewModel {
                 }
                 if rawFinal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     rawFinal = salvagedStreamingTranscript()
+                    usedSalvage = true
                 }
+                Diagnostics.shared.noteRawAsr(rawFinal)
                 // Repair spaces the ASR dropped at pause/segment boundaries
                 // ("right?The" → "right? The") before the rest of the pipeline.
                 let spaced = TranscriptSpacingRepair.repair(rawFinal)
+                Diagnostics.shared.noteStage(.spacing, text: spaced)
                 // Collapse spoken number self-corrections ("twenty no thirty" →
                 // "thirty") before ITN, so the survivor is what gets formatted.
                 let corrected = SelfCorrectionCollapser.collapse(spaced)
+                Diagnostics.shared.noteStage(.selfCorrection, text: corrected)
                 let formatted = await formatFinalTranscript(corrected)
+                Diagnostics.shared.noteStage(.itn, text: formatted)
                 // May leave the text empty (a recording that was only "hmm" /
                 // a silence hallucination) — the guard below then skips
                 // history and injection entirely.
                 let deFillered = filterFillersIfEnabled(formatted)
+                Diagnostics.shared.noteStage(.filler, text: deFillered)
                 // Apply the glossary as a safe text replacement (casing + known
                 // mishearings) — the substitute for FluidAudio's transcript-
                 // corrupting streaming rescorer.
                 let cleaned = VocabularyPostProcessor.apply(deFillered, glossary: state.customVocabulary)
+                Diagnostics.shared.noteStage(.vocab, text: cleaned)
+                Diagnostics.shared.noteASR(
+                    confirmedChars: rawConfirmedTranscript.count,
+                    volatileChars: rawVolatileTranscript.count,
+                    usedSalvage: usedSalvage)
                 // Paste the deterministic cleanup *instantly* — dictation never
                 // waits on the LLM. The optional on-device qwen polish then runs
                 // in the background and refines this text in place a beat later
@@ -204,6 +227,9 @@ final class DictationViewModel {
                 state.transcript.finalText = cleaned
                 guard !cleaned.isEmpty else {
                     // Nothing to paste (only "hmm" / a silence hallucination).
+                    // Still record the session — an empty result is itself a
+                    // "miss" worth inspecting, and the audio is captured.
+                    Diagnostics.shared.finish(pasteOutcome: "empty", finalText: "")
                     state.statusMessage = "Finished local transcription."
                     return
                 }
@@ -216,13 +242,16 @@ final class DictationViewModel {
                     duration: sessionDuration,
                     wordCount: cleaned.split(whereSeparator: \.isWhitespace).count
                 ))
+                var pasteOutcome = "historyOnly"
                 if state.autoPasteEnabled {
-                    await pasteFinal(cleaned, entryID: entryID)
+                    pasteOutcome = await pasteFinal(cleaned, entryID: entryID)
                 } else {
                     scheduleRefinement(pasted: cleaned, entryID: entryID, target: nil)
                 }
+                Diagnostics.shared.finish(pasteOutcome: pasteOutcome, finalText: cleaned)
                 state.statusMessage = "Finished local transcription."
             } catch {
+                Diagnostics.shared.abandon()
                 await handleFailure(error)
             }
         }
@@ -350,6 +379,7 @@ final class DictationViewModel {
     }
 
     private func enqueueAudioBuffer(_ buffer: AVAudioPCMBuffer) {
+        Diagnostics.shared.noteAudioBuffer(buffer)
         let id = UUID()
         let task = Task { [transcriber] in
             try? await transcriber.append(buffer)
@@ -581,6 +611,7 @@ final class DictationViewModel {
 
     private func applyTranscriptUpdate(_ update: StreamingTranscriptUpdate) {
         if update.isConfirmed, !update.confirmedText.isEmpty {
+            Diagnostics.shared.noteFirstConfirmed()
             rawConfirmedTranscript = TranscriptMerger.mergedConfirmed(
                 current: rawConfirmedTranscript,
                 new: update.confirmedText
@@ -588,6 +619,7 @@ final class DictationViewModel {
             state.transcript.latestConfirmed = filterFillersIfEnabled(rawConfirmedTranscript)
         }
 
+        if !update.partialText.isEmpty { Diagnostics.shared.noteFirstPartial() }
         // Keep the full volatile window for salvage; the pill preview can use
         // the shorter latest hypothesis for snappier live feedback.
         rawVolatileTranscript = update.partialText
@@ -612,6 +644,18 @@ final class DictationViewModel {
         state.removeFillerWordsEnabled ? FillerWordFilter.clean(text) : text
     }
 
+    /// Snapshot of the knobs that frame a diagnostics session (no-op build ignores it).
+    private func makeDiagnosticsContext() -> SessionTrace.Context {
+        SessionTrace.Context(
+            appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?",
+            engine: state.selectedEngine.rawValue,
+            fillerFilter: state.removeFillerWordsEnabled,
+            llmCleanup: state.llmCleanupEnabled,
+            itn: state.itnEnabled,
+            holdToTalk: state.holdToTalkEnabled,
+            pasteOutcome: nil)
+    }
+
     /// Paste the finished transcript and set up polish, choosing the mechanism by
     /// what the focused field allows:
     ///  - **Native, Accessibility-readable field:** instant keystroke paste of the
@@ -622,19 +666,22 @@ final class DictationViewModel {
     ///    ⌘V. Polish still applies; the only cost is the LLM's brief latency.
     ///  - **No editable focus:** copy to the clipboard and hint ⌘V; polish the
     ///    history entry in the background.
-    private func pasteFinal(_ deterministic: String, entryID: UUID?) async {
+    /// Returns a short outcome tag for diagnostics: `noAccessibility` / `native` /
+    /// `clipboard` / `web`.
+    @discardableResult
+    private func pasteFinal(_ deterministic: String, entryID: UUID?) async -> String {
         guard permissionsManager.accessibilityGranted() else {
             copyToClipboard(deterministic)
             state.statusMessage = "Copied to clipboard, press ⌘V. Enable Accessibility for auto-paste."
             scheduleRefinement(pasted: deterministic, entryID: entryID, target: nil)
-            return
+            return "noAccessibility"
         }
 
         if let editable = FocusedElementInspector.editableTarget() {
             await textInjector.inject(deterministic)
             state.statusMessage = "Finished local transcription and pasted at cursor."
             scheduleRefinement(pasted: deterministic, entryID: entryID, target: editable)
-            return
+            return "native"
         }
 
         if FocusedElementInspector.focusIsConfidentlyNonEditable() {
@@ -642,7 +689,7 @@ final class DictationViewModel {
             state.undeliveredTranscriptAt = Date()
             state.statusMessage = "No text field found. Copied to clipboard, press ⌘V to paste."
             scheduleRefinement(pasted: deterministic, entryID: entryID, target: nil)
-            return
+            return "clipboard"
         }
 
         // Web / Electron: Accessibility can't read the field, so in-place refine
@@ -656,6 +703,7 @@ final class DictationViewModel {
         if finalText != deterministic, let entryID {
             state.updateHistoryText(entryID, to: finalText)
         }
+        return "web"
     }
 
     /// Paste `text` with a real ⌘V — a system paste that lands in web/Electron

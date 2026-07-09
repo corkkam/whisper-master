@@ -28,6 +28,16 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
     SIGN_FLAGS+=(OTHER_CODE_SIGN_FLAGS="--timestamp" DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM")
 fi
 
+# Opt-in local diagnostics build: DIAGNOSTICS=1 compiles the on-disk session
+# tracer (Sources/WhisperMaster/Diagnostics). Stays a *Release* (optimized) build
+# so latency/RTF numbers are real — only the compile flag flips. CI never sets it,
+# so the shipped build can't compile the tracer and can't write anyone's audio.
+BUILD_FLAGS=()
+if [[ "${DIAGNOSTICS:-0}" == "1" ]]; then
+    echo ">> DIAGNOSTICS=1 — compiling local session tracer into this build"
+    BUILD_FLAGS+=(SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) DIAGNOSTICS')
+fi
+
 DERIVED="build/DerivedData"
 BUILD_LOG="build/xcodebuild-$CONFIG.log"
 mkdir -p build
@@ -47,6 +57,7 @@ xcodebuild \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
     ${SIGN_FLAGS[@]+"${SIGN_FLAGS[@]}"} \
+    ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} \
     clean build 2>&1 | tee "$BUILD_LOG" | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)"
 # PIPESTATUS[0] is xcodebuild's real exit code. (Do NOT append `|| true` to the
 # pipeline — that runs a new command and resets PIPESTATUS, masking failures.)

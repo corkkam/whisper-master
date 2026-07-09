@@ -93,6 +93,21 @@ enum AudioInputDevices {
         return devices
     }
 
+    /// Human-readable name of the current default input device — read-only, for
+    /// diagnostics (e.g. "MacBook Pro Microphone", "AirPods Pro"). Never mutates
+    /// device state, so it's safe outside the recording path.
+    static func currentInputName() -> String {
+        guard let device = defaultInputDeviceID() else { return "unknown" }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var name: CFString = "" as CFString
+        var size = UInt32(MemoryLayout<CFString>.size)
+        let status = AudioObjectGetPropertyData(device, &address, 0, nil, &size, &name)
+        return status == noErr ? (name as String) : "unknown"
+    }
+
     private static func inputChannelCount(of device: AudioDeviceID) -> Int {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyStreamConfiguration,
