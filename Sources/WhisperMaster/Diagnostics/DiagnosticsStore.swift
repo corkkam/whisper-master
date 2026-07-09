@@ -35,6 +35,8 @@ struct DiagnosticsStore {
         let isBluetooth: Bool
         let wordCount: Int
         let pasteOutcome: String?
+        let frontApp: String?
+        let focusAtPaste: String?
     }
 
     func persist(trace: SessionTrace, wav: Data) {
@@ -69,7 +71,9 @@ struct DiagnosticsStore {
             rmsMean: trace.audio?.rmsMean ?? 0,
             isBluetooth: trace.audio?.isBluetooth ?? false,
             wordCount: trace.asr?.wordCount ?? 0,
-            pasteOutcome: trace.context.pasteOutcome)
+            pasteOutcome: trace.context.pasteOutcome,
+            frontApp: trace.context.frontApp,
+            focusAtPaste: trace.context.focusAtPaste)
     }
 
     private func appendIndex(_ summary: Summary) {

@@ -248,6 +248,9 @@ final class DictationViewModel {
                 Diagnostics.shared.noteFrontApp(
                     name: front?.localizedName ?? "unknown",
                     bundleID: front?.bundleIdentifier ?? "")
+                // What AX sees at the moment we choose the paste route — the
+                // evidence for building the "nowhere to type" classifier.
+                Diagnostics.shared.noteFocus(FocusedElementInspector.focusDiagnostic())
 
                 var pasteOutcome = "historyOnly"
                 if state.autoPasteEnabled {
@@ -586,6 +589,13 @@ final class DictationViewModel {
         state.download = nil
         state.usingFallbackModelSource = false
         state.statusMessage = "Voice engine ready."
+
+        // Warm the mic graph now (once, at launch) so the first push-to-talk
+        // doesn't pay the cold Core Audio start that was clipping first words.
+        // Only if the user already granted mic access — never prompt from here.
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
+            microphoneCapture.prewarm()
+        }
     }
 
     /// Prefer the fast R2 model mirror (accurate %, free egress); on any

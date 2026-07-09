@@ -63,6 +63,21 @@ enum FocusedElementInspector {
         return nil
     }
 
+    /// Compact, read-only description of the focused element for diagnostics —
+    /// its role plus which text-editing affordances it exposes. Lets us see, after
+    /// the fact, exactly why a paste took the native / web / nowhere route, so the
+    /// "nowhere to type" classifier can be built from real data instead of guesses.
+    static func focusDiagnostic() -> String {
+        guard let element = focusedElement() else { return "role=none" }
+        let role = stringAttribute(element, kAXRoleAttribute) ?? "unreadable"
+        var settable: DarwinBoolean = false
+        AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable)
+        let hasValue = stringValue(of: element) != nil
+        let hasRange = selectedRange(of: element) != nil
+        return "role=\(role) settable=\(settable.boolValue ? 1 : 0)"
+            + " value=\(hasValue ? 1 : 0) selRange=\(hasRange ? 1 : 0)"
+    }
+
     private static func isConfidentlyNonEditable(_ element: AXUIElement) -> Bool {
         // A settable value means we can type here → definitely a target.
         var settable: DarwinBoolean = false

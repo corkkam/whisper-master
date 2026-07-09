@@ -28,6 +28,28 @@ final class MicrophoneCaptureService {
         }
     }
 
+    /// Warm the capture graph so the first real `start()` doesn't pay the full
+    /// cold Core Audio spin-up (measured at ~300-500 ms, which was clipping the
+    /// user's first words). Resolves the input format, prepares the engine, and
+    /// does a brief IO start/stop to bring the HAL input driver into residency.
+    /// Installs **no tap**, so nothing is captured — the mic activates only for
+    /// the instant it takes to warm. Best-effort: any failure just means the
+    /// first real recording pays the usual cost. No device manipulation, so this
+    /// stays clear of the audio-routing hazards in the recording path.
+    func prewarm() {
+        guard !isCapturing else { return }
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { return }
+        engine.prepare()
+        do {
+            try engine.start()
+            engine.stop()
+        } catch {
+            // Warm-up is advisory only.
+        }
+    }
+
     /// Start capturing from the system's current input device.
     ///
     /// We deliberately use the default input rather than pinning a specific

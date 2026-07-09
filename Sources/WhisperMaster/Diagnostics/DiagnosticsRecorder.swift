@@ -12,6 +12,7 @@ protocol DiagnosticsRecording {
     func noteAudioBuffer(_ buffer: AVAudioPCMBuffer)
     func noteInputDevice(name: String, isBluetooth: Bool)
     func noteFrontApp(name: String, bundleID: String)
+    func noteFocus(_ description: String)
     func notePolish(timing: String)
     func noteFirstPartial()
     func noteFirstConfirmed()
@@ -29,6 +30,7 @@ extension DiagnosticsRecording {
     func noteAudioBuffer(_ buffer: AVAudioPCMBuffer) {}
     func noteInputDevice(name: String, isBluetooth: Bool) {}
     func noteFrontApp(name: String, bundleID: String) {}
+    func noteFocus(_ description: String) {}
     func notePolish(timing: String) {}
     func noteFirstPartial() {}
     func noteFirstConfirmed() {}
@@ -103,6 +105,10 @@ final class DiagnosticsRecorder: DiagnosticsRecording {
     func noteFrontApp(name: String, bundleID: String) {
         session?.context.frontApp = name
         session?.context.frontAppBundleID = bundleID
+    }
+
+    func noteFocus(_ description: String) {
+        session?.context.focusAtPaste = description
     }
 
     func notePolish(timing: String) {

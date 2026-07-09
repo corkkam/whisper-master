@@ -27,6 +27,9 @@ struct SessionTrace: Codable, Equatable {
         /// The app that received the paste (frontmost at delivery time).
         var frontApp: String? = nil
         var frontAppBundleID: String? = nil
+        /// What AX reported about the focused element at paste time (role +
+        /// text affordances) — the evidence behind the paste-route decision.
+        var focusAtPaste: String? = nil
         /// When the optional qwen polish ran relative to the paste:
         /// `beforePaste` (web/Electron compute-then-paste), `afterPaste` (native
         /// paste-then-refine in place), or `none` (polish off / no delivery).
