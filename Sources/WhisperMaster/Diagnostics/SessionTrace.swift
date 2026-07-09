@@ -34,6 +34,14 @@ struct SessionTrace: Codable, Equatable {
         /// `beforePaste` (web/Electron compute-then-paste), `afterPaste` (native
         /// paste-then-refine in place), or `none` (polish off / no delivery).
         var polishTiming: String? = nil
+        /// What the LLM actually did (captured for beforePaste, where it runs
+        /// before the session closes): was the model ready, its raw output, whether
+        /// the guard accepted it, and how long it took. Distinguishes "model no-op"
+        /// vs "guard rejected" vs "not ready" for a polish that changed nothing.
+        var llmReady: Bool? = nil
+        var llmRaw: String? = nil
+        var llmAccepted: Bool? = nil
+        var llmMs: Int? = nil
     }
 
     /// A single point on the session timeline.

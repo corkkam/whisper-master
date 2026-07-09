@@ -306,11 +306,21 @@ final class DictationViewModel {
     /// otherwise. Near-instant when disabled or not-yet-ready.
     private func llmRefined(_ input: String) async -> String? {
         guard state.llmCleanupEnabled, !input.isEmpty else { return nil }
-        guard await MlxCleanupService.shared.isReady else { return nil }
+        guard await MlxCleanupService.shared.isReady else {
+            Diagnostics.shared.noteLLM(ready: false, raw: nil, accepted: false, ms: 0)
+            return nil
+        }
         let polish = state.llmGrammarPolishEnabled
         let prompt = CleanupPrompt.resolved(grammarPolish: polish)
-        guard let cleaned = await MlxCleanupService.shared.clean(input, systemPrompt: prompt) else { return nil }
-        return CleanupFaithfulnessGuard.accept(original: input, cleaned: cleaned, allowRephrase: polish) ? cleaned : nil
+        let start = Date()
+        let cleaned = await MlxCleanupService.shared.clean(input, systemPrompt: prompt)
+        let ms = Int(Date().timeIntervalSince(start) * 1000)
+        let accepted = cleaned.map {
+            CleanupFaithfulnessGuard.accept(original: input, cleaned: $0, allowRephrase: polish)
+        } ?? false
+        Diagnostics.shared.noteLLM(ready: true, raw: cleaned, accepted: accepted, ms: ms)
+        guard let cleaned, accepted else { return nil }
+        return cleaned
     }
 
     /// Start watching the pasted field for the user's own fix-ups (to grow the

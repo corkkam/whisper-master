@@ -13,6 +13,7 @@ protocol DiagnosticsRecording {
     func noteInputDevice(name: String, isBluetooth: Bool)
     func noteFrontApp(name: String, bundleID: String)
     func noteFocus(_ description: String)
+    func noteLLM(ready: Bool, raw: String?, accepted: Bool, ms: Int)
     func notePolish(timing: String)
     func noteFirstPartial()
     func noteFirstConfirmed()
@@ -31,6 +32,7 @@ extension DiagnosticsRecording {
     func noteInputDevice(name: String, isBluetooth: Bool) {}
     func noteFrontApp(name: String, bundleID: String) {}
     func noteFocus(_ description: String) {}
+    func noteLLM(ready: Bool, raw: String?, accepted: Bool, ms: Int) {}
     func notePolish(timing: String) {}
     func noteFirstPartial() {}
     func noteFirstConfirmed() {}
@@ -109,6 +111,13 @@ final class DiagnosticsRecorder: DiagnosticsRecording {
 
     func noteFocus(_ description: String) {
         session?.context.focusAtPaste = description
+    }
+
+    func noteLLM(ready: Bool, raw: String?, accepted: Bool, ms: Int) {
+        session?.context.llmReady = ready
+        session?.context.llmRaw = raw
+        session?.context.llmAccepted = accepted
+        session?.context.llmMs = ms
     }
 
     func notePolish(timing: String) {
