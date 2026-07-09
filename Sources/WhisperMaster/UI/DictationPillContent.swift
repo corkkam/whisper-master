@@ -85,7 +85,11 @@ struct DictationPillContent: View {
         // Only the interactive banner takes clicks; the dictation indicator stays
         // click-through (the panel toggles ignoresMouseEvents to match).
         .allowsHitTesting(showBanner)
-        .animation(.spring(response: 0.38, dampingFraction: 0.78), value: isExpanded)
+        // Snap the dictation indicator open the instant recording is armed — a
+        // slow spring here read as "the notch appears late" even though the state
+        // flips synchronously on key-press. Banners (below) keep the softer spring
+        // since they slide in as secondary hints inside an already-open notch.
+        .animation(.spring(response: 0.16, dampingFraction: 0.9), value: isExpanded)
         .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showUndelivered)
         .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showLearned)
         .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showCleanupReady)
