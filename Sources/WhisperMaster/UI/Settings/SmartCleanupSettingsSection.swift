@@ -55,6 +55,20 @@ struct SmartCleanupSettingsSection: View {
                         .foregroundStyle(Theme.success)
                 }
             }
+        } else if state.cleanupModelFailed {
+            SettingsRow("Status") {
+                HStack(spacing: 8) {
+                    StatusDot(color: Theme.accent, size: 9)
+                    Text("Couldn\u{2019}t load the model")
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                    Spacer()
+                    Button("Retry") { state.cleanupRetryRequested = true }
+                        .buttonStyle(.plain)
+                        .font(Typography.caption.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
+                }
+            }
         } else {
             SettingsRow("Status") {
                 HStack(spacing: 8) {

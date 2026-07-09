@@ -28,6 +28,11 @@ actor MlxCleanupService {
     /// a merely-slow generation still cleans rather than silently falling back.
     static let timeoutSeconds: Double = 12.0
 
+    /// Hard ceiling on a *single* load/warmup attempt. A stalled MLX/Metal init
+    /// (seen under launch-time GPU contention) would otherwise wedge the model on
+    /// "Preparing…" forever; on timeout we fail cleanly so the manager can retry.
+    static let loadTimeoutSeconds: Double = 60
+
     /// Serial holder for the reused KV cache + its system prefix length.
     /// `@unchecked Sendable` is safe: the actor plus `container.perform` guarantee
     /// strictly one-at-a-time access; nothing here is touched concurrently.
@@ -65,19 +70,49 @@ actor MlxCleanupService {
         case .idle, .failed: state = .loading
         }
 
+        let started = DispatchTime.now()
+        func elapsedMs() -> Int {
+            Int(Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e6)
+        }
+
         do {
-            let container = try await LLMModelFactory.shared.loadContainer(
-                configuration: configuration
-            ) { progress in onProgress(progress.fractionCompleted) }
-            let warmStart = DispatchTime.now()
-            try await Self.primeSystemPrompt(container: container, box: box)
-            let warmMs = Double(DispatchTime.now().uptimeNanoseconds - warmStart.uptimeNanoseconds) / 1e6
+            Log.modelPrep.notice("MLX cleanup: loading container\u{2026}")
+            let container = try await Self.withTimeout(Self.loadTimeoutSeconds) {
+                try await LLMModelFactory.shared.loadContainer(configuration: configuration) {
+                    onProgress($0.fractionCompleted)
+                }
+            }
+            let loadMs = elapsedMs()
+            Log.modelPrep.notice("MLX cleanup: container loaded in \(loadMs)ms; priming prompt\u{2026}")
+            let box = self.box
+            try await Self.withTimeout(Self.loadTimeoutSeconds) {
+                try await Self.primeSystemPrompt(container: container, box: box)
+            }
             state = .ready(container)
-            Log.modelPrep.notice("MLX cleanup model ready (warmup \(Int(warmMs))ms)")
+            Log.modelPrep.notice("MLX cleanup model ready (total \(elapsedMs())ms, load \(loadMs)ms)")
         } catch {
             state = .failed
             Log.modelPrep.error(
-                "MLX cleanup model load failed: \(error.localizedDescription, privacy: .public)")
+                "MLX cleanup model load failed after \(elapsedMs())ms: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private enum LoadError: Error { case timedOut }
+
+    /// Race an async operation against a timeout. On timeout the losing child is
+    /// cancelled and `LoadError.timedOut` is thrown, so a stalled load surfaces as
+    /// a clean failure instead of an unbounded await.
+    private static func withTimeout<T: Sendable>(
+        _ seconds: Double, _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw LoadError.timedOut
+            }
+            defer { group.cancelAll() }
+            return try await group.next()!
         }
     }
 

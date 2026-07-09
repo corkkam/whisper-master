@@ -28,6 +28,15 @@ final class CleanupModelManager {
     /// on launch and from the AppDelegate refresh loop. Enabling kicks a
     /// background download+warm; disabling frees the model.
     func syncWithToggle() {
+        // Manual retry after a surfaced failure (the Settings "Retry" button).
+        if state.cleanupRetryRequested {
+            state.cleanupRetryRequested = false
+            if state.llmCleanupEnabled, !state.cleanupModelReady {
+                state.cleanupModelFailed = false
+                Task { await ensureAvailable() }
+            }
+        }
+
         guard state.llmCleanupEnabled != lastSyncedEnabled else { return }
         lastSyncedEnabled = state.llmCleanupEnabled
 
@@ -36,6 +45,7 @@ final class CleanupModelManager {
         } else {
             state.cleanupModelDownload = nil
             state.cleanupModelReady = false
+            state.cleanupModelFailed = false
             Task { await service.release() }
         }
     }
@@ -44,28 +54,45 @@ final class CleanupModelManager {
 
     private func ensureAvailable() async {
         guard !isPreparing else { return }
-        if await service.isReady { return }
+        if await service.isReady { state.cleanupModelReady = true; return }
         isPreparing = true
         defer {
             isPreparing = false
             state.cleanupModelDownload = nil
         }
+        state.cleanupModelFailed = false
 
-        if CleanupModel.isInstalled {
-            // Already downloaded (a prior session): warm it, no "ready" banner.
-            await service.prepare(configuration: .init(directory: CleanupModel.directory))
-            state.cleanupModelReady = await service.isReady
-            return
+        // Download first if it isn't on disk (progress → Settings only). This also
+        // makes one load attempt (and the HF fallback) inside downloadAndWarm.
+        let freshDownload = !CleanupModel.isInstalled
+        if freshDownload {
+            await downloadAndWarm()
         }
 
-        await downloadAndWarm()
+        // The model is on disk now, but the MLX load itself can stall under
+        // launch-time GPU contention. Each attempt is timeout-bounded in the
+        // service, so retry a few times before surfacing an honest failure rather
+        // than spinning on "Preparing…" forever.
+        var attempt = 0
+        while !(await service.isReady), attempt < 3 {
+            attempt += 1
+            await service.prepare(configuration: .init(directory: CleanupModel.directory))
+            if await service.isReady { break }
+            Log.modelPrep.error("Smart cleanup load attempt \(attempt) not ready; retrying")
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
 
-        // Announce readiness exactly once — this is the only notch signal; the
-        // download progress above never touches the notch or tray.
         if await service.isReady {
             state.cleanupModelReady = true
-            state.cleanupModelReadyAt = Date()
-            Log.modelPrep.notice("Smart cleanup model downloaded and ready")
+            // Announce readiness exactly once, and only for a fresh download — the
+            // only notch signal; nothing else here touches the notch or tray.
+            if freshDownload {
+                state.cleanupModelReadyAt = Date()
+                Log.modelPrep.notice("Smart cleanup model downloaded and ready")
+            }
+        } else {
+            state.cleanupModelFailed = true
+            Log.modelPrep.error("Smart cleanup model failed to load after \(attempt) attempts")
         }
     }
 

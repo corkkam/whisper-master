@@ -107,6 +107,12 @@ final class AppState {
     /// (works for both the R2 and Hugging Face load paths). Written by
     /// `CleanupModelManager`.
     var cleanupModelReady: Bool = false
+    /// Set when the load fails after retries — surfaces an honest error + Retry in
+    /// Settings instead of an eternal "Preparing…". Written by `CleanupModelManager`.
+    var cleanupModelFailed: Bool = false
+    /// One-shot flag the Settings "Retry" button sets; drained by the manager on
+    /// the next refresh tick to re-attempt a failed load.
+    var cleanupRetryRequested: Bool = false
     /// Whether gentle "you haven't used me in a while" reminders are enabled.
     /// Persisted; **opt-in** — off until the user turns it on in Settings.
     var remindersEnabled: Bool = false {
