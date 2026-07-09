@@ -11,6 +11,8 @@ protocol DiagnosticsRecording {
     func mark(_ stage: DiagnosticsStage)
     func noteAudioBuffer(_ buffer: AVAudioPCMBuffer)
     func noteInputDevice(name: String, isBluetooth: Bool)
+    func noteFrontApp(name: String, bundleID: String)
+    func notePolish(timing: String)
     func noteFirstPartial()
     func noteFirstConfirmed()
     func noteRawAsr(_ text: String)
@@ -26,6 +28,8 @@ extension DiagnosticsRecording {
     func mark(_ stage: DiagnosticsStage) {}
     func noteAudioBuffer(_ buffer: AVAudioPCMBuffer) {}
     func noteInputDevice(name: String, isBluetooth: Bool) {}
+    func noteFrontApp(name: String, bundleID: String) {}
+    func notePolish(timing: String) {}
     func noteFirstPartial() {}
     func noteFirstConfirmed() {}
     func noteRawAsr(_ text: String) {}
@@ -94,6 +98,15 @@ final class DiagnosticsRecorder: DiagnosticsRecording {
     func noteInputDevice(name: String, isBluetooth: Bool) {
         session?.deviceName = name
         session?.isBluetooth = isBluetooth
+    }
+
+    func noteFrontApp(name: String, bundleID: String) {
+        session?.context.frontApp = name
+        session?.context.frontAppBundleID = bundleID
+    }
+
+    func notePolish(timing: String) {
+        session?.context.polishTiming = timing
     }
 
     func noteFirstPartial() {

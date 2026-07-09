@@ -24,6 +24,13 @@ struct SessionTrace: Codable, Equatable {
         var holdToTalk: Bool
         /// native / web / clipboard / none — how the final text was delivered.
         var pasteOutcome: String?
+        /// The app that received the paste (frontmost at delivery time).
+        var frontApp: String? = nil
+        var frontAppBundleID: String? = nil
+        /// When the optional qwen polish ran relative to the paste:
+        /// `beforePaste` (web/Electron compute-then-paste), `afterPaste` (native
+        /// paste-then-refine in place), or `none` (polish off / no delivery).
+        var polishTiming: String? = nil
     }
 
     /// A single point on the session timeline.

@@ -242,12 +242,20 @@ final class DictationViewModel {
                     duration: sessionDuration,
                     wordCount: cleaned.split(whereSeparator: \.isWhitespace).count
                 ))
+                // The frontmost app is the one about to receive the paste — we
+                // don't steal focus, so it's still the user's target app.
+                let front = NSWorkspace.shared.frontmostApplication
+                Diagnostics.shared.noteFrontApp(
+                    name: front?.localizedName ?? "unknown",
+                    bundleID: front?.bundleIdentifier ?? "")
+
                 var pasteOutcome = "historyOnly"
                 if state.autoPasteEnabled {
                     pasteOutcome = await pasteFinal(cleaned, entryID: entryID)
                 } else {
                     scheduleRefinement(pasted: cleaned, entryID: entryID, target: nil)
                 }
+                Diagnostics.shared.notePolish(timing: polishTiming(for: pasteOutcome))
                 Diagnostics.shared.finish(pasteOutcome: pasteOutcome, finalText: cleaned)
                 state.statusMessage = "Finished local transcription."
             } catch {
@@ -654,6 +662,19 @@ final class DictationViewModel {
             itn: state.itnEnabled,
             holdToTalk: state.holdToTalkEnabled,
             pasteOutcome: nil)
+    }
+
+    /// When the optional qwen polish runs relative to the paste, given the paste
+    /// path. Web/Electron computes polish *before* the ⌘V; native pastes the
+    /// deterministic text then refines in place *after*. Off (or no delivery) is
+    /// `none`.
+    private func polishTiming(for pasteOutcome: String) -> String {
+        guard state.llmCleanupEnabled else { return "none" }
+        switch pasteOutcome {
+        case "web": return "beforePaste"
+        case "native", "clipboard", "noAccessibility": return "afterPaste"
+        default: return "none"   // historyOnly / empty — nothing pasted
+        }
     }
 
     /// Paste the finished transcript and set up polish, choosing the mechanism by
