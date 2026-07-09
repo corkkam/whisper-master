@@ -253,13 +253,16 @@ final class DictationViewModel {
                 Diagnostics.shared.noteFocus(FocusedElementInspector.focusDiagnostic())
 
                 var pasteOutcome = "historyOnly"
+                var pastedText = cleaned
                 if state.autoPasteEnabled {
-                    pasteOutcome = await pasteFinal(cleaned, entryID: entryID)
+                    let result = await pasteFinal(cleaned, entryID: entryID)
+                    pasteOutcome = result.outcome
+                    pastedText = result.pasted
                 } else {
                     scheduleRefinement(pasted: cleaned, entryID: entryID, target: nil)
                 }
                 Diagnostics.shared.notePolish(timing: polishTiming(for: pasteOutcome))
-                Diagnostics.shared.finish(pasteOutcome: pasteOutcome, finalText: cleaned)
+                Diagnostics.shared.finish(pasteOutcome: pasteOutcome, finalText: pastedText)
                 state.statusMessage = "Finished local transcription."
             } catch {
                 Diagnostics.shared.abandon()
@@ -710,22 +713,25 @@ final class DictationViewModel {
     ///    ⌘V. Polish still applies; the only cost is the LLM's brief latency.
     ///  - **No editable focus:** copy to the clipboard and hint ⌘V; polish the
     ///    history entry in the background.
-    /// Returns a short outcome tag for diagnostics: `noAccessibility` / `native` /
-    /// `clipboard` / `web`.
+    /// Delivers the transcript and reports, for diagnostics, both the paste route
+    /// (`noAccessibility` / `native` / `clipboard` / `web`) and the text that was
+    /// *actually* pasted. Only the web path differs from the deterministic input —
+    /// it pastes the polished text — but returning it keeps the trace honest
+    /// instead of always recording the pre-polish string.
     @discardableResult
-    private func pasteFinal(_ deterministic: String, entryID: UUID?) async -> String {
+    private func pasteFinal(_ deterministic: String, entryID: UUID?) async -> (outcome: String, pasted: String) {
         guard permissionsManager.accessibilityGranted() else {
             copyToClipboard(deterministic)
             state.statusMessage = "Copied to clipboard, press ⌘V. Enable Accessibility for auto-paste."
             scheduleRefinement(pasted: deterministic, entryID: entryID, target: nil)
-            return "noAccessibility"
+            return ("noAccessibility", deterministic)
         }
 
         if let editable = FocusedElementInspector.editableTarget() {
             await textInjector.inject(deterministic)
             state.statusMessage = "Finished local transcription and pasted at cursor."
             scheduleRefinement(pasted: deterministic, entryID: entryID, target: editable)
-            return "native"
+            return ("native", deterministic)
         }
 
         if FocusedElementInspector.focusHasNoTextTarget() {
@@ -733,7 +739,7 @@ final class DictationViewModel {
             state.undeliveredTranscriptAt = Date()
             state.statusMessage = "No text field found. Copied to clipboard, press ⌘V to paste."
             scheduleRefinement(pasted: deterministic, entryID: entryID, target: nil)
-            return "clipboard"
+            return ("clipboard", deterministic)
         }
 
         // Web / Electron: Accessibility can't read the field, so in-place refine
@@ -747,7 +753,7 @@ final class DictationViewModel {
         if finalText != deterministic, let entryID {
             state.updateHistoryText(entryID, to: finalText)
         }
-        return "web"
+        return ("web", finalText)
     }
 
     /// Paste `text` with a real ⌘V — a system paste that lands in web/Electron
