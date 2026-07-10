@@ -9,6 +9,7 @@ import SwiftUI
 /// it as "RAG → rack" while the stored string stays "RAG: rack".
 struct VocabularyEditor: View {
     @Binding var terms: [String]
+    @Environment(\.isSnapshot) private var isSnapshot
     @State private var draft = ""
 
     var body: some View {
@@ -51,15 +52,23 @@ struct VocabularyEditor: View {
             Image(systemName: "plus")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.textTertiary)
-            TextField("Add a word, like RAG or RAG: rack", text: $draft)
-                .textFieldStyle(.plain)
-                .font(.system(size: 14))
-                .onSubmit(add)
-            if !draft.trimmingCharacters(in: .whitespaces).isEmpty {
-                Button("Add", action: add)
-                    .buttonStyle(.plain)
-                    .font(Typography.caption.weight(.semibold))
-                    .foregroundStyle(Theme.accent)
+            if isSnapshot {
+                // ImageRenderer can't draw an NSTextField — static stand-in.
+                Text("Add a word, like RAG or RAG: rack")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                TextField("Add a word, like RAG or RAG: rack", text: $draft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14))
+                    .onSubmit(add)
+                if !draft.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Button("Add", action: add)
+                        .buttonStyle(.plain)
+                        .font(Typography.caption.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
+                }
             }
         }
         .padding(.horizontal, 13)

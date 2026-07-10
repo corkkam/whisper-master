@@ -38,7 +38,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .recording: return "How dictation starts, stops, and lands where you're typing."
-        case .engine: return "Everything runs on-device — your audio never leaves this Mac."
+        case .engine: return "Everything runs on-device. Your audio never leaves this Mac."
         case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
         case .history: return "Your recent transcriptions, kept locally."
         case .permissions: return "Whisper Master only asks for what it needs to work."
