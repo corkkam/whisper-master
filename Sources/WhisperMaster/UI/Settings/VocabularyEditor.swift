@@ -80,12 +80,14 @@ struct VocabularyEditor: View {
         terms.append(value)
     }
 
-    /// "RAG: rack" → "RAG → rack"; a plain term is shown as-is.
+    /// The stored form is `canonical: misheard` and the correction flows
+    /// misheard → canonical, so the chip reads that way: "RAG: rack" → "rack → RAG"
+    /// (what the engine hears, then what it's corrected to). A plain term is shown as-is.
     private func display(for term: String) -> String {
         guard let colon = term.firstIndex(of: ":") else { return term }
-        let head = term[..<colon].trimmingCharacters(in: .whitespaces)
-        let tail = term[term.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-        return tail.isEmpty ? head : "\(head) \u{2192} \(tail)"
+        let canonical = term[..<colon].trimmingCharacters(in: .whitespaces)
+        let misheard = term[term.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        return misheard.isEmpty ? canonical : "\(misheard) \u{2192} \(canonical)"
     }
 }
 
