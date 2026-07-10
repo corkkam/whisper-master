@@ -29,6 +29,9 @@ struct SmartCleanupSettingsSection: View {
         }
     }
 
+    /// The cleanup model's readiness. Rendered as a quiet status line, not a
+    /// settings row — it's ancillary info, so no bold "Status" title competing
+    /// with the toggles above it.
     @ViewBuilder
     private var statusRow: some View {
         if let download = state.cleanupModelDownload {
@@ -46,38 +49,29 @@ struct SmartCleanupSettingsSection: View {
                     .tint(Theme.accent)
             }
             .padding(.vertical, 13)
-        } else if state.cleanupModelReady {
-            SettingsRow("Status") {
-                HStack(spacing: 8) {
-                    StatusDot(color: Theme.success, size: 9)
-                    Text("Ready")
-                        .font(Typography.caption)
-                        .foregroundStyle(Theme.success)
-                }
-            }
-        } else if state.cleanupModelFailed {
-            SettingsRow("Status") {
-                HStack(spacing: 8) {
-                    StatusDot(color: Theme.accent, size: 9)
-                    Text("Couldn\u{2019}t load the model")
-                        .font(Typography.caption)
+        } else {
+            HStack(spacing: 8) {
+                if state.cleanupModelReady {
+                    StatusDot(color: Theme.success, size: 7)
+                    Text("Model ready")
                         .foregroundStyle(Theme.textSecondary)
-                    Spacer()
+                } else if state.cleanupModelFailed {
+                    StatusDot(color: Theme.accent, size: 7)
+                    Text("Couldn\u{2019}t load the model")
+                        .foregroundStyle(Theme.textSecondary)
+                    Spacer(minLength: 8)
                     Button("Retry") { state.cleanupRetryRequested = true }
                         .buttonStyle(.plain)
-                        .font(Typography.caption.weight(.semibold))
                         .foregroundStyle(Theme.accent)
-                }
-            }
-        } else {
-            SettingsRow("Status") {
-                HStack(spacing: 8) {
+                } else {
                     ProgressView().controlSize(.small)
-                    Text("Preparing\u{2026}")
-                        .font(Typography.caption)
+                    Text("Preparing the model\u{2026}")
                         .foregroundStyle(Theme.textSecondary)
                 }
+                if !state.cleanupModelFailed { Spacer(minLength: 0) }
             }
+            .font(Typography.caption)
+            .padding(.vertical, 12)
         }
     }
 }

@@ -180,7 +180,7 @@ struct MeshSettingsView: View {
                     Text(summaryHeadline)
                         .font(Typography.headline)
                         .foregroundStyle(Theme.textPrimary)
-                    Text("Macs on this Wi-Fi share transcription. Your name is never shared — each Mac shows up generically.")
+                    Text("Macs on this Wi-Fi share transcription. Your name is never shared. Each Mac shows up generically.")
                         .font(Typography.subheadline)
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

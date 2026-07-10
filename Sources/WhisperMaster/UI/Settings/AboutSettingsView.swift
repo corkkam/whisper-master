@@ -55,7 +55,7 @@ struct AboutSettingsView: View {
 
             SettingsCard {
                 SettingsRow("Share anonymous usage",
-                            subtitle: "App version, macOS, and feature counts — never your transcripts. Helps improve the app.") {
+                            subtitle: "App version, macOS, and feature counts, never your transcripts. Helps improve the app.") {
                     ThemeToggle(isOn: $state.analyticsEnabled)
                 }
             }

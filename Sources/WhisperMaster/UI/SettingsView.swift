@@ -56,6 +56,18 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .about: return "Whisper Master"
         }
     }
+
+    /// SF Symbol shown beside the title in the sidebar.
+    var icon: String {
+        switch self {
+        case .recording: return "mic"
+        case .engine: return "waveform"
+        case .mesh: return "laptopcomputer"
+        case .history: return "clock"
+        case .permissions: return "shield"
+        case .about: return "info.circle"
+        }
+    }
 }
 
 /// The settings window — "Daylight": a light, editorial layout with a top tab
@@ -153,14 +165,20 @@ struct SettingsView: View {
         return Button {
             selection = section
         } label: {
-            Text(section.title)
-                .font(Typography.sans(16.5, isSelected ? .bold : .regular))
-                .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 20)
-                .padding(.trailing, 16)
-                .padding(.vertical, 12)
-                .background(isSelected ? Theme.selection : Color.clear)   // full-width band, no radius
+            HStack(spacing: 13) {
+                Image(systemName: section.icon)
+                    .font(.system(size: 16, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? Theme.accent : Theme.textSecondary)
+                    .frame(width: 22, alignment: .center)
+                Text(section.title)
+                    .font(Typography.sans(16.5, isSelected ? .bold : .regular))
+                    .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 20)
+            .padding(.trailing, 16)
+            .padding(.vertical, 13)
+            .background(isSelected ? Theme.selection : Color.clear)   // full-width band, no radius
                 .overlay(alignment: .leading) {
                     if isSelected {
                         Rectangle().fill(Theme.accent).frame(width: 3)     // full-height accent bar

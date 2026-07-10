@@ -11,7 +11,6 @@ final class HotkeyManager {
         case rightOption
         case leftOption
         case rightCommand
-        case rightControl
 
         var id: String { rawValue }
 
@@ -23,8 +22,6 @@ final class HotkeyManager {
                 return "Left Option (⌥)"
             case .rightCommand:
                 return "Right Command (⌘)"
-            case .rightControl:
-                return "Right Control (⌃)"
             }
         }
 
@@ -37,8 +34,6 @@ final class HotkeyManager {
                 return "⌥ L-OPT"
             case .rightCommand:
                 return "⌘ R-CMD"
-            case .rightControl:
-                return "⌃ R-CTL"
             }
         }
 
@@ -50,8 +45,6 @@ final class HotkeyManager {
                 return 58
             case .rightCommand:
                 return 54
-            case .rightControl:
-                return 62
             }
         }
 
@@ -63,8 +56,6 @@ final class HotkeyManager {
                 return 0x0020
             case .rightCommand:
                 return 0x0010
-            case .rightControl:
-                return 0x2000
             }
         }
     }
