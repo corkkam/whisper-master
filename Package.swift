@@ -17,7 +17,7 @@ let package = Package(
         // and coincided with vanished transcripts + cut-off sentences in the field.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.14.7"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
-        .package(url: "https://github.com/TelemetryDeck/SwiftSDK", from: "2.0.0"),
+        .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.0.0"),
         // On-device qwen cleanup (MLX). Pinned exact: the MLXLMCommon/ChatSession
         // API churns between minors; the service is written against 2.29.1.
         .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", exact: "2.29.1")
@@ -28,7 +28,7 @@ let package = Package(
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "Sparkle", package: "Sparkle"),
-                .product(name: "TelemetryDeck", package: "SwiftSDK"),
+                .product(name: "PostHog", package: "posthog-ios"),
                 .product(name: "MLXLLM", package: "mlx-swift-examples"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-examples")
             ],

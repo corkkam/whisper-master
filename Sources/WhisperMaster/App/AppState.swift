@@ -168,7 +168,7 @@ final class AppState {
             }
         }
     }
-    /// Share anonymous usage analytics (TelemetryDeck). **On by default —
+    /// Share anonymous usage analytics (PostHog). **On by default —
     /// opt-out.** Safe to default on because the data carries no PII: never
     /// transcripts, only app version, OS, and coarse feature counts. Users can
     /// switch it off in Settings → About. Toggling starts/stops the SDK live.

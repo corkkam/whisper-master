@@ -21,7 +21,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.6</string>
+	<string>1.2.7</string>
 	<key>CFBundleVersion</key>
 	<string>1783276595</string>
 	<key>LSMinimumSystemVersion</key>
@@ -40,6 +40,8 @@
 	<string>Whisper Master advertises a transcription service so your iPhone can stream audio here and use this Mac's models.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Whisper Master uses the microphone while you hold the dictation hotkey.</string>
+	<key>POSTHOGAPIKey</key>
+	<string>$(POSTHOG_API_KEY)</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>

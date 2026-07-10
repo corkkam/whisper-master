@@ -209,6 +209,8 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
 Declared in **both** `project.yml` (source of truth for the app target) and `Package.swift` (so `swift build` + the editor resolve) — keep the two in sync when adding/bumping:
 - **FluidAudio** ≥ 0.14.7 — on-device ASR (NVIDIA Parakeet) + the CTC keyword model used for vocabulary biasing.
 - **Sparkle** ≥ 2.6 (resolves 2.9.x) — auto-update. Xcode embeds/signs the framework automatically; replicating that by hand is the main reason the project moved off the old SwiftPM-only bundle onto an Xcode app target.
+- **PostHog** (`posthog-ios`) ≥ 3.0 — opt-in, anonymous product analytics (see **Analytics** below). Replaced TelemetryDeck (free-tier too limited).
+- **mlx-swift-examples** (`MLXLLM`/`MLXLMCommon`) pinned exact 2.29.1 — on-device qwen cleanup (the `ChatSession`/`MLXLMCommon` API churns between minors).
 
 Product: `WhisperMaster.app`, bundle id `app.whispermaster.mac`, executable `WhisperMaster`; distributed as `Whisper Master.app` / `.dmg`.
 
@@ -317,6 +319,13 @@ Transcript merging (`mergedConfirmedTranscript`, `partialRemainder`, `longestSuf
 ### Gentle reminders (`Reminders/`)
 
 Because the app lives in the notch with no window to return to, a user can forget it exists. The fix is a **gentle nudge reused through the existing notch surface** — not a native `UNUserNotification`: when the app has been idle a while, the black notch band drops down with a short friendly line (`NotchReminderBanner`) for ~5s, silent and click-through, then retracts. Four small pieces: `ReminderPolicy` (pure, deterministic — takes `now`, holds all tunable timing: 3h baseline → 6h → 12h backoff, daily cap, display duration), `ReminderBookkeeping` (Codable cadence state persisted under `WhisperMaster.reminders.v1`), `ReminderCopy` (the rotating lines), and `ReminderScheduler` (`@MainActor` driver, owned by `DictationViewModel` — the sole `AppState` writer — that consults the policy and sets `AppState.activeReminder`). The **AppDelegate 0.5s refresh loop** calls `viewModel.evaluateReminders()` each tick (idle-gated, cheap). A completed dictation calls `reminderScheduler.noteUsed()`, resetting backoff to the friendly baseline; `startRecording` calls `clear()` so the live indicator never collides with a reminder. Safety rests on three independent layers, not on context detection (which was deliberately dropped — no DND/Focus, meeting, or screen-share detection): the artifact is intrinsically gentle, a Settings **"Gentle reminders"** toggle (`AppState.remindersEnabled`, **off by default — opt-in**; while off the scheduler is dormant and resets its cadence so a later opt-in starts a fresh idle gap) is a hard off-switch, and the conservative cadence means few firings. Spec: `docs/superpowers/specs/2026-06-30-gentle-notch-reminders-design.md`.
+
+### Analytics (`Analytics/`, opt-in, anonymous)
+
+Opt-in (on by default, one-tap opt-out in **Settings → About**) anonymous product analytics via **PostHog Cloud** (free tier; replaced TelemetryDeck, whose free tier was too limited). **One vendor seam:** only `Analytics.swift` imports the SDK, so swapping vendors (or moving to a self-hosted endpoint) is a one-file change. Pieces:
+- **`AnalyticsEvent`** (pure, SDK-agnostic) — the whole event catalog with wire names + content-free params. **Nothing carries user content** — only app version, coarse buckets (duration/word-count), and enum-like states; numbers are bucketed so no signal is fingerprintable. Events: `App.launched`, `Onboarding.finished`, `Dictation.completed`, `Permission.state`, `Update.installed`, `Cleanup.modelDownloaded` (fired from `CleanupModelManager` when a user actually pulls the ~1.5 GB LLM — the "how many adopted Smart cleanup" counter).
+- **`Analytics`** (`@MainActor` singleton) — gates every send on the opt-in; lazily `setup`s PostHog on first enable and `optIn()`/`optOut()`s on toggle. Uses `AnalyticsIdentity.installID` (a random persisted UUID) as PostHog's `distinct_id` for non-identifying unique-user/retention counts. Autocapture (lifecycle + screen views) is **off** — a menu-bar app has no UIKit surface, so the stream is just our explicit events.
+- **`AnalyticsConfig`** — PostHog project API key (`phc_…`) + host (US cloud default), both overridable via `WHISPERMASTER_POSTHOG_API_KEY` / `WHISPERMASTER_POSTHOG_HOST`. **Until a real key is set, analytics stays fully dormant** (no SDK init, no network) — `isConfigured` gates init.
 
 ### UI
 

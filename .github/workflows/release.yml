@@ -117,6 +117,9 @@ jobs:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+          # Baked into Info.plist by bundle.sh so shipped builds have analytics.
+          # Publishable client key, not a real secret; add it as a repo secret.
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
         run: bash Scripts/release.sh
 
       - name: Publish shareable DMG to R2

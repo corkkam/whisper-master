@@ -2,9 +2,9 @@ import Foundation
 
 /// Every analytics signal the app can emit, with its wire name and parameters.
 ///
-/// Pure and SDK-agnostic — `Analytics` translates these into TelemetryDeck
-/// signals. **Nothing here carries user content:** only app versions, coarse
-/// buckets, and enum-like states. Numbers are bucketed so no single signal is
+/// Pure and SDK-agnostic — `Analytics` translates these into PostHog events.
+/// **Nothing here carries user content:** only app versions, coarse buckets,
+/// and enum-like states. Numbers are bucketed so no single signal is
 /// fingerprintable back to a specific session.
 enum AnalyticsEvent {
     /// The app was launched. Drives DAU/WAU/MAU, retention, and (via the SDK's
@@ -18,8 +18,12 @@ enum AnalyticsEvent {
     case permissionState(accessibility: Bool, microphone: Bool)
     /// First launch on a newer app version — how fast Sparkle rollouts land.
     case updateInstalled(from: String, to: String)
+    /// The optional on-device Smart cleanup (LLM) model finished downloading and
+    /// loaded for the first time — i.e. a user actually pulled the ~1.5 GB model.
+    /// This is the "how many adopted the LLM" counter.
+    case cleanupModelDownloaded
 
-    /// The TelemetryDeck signal name (namespaced, dot-separated by convention).
+    /// The PostHog event name (namespaced, dot-separated by convention).
     var name: String {
         switch self {
         case .appLaunched: return "App.launched"
@@ -27,13 +31,14 @@ enum AnalyticsEvent {
         case .dictationCompleted: return "Dictation.completed"
         case .permissionState: return "Permission.state"
         case .updateInstalled: return "Update.installed"
+        case .cleanupModelDownloaded: return "Cleanup.modelDownloaded"
         }
     }
 
     /// Content-free parameters attached to the signal.
     var parameters: [String: String] {
         switch self {
-        case .appLaunched, .onboardingFinished:
+        case .appLaunched, .onboardingFinished, .cleanupModelDownloaded:
             return [:]
         case let .dictationCompleted(engine, duration, wordCount):
             return [

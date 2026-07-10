@@ -13,6 +13,12 @@ DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-7MFYAGK3VV}" # Developer ID team (manual s
 
 cd "$(dirname "$0")/.."
 
+# Load local config (git-ignored). Supplies POSTHOG_API_KEY for the analytics
+# key baked into Info.plist below; CI passes the same var from a secret instead.
+if [[ -f .env ]]; then
+    set -a; source .env; set +a
+fi
+
 if ! command -v xcodegen >/dev/null 2>&1; then
     echo "error: xcodegen not installed — run: brew install xcodegen" >&2
     exit 1
@@ -56,6 +62,7 @@ xcodebuild \
     CODE_SIGN_STYLE=Manual \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+    POSTHOG_API_KEY="${POSTHOG_API_KEY:-}" \
     ${SIGN_FLAGS[@]+"${SIGN_FLAGS[@]}"} \
     ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} \
     clean build 2>&1 | tee "$BUILD_LOG" | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)"

@@ -37,6 +37,15 @@
       }
     },
     {
+      "identity" : "posthog-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/PostHog/posthog-ios.git",
+      "state" : {
+        "revision" : "a2366f5397fb133b215b4d03bc9534958068a6c3",
+        "version" : "3.64.4"
+      }
+    },
+    {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",
@@ -79,15 +88,6 @@
       "state" : {
         "revision" : "a2e184dddb4757bc943e77fbe99ac6786c53f0b2",
         "version" : "1.0.0"
-      }
-    },
-    {
-      "identity" : "swiftsdk",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/TelemetryDeck/SwiftSDK",
-      "state" : {
-        "revision" : "ad4a03ec7ea7416a4081370f21c86e55b02a5b88",
-        "version" : "2.14.1"
       }
     }
   ],

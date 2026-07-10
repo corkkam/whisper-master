@@ -88,6 +88,7 @@ final class CleanupModelManager {
             // only notch signal; nothing else here touches the notch or tray.
             if freshDownload {
                 state.cleanupModelReadyAt = Date()
+                Analytics.shared.send(.cleanupModelDownloaded)
                 Log.modelPrep.notice("Smart cleanup model downloaded and ready")
             }
         } else {

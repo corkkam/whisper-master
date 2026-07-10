@@ -4,9 +4,9 @@ import Foundation
 /// change detection for the `update_installed` signal.
 ///
 /// Mirrors `LocalPeer`: a random UUID generated once and persisted — never
-/// derived from the hostname, serial, or owner's name. TelemetryDeck hashes
-/// this on-device before it leaves, so it yields unique-user and retention
-/// counts without ever being reversible to a person.
+/// derived from the hostname, serial, or owner's name. It's used as PostHog's
+/// `distinct_id`, so unique-user and retention counts work while the id itself
+/// carries nothing reversible to a person.
 enum AnalyticsIdentity {
     private static let idKey = "WhisperMaster.analyticsId.v1"
     private static let lastVersionKey = "WhisperMaster.analyticsLastVersion.v1"
