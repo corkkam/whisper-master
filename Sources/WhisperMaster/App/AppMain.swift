@@ -14,8 +14,6 @@ struct WhisperMasterApp {
             SnapshotMode.run(outputDirectory: dir)
             return
         }
-        // Live hot reload for UI iteration (InjectionIII). No-op if not installed.
-        HotReload.bootstrap()
         #endif
 
         let app = NSApplication.shared

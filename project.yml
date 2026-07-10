@@ -66,13 +66,6 @@ targets:
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/../Frameworks"
-      configs:
-        # Debug-only: lets InjectionIII interpose functions for hot reload. The
-        # Release config never gets this flag, so shipped builds are untouched.
-        Debug:
-          OTHER_LDFLAGS:
-            - "-Xlinker"
-            - "-interposable"
 
 schemes:
   WhisperMaster:

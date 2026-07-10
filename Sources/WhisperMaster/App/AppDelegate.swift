@@ -506,7 +506,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             startSetup: { [weak self] in self?.viewModel.prepareSelectedEngineInBackground() },
             cancelSetup: { [weak self] in self?.viewModel.cancelModelPreparation() }
         )
-        .hotReloadable()   // live hot reload in Debug (InjectionIII); no-op in Release
         let host = NSHostingController(rootView: rootView)
 
         let window = NSWindow(

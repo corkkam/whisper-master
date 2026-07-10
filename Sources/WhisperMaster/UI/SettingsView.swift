@@ -178,18 +178,16 @@ struct SettingsView: View {
                     .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 20)
-            .padding(.trailing, 16)
-            .padding(.vertical, 13)
-            .background(isSelected ? Theme.selection : Color.clear)   // full-width band, no radius
-                .overlay(alignment: .leading) {
-                    if isSelected {
-                        Rectangle().fill(Theme.accent).frame(width: 3)     // full-height accent bar
-                    }
-                }
-                .contentShape(Rectangle())
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isSelected ? Theme.selection : Color.clear)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, 12)   // inset the pill from the sidebar edges
     }
 
     // MARK: - Detail
