@@ -502,6 +502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel: viewModel,
             state: viewModel.state,
             reopenOnboarding: { [weak self] in self?.showOnboarding() },
+            checkForUpdates: { [weak self] in self?.updaterController.checkForUpdates(nil) },
             startSetup: { [weak self] in self?.viewModel.prepareSelectedEngineInBackground() },
             cancelSetup: { [weak self] in self?.viewModel.cancelModelPreparation() }
         )

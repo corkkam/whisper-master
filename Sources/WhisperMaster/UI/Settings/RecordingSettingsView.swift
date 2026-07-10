@@ -24,11 +24,6 @@ struct RecordingSettingsView: View {
                     ThemeToggle(isOn: $state.autoPasteEnabled)
                 }
                 RowDivider()
-                SettingsRow("Remove filler words",
-                            subtitle: "Strip \"um\", \"uh\", \"hmm\" and friends from the transcript.") {
-                    ThemeToggle(isOn: $state.removeFillerWordsEnabled)
-                }
-                RowDivider()
                 SettingsRow("Play start / stop sound",
                             subtitle: "Subtle click when recording begins or ends.") {
                     ThemeToggle(isOn: $state.soundEnabled)

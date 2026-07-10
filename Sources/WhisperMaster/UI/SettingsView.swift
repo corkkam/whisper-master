@@ -76,6 +76,7 @@ struct SettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
     var reopenOnboarding: () -> Void = {}
+    var checkForUpdates: () -> Void = {}
     var startSetup: () -> Void = {}
     var cancelSetup: () -> Void = {}
     var initialSection: SettingsSection = .recording
@@ -91,6 +92,7 @@ struct SettingsView: View {
         viewModel: DictationViewModel,
         state: AppState,
         reopenOnboarding: @escaping () -> Void = {},
+        checkForUpdates: @escaping () -> Void = {},
         startSetup: @escaping () -> Void = {},
         cancelSetup: @escaping () -> Void = {},
         initialSection: SettingsSection = .recording
@@ -98,6 +100,7 @@ struct SettingsView: View {
         self.viewModel = viewModel
         _state = Bindable(wrappedValue: state)
         self.reopenOnboarding = reopenOnboarding
+        self.checkForUpdates = checkForUpdates
         self.startSetup = startSetup
         self.cancelSetup = cancelSetup
         self.initialSection = initialSection
@@ -256,7 +259,7 @@ struct SettingsView: View {
                 accessibilityGranted: accessibilityGranted
             )
         case .about:
-            AboutSettingsView(state: state, reopenOnboarding: reopenOnboarding)
+            AboutSettingsView(state: state, reopenOnboarding: reopenOnboarding, checkForUpdates: checkForUpdates)
         }
     }
 

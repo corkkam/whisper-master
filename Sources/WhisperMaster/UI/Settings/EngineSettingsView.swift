@@ -101,6 +101,11 @@ struct EngineSettingsView: View {
                         subtitle: "Writes spoken numbers and symbols short. \u{201C}twenty five\u{201D} becomes \u{201C}25\u{201D}, and \u{201C}at gmail dot com\u{201D} becomes \u{201C}@gmail.com\u{201D}. Runs instantly on-device.") {
                 ThemeToggle(isOn: $state.itnEnabled)
             }
+            RowDivider()
+            SettingsRow("Remove filler words",
+                        subtitle: "Strip \"um\", \"uh\", \"hmm\" and friends from the transcript.") {
+                ThemeToggle(isOn: $state.removeFillerWordsEnabled)
+            }
         }
     }
 
