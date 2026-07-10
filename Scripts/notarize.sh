@@ -23,6 +23,14 @@ set -euo pipefail
 TARGET="${1:?usage: notarize.sh <path-to-.app-or-.dmg>}"
 [[ -e "$TARGET" ]] || { echo "error: $TARGET not found" >&2; exit 1; }
 
+# Idempotent: if the artifact already carries a valid stapled ticket, skip the
+# whole (slow, billed) notary round-trip. This lets `make-dmg.sh` reuse an app
+# that `release.sh` already notarized+stapled without paying for it twice.
+if xcrun stapler validate "$TARGET" >/dev/null 2>&1; then
+    echo ">> notarize: $(basename "$TARGET") is already notarized + stapled — skipping" >&2
+    exit 0
+fi
+
 CRED=()
 if [[ -n "${NOTARY_KEY_P8:-}" && -n "${NOTARY_KEY_ID:-}" && -n "${NOTARY_ISSUER:-}" ]]; then
     CRED=(--key "$NOTARY_KEY_P8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER")
