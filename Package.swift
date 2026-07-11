@@ -20,7 +20,10 @@ let package = Package(
         .package(url: "https://github.com/TelemetryDeck/SwiftSDK", from: "2.0.0"),
         // On-device qwen cleanup (MLX). Pinned exact: the MLXLMCommon/ChatSession
         // API churns between minors; the service is written against 2.29.1.
-        .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", exact: "2.29.1")
+        .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", exact: "2.29.1"),
+        // Clerk auth — the launch sign-in gate. Native macOS 14+ support.
+        // ClerkKit = core/observable state, ClerkKitUI = prebuilt AuthView.
+        .package(url: "https://github.com/clerk/clerk-ios.git", from: "1.3.0")
     ],
     targets: [
         .executableTarget(
@@ -30,7 +33,9 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "TelemetryDeck", package: "SwiftSDK"),
                 .product(name: "MLXLLM", package: "mlx-swift-examples"),
-                .product(name: "MLXLMCommon", package: "mlx-swift-examples")
+                .product(name: "MLXLMCommon", package: "mlx-swift-examples"),
+                .product(name: "ClerkKit", package: "clerk-ios"),
+                .product(name: "ClerkKitUI", package: "clerk-ios")
             ],
             path: "Sources/WhisperMaster",
             resources: [

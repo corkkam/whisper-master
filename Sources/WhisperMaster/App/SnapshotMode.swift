@@ -69,6 +69,7 @@ enum SnapshotMode {
     @ViewBuilder
     private static func sectionView(_ section: SettingsSection, viewModel: DictationViewModel, state: AppState) -> some View {
         switch section {
+        case .insights: InsightsSettingsView(viewModel: viewModel, state: state)
         case .recording: RecordingSettingsView(viewModel: viewModel, state: state)
         case .engine: EngineSettingsView(viewModel: viewModel, state: state)
         case .mesh: MeshSettingsView(viewModel: viewModel, state: state)
@@ -104,6 +105,49 @@ enum SnapshotMode {
             TranscriptHistoryEntry(text: "Remember to sync the FluidAudio version across Package.swift and project.yml.", createdAt: Date(timeIntervalSinceNow: -3600), engineRawValue: TranscriberEngine.slidingWindow.rawValue),
             TranscriptHistoryEntry(text: "The quick brown fox jumps over the lazy dog.", createdAt: Date(timeIntervalSinceNow: -7200), engineRawValue: TranscriberEngine.slidingWindow.rawValue),
         ]
+        seedUsage(state.usageStore)
+    }
+
+    /// Feed the Insights dashboard believable history: several dictations a day
+    /// across a handful of apps, spread over the last ~40 days with a few idle
+    /// days poked out so the streak and heatmap read as real (not a solid block).
+    private static func seedUsage(_ store: UsageStore) {
+        let engine = TranscriberEngine.slidingWindow.rawValue
+        let apps: [(name: String, bundleID: String)] = [
+            ("Slack", "com.tinyspeck.slackmacgap"),
+            ("Safari", "com.apple.Safari"),
+            ("Notes", "com.apple.Notes"),
+            ("Xcode", "com.apple.dt.Xcode"),
+            ("Messages", "com.apple.MobileSMS"),
+        ]
+        // Days we deliberately skip so the streak/heatmap aren't a solid wall.
+        let idleDays: Set<Int> = [3, 4, 11, 18, 19, 27, 33, 34]
+        // A deterministic pseudo-random walk keeps the snapshot stable run-to-run.
+        var seed: UInt64 = 0x5DEE_CE66
+        func next(_ upper: Int) -> Int {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Int((seed >> 33) % UInt64(max(1, upper)))
+        }
+
+        for dayOffset in 0..<40 where !idleDays.contains(dayOffset) {
+            let dictationsToday = 1 + next(4)   // 1…4 dictations per active day
+            for _ in 0..<dictationsToday {
+                let app = apps[next(apps.count)]
+                let words = 10 + next(111)                      // 10…120 words
+                let duration = 5 + Double(next(56))             // 5…60 seconds
+                // Small hour/minute jitter so records land at different times of day.
+                let secondsBack = Double(dayOffset) * 86_400 + Double(next(20)) * 3_600 + Double(next(60)) * 60
+                let fixes = FixCounts(wordsCorrected: next(4), dictionary: next(3))
+                store.record(DictationRecord(
+                    timestamp: Date(timeIntervalSinceNow: -secondsBack),
+                    wordCount: words,
+                    durationSeconds: duration,
+                    appName: app.name,
+                    appBundleID: app.bundleID,
+                    engineRawValue: engine,
+                    fixes: fixes))
+            }
+        }
     }
 
     private static func render<V: View>(_ view: V, to url: URL) {

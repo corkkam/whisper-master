@@ -1,4 +1,5 @@
 import AppKit
+import ClerkKit
 import Sparkle
 import SwiftUI
 import UserNotifications
@@ -20,9 +21,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state: viewModel.state,
         server: transcriptionServer
     )
+    /// Background backup of usage rollups to the dashboard. Clerk-free itself —
+    /// we inject the signed-in identity here (App layer owns auth). Driven off
+    /// the refresh loop; the local `usageStore` is always the source of truth.
+    private lazy var usageSync = UsageSyncClient(
+        store: viewModel.state.usageStore,
+        identity: { [weak self] in await self?.currentUsageIdentity() }
+    )
     private var pillWindow: DictationPillWindow?
     private var bluetoothInputMonitor: BluetoothInputMonitor?
     private var onboardingWindow: OnboardingWindow?
+    /// The launch sign-in gate. Nil until first shown; reused thereafter.
+    private var authGateWindow: AuthGateWindow?
+    /// Latched once the user first authenticates, so the post-sign-in bring-up
+    /// (LAN server, mesh, onboarding, settings window) runs exactly once.
+    private var didProceedAfterAuth = false
     private var statusRefreshTimer: Timer?
     private var settingsItem: NSMenuItem?
     private var statusHeader: NSMenuItem?
@@ -45,19 +58,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Configure Clerk before anything reads `Clerk.shared`. Sign-in gates
+        // the whole app: the LAN transcription server, the mesh, onboarding, and
+        // the settings window are all deferred until the user authenticates
+        // (see reconcileAuthGate / proceedAfterAuthIfNeeded). No-op — and the app
+        // stays locked with a setup message — if no publishable key is set.
+        ClerkConfig.configureIfPossible()
+
         setupMainMenu()
         setupStatusItem()
         setupWindow()
         setupPill()
         setupHotkey()
         startStatusRefreshLoop()
-
-        // Advertise the LAN transcription service so iOS clients can stream
-        // audio here and use this Mac's models. Independent of local recording.
-        transcriptionServer.start()
-
-        // Discover other Macs running Whisper Master on the network (the mesh).
-        meshCoordinator.start()
 
         // Sparkle's gentle "update available" reminder posts a macOS
         // notification. The delegate is required so the banner shows even while
@@ -99,16 +112,91 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Analytics.shared.configure(enabled: viewModel.state.analyticsEnabled)
         reportLaunchAnalytics()
 
+        // Put up the sign-in gate. At cold launch there's never a live session
+        // yet (Clerk restores it asynchronously), so this always shows; the
+        // refresh-loop reconcile then either dismisses it — proceeding to
+        // onboarding/settings — the moment a persisted session loads, or leaves
+        // it up showing Clerk's sign-in UI.
+        presentAuthGate()
+        reconcileAuthGate()
+    }
+
+    /// True once the user is signed in with a real Clerk session. Everything
+    /// that lets the user actually dictate is gated on this.
+    private var isSignedIn: Bool {
+        ClerkConfig.isConfigured && Clerk.shared.user != nil
+    }
+
+    /// Identity for the usage-sync client: the Clerk user id plus a fresh session
+    /// token (best-effort — a nil token falls back to the dashboard's shared-token
+    /// gate). Returns nil when not signed in, so sync silently no-ops until then.
+    private func currentUsageIdentity() async -> (userId: String, token: String?)? {
+        guard ClerkConfig.isConfigured, let user = Clerk.shared.user else { return nil }
+        let token: String? = try? await Clerk.shared.session?.getToken()
+        return (user.id, token)
+    }
+
+    /// Show the blocking sign-in window (idempotent — never steals focus if it's
+    /// already up, so the 0.5s reconcile tick can call it freely).
+    private func presentAuthGate() {
+        if authGateWindow == nil { authGateWindow = AuthGateWindow() }
+        guard let gate = authGateWindow, !gate.isVisible else { return }
+        gate.show()
+    }
+
+    /// Reconcile the gate against the current Clerk session. Driven both once at
+    /// launch and from the 0.5s status refresh loop (our @Observable→AppKit
+    /// bridge), so sign-in/sign-out flip the gate without any Clerk callback.
+    private func reconcileAuthGate() {
+        // No key configured, or a definitively signed-out session → stay gated.
+        guard ClerkConfig.isConfigured else { presentAuthGate(); return }
+        if Clerk.shared.user != nil {
+            authGateWindow?.close()
+            proceedAfterAuthIfNeeded()
+        } else if Clerk.shared.isLoaded {
+            presentAuthGate()
+        }
+        // Still loading a persisted session: leave the launch-time gate (which
+        // shows a spinner) as-is until `isLoaded` resolves.
+    }
+
+    /// Bring up everything that was held behind the gate, exactly once, after
+    /// the first successful sign-in. Signing out later just re-shows the gate;
+    /// it doesn't tear these back down.
+    private func proceedAfterAuthIfNeeded() {
+        guard !didProceedAfterAuth else { return }
+        didProceedAfterAuth = true
+
+        // Advertise the LAN transcription service so iOS clients can stream
+        // audio here and use this Mac's models.
+        transcriptionServer.start()
+        // Discover other Macs running Whisper Master on the network (the mesh).
+        meshCoordinator.start()
+
         if needsOnboarding {
             showOnboarding()
         } else {
             // Past onboarding (it won't show), so ask for notification permission
-            // here instead — the onboarding step that normally owns the prompt
-            // never runs for these users.
-            notificationCenter.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            // here — the onboarding step that normally owns the prompt never runs.
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
             if !viewModel.state.selectedEngine.isInstalled {
                 showWindow()
             }
+        }
+    }
+
+    /// Sign the current user out. The refresh-loop reconcile then re-presents the
+    /// gate once the session clears; we also present it immediately so there's no
+    /// half-second window where the app looks usable.
+    @objc
+    private func signOut() {
+        Task {
+            do {
+                try await Clerk.shared.auth.signOut()
+            } catch {
+                Log.auth.error("Sign out failed: \(error.localizedDescription, privacy: .public)")
+            }
+            self.presentAuthGate()
         }
     }
 
@@ -295,6 +383,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(
             NSMenuItem(
+                title: "Sign Out",
+                action: #selector(signOut),
+                keyEquivalent: ""
+            )
+        )
+        menu.addItem(
+            NSMenuItem(
                 title: "Quit Whisper Master",
                 action: #selector(quitApp),
                 keyEquivalent: "q"
@@ -337,6 +432,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshStatusItem() {
+        // Flip the sign-in gate in step with the Clerk session — this timer is
+        // our bridge from Clerk's @Observable state to AppKit, same as for
+        // AppState below.
+        reconcileAuthGate()
+
         guard let item = statusItem, let button = item.button else { return }
         let state = viewModel.state
 
@@ -365,6 +465,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Reconcile the optional cleanup model with its toggle (edge-triggered
         // inside, so this is a no-op unless the user just flipped it).
         viewModel.reconcileCleanupModel()
+
+        // Mirror any changed usage rollups to the cloud (debounced + single-
+        // flight inside; no-ops when the toggle is off, offline, or nothing
+        // changed). The local store already has the data — this is just backup.
+        usageSync.syncIfNeeded(enabled: state.usageSyncEnabled)
 
         // Retract the "nowhere to paste" hint once its display window elapses.
         if let at = state.undeliveredTranscriptAt,
@@ -554,6 +659,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch event {
             case .pressed:
+                // Gate dictation on sign-in: a press while signed out surfaces
+                // the sign-in window instead of starting a recording.
+                guard self.isSignedIn else {
+                    self.presentAuthGate()
+                    return
+                }
                 self.viewModel.handleHotkeyPressed()
             case .released:
                 self.viewModel.handleHotkeyReleased()
@@ -615,6 +726,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func startRecording() {
+        guard isSignedIn else {
+            presentAuthGate()
+            return
+        }
         viewModel.startRecording()
     }
 

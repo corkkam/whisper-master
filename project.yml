@@ -33,6 +33,10 @@ packages:
   MLXSwiftExamples:
     url: https://github.com/ml-explore/mlx-swift-examples.git
     exactVersion: "2.29.1"
+  # Clerk auth — the launch sign-in gate. Native macOS 14+ support.
+  Clerk:
+    url: https://github.com/clerk/clerk-ios.git
+    from: "1.3.0"
 
 targets:
   WhisperMaster:
@@ -51,6 +55,10 @@ targets:
         product: MLXLLM
       - package: MLXSwiftExamples
         product: MLXLMCommon
+      - package: Clerk
+        product: ClerkKit
+      - package: Clerk
+        product: ClerkKitUI
     settings:
       base:
         PRODUCT_NAME: WhisperMaster

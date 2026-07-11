@@ -51,6 +51,7 @@ final class AppState {
     static let remindersEnabledDefaultsKey = "WhisperMaster.remindersEnabled.v1"
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
     static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
+    static let usageSyncEnabledDefaultsKey = "WhisperMaster.usageSyncEnabled.v1"
     static let removeFillerWordsDefaultsKey = "WhisperMaster.removeFillerWords.v1"
     static let learnCorrectionsDefaultsKey = "WhisperMaster.learnCorrections.v1"
     static let llmCleanupDefaultsKey = "WhisperMaster.llmCleanup.v1"
@@ -178,6 +179,13 @@ final class AppState {
             Analytics.shared.setEnabled(analyticsEnabled)
         }
     }
+    /// Back up your usage stats to your account and keep them in sync across
+    /// your Macs. **On by default — opt-out.** Local tracking (the Insights
+    /// dashboard) always runs; this only governs whether the per-day rollups are
+    /// pushed to the cloud, attributed to the signed-in account.
+    var usageSyncEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(usageSyncEnabled, forKey: Self.usageSyncEnabledDefaultsKey) }
+    }
     /// Availability of Apple's on-device model (drives the Settings hint).
     /// Refreshed by the status loop so it updates live as the model downloads.
     var appleIntelligenceStatus: AppleIntelligenceStatus = .current
@@ -199,6 +207,11 @@ final class AppState {
     /// network. Written by `MeshCoordinator`; observed by the mesh settings panel.
     var meshPeers: [MeshPeer] = []
 
+    /// Durable, on-device usage stats behind the Insights dashboard (per-day
+    /// rollups, streaks, per-app breakdown). Loaded from disk at init. Written
+    /// only via `usageStore.record(...)` from the view model at each stop.
+    let usageStore = UsageStore()
+
     init() {
         history = Self.loadHistory()
         customVocabulary = Self.loadVocabulary()
@@ -208,6 +221,8 @@ final class AppState {
         keepAwakeForRemote = UserDefaults.standard.object(forKey: Self.keepAwakeForRemoteDefaultsKey) as? Bool ?? false
         // Opt-out: on unless the user has explicitly turned it off.
         analyticsEnabled = UserDefaults.standard.object(forKey: Self.analyticsEnabledDefaultsKey) as? Bool ?? true
+        // Opt-out: on unless the user has explicitly turned it off.
+        usageSyncEnabled = UserDefaults.standard.object(forKey: Self.usageSyncEnabledDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         removeFillerWordsEnabled = UserDefaults.standard.object(forKey: Self.removeFillerWordsDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.

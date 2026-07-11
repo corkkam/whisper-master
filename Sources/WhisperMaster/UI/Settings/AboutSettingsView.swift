@@ -63,6 +63,11 @@ struct AboutSettingsView: View {
                             subtitle: "App version, macOS, and feature counts, never your transcripts. Helps improve the app.") {
                     ThemeToggle(isOn: $state.analyticsEnabled)
                 }
+                RowDivider()
+                SettingsRow("Back up my stats",
+                            subtitle: "Sync your Insights (words, speed, streaks) to your account so they're safe and follow you across Macs. Never your transcripts.") {
+                    ThemeToggle(isOn: $state.usageSyncEnabled)
+                }
             }
         }
     }

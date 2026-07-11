@@ -200,19 +200,22 @@ final class DictationViewModel {
                 Diagnostics.shared.noteStage(.spacing, text: spaced)
                 // Collapse spoken number self-corrections ("twenty no thirty" →
                 // "thirty") before ITN, so the survivor is what gets formatted.
-                let corrected = SelfCorrectionCollapser.collapse(spaced)
+                let (corrected, selfCorrectionFixes) = SelfCorrectionCollapser.collapseCounting(spaced)
                 Diagnostics.shared.noteStage(.selfCorrection, text: corrected)
                 let formatted = await formatFinalTranscript(corrected)
                 Diagnostics.shared.noteStage(.itn, text: formatted)
                 // May leave the text empty (a recording that was only "hmm" /
                 // a silence hallucination) — the guard below then skips
                 // history and injection entirely.
-                let deFillered = filterFillersIfEnabled(formatted)
+                let (deFillered, fillerFixes): (String, Int) = state.removeFillerWordsEnabled
+                    ? FillerWordFilter.cleanCounting(formatted)
+                    : (formatted, 0)
                 Diagnostics.shared.noteStage(.filler, text: deFillered)
                 // Apply the glossary as a safe text replacement (casing + known
                 // mishearings) — the substitute for FluidAudio's transcript-
                 // corrupting streaming rescorer.
-                let cleaned = VocabularyPostProcessor.apply(deFillered, glossary: state.customVocabulary)
+                let (cleaned, dictionaryFixes) = VocabularyPostProcessor.applyCounting(
+                    deFillered, glossary: state.customVocabulary)
                 Diagnostics.shared.noteStage(.vocab, text: cleaned)
                 Diagnostics.shared.noteASR(
                     confirmedChars: rawConfirmedTranscript.count,
@@ -237,10 +240,11 @@ final class DictationViewModel {
                 state.transcript.latestPartial = ""
                 let entryID = state.appendHistory(text: cleaned, engine: state.selectedEngine)
                 reminderScheduler.noteUsed()
+                let wordCount = WordCount.count(cleaned)
                 Analytics.shared.send(.dictationCompleted(
                     engine: state.selectedEngine.rawValue,
                     duration: sessionDuration,
-                    wordCount: cleaned.split(whereSeparator: \.isWhitespace).count
+                    wordCount: wordCount
                 ))
                 // The frontmost app is the one about to receive the paste — we
                 // don't steal focus, so it's still the user's target app.
@@ -248,6 +252,19 @@ final class DictationViewModel {
                 Diagnostics.shared.noteFrontApp(
                     name: front?.localizedName ?? "unknown",
                     bundleID: front?.bundleIdentifier ?? "")
+                // Fold this dictation into the durable usage stats (Insights
+                // dashboard). Same front-app snapshot the diagnostics use — the
+                // app about to receive the paste — now always-on, not DIAGNOSTICS.
+                state.usageStore.record(DictationRecord(
+                    timestamp: Date(),
+                    wordCount: wordCount,
+                    durationSeconds: sessionDuration,
+                    appName: front?.localizedName ?? "",
+                    appBundleID: front?.bundleIdentifier ?? "",
+                    engineRawValue: state.selectedEngine.rawValue,
+                    fixes: FixCounts(
+                        wordsCorrected: selfCorrectionFixes + fillerFixes,
+                        dictionary: dictionaryFixes)))
                 // What AX sees at the moment we choose the paste route — the
                 // evidence for building the "nowhere to type" classifier.
                 Diagnostics.shared.noteFocus(FocusedElementInspector.focusDiagnostic())

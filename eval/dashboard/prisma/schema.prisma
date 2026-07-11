@@ -51,3 +51,20 @@ model Result {
 
   @@index([runId])
 }
+
+/// Per-user, per-day dictation usage rollup, upserted by the macOS app.
+model UsageDaily {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId              String // Clerk user id (attribution)
+  day                 String // local yyyy-MM-dd
+  words               Int
+  dictations          Int
+  durationSeconds     Float
+  fixesWordsCorrected Int      @default(0)
+  fixesDictionary     Int      @default(0)
+  perApp              Json // { "<bundleId>": { name, words, count }, ... }
+  updatedAt           DateTime @updatedAt
+
+  @@unique([userId, day])
+  @@index([userId])
+}

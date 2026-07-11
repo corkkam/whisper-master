@@ -3,6 +3,7 @@ import SwiftUI
 
 /// The five sections of the settings window, shown as top tabs.
 enum SettingsSection: String, CaseIterable, Identifiable {
+    case insights
     case recording
     case engine
     case mesh
@@ -14,6 +15,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .insights: return "Insights"
         case .recording: return "Recording"
         case .engine: return "Voice engine"
         case .mesh: return "Nearby Macs"
@@ -26,6 +28,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// Short label for the tab bar.
     var tab: String {
         switch self {
+        case .insights: return "Insights"
         case .recording: return "Recording"
         case .engine: return "Engine"
         case .mesh: return "Mesh"
@@ -37,6 +40,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
+        case .insights: return "Your dictation at a glance — words, speed, and streaks."
         case .recording: return "How dictation starts, stops, and lands where you're typing."
         case .engine: return "Everything runs on-device. Your audio never leaves this Mac."
         case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
@@ -48,6 +52,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var kicker: String {
         switch self {
+        case .insights: return "Overview"
         case .recording: return "Capture"
         case .engine: return "On-device"
         case .mesh: return "Mesh"
@@ -60,6 +65,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// SF Symbol shown beside the title in the sidebar.
     var icon: String {
         switch self {
+        case .insights: return "chart.bar"
         case .recording: return "mic"
         case .engine: return "waveform"
         case .mesh: return "laptopcomputer"
@@ -79,7 +85,7 @@ struct SettingsView: View {
     var checkForUpdates: () -> Void = {}
     var startSetup: () -> Void = {}
     var cancelSetup: () -> Void = {}
-    var initialSection: SettingsSection = .recording
+    var initialSection: SettingsSection = .insights
 
     @State private var selection: SettingsSection
     @State private var hasAutoFocusedSetup = false
@@ -95,7 +101,7 @@ struct SettingsView: View {
         checkForUpdates: @escaping () -> Void = {},
         startSetup: @escaping () -> Void = {},
         cancelSetup: @escaping () -> Void = {},
-        initialSection: SettingsSection = .recording
+        initialSection: SettingsSection = .insights
     ) {
         self.viewModel = viewModel
         _state = Bindable(wrappedValue: state)
@@ -241,6 +247,8 @@ struct SettingsView: View {
     @ViewBuilder
     private var panelContent: some View {
         switch selection {
+        case .insights:
+            InsightsSettingsView(viewModel: viewModel, state: state)
         case .recording:
             RecordingSettingsView(viewModel: viewModel, state: state)
         case .engine:

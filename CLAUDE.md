@@ -209,6 +209,7 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
 Declared in **both** `project.yml` (source of truth for the app target) and `Package.swift` (so `swift build` + the editor resolve) — keep the two in sync when adding/bumping:
 - **FluidAudio** ≥ 0.14.7 — on-device ASR (NVIDIA Parakeet) + the CTC keyword model used for vocabulary biasing.
 - **Sparkle** ≥ 2.6 (resolves 2.9.x) — auto-update. Xcode embeds/signs the framework automatically; replicating that by hand is the main reason the project moved off the old SwiftPM-only bundle onto an Xcode app target.
+- **Clerk** (`clerk-ios`) ≥ 1.3.0 — auth for the launch sign-in gate (see Authentication below). Two products: `ClerkKit` (core + observable state) and `ClerkKitUI` (prebuilt `AuthView`). Pulls transitive deps (PhoneNumberKit, Nuke, swift-collections). Native macOS 14+ support, so no Catalyst shim.
 
 Product: `WhisperMaster.app`, bundle id `app.whispermaster.mac`, executable `WhisperMaster`; distributed as `Whisper Master.app` / `.dmg`.
 
@@ -280,6 +281,15 @@ After a successful CI release, `Scripts/notify-telegram.py` (final step in `rele
 - `AppDelegate` is the single owner of all top-level objects: the status item, settings window, dictation pill window, hotkey manager, permissions manager, and a dedicated `MicrophoneCaptureService` instance for the onboarding mic test (separate from the one inside `PrototypeViewModel`, since both create their own `AVAudioEngine`).
 - `applicationShouldTerminateAfterLastWindowClosed → false`: closing the settings window must NOT quit the app — the tray is the persistent surface. The `NSStatusItem` uses `autosaveName` so users can drag its position and it sticks across launches.
 - A 0.5s `Timer` in `AppDelegate.startStatusRefreshLoop` polls `PrototypeAppState` and rebuilds the tray icon symbol, tooltip, header line, and history submenu. There's no `@Observable` bridge to AppKit — the timer is the bridge.
+
+### Authentication — Clerk sign-in gate (`Auth/`)
+
+The app is **gated behind Clerk sign-in at launch**: dictation won't start until a user is authenticated. This is a deliberate choice layered on top of the otherwise local-first design — transcription itself still runs entirely on-device; only the *gate* talks to Clerk's cloud.
+
+- **Config (`Auth/ClerkConfig.swift`).** The publishable key is client-safe, read from `Info.plist` `ClerkPublishableKey` (env `CLERK_PUBLISHABLE_KEY` overrides for dev). **You must set a real `pk_test_…`/`pk_live_…` key** or the app stays locked with an "add your key" message — a missing/placeholder key is treated as unconfigured and we never call `Clerk.configure` with it (its validation `assertionFailure`s in debug). `configureIfPossible()` runs first thing in `applicationDidFinishLaunching`, before anything reads `Clerk.shared`.
+- **Gate window (`Auth/AuthGateWindow.swift` + `AuthGateView.swift`).** A close-button-less `NSWindow` hosting SwiftUI `AuthView(isDismissible: false)` from `ClerkKitUI`, injected with `.environment(Clerk.shared)`. Modeled on `OnboardingWindow`, Daylight chrome. Shows a spinner while Clerk restores a persisted session; the setup message when unconfigured. Cmd-Q still quits (you can leave, not bypass).
+- **Bridging (the same 0.5s timer).** `Clerk` is `@Observable`; `AppDelegate.reconcileAuthGate()` — called from `refreshStatusItem()` each tick — reads `Clerk.shared.user`/`isLoaded` and shows/hides the gate. `presentAuthGate()` is idempotent (won't re-steal focus). On first sign-in, `proceedAfterAuthIfNeeded()` runs the deferred launch bring-up **once**: the LAN transcription server, the mesh, onboarding, and the settings window. **These deliberately don't start at launch anymore** — they're held behind the gate. Signing out (tray **Sign Out** → `Clerk.shared.auth.signOut()`) re-shows the gate but doesn't tear them back down.
+- **Enforcement points.** Both dictation entry points guard on `isSignedIn` (`ClerkConfig.isConfigured && Clerk.shared.user != nil`): the hotkey handler in `setupHotkey` and the tray `startRecording` — a press while signed out surfaces the gate instead. `DictationViewModel` stays Clerk-free; all auth lives in the App layer.
 
 ### State (`PrototypeAppState`)
 

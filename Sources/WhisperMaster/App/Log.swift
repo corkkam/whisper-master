@@ -21,4 +21,10 @@ enum Log {
 
     /// Anonymous, opt-in usage analytics (TelemetryDeck) — configuration and gating.
     static let analytics = Logger(subsystem: subsystem, category: "analytics")
+
+    /// Clerk authentication — configuration and the launch sign-in gate.
+    static let auth = Logger(subsystem: subsystem, category: "auth")
+
+    /// Usage stats — local persistence and background sync to the dashboard.
+    static let usage = Logger(subsystem: subsystem, category: "usage")
 }
