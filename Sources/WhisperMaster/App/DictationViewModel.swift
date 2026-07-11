@@ -38,6 +38,12 @@ final class DictationViewModel {
     /// kept so a failed/empty engine finish can still deliver what streaming
     /// produced. The full window — not the truncated live-pill remainder.
     private var rawVolatileTranscript = ""
+    /// Smooths the raw per-buffer mic level (fast attack, slow decay) so the
+    /// notch wave breathes instead of snapping to zero between words.
+    private var levelEnvelope = LevelEnvelope()
+    /// Auto-clears a lingering `.failed` phase back to `.idle` so a failure
+    /// message doesn't sit in the notch forever.
+    private var failedResetTask: Task<Void, Never>?
 
     init(
         state: AppState,
@@ -91,8 +97,13 @@ final class DictationViewModel {
         // the previous one.
         correctionLearner.cancel()
         refinementTask?.cancel()
-        // Any pending "nowhere to paste" hint is stale once a new session starts.
+        // Any pending "nowhere to paste" hint, success beat, or failure message
+        // is stale once a new session starts.
         state.undeliveredTranscriptAt = nil
+        state.deliveredAt = nil
+        state.failedAt = nil
+        failedResetTask?.cancel()
+        levelEnvelope.reset()
 
         // If the Apple Intelligence pass is opted in, warm it while the user talks
         // so the post-dictation formatting is hot instead of a cold start. The
@@ -140,7 +151,8 @@ final class DictationViewModel {
                     },
                     levelHandler: { [weak self] level in
                         Task { @MainActor in
-                            self?.state.audioLevel = level
+                            guard let self else { return }
+                            self.state.audioLevel = self.levelEnvelope.step(target: level)
                         }
                     }
                 )
@@ -152,6 +164,7 @@ final class DictationViewModel {
                 recordingStartedAt = Date()
                 state.phase = .recording
                 state.statusMessage = "Recording with \(state.selectedEngine.displayName)..."
+                Feedback.start(soundEnabled: state.soundEnabled)
             } catch {
                 await handleFailure(error)
             }
@@ -168,7 +181,9 @@ final class DictationViewModel {
 
         state.phase = .stopping
         state.audioLevel = 0
+        levelEnvelope.reset()
         state.statusMessage = "Catching final words..."
+        Feedback.stop(soundEnabled: state.soundEnabled)
         Diagnostics.shared.mark(.stopRequested)
 
         Task {
@@ -275,6 +290,16 @@ final class DictationViewModel {
                     let result = await pasteFinal(cleaned, entryID: entryID)
                     pasteOutcome = result.outcome
                     pastedText = result.pasted
+                    // Confirm the moment the text actually lands at the cursor:
+                    // a checkmark beat + chime. Routes that pasted somewhere (a
+                    // native field, web, or a terminal) count; the clipboard /
+                    // no-Accessibility / secure-blocked routes already surface
+                    // their own "press ⌘V" hint, so they don't.
+                    let deliveredRoutes: Set<String> = ["native", "web", "terminal"]
+                    if deliveredRoutes.contains(pasteOutcome), state.undeliveredTranscriptAt == nil {
+                        state.deliveredAt = Date()
+                        Feedback.delivered(soundEnabled: state.soundEnabled)
+                    }
                 } else {
                     scheduleRefinement(pasted: cleaned, entryID: entryID, target: nil)
                 }
@@ -546,7 +571,27 @@ final class DictationViewModel {
         await MainActor.run {
             self.state.phase = .failed(error.localizedDescription)
             self.state.audioLevel = 0
+            self.levelEnvelope.reset()
+            self.state.failedAt = Date()
             self.state.statusMessage = "Transcription failed: \(error.localizedDescription)"
+            self.scheduleFailedReset()
+        }
+    }
+
+    /// After a failure has been on screen for `failedBannerDuration`, quietly
+    /// return to idle so the notch retracts instead of showing a stuck glyph.
+    /// Guarded so a new recording (which flips the phase itself) isn't clobbered.
+    private func scheduleFailedReset() {
+        failedResetTask?.cancel()
+        let failedStamp = state.failedAt
+        failedResetTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(AppState.failedBannerDuration * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            // Only reset if this is still the same failure (no new session began).
+            if case .failed = self.state.phase, self.state.failedAt == failedStamp {
+                self.state.phase = .idle
+                self.state.failedAt = nil
+            }
         }
     }
 
@@ -714,7 +759,7 @@ final class DictationViewModel {
     private func polishTiming(for pasteOutcome: String) -> String {
         guard state.llmCleanupEnabled else { return "none" }
         switch pasteOutcome {
-        case "web": return "beforePaste"
+        case "web", "terminal": return "beforePaste"
         case "native", "clipboard", "noAccessibility": return "afterPaste"
         default: return "none"   // historyOnly / empty — nothing pasted
         }
@@ -731,7 +776,7 @@ final class DictationViewModel {
     ///  - **No editable focus:** copy to the clipboard and hint ⌘V; polish the
     ///    history entry in the background.
     /// Delivers the transcript and reports, for diagnostics, both the paste route
-    /// (`noAccessibility` / `native` / `clipboard` / `web`) and the text that was
+    /// (`noAccessibility` / `native` / `clipboard` / `web` / `terminal`) and the text that was
     /// *actually* pasted. Only the web path differs from the deterministic input —
     /// it pastes the polished text — but returning it keeps the trace honest
     /// instead of always recording the pre-polish string.
@@ -744,14 +789,23 @@ final class DictationViewModel {
             return ("noAccessibility", deterministic)
         }
 
-        if let editable = FocusedElementInspector.editableTarget() {
+        // Terminals (Ghostty, Warp, Terminal.app, iTerm, …) always have a real
+        // paste destination — the shell — but don't advertise it through AX the
+        // way a native field does. GPU/custom terminals expose no caret (so they'd
+        // be misread as "nowhere to type" below) and AppKit terminals report
+        // `AXTextArea` (so they'd take the per-char inject path, which terminals
+        // drop). Both honor a real ⌘V, so route any terminal straight to that path
+        // and skip the AX-role branches. See `TerminalApps`.
+        let isTerminal = TerminalApps.frontmostIsTerminal()
+
+        if !isTerminal, let editable = FocusedElementInspector.editableTarget() {
             await textInjector.inject(deterministic)
             state.statusMessage = "Finished local transcription and pasted at cursor."
             scheduleRefinement(pasted: deterministic, entryID: entryID, target: editable)
             return ("native", deterministic)
         }
 
-        if FocusedElementInspector.focusHasNoTextTarget() {
+        if !isTerminal, FocusedElementInspector.focusHasNoTextTarget() {
             copyToClipboard(deterministic)
             state.undeliveredTranscriptAt = Date()
             state.statusMessage = "No text field found. Copied to clipboard, press ⌘V to paste."
@@ -759,18 +813,32 @@ final class DictationViewModel {
             return ("clipboard", deterministic)
         }
 
-        // Web / Electron: Accessibility can't read the field, so in-place refine
-        // isn't safe. Polish up front (best-effort — nil keeps the deterministic
-        // text), then paste the final result once with a real ⌘V, which these apps
-        // honor. This is how polish reaches WhatsApp, Slack, browsers, etc.
+        // Terminal / Web / Electron: Accessibility can't (safely) read the field,
+        // so in-place refine isn't safe. Polish up front (best-effort — nil keeps
+        // the deterministic text), then paste the final result once with a real
+        // ⌘V, which these apps honor. This is how polish reaches WhatsApp, Slack,
+        // browsers, and the shell.
         if state.llmCleanupEnabled { state.statusMessage = "Polishing\u{2026}" }
         let finalText = (await llmRefined(deterministic)) ?? deterministic
-        await pasteViaClipboard(finalText)
-        state.statusMessage = "Finished local transcription and pasted at cursor."
+        // Secure Keyboard Entry (Terminal's menu, or any focused password field)
+        // makes the WindowServer swallow the synthesized ⌘V too. A blind paste
+        // would fail *and* `pasteViaClipboard` would then restore the old clipboard
+        // out from under the user — so leave the transcript on the clipboard for a
+        // manual ⌘V and say why nothing landed.
+        if isTerminal, TerminalApps.secureKeyboardEntryEnabled() {
+            copyToClipboard(finalText)
+            state.undeliveredTranscriptAt = Date()
+            state.statusMessage = "Secure Keyboard Entry is on — auto-paste blocked. "
+                + "Turn it off (Terminal: Shell → Secure Keyboard Entry), or press ⌘V. "
+                + "Text is on the clipboard."
+        } else {
+            await pasteViaClipboard(finalText)
+            state.statusMessage = "Finished local transcription and pasted at cursor."
+        }
         if finalText != deterministic, let entryID {
             state.updateHistoryText(entryID, to: finalText)
         }
-        return ("web", finalText)
+        return (isTerminal ? "terminal" : "web", finalText)
     }
 
     /// Paste `text` with a real ⌘V — a system paste that lands in web/Electron

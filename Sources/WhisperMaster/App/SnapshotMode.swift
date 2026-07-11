@@ -71,6 +71,7 @@ enum SnapshotMode {
         switch section {
         case .insights: InsightsSettingsView(viewModel: viewModel, state: state)
         case .recording: RecordingSettingsView(viewModel: viewModel, state: state)
+        case .transcript: TranscriptSettingsView(state: state)
         case .engine: EngineSettingsView(viewModel: viewModel, state: state)
         case .mesh: MeshSettingsView(viewModel: viewModel, state: state)
         case .history: HistorySettingsView(viewModel: viewModel, state: state)
@@ -112,6 +113,8 @@ enum SnapshotMode {
     /// across a handful of apps, spread over the last ~40 days with a few idle
     /// days poked out so the streak and heatmap read as real (not a solid block).
     private static func seedUsage(_ store: UsageStore) {
+        // Mock data for rendering only — never let it touch a real per-account file.
+        store.persistenceEnabled = false
         let engine = TranscriberEngine.slidingWindow.rawValue
         let apps: [(name: String, bundleID: String)] = [
             ("Slack", "com.tinyspeck.slackmacgap"),

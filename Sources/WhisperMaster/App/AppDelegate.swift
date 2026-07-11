@@ -95,11 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // already present instead of racing and re-downloading it.
         _ = BackgroundFileDownloader.shared
 
-        // Start downloading/loading the voice engine immediately, in parallel
-        // with onboarding. Model preparation only needs the network, not the
-        // mic/accessibility permissions the wizard collects — so by the time
-        // the user reaches the last step it's ideally already ready.
-        viewModel.prepareDefaultEngineOnLaunch()
+        // Note: the voice-engine model download is deliberately NOT started here.
+        // It's held behind the sign-in gate and kicked from `proceedAfterAuthIfNeeded`
+        // after the first successful sign-in — so a user who never signs in never
+        // pulls the multi-hundred-MB model, and the download begins in parallel
+        // with onboarding once they're in.
 
         // Dev-only: when WM_EVAL_CASES is set, grade the real pipeline over those
         // cases and write results.json, then leave the app running for inspection.
@@ -150,11 +150,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func reconcileAuthGate() {
         // No key configured, or a definitively signed-out session → stay gated.
         guard ClerkConfig.isConfigured else { presentAuthGate(); return }
-        if Clerk.shared.user != nil {
+        if let user = Clerk.shared.user {
             authGateWindow?.close()
             proceedAfterAuthIfNeeded()
+            // Scope usage stats to this account (idempotent — only reloads on a
+            // change), so the Insights dashboard shows just their numbers.
+            viewModel.state.usageStore.activate(userID: user.id)
         } else if Clerk.shared.isLoaded {
             presentAuthGate()
+            // Signed out — drop the loaded account so their stats aren't visible.
+            viewModel.state.usageStore.deactivate()
         }
         // Still loading a persisted session: leave the launch-time gate (which
         // shows a spinner) as-is until `isLoaded` resolves.
@@ -166,6 +171,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func proceedAfterAuthIfNeeded() {
         guard !didProceedAfterAuth else { return }
         didProceedAfterAuth = true
+
+        // Start downloading/loading the voice engine now (held behind the gate).
+        // Model prep only needs the network, not the mic/accessibility permissions
+        // the wizard collects, so it runs in parallel with onboarding — ideally
+        // ready by the time the user reaches the last step.
+        viewModel.prepareDefaultEngineOnLaunch()
 
         // Advertise the LAN transcription service so iOS clients can stream
         // audio here and use this Mac's models.
@@ -488,6 +499,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let at = state.cleanupModelReadyAt,
            Date().timeIntervalSince(at) >= AppState.cleanupReadyBannerDuration {
             state.cleanupModelReadyAt = nil
+        }
+
+        // Retract the success "delivered" checkmark once its brief window elapses
+        // (nil-ing it drives the pill re-render + retract, like the hints above).
+        if let at = state.deliveredAt,
+           Date().timeIntervalSince(at) >= AppState.deliveredBeatDuration {
+            state.deliveredAt = nil
         }
 
         // Sync the "keep this Mac awake for phone dictation" opt-in to the server.

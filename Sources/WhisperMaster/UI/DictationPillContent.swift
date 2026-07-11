@@ -11,6 +11,14 @@ struct DictationPillContent: View {
     var geometry: NotchGeometry = .none
     var layout: NotchSurfaceLayout = NotchSurfaceLayout()
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// A failed session gets its own taller band to fit the reason line.
+    private var isFailed: Bool {
+        if case .failed = state.phase { return true }
+        return false
+    }
+
     /// The "nowhere to paste" hint is the highest-priority band — it's the
     /// immediate consequence of the dictation the user just finished.
     private var showUndelivered: Bool { state.shouldShowUndeliveredBanner }
@@ -36,7 +44,8 @@ struct DictationPillContent: View {
         if showCleanupReady { return layout.cleanupReadyThickness }
         if showBanner { return layout.bannerThickness }
         if showReminder { return layout.reminderThickness }
-        return layout.bottomThickness
+        if isFailed { return layout.failedThickness }
+        return layout.bottomThickness // live indicator + delivered beat both slim
     }
 
     private var expandedHeight: CGFloat {
@@ -45,7 +54,9 @@ struct DictationPillContent: View {
 
     /// Whether the surface should be dropped down and visible.
     private var isExpanded: Bool {
-        if showUndelivered || showLearned || showCleanupReady || showBanner || showReminder { return true } // hints show even when idle
+        // Hints + the delivered beat show even when idle.
+        if showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
+            || state.shouldShowDeliveredBeat { return true }
         guard hasContent else { return false }
         if state.phase == .idle && state.hidePillWhenIdle { return false }
         return true
@@ -54,6 +65,7 @@ struct DictationPillContent: View {
     /// Whether any state is worth surfacing at all.
     private var hasContent: Bool {
         if state.download != nil || state.preparingEngine != nil { return true }
+        if state.shouldShowDeliveredBeat { return true }
         switch state.phase {
         case .recording, .preparingModels, .stopping, .failed: return true
         case .idle: return false
@@ -89,12 +101,13 @@ struct DictationPillContent: View {
         // retract. A spring on the way in read as "the notch appears late" even
         // though the state flips synchronously on key-press. Banners (below) keep
         // the softer spring since they slide in inside an already-open notch.
-        .animation(isExpanded ? nil : .spring(response: 0.28, dampingFraction: 0.85), value: isExpanded)
-        .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showUndelivered)
-        .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showLearned)
-        .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showCleanupReady)
-        .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showBanner)
-        .animation(.spring(response: 0.38, dampingFraction: 0.78), value: showReminder)
+        .animation(isExpanded ? nil : Theme.Motion.respecting(reduceMotion, Theme.Motion.retract), value: isExpanded)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showUndelivered)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showLearned)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showCleanupReady)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showBanner)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showReminder)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowDeliveredBeat)
     }
 
     @ViewBuilder

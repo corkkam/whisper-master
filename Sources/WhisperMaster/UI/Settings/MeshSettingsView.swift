@@ -19,10 +19,21 @@ struct MeshSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
+            // Block 1 — the actual "Nearby Macs": this Mac + others on the same
+            // Wi-Fi. The panel title speaks to *this* group.
             summary
+            roster
+
+            // A clear seam so the local roster's "nearby" framing doesn't bleed
+            // into the remote-access block below — they're opposite concepts
+            // ("on this network" vs. "from anywhere").
+            RowDivider()
+                .padding(.vertical, 4)
+
+            // Block 2 — remote access: reach this Mac from off the network over
+            // Tailscale, plus the keep-awake switch that keeps it reachable.
             remoteAccess
             keepAwake
-            roster
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.8), value: peers)
         .animation(.spring(response: 0.32, dampingFraction: 0.8), value: tailscale)

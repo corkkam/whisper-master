@@ -18,15 +18,116 @@ struct SettingsCard<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(contentPadding)
             .padding(.horizontal, boxed ? 0 : 22)   // inset rows from the rounded edge
-            .background(
-                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                    .fill(Theme.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                    .strokeBorder(Theme.stroke, lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.05), radius: 14, x: 0, y: 4)
+            .card()
+    }
+}
+
+/// A single dashboard tile: a big number/value with a caption, in card chrome.
+/// One primitive for both the Insights KPI tiles and the History stat tiles
+/// (they used to be two near-identical helpers with *different* elevation).
+struct StatTile<Accessory: View>: View {
+    let value: String
+    let label: String
+    var valueColor: Color = Theme.textPrimary
+    var caption: String?
+    @ViewBuilder var accessory: Accessory
+
+    init(
+        value: String,
+        label: String,
+        valueColor: Color = Theme.textPrimary,
+        caption: String? = nil,
+        @ViewBuilder accessory: () -> Accessory = { EmptyView() }
+    ) {
+        self.value = value
+        self.label = label
+        self.valueColor = valueColor
+        self.caption = caption
+        self.accessory = accessory()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.sm) {
+            HStack(alignment: .top) {
+                Text(value)
+                    .font(Typography.metric)
+                    .foregroundStyle(valueColor)
+                Spacer(minLength: 0)
+                accessory
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                if let caption {
+                    Text(caption)
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Theme.Space.xl)
+        .card()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(value) \(label)")
+    }
+}
+
+/// A small rounded tag/chip (used by the vocabulary editor and inline labels).
+struct Chip<Trailing: View>: View {
+    let text: String
+    @ViewBuilder var trailing: Trailing
+
+    init(_ text: String, @ViewBuilder trailing: () -> Trailing = { EmptyView() }) {
+        self.text = text
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        HStack(spacing: Theme.Space.xs) {
+            Text(text).font(Typography.caption).foregroundStyle(Theme.textPrimary)
+            trailing
+        }
+        .padding(.horizontal, Theme.Space.md)
+        .padding(.vertical, 6)
+        .background(
+            Capsule(style: .continuous).fill(Theme.surfaceSunken)
+        )
+    }
+}
+
+/// A quiet square icon button with a proper accessibility label (the History
+/// row buttons previously had only a hover-only `.help`, invisible to VoiceOver).
+struct IconButton: View {
+    let systemName: String
+    let accessibilityLabel: String
+    var role: ButtonRole?
+    let action: () -> Void
+
+    init(_ systemName: String, label: String, role: ButtonRole? = nil, action: @escaping () -> Void) {
+        self.systemName = systemName
+        self.accessibilityLabel = label
+        self.role = role
+        self.action = action
+    }
+
+    var body: some View {
+        Button(role: role, action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(role == .destructive ? Theme.danger : Theme.textSecondary)
+                .frame(width: 30, height: 30)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.chipRadius, style: .continuous)
+                        .fill(Theme.surfaceSunken.opacity(0.6))
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+        .help(accessibilityLabel)
     }
 }
 
@@ -96,8 +197,14 @@ struct KickerLabel: View {
 }
 
 /// Light pill toggle. Off is warm sand, on is the vermillion accent.
+///
+/// Pass `label` (the setting name) so VoiceOver announces "<name>, switch, on"
+/// instead of a bare "button" — the custom `Button` is swapped for a real
+/// `Toggle` in the accessibility tree via `accessibilityRepresentation`.
 struct ThemeToggle: View {
     @Binding var isOn: Bool
+    var label: String = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button {
@@ -115,7 +222,10 @@ struct ThemeToggle: View {
             }
         }
         .buttonStyle(.plain)
-        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: isOn)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.toggle), value: isOn)
+        .accessibilityRepresentation {
+            Toggle(label, isOn: $isOn)
+        }
     }
 }
 

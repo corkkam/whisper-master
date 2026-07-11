@@ -10,6 +10,10 @@ struct MicTestPage: View {
     let onStart: () -> Void
     let onStop: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Brief scale bump the first time real audio is heard.
+    @State private var successPulse = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 6) {
@@ -30,10 +34,12 @@ struct MicTestPage: View {
             }
             .frame(height: 130)
             .onboardingCard(highlighted: heardSound)
+            .scaleEffect(successPulse ? 1.015 : 1)
 
             HStack(spacing: 8) {
                 Image(systemName: statusIcon)
                     .foregroundStyle(heardSound ? Theme.success : Theme.textSecondary)
+                    .symbolEffect(.bounce, value: reduceMotion ? false : heardSound)
                 Text(statusText)
                     .font(Typography.body)
                     .foregroundStyle(Theme.textSecondary)
@@ -47,6 +53,15 @@ struct MicTestPage: View {
         }
         .onAppear(perform: onStart)
         .onDisappear(perform: onStop)
+        // A subtle success beat the moment the app first hears you.
+        .onChange(of: heardSound) { _, heard in
+            guard heard, !reduceMotion else { return }
+            withAnimation(Theme.Motion.appear) { successPulse = true }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(240))
+                withAnimation(Theme.Motion.appear) { successPulse = false }
+            }
+        }
     }
 
     private var prompt: String {

@@ -16,26 +16,21 @@ struct RecordingSettingsView: View {
                 RowDivider()
                 SettingsRow("Hold-to-talk",
                             subtitle: "Hold the key while you speak. Off makes it a toggle.") {
-                    ThemeToggle(isOn: $state.holdToTalkEnabled)
-                }
-                RowDivider()
-                SettingsRow("Auto-paste at cursor",
-                            subtitle: "Insert the transcription wherever you're typing.") {
-                    ThemeToggle(isOn: $state.autoPasteEnabled)
+                    ThemeToggle(isOn: $state.holdToTalkEnabled, label: "Hold-to-talk")
                 }
                 RowDivider()
                 SettingsRow("Play start / stop sound",
                             subtitle: "Subtle click when recording begins or ends.") {
-                    ThemeToggle(isOn: $state.soundEnabled)
+                    ThemeToggle(isOn: $state.soundEnabled, label: "Play start / stop sound")
                 }
             }
 
-            SectionLabel("Appearance")
+            SectionLabel("Reminders")
 
             SettingsCard {
                 SettingsRow("Gentle reminders",
                             subtitle: "A quiet nudge in the notch if you haven't dictated in a while.") {
-                    ThemeToggle(isOn: $state.remindersEnabled)
+                    ThemeToggle(isOn: $state.remindersEnabled, label: "Gentle reminders")
                 }
             }
         }

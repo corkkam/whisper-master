@@ -27,7 +27,8 @@ private struct OnboardingCardChrome: ViewModifier {
 // MARK: - Progress bar
 
 /// Labeled segmented progress for the wizard: one capsule per step (filled up to
-/// the current one), with the active step's name and an "02 / 06" counter below.
+/// the current one), with the active step's name and a two-digit "current / total"
+/// counter below (the total tracks `OnboardingStep.allCases`, so it can't go stale).
 struct OnboardingProgressBar: View {
     let step: OnboardingStep
 
@@ -85,6 +86,9 @@ struct OnboardingWaveform: View {
             }
             .frame(maxHeight: .infinity, alignment: .center)
         }
+        // Purely decorative motif — the status copy carries the real information,
+        // so keep it out of the VoiceOver rotor.
+        .accessibilityHidden(true)
     }
 
     /// Bars taper toward the edges (center-weighted envelope). Ambient mode adds

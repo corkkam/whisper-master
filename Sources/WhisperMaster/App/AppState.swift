@@ -63,6 +63,12 @@ final class AppState {
     static let learnedBannerDuration: TimeInterval = 4
     /// How long the "smart cleanup is ready" notch confirmation stays down.
     static let cleanupReadyBannerDuration: TimeInterval = 5
+    /// How long the success "delivered" checkmark holds in the notch after a
+    /// transcript lands at the cursor, before the surface retracts.
+    static let deliveredBeatDuration: TimeInterval = 1.1
+    /// How long a failed-dictation message stays in the notch before it retracts
+    /// on its own (so a failure isn't a wordless glyph that lingers forever).
+    static let failedBannerDuration: TimeInterval = 6
 
     var selectedEngine: TranscriberEngine = .slidingWindow
     var preparedEngine: TranscriberEngine?
@@ -95,6 +101,14 @@ final class AppState {
     /// `learnedBannerDuration`.
     var learnedTerm: String?
     var learnedTermAt: Date?
+    /// When the last dictation successfully landed at the cursor — drives the
+    /// brief success "delivered" checkmark in the notch. Transient (never
+    /// persisted); auto-expired by the AppDelegate refresh loop after
+    /// `deliveredBeatDuration`.
+    var deliveredAt: Date?
+    /// When the last dictation *failed* — drives the (auto-expiring) failure
+    /// message in the notch. Transient; cleared by the view model / refresh loop.
+    var failedAt: Date?
     /// Live progress of the on-device cleanup-model download, shown **only** in
     /// Settings (never the notch or tray — that's a hard UX rule). `nil` when no
     /// download is in flight. Transient; written by `CleanupModelManager`.
@@ -208,9 +222,11 @@ final class AppState {
     var meshPeers: [MeshPeer] = []
 
     /// Durable, on-device usage stats behind the Insights dashboard (per-day
-    /// rollups, streaks, per-app breakdown). Loaded from disk at init. Written
-    /// only via `usageStore.record(...)` from the view model at each stop.
-    let usageStore = UsageStore()
+    /// rollups, streaks, per-app breakdown). **Per-account:** starts empty and is
+    /// scoped to the signed-in Clerk user by `AppDelegate` (`usageStore.activate`)
+    /// once auth resolves, so each user sees only their own numbers. Written only
+    /// via `usageStore.record(...)` from the view model at each stop.
+    let usageStore = UsageStore(load: false)
 
     init() {
         history = Self.loadHistory()
@@ -290,6 +306,18 @@ final class AppState {
             && preparingEngine == nil
             && !shouldShowUndeliveredBanner
             && !shouldShowLearnedBanner
+    }
+
+    /// Show the success "delivered" checkmark briefly after a transcript lands
+    /// at the cursor. Idle-only (the paste already returned) and yields to the
+    /// higher-priority action hints above it.
+    var shouldShowDeliveredBeat: Bool {
+        guard let at = deliveredAt else { return false }
+        return Date().timeIntervalSince(at) < Self.deliveredBeatDuration
+            && phase == .idle
+            && download == nil
+            && preparingEngine == nil
+            && !shouldShowUndeliveredBanner
     }
 
     /// Show a gentle reminder in the notch only when one is queued, the app is

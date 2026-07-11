@@ -13,79 +13,71 @@ struct InsightsSettingsView: View {
     private var usage: UsageStore { state.usageStore }
 
     var body: some View {
-        if usage.totalDictations == 0 {
-            emptyState
-        } else {
-            VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 16) {
+            if usage.totalDictations == 0 {
+                emptyState
+            } else {
                 // Top row — three KPI tiles of equal width.
-                HStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: Theme.Space.lg) {
                     wpmCard
                     fixesCard
                     totalWordsCard
                 }
                 // Bottom row — two wider cards.
-                HStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: Theme.Space.lg) {
                     appUsageCard
                     streakCard
                 }
             }
+
+            // Governs this page's data, so the backup switch lives here (not in
+            // About): sync Insights to the account, never the transcripts.
+            backupCard
         }
     }
 
     // MARK: - Top row: WPM
 
     private var wpmCard: some View {
-        kpiTile {
-            Text("\(usage.recentWpm)")
-                .font(Typography.sans(34, .bold))
-                .foregroundStyle(Theme.accent)
-            // A hand-drawn half-circle gauge: a faint full arc with the accent arc
-            // filled proportionally. Caps at 200 wpm so a burst can't overrun it.
+        // A hand-drawn half-circle gauge as the tile's top-right accessory: a
+        // faint full arc with the accent arc filled proportionally. Caps at
+        // 200 wpm so a burst can't overrun it.
+        StatTile(value: "\(usage.recentWpm)",
+                 label: "words per minute",
+                 valueColor: Theme.accent) {
             GaugeArc(progress: min(1, Double(usage.recentWpm) / 200))
-                .frame(height: 34)
-                .padding(.top, 2)
-            Text("words per minute")
-                .font(Typography.subheadline)
-                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 76, height: 34)
         }
+        .frame(maxHeight: .infinity)
     }
 
     // MARK: - Top row: Fixes made
 
     private var fixesCard: some View {
         let fixes = usage.totalFixes
-        return kpiTile {
-            Text("\(fixes.total)")
-                .font(Typography.sans(34, .bold))
-                .foregroundStyle(Theme.textPrimary)
-            Text("fixes made")
-                .font(Typography.subheadline)
-                .foregroundStyle(Theme.textSecondary)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(fixes.wordsCorrected) words corrected")
-                Text("\(fixes.dictionary) dictionary fixes")
-            }
-            .font(Typography.caption)
-            .foregroundStyle(Theme.textTertiary)
-            .padding(.top, 4)
-        }
+        return StatTile(value: "\(fixes.total)",
+                        label: "fixes made",
+                        caption: "\(fixes.wordsCorrected) words corrected\n\(fixes.dictionary) dictionary fixes")
+            .frame(maxHeight: .infinity)
     }
 
     // MARK: - Top row: Total words dictated
 
     private var totalWordsCard: some View {
-        kpiTile {
-            Text("\(usage.totalWords)")
-                .font(Typography.sans(34, .bold))
-                .foregroundStyle(Theme.textPrimary)
-            Text("total words dictated")
-                .font(Typography.subheadline)
-                .foregroundStyle(Theme.textSecondary)
-            Text(bookComparison)
-                .font(Typography.caption)
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 4)
+        StatTile(value: "\(usage.totalWords)",
+                 label: "total words dictated",
+                 caption: bookComparison)
+            .frame(maxHeight: .infinity)
+    }
+
+    // MARK: - Stats backup
+
+    private var backupCard: some View {
+        SettingsCard {
+            SettingsRow("Back up my stats",
+                        subtitle: "Sync your Insights (words, speed, streaks) to your account so they're safe and follow you across Macs. Never your transcripts.") {
+                ThemeToggle(isOn: $state.usageSyncEnabled, label: "Back up my stats")
+            }
         }
     }
 
@@ -191,22 +183,6 @@ struct InsightsSettingsView: View {
 
     // MARK: - Reusable card chrome
 
-    /// The KPI tile look borrowed from `HistorySettingsView.statCard`: a filled
-    /// surface rect with a hairline border, left-aligned, equal width in the row.
-    private func kpiTile<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            content()
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1)
-        )
-    }
-
     /// The wider bottom cards reuse the shared `SettingsCard` chrome (fill, border,
     /// soft shadow) with all-around padding.
     private func wideCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -257,12 +233,7 @@ struct InsightsSettingsView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(44)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1)
-        )
+        .card()
     }
 }
 

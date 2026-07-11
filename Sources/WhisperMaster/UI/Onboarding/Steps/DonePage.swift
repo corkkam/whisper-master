@@ -6,6 +6,10 @@ struct DonePage: View {
     let state: AppState
     let retryEngine: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Toggled once on appear to fire the checkmark's one-shot bounce.
+    @State private var celebrate = false
+
     var body: some View {
         VStack(spacing: 18) {
             Spacer()
@@ -16,10 +20,11 @@ struct DonePage: View {
                 Image(systemName: "checkmark")
                     .font(.system(size: 44, weight: .heavy))
                     .foregroundStyle(Theme.success)
+                    .symbolEffect(.bounce, value: celebrate)
             }
+            .onAppear { if !reduceMotion { celebrate.toggle() } }
             VStack(spacing: 8) {
-                KickerLabel("Ready")
-                Text("You're ready")
+                Text("You're all set")
                     .font(Typography.sans(30, .bold))
                     .foregroundStyle(Theme.textPrimary)
                 Text(engineReady

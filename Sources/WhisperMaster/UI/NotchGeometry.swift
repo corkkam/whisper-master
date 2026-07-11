@@ -39,9 +39,12 @@ struct NotchSurfaceLayout {
     /// How far the surface extends beyond the notch on each side — wide wings
     /// that spread well past the notch.
     var sideExtension: CGFloat = 124
-    /// Thickness of the band below the notch that holds the content. Kept
-    /// shallow so the surface reads as a wide, short shelf.
-    var bottomThickness: CGFloat = 20
+    /// Thickness of the band below the notch that holds the content. A short,
+    /// wide shelf — deep enough for the audio wave and a legible busy ring.
+    var bottomThickness: CGFloat = 24
+    /// Band used for a failed dictation: an icon plus a short reason line, so it
+    /// needs about as much room as the reminder band.
+    var failedThickness: CGFloat = 44
     /// Taller band used when the notch hosts the Bluetooth-mic hint (icon + text
     /// + button need more room than the thin dictation indicator).
     var bannerThickness: CGFloat = 58

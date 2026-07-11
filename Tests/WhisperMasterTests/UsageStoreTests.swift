@@ -27,6 +27,26 @@ final class UsageStoreTests: XCTestCase {
             fixes: fixes)
     }
 
+    func testPerUserFileURLsAreDistinctAndSanitized() {
+        let a = UsageStore.fileURL(forUserID: "user_ABC123")
+        let b = UsageStore.fileURL(forUserID: "user_XYZ789")
+        XCTAssertNotEqual(a, b)
+        XCTAssertEqual(a.lastPathComponent, "user_ABC123.json")
+        // Path-hostile characters are replaced so an id can never escape the dir.
+        let dirty = UsageStore.fileURL(forUserID: "../../etc/passwd")
+        XCTAssertEqual(dirty.lastPathComponent, "______etc_passwd.json")
+        XCTAssertFalse(dirty.path.contains(".."))
+    }
+
+    func testPersistenceCanBeDisabled() {
+        let url = tempURL()
+        let store = UsageStore(fileURL: url, load: false)
+        store.persistenceEnabled = false
+        store.record(record(words: 10, app: "Notes", bundle: "com.apple.notes"))
+        XCTAssertEqual(store.totalWords, 10)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
     func testTotalsAcrossTwoApps() {
         let store = UsageStore(fileURL: tempURL(), load: false)
         store.record(record(words: 10, app: "Notes", bundle: "com.apple.notes",

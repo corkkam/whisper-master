@@ -25,16 +25,70 @@ final class UsageStore {
     /// Rolling window (days) for the headline WPM number.
     static let wpmWindowDays = 30
 
-    private let fileURL: URL
+    /// The signed-in account whose stats are currently loaded, or nil before the
+    /// first sign-in / after sign-out. Every metric on this store is scoped to it.
+    private(set) var currentUserID: String?
+
+    /// Repointed by `activate(userID:)` so each account keeps its own on-disk file
+    /// — usage is per-user, not device-wide (multiple people can sign into one Mac
+    /// via the org flow, and each should see only their own numbers).
+    private var fileURL: URL
+
+    /// When false, `record(_:)` folds into memory but never writes to disk. Set by
+    /// the headless snapshot renderer so seeding believable mock data can't clobber
+    /// (or get migrated into) a real per-account file.
+    var persistenceEnabled = true
 
     init(fileURL: URL = UsageStore.defaultFileURL, load: Bool = true) {
         self.fileURL = fileURL
         if load { self.loadFromDisk() }
     }
 
+    /// The legacy device-wide file, from before usage was scoped per-user. Still
+    /// the default so unit tests and the pre-sign-in state have a valid path; the
+    /// first account to sign in adopts it (see `migrateLegacyFileIfNeeded`).
     nonisolated static var defaultFileURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("WhisperMaster/usage.json", isDirectory: false)
+    }
+
+    /// Per-account file: `…/WhisperMaster/Usage/<userId>.json`. The id is
+    /// sanitized to keep the filename safe (Clerk ids are already alphanumeric +
+    /// `_`, but never trust an id straight into a path).
+    nonisolated static func fileURL(forUserID userID: String) -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let safe = String(userID.map { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" ? $0 : "_" })
+        return base.appendingPathComponent("WhisperMaster/Usage/\(safe).json", isDirectory: false)
+    }
+
+    // MARK: - Per-user activation
+
+    /// Scope the store to `userID`: repoint the file and reload from disk.
+    /// Idempotent — a no-op when already scoped to that account, so the 0.5 s auth
+    /// reconcile tick can call it freely. Each account starts fresh; the legacy
+    /// device-wide `usage.json` (which the headless snapshot renderer could once
+    /// pollute with mock data) is deliberately **not** migrated in — it's left
+    /// untouched on disk and simply ignored.
+    func activate(userID: String) {
+        guard !userID.isEmpty, userID != currentUserID else { return }
+        currentUserID = userID
+        fileURL = Self.fileURL(forUserID: userID)
+        rollups = [:]
+        recent = []
+        dirtyDays = []
+        loadFromDisk()
+    }
+
+    /// Drop the loaded account on sign-out so the Insights dashboard doesn't show
+    /// the previous user's numbers. Their file stays on disk for when they return.
+    /// Idempotent.
+    func deactivate() {
+        guard currentUserID != nil else { return }
+        currentUserID = nil
+        fileURL = Self.defaultFileURL
+        rollups = [:]
+        recent = []
+        dirtyDays = []
     }
 
     // MARK: - Write
@@ -143,6 +197,7 @@ final class UsageStore {
     }
 
     private func persist() {
+        guard persistenceEnabled else { return }
         let snapshot = Snapshot(rollups: rollups, recent: recent, dirtyDays: Array(dirtyDays))
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
