@@ -1,5 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { verifyToken } from '@clerk/backend';
 import { prisma } from '$lib/server/db';
 import type { RequestHandler } from './$types';
 
@@ -8,22 +9,21 @@ import type { RequestHandler } from './$types';
 // AUTH — two modes, picked at runtime so a missing optional env never 500s:
 //
 //   1. Clerk (preferred, trusted): the macOS app sends its Clerk *session token*
-//      as `Authorization: Bearer <jwt>`. When CLERK_SECRET_KEY (or a JWKS/issuer
-//      env) is configured we verify the JWT and derive the trusted userId from
-//      its `sub` claim, IGNORING body.userId. This is the only spoof-proof path.
+//      as `Authorization: Bearer <jwt>`. When CLERK_SECRET_KEY (or CLERK_JWT_KEY)
+//      is configured we cryptographically verify the JWT and derive the trusted
+//      userId from its `sub` claim, IGNORING body.userId. This is the only
+//      spoof-proof path — once configured, an unverifiable token is rejected and
+//      we never fall through to (2). Verification uses `@clerk/backend`'s
+//      `verifyToken`: networkless when CLERK_JWT_KEY (the instance's PEM public
+//      key) is set, else a cached JWKS fetch keyed off CLERK_SECRET_KEY.
+//      Optional CLERK_AUTHORIZED_PARTIES (comma-separated) pins the `azp` claim.
 //
-//      TODO(clerk): wire real verification once `@clerk/backend` is a dependency:
-//        import { verifyToken } from '@clerk/backend';
-//        const { sub } = await verifyToken(jwt, { secretKey: env.CLERK_SECRET_KEY });
-//      Install hint: `npm i @clerk/backend` in eval/dashboard, then set
-//      CLERK_SECRET_KEY (and optionally CLERK_JWT_ISSUER) in the Vercel + local
-//      env. Until then the Bearer token is NOT verified and we fall through to (2).
-//
-//   2. Shared token (MVP fallback, SAME pattern as /api/ingest): when
-//      INGEST_TOKEN is set, require `x-ingest-token` to match; then trust the
-//      body's userId. MVP: spoofable without Clerk verification — a caller with
-//      the shared token can write usage for any userId. Acceptable for the
-//      current single-tenant/internal deploy; replace with (1) before multi-user.
+//   2. Shared token (MVP fallback, SAME pattern as /api/ingest): when Clerk is
+//      NOT configured and INGEST_TOKEN is set, require `x-ingest-token` to match;
+//      then trust the body's userId. Spoofable — a caller with the shared token
+//      can write usage for any userId. Acceptable only for the internal deploy;
+//      set CLERK_SECRET_KEY to switch to (1) before opening writes to untrusted
+//      multi-tenant clients.
 
 interface DayEntry {
   day: string;
@@ -42,20 +42,39 @@ interface DayEntry {
  * Throws error(401) when auth fails.
  */
 async function resolveUserId(request: Request, bodyUserId: string | undefined): Promise<string> {
-  const clerkSecret = env.CLERK_SECRET_KEY;
-  if (clerkSecret) {
+  // Normalize unset / blank ("" from .env.example) to undefined so a placeholder
+  // never trips Clerk mode or gets passed as an empty option to verifyToken.
+  const clerkSecret = env.CLERK_SECRET_KEY?.trim() || undefined;
+  const clerkJwtKey = env.CLERK_JWT_KEY?.trim() || undefined;
+  if (clerkSecret || clerkJwtKey) {
     // Clerk configured — REQUIRE a verified Bearer token; never fall back to the
     // spoofable body userId once we're in trusted mode.
     const authz = request.headers.get('authorization') ?? '';
     const jwt = authz.toLowerCase().startsWith('bearer ') ? authz.slice(7).trim() : '';
     if (!jwt) throw error(401, 'unauthorized: missing Bearer token');
-    // TODO(clerk): replace with real verifyToken() once @clerk/backend is added.
-    // Verification is not implemented yet, so a configured CLERK_SECRET_KEY
-    // cannot be honored securely — refuse rather than trust an unverified token.
-    throw error(
-      401,
-      'Clerk verification is configured but not yet implemented (add @clerk/backend)'
-    );
+
+    const authorizedParties = (env.CLERK_AUTHORIZED_PARTIES ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    // `verifyToken` (legacy-return export) resolves to the JWT payload and THROWS
+    // on any failure (bad signature, expired, wrong azp, unreachable JWKS).
+    let payload: { sub?: string };
+    try {
+      payload = await verifyToken(jwt, {
+        secretKey: clerkSecret,
+        jwtKey: clerkJwtKey,
+        ...(authorizedParties.length ? { authorizedParties } : {})
+      });
+    } catch (e) {
+      throw error(401, `unauthorized: ${e instanceof Error ? e.message : 'token verification failed'}`);
+    }
+
+    const sub = typeof payload.sub === 'string' ? payload.sub : '';
+    if (!sub) throw error(401, 'unauthorized: verified token has no subject (sub) claim');
+    // Trust the cryptographically-verified subject; ignore any body.userId.
+    return sub;
   }
 
   // Shared-token fallback (MVP). Mirrors /api/ingest exactly.
