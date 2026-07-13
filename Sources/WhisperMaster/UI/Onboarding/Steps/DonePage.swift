@@ -33,6 +33,7 @@ struct DonePage: View {
                     .font(Typography.sans(15))
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 440)
             }
 

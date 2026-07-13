@@ -62,8 +62,50 @@ enum SnapshotMode {
             render(onboarding, to: dir.appendingPathComponent("onboarding-\(step.rawValue)-\(step.title.lowercased().replacingOccurrences(of: " ", with: "")).png"))
         }
 
+        // Notch pill / moment-of-truth states. The dark surface is rendered on a
+        // neutral backdrop so the black band reads. Each state uses its own fresh
+        // AppState so the fields don't bleed across renders.
+        renderPill(dir, name: "pill-1-listening") { s in
+            s.phase = .recording
+            s.audioLevel = 0.42
+        }
+        renderPill(dir, name: "pill-2-finalizing") { s in
+            s.phase = .stopping
+        }
+        renderPill(dir, name: "pill-3-delivered") { s in
+            s.phase = .idle
+            s.deliveredAt = Date()
+        }
+        renderPill(dir, name: "pill-4-failed") { s in
+            s.phase = .failed("The network appears to be offline")
+            s.failedAt = Date()
+            s.statusMessage = "Transcription failed: The network appears to be offline"
+        }
+        renderPill(dir, name: "pill-5-undelivered") { s in
+            s.phase = .idle
+            s.undeliveredTranscriptAt = Date()
+        }
+        renderPill(dir, name: "pill-6-bluetooth") { s in
+            s.phase = .idle
+            s.bluetoothInputActive = true
+        }
+
         print("Snapshots written to \(dir.path)")
         exit(0)
+    }
+
+    /// Render the notch pill in a single state onto a neutral backdrop.
+    private static func renderPill(_ dir: URL, name: String, configure: (AppState) -> Void) {
+        let state = AppState()
+        state.hidePillWhenIdle = false
+        configure(state)
+        let view = ZStack(alignment: .top) {
+            Color(white: 0.28)
+            DictationPillContent(state: state, geometry: .none)
+                .frame(width: 428, height: 90, alignment: .top)
+        }
+        .frame(width: 520, height: 150)
+        render(view, to: dir.appendingPathComponent("\(name).png"))
     }
 
     @ViewBuilder

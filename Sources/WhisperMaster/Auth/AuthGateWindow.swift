@@ -11,10 +11,13 @@ import SwiftUI
 final class AuthGateWindow {
     private let window: NSWindow
 
-    init() {
+    /// - Parameter onRetry: invoked by the gate's Retry button (offline / not-yet-
+    ///   loaded states) to re-run Clerk configuration + reconcile from the
+    ///   AppDelegate, since the SwiftUI view can't reach those itself.
+    init(onRetry: @escaping () -> Void = {}) {
         // Inject the shared Clerk instance so AuthView and the observable state
         // are available to the SwiftUI hierarchy.
-        let root = AuthGateView()
+        let root = AuthGateView(onRetry: onRetry)
             .environment(Clerk.shared)
         let host = NSHostingController(rootView: root)
         window = NSWindow(contentViewController: host)
