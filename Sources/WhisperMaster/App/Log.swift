@@ -27,4 +27,7 @@ enum Log {
 
     /// Usage stats — local persistence and background sync to the dashboard.
     static let usage = Logger(subsystem: subsystem, category: "usage")
+
+    /// Notes & reminders — local persistence, firing, and background sync.
+    static let notes = Logger(subsystem: subsystem, category: "notes")
 }

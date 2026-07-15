@@ -28,6 +28,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store: viewModel.state.usageStore,
         identity: { [weak self] in await self?.currentUsageIdentity() }
     )
+    /// Background backup + cross-device pull of notes & reminders. Same identity
+    /// injection as usage sync; local `notesStore` is the source of truth.
+    private lazy var notesSync = NotesSyncClient(
+        store: viewModel.state.notesStore,
+        identity: { [weak self] in await self?.currentUsageIdentity() }
+    )
+    /// Owns the single looping-alarm alert window. Created lazily on first fire.
+    private let alarmController = AlarmController()
     private var pillWindow: DictationPillWindow?
     private var bluetoothInputMonitor: BluetoothInputMonitor?
     private var onboardingWindow: OnboardingWindow?
@@ -174,6 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             authGateWindow?.close()
             proceedAfterAuthIfNeeded()
             viewModel.state.usageStore.activate(userID: "dev-local")
+            viewModel.state.notesStore.activate(userID: "dev-local")
             return
         }
         // No key configured, or a definitively signed-out session → stay gated.
@@ -184,10 +193,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Scope usage stats to this account (idempotent — only reloads on a
             // change), so the Insights dashboard shows just their numbers.
             viewModel.state.usageStore.activate(userID: user.id)
+            viewModel.state.notesStore.activate(userID: user.id)
         } else if Clerk.shared.isLoaded {
             presentAuthGate()
             // Signed out — drop the loaded account so their stats aren't visible.
             viewModel.state.usageStore.deactivate()
+            viewModel.state.notesStore.deactivate()
         }
         // Still loading a persisted session: leave the launch-time gate (which
         // shows a spinner) as-is until `isLoaded` resolves.
@@ -212,8 +223,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Discover other Macs running Whisper Master on the network (the mesh).
         meshCoordinator.start()
 
-        if needsOnboarding {
-            showOnboarding()
+        let userID = currentOnboardingUserID()
+
+        // Migration for existing installs: they have no per-user onboarding
+        // record. If the account has already granted the core permissions it's
+        // plainly past onboarding — seed the current steps as seen so we don't
+        // re-run the whole wizard once. Only genuinely new future steps surface.
+        if let userID, !OnboardingProgress.hasRecord(userID: userID),
+           permissionsManager.microphoneStatus() == .granted,
+           permissionsManager.accessibilityGranted() {
+            OnboardingProgress.markSeen(OnboardingStep.allCases.map(\.id), userID: userID)
+        }
+
+        // Show onboarding once per account, and thereafter only the steps this
+        // account hasn't seen yet (e.g. a step added in a later version). No
+        // account id (shouldn't happen post-auth) → fall back to the full flow.
+        let pending = userID.map { OnboardingProgress.pendingSteps(userID: $0) } ?? OnboardingStep.allCases
+        if !pending.isEmpty {
+            showOnboarding(steps: pending, userID: userID)
         } else {
             // Past onboarding (it won't show), so ask for notification permission
             // here — the onboarding step that normally owns the prompt never runs.
@@ -222,6 +249,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 showWindow()
             }
         }
+    }
+
+    /// The account onboarding progress is scoped to: the signed-in Clerk user,
+    /// or `dev-local` when the dev build bypasses the auth gate. Mirrors the
+    /// identity `usageStore.activate(userID:)` uses.
+    private func currentOnboardingUserID() -> String? {
+        if let id = Clerk.shared.user?.id { return id }
+        if authBypassEnabled { return "dev-local" }
+        return nil
     }
 
     /// Sign the current user out. The refresh-loop reconcile then re-presents the
@@ -267,11 +303,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func statusButtonClicked(_ sender: NSStatusBarButton) {
         // Menu is attached via item.menu — let AppKit handle it. This stub
         // exists so the button has a target and accepts both mouse buttons.
-    }
-
-    private var needsOnboarding: Bool {
-        permissionsManager.microphoneStatus() != .granted
-            || !permissionsManager.accessibilityGranted()
     }
 
     /// Standard Dock-app menu bar. Without it, a `.regular` app has no working
@@ -494,9 +525,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stopItem?.isEnabled = state.canStop
         cancelItem?.isHidden = state.preparingEngine == nil
 
-        // The notch panel is click-through except while the Bluetooth-mic banner
-        // is up, where its button needs to receive clicks.
-        pillWindow?.setInteractive(state.shouldShowBluetoothBanner)
+        // The notch panel is click-through except while an interactive banner is
+        // up — the Bluetooth-mic "use built-in" button, or the tappable command
+        // confirmation ("reminder set · tap to change") — where clicks matter.
+        pillWindow?.setInteractive(state.shouldShowBluetoothBanner || state.shouldShowCommandConfirmation)
 
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
@@ -509,6 +541,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // flight inside; no-ops when the toggle is off, offline, or nothing
         // changed). The local store already has the data — this is just backup.
         usageSync.syncIfNeeded(enabled: state.usageSyncEnabled)
+
+        // Notes & reminders: pull the account's items once per activation (so a
+        // second Mac catches up), then mirror local changes up. Both are debounced
+        // + single-flight inside; no-ops when the toggle is off or nothing changed.
+        notesSync.pullIfNeeded(enabled: state.notesSyncEnabled)
+        notesSync.syncIfNeeded(enabled: state.notesSyncEnabled)
+
+        // Fire any reminders that have come due (poll-driven — the app is a
+        // persistent menu-bar process, so this is the reliable path).
+        fireDueReminders()
 
         // Retract the "nowhere to paste" hint once its display window elapses.
         if let at = state.undeliveredTranscriptAt,
@@ -527,6 +569,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let at = state.cleanupModelReadyAt,
            Date().timeIntervalSince(at) >= AppState.cleanupReadyBannerDuration {
             state.cleanupModelReadyAt = nil
+        }
+
+        // Retract the "note saved / reminder set" confirmation once its window
+        // elapses (nil-ing both fields drives the pill re-render + retract).
+        if let at = state.commandConfirmationAt,
+           Date().timeIntervalSince(at) >= AppState.commandConfirmationDuration {
+            state.commandConfirmation = nil
+            state.commandConfirmationAt = nil
         }
 
         // Retract the success "delivered" checkmark once its brief window elapses
@@ -692,7 +742,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPill() {
-        pillWindow = DictationPillWindow(state: viewModel.state)
+        pillWindow = DictationPillWindow(state: viewModel.state) { [weak self] in
+            // Tapping the "reminder set · tap to change" banner opens Settings →
+            // Notes & Reminders; the requested section is consumed by SettingsView.
+            guard let self else { return }
+            self.viewModel.state.requestedSettingsSection = .notes
+            self.showWindow()
+        }
         pillWindow?.show()
         // Watch for a Bluetooth mic input so the notch can offer to switch to
         // the built-in mic (keeps earphones in hi-fi). Read-only detection.
@@ -718,26 +774,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showOnboarding() {
+    private func showOnboarding(
+        steps: [OnboardingStep] = OnboardingStep.allCases,
+        userID: String? = nil
+    ) {
         if let onboardingWindow {
             onboardingWindow.show()
             return
+        }
+
+        // Whoever we present to, record the whole current flow as seen once they
+        // finish or dismiss — so it opens once per account and only future new
+        // steps reappear. Resolve the id now (menu reopens pass none).
+        let seenUserID = userID ?? currentOnboardingUserID()
+        let markSeen: () -> Void = {
+            if let seenUserID {
+                OnboardingProgress.markSeen(OnboardingStep.allCases.map(\.id), userID: seenUserID)
+            }
         }
 
         onboardingWindow = OnboardingWindow(
             state: viewModel.state,
             permissions: permissionsManager,
             microphoneCapture: onboardingMic,
+            steps: steps,
             retryEngine: { [weak self] in self?.viewModel.prepareDefaultEngineOnLaunch() },
             onClose: { [weak self] in
-                // User dismissed onboarding early — drop to the tray. They can
-                // reopen it any time via the "Reopen Onboarding…" menu item.
+                // User dismissed onboarding early — drop to the tray. Mark it seen
+                // so it doesn't reopen every launch; they can still reopen it via
+                // the "Reopen Onboarding…" menu item.
                 guard let self else { return }
+                markSeen()
                 self.onboardingWindow?.close()
                 self.onboardingWindow = nil
             }
         ) { [weak self] in
             guard let self else { return }
+            markSeen()
             self.onboardingWindow?.close()
             self.onboardingWindow = nil
             Analytics.shared.send(.onboardingFinished)
@@ -865,10 +938,55 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
         )
         UNUserNotificationCenter.current().add(request)
     }
+
+    // MARK: - Reminders
+
+    /// Alert any reminders that have come due (called each refresh tick). Marks
+    /// each fired so it alerts once; the alarm style takes over the alarm window
+    /// (one at a time — a reminder that can't take the busy surface stays due and
+    /// re-fires when it frees up).
+    private func fireDueReminders() {
+        let store = viewModel.state.notesStore
+        for reminder in store.dueReminders(asOf: Date()) {
+            switch reminder.alertStyle {
+            case .notification:
+                postReminderNotification(reminder)
+                store.markFired(reminder.id)
+            case .alarm:
+                // The alarm rings until the user acts: Snooze pushes it out, Done
+                // completes it (or re-arms a repeat). We deliberately DON'T
+                // `markFired` here — the busy guard (`present` returns false while
+                // an alarm is up) stops re-fires, and the user's action is what
+                // clears the due state. Marking fired too would double-advance a
+                // repeating reminder (once on fire, again on Done).
+                let id = reminder.id
+                alarmController.present(
+                    reminder,
+                    onSnooze: { [weak self] in self?.viewModel.state.notesStore.snoozeReminder(id, by: 5 * 60) },
+                    onDone: { [weak self] in self?.viewModel.state.notesStore.completeReminder(id) }
+                )
+            }
+        }
+    }
+
+    private func postReminderNotification(_ reminder: ReminderItem) {
+        let content = UNMutableNotificationContent()
+        content.title = reminder.displayTitle
+        let body = reminder.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !body.isEmpty { content.body = body }
+        content.sound = UNNotificationSound(named: .init("\(ReminderSound.resolved(reminder.soundName)).aiff"))
+        let request = UNNotificationRequest(
+            identifier: "\(Self.reminderNotificationPrefix)\(reminder.id.uuidString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
 }
 
 extension AppDelegate: UNUserNotificationCenterDelegate {
     static let updateNotificationIdentifier = "app.whispermaster.update-available"
+    static let reminderNotificationPrefix = "app.whispermaster.reminder."
 
     /// Show the update banner even when the app is frontmost (otherwise macOS
     /// suppresses notifications for the active app).
@@ -886,10 +1004,15 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if response.notification.request.identifier == Self.updateNotificationIdentifier,
+        let identifier = response.notification.request.identifier
+        if identifier == Self.updateNotificationIdentifier,
            response.actionIdentifier == UNNotificationDefaultActionIdentifier {
             NSApp.activate(ignoringOtherApps: true)
             updaterController.checkForUpdates(nil)
+        } else if identifier.hasPrefix(Self.reminderNotificationPrefix),
+                  response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            // Tapping a reminder opens the app (Notes & Reminders lives in Settings).
+            showWindow()
         }
         completionHandler()
     }

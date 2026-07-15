@@ -29,10 +29,6 @@ struct InsightsSettingsView: View {
                     streakCard
                 }
             }
-
-            // Governs this page's data, so the backup switch lives here (not in
-            // About): sync Insights to the account, never the transcripts.
-            backupCard
         }
     }
 
@@ -68,17 +64,6 @@ struct InsightsSettingsView: View {
                  label: "total words dictated",
                  caption: bookComparison)
             .frame(maxHeight: .infinity)
-    }
-
-    // MARK: - Stats backup
-
-    private var backupCard: some View {
-        SettingsCard {
-            SettingsRow("Back up my stats",
-                        subtitle: "Sync your Insights (words, speed, streaks) to your account so they're safe and follow you across Macs. Never your transcripts.") {
-                ThemeToggle(isOn: $state.usageSyncEnabled, label: "Back up my stats")
-            }
-        }
     }
 
     /// A charming, entirely local comparison: a paperback runs ~250 words a page,

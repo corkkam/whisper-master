@@ -8,6 +8,9 @@ struct OnboardingView: View {
     let state: AppState
     let permissions: PermissionsManager
     let microphoneCapture: MicrophoneCaptureService
+    /// The ordered steps to present. The full wizard by default; a subset when
+    /// only newly-added steps are being shown to an already-onboarded user.
+    let steps: [OnboardingStep]
     let retryEngine: () -> Void
     let onClose: () -> Void
     let onComplete: () -> Void
@@ -16,6 +19,7 @@ struct OnboardingView: View {
         state: AppState,
         permissions: PermissionsManager,
         microphoneCapture: MicrophoneCaptureService,
+        steps: [OnboardingStep] = OnboardingStep.allCases,
         retryEngine: @escaping () -> Void,
         onClose: @escaping () -> Void,
         onComplete: @escaping () -> Void,
@@ -24,13 +28,19 @@ struct OnboardingView: View {
         self.state = state
         self.permissions = permissions
         self.microphoneCapture = microphoneCapture
+        // Never present an empty flow — fall back to the full wizard.
+        let resolved = steps.isEmpty ? OnboardingStep.allCases : steps
+        self.steps = resolved
         self.retryEngine = retryEngine
         self.onClose = onClose
         self.onComplete = onComplete
-        _step = State(initialValue: initialStep)
+        _stepIndex = State(initialValue: resolved.firstIndex(of: initialStep) ?? 0)
     }
 
-    @State private var step: OnboardingStep
+    /// Index into `steps`. `step` is derived from it, so navigation is `±1`
+    /// within the presented subset rather than across `OnboardingStep.allCases`.
+    @State private var stepIndex: Int
+    private var step: OnboardingStep { steps[stepIndex] }
     @State private var micGranted = false
     @State private var micDenied = false
     @State private var requestingMic = false
@@ -56,7 +66,7 @@ struct OnboardingView: View {
                     .padding(.horizontal, 28)
                     .padding(.top, 18)
 
-                OnboardingProgressBar(step: step)
+                OnboardingProgressBar(steps: steps, step: step)
                     .padding(.horizontal, 32)
                     .padding(.top, 20)
                     .padding(.bottom, 24)
@@ -203,7 +213,7 @@ struct OnboardingView: View {
     private var footer: some View {
         VStack(spacing: 10) {
             HStack {
-                if step != .welcome {
+                if stepIndex > 0 {
                     SecondaryButton(title: "Back") { goBack() }
                 }
                 Spacer()
@@ -245,9 +255,11 @@ struct OnboardingView: View {
     private var primaryFooterLabel: String {
         switch step {
         case .welcome: return "Get started"
-        case .microphone, .accessibility, .notifications: return "Continue"
-        case .micTest: return "Continue"
         case .done: return "Start dictating"
+        case .microphone, .accessibility, .notifications, .micTest:
+            // "Continue" implies more ahead; on the last page of a partial flow
+            // (just a newly-added step) it finishes, so label it plainly.
+            return stepIndex == steps.count - 1 ? "Done" : "Continue"
         }
     }
 
@@ -263,19 +275,19 @@ struct OnboardingView: View {
     // MARK: Navigation
 
     private func advance() {
-        guard let next = OnboardingStep(rawValue: step.rawValue + 1) else {
+        guard stepIndex + 1 < steps.count else {
             onComplete()
             return
         }
         goingBack = false
-        withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.step)) { step = next }
+        withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.step)) { stepIndex += 1 }
     }
 
     private func goBack() {
         if step == .micTest { stopMicTest() }
-        guard let prev = OnboardingStep(rawValue: step.rawValue - 1) else { return }
+        guard stepIndex > 0 else { return }
         goingBack = true
-        withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.step)) { step = prev }
+        withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.step)) { stepIndex -= 1 }
     }
 
     /// Advance ~0.5s after a permission is granted, but only if we're still on

@@ -5,8 +5,8 @@ import SwiftUI
 /// sidebar (the `allCases` order below *is* the sidebar order).
 enum SettingsSection: String, CaseIterable, Identifiable {
     case insights
-    case recording
-    case transcript
+    case notes
+    case settings
     case engine
     case history
     case permissions
@@ -18,8 +18,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .insights: return "Insights"
-        case .recording: return "Recording"
-        case .transcript: return "Transcript"
+        case .notes: return "Notes & Reminders"
+        case .settings: return "Settings"
         case .engine: return "Voice engine"
         case .history: return "History"
         case .permissions: return "Permissions"
@@ -31,8 +31,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .insights: return "Your dictation at a glance — words, speed, and streaks."
-        case .recording: return "How dictation starts and stops."
-        case .transcript: return "How your words come out — where they land, and how they're cleaned up."
+        case .notes: return "Jot notes and set reminders that follow you across your Macs."
+        case .settings: return "Everything you can tune, in one place."
         case .engine: return "Everything runs on-device. Your audio never leaves this Mac."
         case .history: return "Your recent transcriptions, kept locally."
         case .permissions: return "Whisper Master only asks for what it needs to work."
@@ -44,8 +44,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var kicker: String {
         switch self {
         case .insights: return "Overview"
-        case .recording: return "Capture"
-        case .transcript: return "Text"
+        case .notes: return "Notes"
+        case .settings: return "Preferences"
         case .engine: return "On-device"
         case .history: return "Activity"
         case .permissions: return "Privacy"
@@ -58,8 +58,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .insights: return "chart.bar"
-        case .recording: return "mic"
-        case .transcript: return "text.alignleft"
+        case .notes: return "checklist"
+        case .settings: return "gearshape"
         case .engine: return "waveform"
         case .history: return "clock"
         case .permissions: return "shield"
@@ -82,7 +82,7 @@ struct SettingsView: View {
     // Configured users should land on a useful page, not an empty Insights
     // dashboard — the not-installed case still redirects to `.engine` via
     // `autoFocusSetupIfNeeded()`.
-    var initialSection: SettingsSection = .recording
+    var initialSection: SettingsSection = .settings
 
     @State private var selection: SettingsSection
     @State private var hasAutoFocusedSetup = false
@@ -98,7 +98,7 @@ struct SettingsView: View {
         checkForUpdates: @escaping () -> Void = {},
         startSetup: @escaping () -> Void = {},
         cancelSetup: @escaping () -> Void = {},
-        initialSection: SettingsSection = .recording
+        initialSection: SettingsSection = .settings
     ) {
         self.viewModel = viewModel
         _state = Bindable(wrappedValue: state)
@@ -121,6 +121,17 @@ struct SettingsView: View {
         .onAppear {
             refreshPermissions()
             autoFocusSetupIfNeeded()
+            // Honor a section requested before the window opened (e.g. a tap on
+            // the notch command-confirmation banner).
+            if let requested = state.requestedSettingsSection {
+                selection = requested
+                state.requestedSettingsSection = nil
+            }
+        }
+        .onChange(of: state.requestedSettingsSection) { _, requested in
+            guard let requested else { return }
+            selection = requested
+            state.requestedSettingsSection = nil
         }
         .onReceive(Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()) { _ in
             refreshPermissions()
@@ -246,10 +257,10 @@ struct SettingsView: View {
         switch selection {
         case .insights:
             InsightsSettingsView(viewModel: viewModel, state: state)
-        case .recording:
-            RecordingSettingsView(viewModel: viewModel, state: state)
-        case .transcript:
-            TranscriptSettingsView(state: state)
+        case .notes:
+            NotesSettingsView(state: state)
+        case .settings:
+            GeneralSettingsView(viewModel: viewModel, state: state)
         case .engine:
             EngineSettingsView(viewModel: viewModel, state: state)
         case .mesh:

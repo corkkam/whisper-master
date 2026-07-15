@@ -60,6 +60,9 @@ struct NotchSurfaceLayout {
     /// Band for the "smart cleanup is ready" confirmation — same footprint as the
     /// learned hint. (≤ bannerThickness, so `panelSize` already accommodates it.)
     var cleanupReadyThickness: CGFloat = 52
+    /// Band for the "note saved / reminder set" confirmation after a spoken
+    /// command routed into Notes & Reminders — headline plus a short second line.
+    var commandConfirmationThickness: CGFloat = 52
     /// Radius of the concave flare where the top meets the bezel.
     var topConcaveRadius: CGFloat = 12
     /// Radius of the surface's rounded bottom corners.

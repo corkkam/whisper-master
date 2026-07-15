@@ -15,6 +15,21 @@ enum OnboardingStep: Int, CaseIterable {
     case notifications
     case done
 
+    /// Stable, order-independent identifier used to persist which steps a user
+    /// has already been shown (see `OnboardingProgress`). Deliberately spelled
+    /// out rather than derived from `rawValue`, so reordering the enum never
+    /// re-triggers a step the user has already completed.
+    var id: String {
+        switch self {
+        case .welcome: return "welcome"
+        case .microphone: return "microphone"
+        case .micTest: return "micTest"
+        case .accessibility: return "accessibility"
+        case .notifications: return "notifications"
+        case .done: return "done"
+        }
+    }
+
     /// Shown in the progress bar for the current step.
     var title: String {
         switch self {

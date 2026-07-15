@@ -7,7 +7,8 @@ struct RecordingSettingsView: View {
     @Environment(\.isSnapshot) private var isSnapshot
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 26) {
+            SectionLabel("Recording")
             SettingsCard {
                 SettingsRow("Push-to-talk key",
                             subtitle: "Press and hold to dictate from anywhere on your Mac.") {

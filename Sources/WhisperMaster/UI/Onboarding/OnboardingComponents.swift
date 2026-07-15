@@ -30,16 +30,19 @@ private struct OnboardingCardChrome: ViewModifier {
 /// the current one), with the active step's name and a two-digit "current / total"
 /// counter below (the total tracks `OnboardingStep.allCases`, so it can't go stale).
 struct OnboardingProgressBar: View {
+    /// The steps actually being presented (the full flow, or a partial subset
+    /// when only newly-added steps are shown), so the counter can't go stale.
+    let steps: [OnboardingStep]
     let step: OnboardingStep
 
-    private var steps: [OnboardingStep] { OnboardingStep.allCases }
+    private var currentIndex: Int { steps.firstIndex(of: step) ?? 0 }
 
     var body: some View {
         VStack(spacing: 11) {
             HStack(spacing: 6) {
-                ForEach(steps, id: \.rawValue) { value in
+                ForEach(Array(steps.enumerated()), id: \.element.rawValue) { index, _ in
                     Capsule(style: .continuous)
-                        .fill(value.rawValue <= step.rawValue ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.stroke))
+                        .fill(index <= currentIndex ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.stroke))
                         .frame(height: 4)
                         .frame(maxWidth: .infinity)
                         .animation(.easeInOut(duration: 0.22), value: step)
@@ -52,7 +55,7 @@ struct OnboardingProgressBar: View {
                     .tracking(2.2)
                     .foregroundStyle(Theme.accent)
                 Spacer()
-                Text(String(format: "%02d / %02d", step.rawValue + 1, steps.count))
+                Text(String(format: "%02d / %02d", currentIndex + 1, steps.count))
                     .font(Typography.monoSmall)
                     .foregroundStyle(Theme.textTertiary)
             }

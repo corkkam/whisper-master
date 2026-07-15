@@ -52,6 +52,10 @@ final class AppState {
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
     static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
     static let usageSyncEnabledDefaultsKey = "WhisperMaster.usageSyncEnabled.v1"
+    static let notesSyncEnabledDefaultsKey = "WhisperMaster.notesSyncEnabled.v1"
+    static let voiceCommandsEnabledDefaultsKey = "WhisperMaster.voiceCommands.v1"
+    static let reminderDefaultAlertStyleDefaultsKey = "WhisperMaster.reminderDefaultAlertStyle.v1"
+    static let reminderDefaultSoundDefaultsKey = "WhisperMaster.reminderDefaultSound.v1"
     static let removeFillerWordsDefaultsKey = "WhisperMaster.removeFillerWords.v1"
     static let learnCorrectionsDefaultsKey = "WhisperMaster.learnCorrections.v1"
     static let llmCleanupDefaultsKey = "WhisperMaster.llmCleanup.v1"
@@ -69,6 +73,13 @@ final class AppState {
     /// How long a failed-dictation message stays in the notch before it retracts
     /// on its own (so a failure isn't a wordless glyph that lingers forever).
     static let failedBannerDuration: TimeInterval = 6
+    /// How long the "note saved / reminder set" confirmation stays in the notch
+    /// after a voice command lands in Notes & Reminders.
+    static let commandConfirmationDuration: TimeInterval = 4
+    /// How long the interactive "when should this reminder be?" prompt stays down
+    /// awaiting a tap. Generous, but bounded — if the user walks away it retracts
+    /// (and no reminder is created, since none of the times were chosen).
+    static let reminderTimePromptDuration: TimeInterval = 30
 
     var selectedEngine: TranscriberEngine = .slidingWindow
     var preparedEngine: TranscriberEngine?
@@ -90,6 +101,21 @@ final class AppState {
     /// The gentle-reminder line currently dropped down in the notch, or `nil`.
     /// Transient (never persisted); written only by `ReminderScheduler`.
     var activeReminder: String?
+    /// A spoken reminder that named no time — surfaced as an interactive notch
+    /// quick-prompt ("when?"). Transient; set by the view model when a reminder
+    /// command lands without a time, cleared once the user picks or it expires.
+    var pendingReminderPrompt: PendingReminderPrompt?
+    var pendingReminderPromptAt: Date?
+    /// A brief "note saved" / "reminder set" line shown in the notch right after a
+    /// voice command routes into Notes & Reminders (the paste is suppressed, so
+    /// this is the only feedback). Transient; auto-expired by the refresh loop.
+    var commandConfirmation: String?
+    var commandConfirmationAt: Date?
+    /// A one-shot request to open the Settings window on a given section — set by
+    /// the tappable command-confirmation banner ("tap to change") so a spoken
+    /// reminder's default time is one click from adjustable. Transient; consumed
+    /// (and cleared) by `SettingsView` the moment it flips.
+    var requestedSettingsSection: SettingsSection?
     /// When the last dictation finished with no focused text field to paste
     /// into — so it was saved to history and surfaced as a notch hint instead.
     /// Transient (never persisted); set by the view model, auto-expired by the
@@ -200,6 +226,30 @@ final class AppState {
     var usageSyncEnabled: Bool = true {
         didSet { UserDefaults.standard.set(usageSyncEnabled, forKey: Self.usageSyncEnabledDefaultsKey) }
     }
+    /// Back up notes & reminders to your account and sync them across your Macs.
+    /// **On by default — opt-out.** Local storage always works; this only governs
+    /// the best-effort cloud push/pull.
+    var notesSyncEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(notesSyncEnabled, forKey: Self.notesSyncEnabledDefaultsKey) }
+    }
+    /// Route spoken commands ("remind me to…", "add a note…") into Notes &
+    /// Reminders instead of pasting them. A cheap keyword gate means ordinary
+    /// dictation is untouched; when the on-device model is loaded it makes the
+    /// final call (and can veto a false positive). Persisted; **opt-in** — off
+    /// until the user turns it on, since it changes what happens to a phrase that
+    /// merely starts with "remind me".
+    var voiceCommandsEnabled: Bool = false {
+        didSet { UserDefaults.standard.set(voiceCommandsEnabled, forKey: Self.voiceCommandsEnabledDefaultsKey) }
+    }
+    /// Default alert style new reminders inherit (per-reminder overridable).
+    /// Persisted as the enum raw value. This is the "configure in settings" knob.
+    var reminderDefaultAlertStyle: ReminderAlertStyle = .notification {
+        didSet { UserDefaults.standard.set(reminderDefaultAlertStyle.rawValue, forKey: Self.reminderDefaultAlertStyleDefaultsKey) }
+    }
+    /// Default sound new reminders (and the "Test sound" button) use. Persisted.
+    var reminderDefaultSound: String = ReminderSound.defaultName {
+        didSet { UserDefaults.standard.set(reminderDefaultSound, forKey: Self.reminderDefaultSoundDefaultsKey) }
+    }
     /// Availability of Apple's on-device model (drives the Settings hint).
     /// Refreshed by the status loop so it updates live as the model downloads.
     var appleIntelligenceStatus: AppleIntelligenceStatus = .current
@@ -228,6 +278,11 @@ final class AppState {
     /// via `usageStore.record(...)` from the view model at each stop.
     let usageStore = UsageStore(load: false)
 
+    /// Per-account notes & reminders behind the Notes & Reminders tab. Like
+    /// `usageStore`: starts empty and is scoped to the signed-in account by
+    /// `AppDelegate` (`notesStore.activate`) once auth resolves.
+    let notesStore = NotesStore(load: false)
+
     init() {
         history = Self.loadHistory()
         customVocabulary = Self.loadVocabulary()
@@ -239,6 +294,14 @@ final class AppState {
         analyticsEnabled = UserDefaults.standard.object(forKey: Self.analyticsEnabledDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         usageSyncEnabled = UserDefaults.standard.object(forKey: Self.usageSyncEnabledDefaultsKey) as? Bool ?? true
+        // Opt-out: on unless the user has explicitly turned it off.
+        notesSyncEnabled = UserDefaults.standard.object(forKey: Self.notesSyncEnabledDefaultsKey) as? Bool ?? true
+        // Opt-in: off until the user has explicitly turned it on.
+        voiceCommandsEnabled = UserDefaults.standard.object(forKey: Self.voiceCommandsEnabledDefaultsKey) as? Bool ?? false
+        reminderDefaultAlertStyle = (UserDefaults.standard.string(forKey: Self.reminderDefaultAlertStyleDefaultsKey))
+            .flatMap(ReminderAlertStyle.init(rawValue:)) ?? .notification
+        reminderDefaultSound = ReminderSound.resolved(
+            UserDefaults.standard.string(forKey: Self.reminderDefaultSoundDefaultsKey) ?? ReminderSound.defaultName)
         // Opt-out: on unless the user has explicitly turned it off.
         removeFillerWordsEnabled = UserDefaults.standard.object(forKey: Self.removeFillerWordsDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
@@ -265,10 +328,33 @@ final class AppState {
         phase == .recording
     }
 
+    /// Show the interactive "when should this reminder be?" quick-prompt. Highest
+    /// priority band — it's the immediate, actionable consequence of the command
+    /// the user just spoke, and it needs a tap. Time-bounded so it can't linger.
+    var shouldShowReminderTimePrompt: Bool {
+        guard let at = pendingReminderPromptAt, pendingReminderPrompt != nil else { return false }
+        return Date().timeIntervalSince(at) < Self.reminderTimePromptDuration
+            && phase == .idle
+            && download == nil
+            && preparingEngine == nil
+    }
+
+    /// Show the brief "note saved / reminder set" confirmation. Sits just under
+    /// the quick-prompt (the two never coincide for one command).
+    var shouldShowCommandConfirmation: Bool {
+        guard let at = commandConfirmationAt, commandConfirmation != nil else { return false }
+        return Date().timeIntervalSince(at) < Self.commandConfirmationDuration
+            && phase == .idle
+            && download == nil
+            && preparingEngine == nil
+            && !shouldShowReminderTimePrompt
+    }
+
     /// Show the Bluetooth-mic hint in the notch only when idle (never mid-
     /// recording) and the user hasn't dismissed it.
     var shouldShowBluetoothBanner: Bool {
         bluetoothInputActive && !bluetoothBannerDismissed && phase == .idle
+            && !shouldShowReminderTimePrompt && !shouldShowCommandConfirmation
     }
 
     /// Show the "saved, nowhere to paste" hint when a recent dictation had no

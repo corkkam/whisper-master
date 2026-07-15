@@ -52,6 +52,44 @@ model Result {
   @@index([runId])
 }
 
+/// A user's freeform note, upserted by the macOS app (last-writer-wins by
+/// `updatedAt`). `deletedAt` is a soft-delete tombstone so a delete propagates.
+/// Reads are Bearer-authenticated (NOT public) — notes are personal.
+model Note {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String // Clerk user id (attribution)
+  itemId    String // the app-side stable UUID
+  title     String    @default("")
+  body      String    @default("")
+  createdAt DateTime
+  updatedAt DateTime
+  deletedAt DateTime?
+
+  @@unique([userId, itemId])
+  @@index([userId])
+}
+
+/// A user's time-based reminder, upserted by the macOS app (LWW by `updatedAt`).
+model ReminderItem {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String
+  itemId      String
+  title       String    @default("")
+  body        String    @default("")
+  dueDate     DateTime
+  alertStyle  String    @default("notification") // notification | alarm
+  soundName   String    @default("Glass")
+  repeatRule  String    @default("none") // none | daily | weekly
+  isCompleted Boolean   @default(false)
+  firedAt     DateTime?
+  createdAt   DateTime
+  updatedAt   DateTime
+  deletedAt   DateTime?
+
+  @@unique([userId, itemId])
+  @@index([userId])
+}
+
 /// Per-user, per-day dictation usage rollup, upserted by the macOS app.
 model UsageDaily {
   id                  String   @id @default(auto()) @map("_id") @db.ObjectId

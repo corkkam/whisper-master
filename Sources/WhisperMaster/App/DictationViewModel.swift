@@ -251,6 +251,18 @@ final class DictationViewModel {
                     state.statusMessage = "Finished local transcription."
                     return
                 }
+                // A spoken command? The cheap keyword gate runs first (ordinary
+                // dictation pays nothing); only a command-looking transcript
+                // consults the on-device decision-maker, which routes it into
+                // Notes & Reminders and can still veto a false positive. When it
+                // routes, the paste is *suppressed* — the words became a note or
+                // reminder, not text to type — so we finish here.
+                if await routeVoiceCommandIfNeeded(cleaned) {
+                    reminderScheduler.noteUsed()
+                    Diagnostics.shared.finish(pasteOutcome: "command", finalText: cleaned)
+                    state.statusMessage = "Saved to Notes & Reminders."
+                    return
+                }
                 state.transcript.latestConfirmed = cleaned
                 state.transcript.latestPartial = ""
                 let entryID = state.appendHistory(text: cleaned, engine: state.selectedEngine)
@@ -366,6 +378,93 @@ final class DictationViewModel {
         Diagnostics.shared.noteLLM(ready: true, raw: cleaned, accepted: accepted, ms: ms)
         guard let cleaned, accepted else { return nil }
         return cleaned
+    }
+
+    // MARK: - Voice commands (Notes & Reminders)
+
+    /// Route a finished transcript into Notes & Reminders when it opens like a
+    /// spoken command. Returns `true` when it handled the text (the caller then
+    /// suppresses the paste). Cheap `CommandDetector` gate first — ordinary
+    /// dictation never touches the model; a command-looking transcript consults
+    /// the on-device decision-maker, which extracts the pieces and can still veto
+    /// a false positive (→ `.dictation`, returns `false`, paste as usual).
+    private func routeVoiceCommandIfNeeded(_ text: String) async -> Bool {
+        guard state.voiceCommandsEnabled else { return false }
+        guard let detected = CommandDetector.detect(text) else { return false }
+        let intent = await classifyIntent(text, fallback: detected)
+        switch intent.kind {
+        case .dictation:
+            return false
+        case .note:
+            createNote(from: intent, fallbackBody: detected.payload)
+            return true
+        case .reminder:
+            createReminder(from: intent, fallbackTitle: detected.payload)
+            return true
+        }
+    }
+
+    /// Ask the on-device model to classify + extract, but only when it's already
+    /// loaded — a command must never block on a cold model download. Falls back
+    /// to the deterministic mapping of the keyword gate otherwise (so a reminder
+    /// still lands, just with no extracted time → the default-time path asks).
+    private func classifyIntent(_ text: String, fallback: DetectedCommand) async -> ClassifiedIntent {
+        guard await MlxCleanupService.shared.isReady else { return ClassifiedIntent(fallback) }
+        guard let raw = await MlxCleanupService.shared.clean(text, systemPrompt: IntentPrompt.system),
+              let parsed = IntentClassifier.parse(raw)
+        else { return ClassifiedIntent(fallback) }
+        return parsed
+    }
+
+    private func createNote(from intent: ClassifiedIntent, fallbackBody: String) {
+        let body = intent.body.isEmpty ? fallbackBody : intent.body
+        state.notesStore.upsertNote(Note(title: intent.title, body: body))
+        state.commandConfirmation = "Note saved"
+        state.commandConfirmationAt = Date()
+        Feedback.delivered(soundEnabled: state.soundEnabled)
+    }
+
+    private func createReminder(from intent: ClassifiedIntent, fallbackTitle: String) {
+        let now = Date()
+        let stated = intent.timePhrase.flatMap { RelativeTimeParser.parse($0, now: now) }
+        let due = stated ?? Self.defaultReminderDue(now: now)
+        let title = intent.title.isEmpty ? fallbackTitle : intent.title
+        state.notesStore.upsertReminder(ReminderItem(
+            title: title,
+            body: intent.body,
+            dueDate: due,
+            alertStyle: state.reminderDefaultAlertStyle,
+            soundName: state.reminderDefaultSound))
+        let when = Self.reminderTimeString(due, now: now)
+        // A stated time is set; an unstated one gets a default the user can adjust
+        // by tapping the banner (→ Settings → Notes & Reminders).
+        state.commandConfirmation = stated != nil
+            ? "Reminder set for \(when)"
+            : "Reminder set for \(when) · tap to change"
+        state.commandConfirmationAt = now
+        Feedback.delivered(soundEnabled: state.soundEnabled)
+    }
+
+    /// Default due time for a reminder whose "when?" wasn't stated (or couldn't be
+    /// parsed): one hour out — the same default the manual "Add reminder" uses.
+    private static func defaultReminderDue(now: Date) -> Date {
+        Calendar.current.date(byAdding: .hour, value: 1, to: now) ?? now.addingTimeInterval(3600)
+    }
+
+    /// A short, human due-time label for the confirmation banner: "5:00 PM" today,
+    /// "tomorrow 9:00 AM", else "Mon 9:00 AM".
+    private static func reminderTimeString(_ date: Date, now: Date) -> String {
+        let cal = Calendar.current
+        let f = DateFormatter()
+        if cal.isDate(date, inSameDayAs: now) {
+            f.dateFormat = "h:mm a"
+        } else if let tomorrow = cal.date(byAdding: .day, value: 1, to: now),
+                  cal.isDate(date, inSameDayAs: tomorrow) {
+            f.dateFormat = "'tomorrow' h:mm a"
+        } else {
+            f.setLocalizedDateFormatFromTemplate("EEE h mm a")
+        }
+        return f.string(from: date)
     }
 
     /// Start watching the pasted field for the user's own fix-ups (to grow the

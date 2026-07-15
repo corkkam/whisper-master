@@ -30,7 +30,7 @@ enum SnapshotMode {
 
         // Full window (top-tab masthead + body). The detail ScrollView may
         // collapse in ImageRenderer, so the per-section panels below carry the body.
-        for section in [SettingsSection.recording, .history, .engine] {
+        for section in [SettingsSection.settings, .history, .engine] {
             render(
                 SettingsView(viewModel: viewModel, state: state, initialSection: section)
                     .frame(width: 900, height: 700),
@@ -112,8 +112,8 @@ enum SnapshotMode {
     private static func sectionView(_ section: SettingsSection, viewModel: DictationViewModel, state: AppState) -> some View {
         switch section {
         case .insights: InsightsSettingsView(viewModel: viewModel, state: state)
-        case .recording: RecordingSettingsView(viewModel: viewModel, state: state)
-        case .transcript: TranscriptSettingsView(state: state)
+        case .notes: NotesSettingsView(state: state)
+        case .settings: GeneralSettingsView(viewModel: viewModel, state: state)
         case .engine: EngineSettingsView(viewModel: viewModel, state: state)
         case .mesh: MeshSettingsView(viewModel: viewModel, state: state)
         case .history: HistorySettingsView(viewModel: viewModel, state: state)
@@ -149,6 +149,31 @@ enum SnapshotMode {
             TranscriptHistoryEntry(text: "The quick brown fox jumps over the lazy dog.", createdAt: Date(timeIntervalSinceNow: -7200), engineRawValue: TranscriberEngine.slidingWindow.rawValue),
         ]
         seedUsage(state.usageStore)
+        seedNotes(state.notesStore)
+    }
+
+    /// A couple of believable notes + reminders so the Notes & Reminders panel
+    /// renders with real-looking content (never touches a real per-account file).
+    private static func seedNotes(_ store: NotesStore) {
+        store.persistenceEnabled = false
+        store.upsertNote(Note(
+            title: "Demo script",
+            body: "Open with the notch pill, then dictate into Slack to show live paste."))
+        store.upsertNote(Note(
+            title: "Follow-ups",
+            body: "Ping design about the Daylight tokens; sync FluidAudio version."))
+        store.upsertReminder(ReminderItem(
+            title: "Stand-up",
+            body: "Daily team sync",
+            dueDate: Date(timeIntervalSinceNow: 3_600),
+            alertStyle: .notification,
+            soundName: "Ping",
+            repeatRule: .daily))
+        store.upsertReminder(ReminderItem(
+            title: "Ship the release build",
+            dueDate: Date(timeIntervalSinceNow: 7_200),
+            alertStyle: .alarm,
+            soundName: "Sosumi"))
     }
 
     /// Feed the Insights dashboard believable history: several dictations a day

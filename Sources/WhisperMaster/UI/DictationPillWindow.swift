@@ -9,12 +9,16 @@ final class DictationPillWindow {
     private let host: NSHostingView<DictationPillContent>
     private let state: AppState
     private let layout = NotchSurfaceLayout()
+    /// Opens Settings → Notes & Reminders when the command-confirmation banner is
+    /// tapped. Injected by `AppDelegate`, which owns the settings window.
+    private let onOpenNotes: () -> Void
 
     private var screenObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
 
-    init(state: AppState) {
+    init(state: AppState, onOpenNotes: @escaping () -> Void = {}) {
         self.state = state
+        self.onOpenNotes = onOpenNotes
 
         panel = NSPanel(
             contentRect: .zero,
@@ -30,7 +34,7 @@ final class DictationPillWindow {
         panel.isMovable = false
         panel.ignoresMouseEvents = true
 
-        host = NSHostingView(rootView: DictationPillContent(state: state))
+        host = NSHostingView(rootView: DictationPillContent(state: state, onOpenNotes: onOpenNotes))
         host.autoresizingMask = [.width, .height]
         panel.contentView = host
 
@@ -66,7 +70,7 @@ final class DictationPillWindow {
         let origin = layout.panelOrigin(for: geometry, on: screen)
 
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
-        host.rootView = DictationPillContent(state: state, geometry: geometry, layout: layout)
+        host.rootView = DictationPillContent(state: state, geometry: geometry, layout: layout, onOpenNotes: onOpenNotes)
     }
 
     private func observeEnvironment() {

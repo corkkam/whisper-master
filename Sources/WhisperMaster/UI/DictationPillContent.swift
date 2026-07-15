@@ -10,6 +10,9 @@ struct DictationPillContent: View {
     let state: AppState
     var geometry: NotchGeometry = .none
     var layout: NotchSurfaceLayout = NotchSurfaceLayout()
+    /// Tap action for the command-confirmation banner — opens Settings → Notes &
+    /// Reminders so a spoken reminder's default time is one click from editable.
+    var onOpenNotes: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -19,26 +22,32 @@ struct DictationPillContent: View {
         return false
     }
 
-    /// The "nowhere to paste" hint is the highest-priority band — it's the
-    /// immediate consequence of the dictation the user just finished.
-    private var showUndelivered: Bool { state.shouldShowUndeliveredBanner }
+    /// The "note saved / reminder set" confirmation after a spoken command routed
+    /// into Notes & Reminders — highest priority, since the paste was suppressed
+    /// and this is the user's only feedback that the words went somewhere.
+    private var showCommandConfirmation: Bool { state.shouldShowCommandConfirmation }
+
+    /// The "nowhere to paste" hint — the immediate consequence of a dictation
+    /// that had no target field.
+    private var showUndelivered: Bool { !showCommandConfirmation && state.shouldShowUndeliveredBanner }
 
     /// The "learned a word" confirmation — just under the undelivered hint.
-    private var showLearned: Bool { !showUndelivered && state.shouldShowLearnedBanner }
+    private var showLearned: Bool { !showCommandConfirmation && !showUndelivered && state.shouldShowLearnedBanner }
 
     /// The one-shot "smart cleanup is ready" confirmation — just under the
     /// learned hint. (Model download *progress* never appears here.)
-    private var showCleanupReady: Bool { !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
+    private var showCleanupReady: Bool { !showCommandConfirmation && !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
 
     /// The Bluetooth-mic hint takes precedence over the dictation indicator and
     /// uses a taller band to fit its text + button.
-    private var showBanner: Bool { !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
+    private var showBanner: Bool { !showCommandConfirmation && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
 
     /// A gentle reminder — lower priority than the hints above, shown only when
     /// idle (`AppState.shouldShowReminder` already gates that).
-    private var showReminder: Bool { !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
+    private var showReminder: Bool { !showCommandConfirmation && !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
 
     private var bandThickness: CGFloat {
+        if showCommandConfirmation { return layout.commandConfirmationThickness }
         if showUndelivered { return layout.undeliveredThickness }
         if showLearned { return layout.learnedThickness }
         if showCleanupReady { return layout.cleanupReadyThickness }
@@ -55,7 +64,7 @@ struct DictationPillContent: View {
     /// Whether the surface should be dropped down and visible.
     private var isExpanded: Bool {
         // Hints + the delivered beat show even when idle.
-        if showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
+        if showCommandConfirmation || showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
             || state.shouldShowDeliveredBeat { return true }
         guard hasContent else { return false }
         if state.phase == .idle && state.hidePillWhenIdle { return false }
@@ -94,9 +103,10 @@ struct DictationPillContent: View {
         .clipShape(shape)
         .opacity(isExpanded ? 1 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        // Only the interactive banner takes clicks; the dictation indicator stays
-        // click-through (the panel toggles ignoresMouseEvents to match).
-        .allowsHitTesting(showBanner)
+        // Only the interactive banners take clicks (the Bluetooth "use built-in"
+        // button and the tappable command confirmation); the dictation indicator
+        // stays click-through (the panel toggles ignoresMouseEvents to match).
+        .allowsHitTesting(showBanner || showCommandConfirmation)
         // Appear *instantly* (no animation when expanding), animate only the
         // retract. A spring on the way in read as "the notch appears late" even
         // though the state flips synchronously on key-press. Banners (below) keep
@@ -107,12 +117,17 @@ struct DictationPillContent: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showCleanupReady)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showBanner)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showReminder)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showCommandConfirmation)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowDeliveredBeat)
     }
 
     @ViewBuilder
     private var band: some View {
-        if showUndelivered {
+        if showCommandConfirmation, let message = state.commandConfirmation {
+            NotchCommandConfirmationBanner(message: message)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onOpenNotes)
+        } else if showUndelivered {
             NotchUndeliveredBanner()
         } else if showLearned, let term = state.learnedTerm {
             NotchLearnedBanner(term: term)
