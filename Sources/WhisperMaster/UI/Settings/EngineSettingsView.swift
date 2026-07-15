@@ -8,32 +8,20 @@ struct EngineSettingsView: View {
     @Bindable var state: AppState
     @Environment(\.isSnapshot) private var isSnapshot
 
-    /// Raw editor text for the custom-words field. Kept separate from the parsed
-    /// `[String]` glossary so typing newlines/blank lines isn't fought by a
-    /// normalizing binding — flows draft → state only, never back.
-    @State private var vocabularyDraft = ""
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 26) {
             ForEach(TranscriberEngine.allCases) { engine in
                 engineCard(engine)
             }
-
-            SectionLabel("Engine status")
-            statusCard
-
-            SectionLabel("Words to get right")
-            vocabularyCard
 
             SectionLabel("Formatting")
             formattingCard
 
             SectionLabel("Smart cleanup")
             SmartCleanupSettingsSection(state: state)
-        }
-        .onAppear {
-            vocabularyDraft = state.customVocabulary.joined(separator: "\n")
-            state.appleIntelligenceStatus = .current
+
+            SectionLabel("Words to get right")
+            vocabularyCard
         }
     }
 
@@ -57,13 +45,11 @@ struct EngineSettingsView: View {
                         .foregroundStyle(Theme.textSecondary)
                 }
                 Spacer()
-                VStack(alignment: .trailing, spacing: 3) {
+                VStack(alignment: .trailing, spacing: 5) {
                     Text(engine.estimatedDownloadSize)
                         .font(Typography.sans(16, .semibold))
                         .foregroundStyle(Theme.textPrimary)
-                    Text(engine.isInstalled ? "Installed" : "Not installed")
-                        .font(Typography.caption)
-                        .foregroundStyle(engine.isInstalled ? Theme.success : Theme.textTertiary)
+                    engineStatusInline(engine)
                 }
             }
             .padding(18)
@@ -83,45 +69,26 @@ struct EngineSettingsView: View {
         .opacity(engineSelectionEnabled ? 1 : 0.55)
     }
 
-    // MARK: - Status card
+    // MARK: - Engine status (inline, right side of the engine card)
 
-    private var statusCard: some View {
-        SettingsCard {
-            SettingsRow("Status") {
-                engineStatusBadge
-            }
-            RowDivider()
-            SettingsRow("Model location") {
-                HStack(spacing: 12) {
-                    Text("~/Library/…/FluidAudio/Models")
-                        .font(Typography.mono)
-                        .foregroundStyle(Theme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    SecondaryButton(title: "Reveal", icon: "folder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([state.selectedEngine.localModelURL])
-                    }
-                }
-            }
-        }
-    }
-
+    /// Live readiness shown inside the engine card, so status has no orphaned
+    /// section of its own: a spinner + progress while preparing, else a dot +
+    /// "Ready" / "Not installed".
     @ViewBuilder
-    private var engineStatusBadge: some View {
-        if state.preparingEngine == state.selectedEngine {
-            HStack(spacing: 8) {
+    private func engineStatusInline(_ engine: TranscriberEngine) -> some View {
+        if state.selectedEngine == engine, state.preparingEngine == engine {
+            HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
                 Text(modelStatusText)
                     .font(Typography.caption)
                     .foregroundStyle(Theme.textSecondary)
             }
         } else {
-            let ready = state.selectedEngine.isInstalled
-            HStack(spacing: 8) {
-                StatusDot(color: ready ? Theme.success : Theme.textTertiary, size: 9)
-                Text(ready ? "Ready" : "Setup needed")
+            HStack(spacing: 6) {
+                StatusDot(color: engine.isInstalled ? Theme.success : Theme.textTertiary, size: 8)
+                Text(engine.isInstalled ? "Ready" : "Not installed")
                     .font(Typography.caption)
-                    .foregroundStyle(ready ? Theme.success : Theme.textSecondary)
+                    .foregroundStyle(engine.isInstalled ? Theme.success : Theme.textTertiary)
             }
         }
     }
@@ -131,89 +98,31 @@ struct EngineSettingsView: View {
     private var formattingCard: some View {
         SettingsCard {
             SettingsRow("Format numbers & symbols",
-                        subtitle: "Writes spoken numbers and symbols short — \u{201C}twenty five\u{201D} becomes \u{201C}25\u{201D}, \u{201C}at gmail dot com\u{201D} becomes \u{201C}@gmail.com\u{201D}. Runs instantly on-device.") {
+                        subtitle: "Writes spoken numbers and symbols short. \u{201C}twenty five\u{201D} becomes \u{201C}25\u{201D}, and \u{201C}at gmail dot com\u{201D} becomes \u{201C}@gmail.com\u{201D}. Runs instantly on-device.") {
                 ThemeToggle(isOn: $state.itnEnabled)
             }
-
             RowDivider()
-
-            SettingsRow("Use Apple Intelligence",
-                        subtitle: "Experimental: format with Apple\u{2019}s on-device language model instead of the built-in rules. Slower, and needs Apple Intelligence turned on. Off keeps the model unloaded.") {
-                ThemeToggle(isOn: $state.useAppleIntelligence)
-            }
-
-            if state.useAppleIntelligence, let hint = state.appleIntelligenceStatus.settingsHint {
-                RowDivider()
-                HStack(alignment: .top, spacing: 10) {
-                    Text(hint)
-                        .font(Typography.caption)
-                        .foregroundStyle(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
-                    if state.appleIntelligenceStatus.canOpenSettings {
-                        Button("Open Settings") { openAppleIntelligenceSettings() }
-                            .buttonStyle(.link)
-                            .font(Typography.caption)
-                            .fixedSize()
-                    }
-                }
-                .padding(.vertical, 13)
+            SettingsRow("Remove filler words",
+                        subtitle: "Strip \"um\", \"uh\", \"hmm\" and friends from the transcript.") {
+                ThemeToggle(isOn: $state.removeFillerWordsEnabled)
             }
         }
     }
 
-    private func openAppleIntelligenceSettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.AppleIntelligence-Settings.extension")
-            ?? URL(string: "x-apple.systempreferences:")!
-        NSWorkspace.shared.open(url)
-    }
-
     private var vocabularyCard: some View {
-        // Hairline group; the editor text sits flush at the same left edge as the
-        // description and helper (no nested box) so everything lines up.
         SettingsCard {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Names, acronyms, or jargon the app keeps mishearing — one per line. It listens harder for these, so e.g. \u{201C}RAG\u{201D} stops coming out as \u{201C}rack\u{201D}.")
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Names, acronyms, or jargon the app keeps mishearing. It listens harder for these, so \u{201C}RAG\u{201D} stops coming out as \u{201C}rack\u{201D}.")
                     .font(Typography.body)
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.vertical, 16)
 
-                RowDivider()
+                VocabularyEditor(terms: $state.customVocabulary)
 
-                ZStack(alignment: .topLeading) {
-                    if vocabularyDraft.isEmpty {
-                        Text("Parakeet\nRAG: rag, rack\nLyzr: liser, lizer")
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundStyle(Theme.textTertiary)
-                            .allowsHitTesting(false)
-                    }
-                    if isSnapshot {
-                        // Static stand-in: TextEditor (NSTextView) can't render in ImageRenderer.
-                        Text(vocabularyDraft.isEmpty ? " " : vocabularyDraft)
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundStyle(Theme.textPrimary)
-                            .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
-                    } else {
-                        TextEditor(text: $vocabularyDraft)
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundStyle(Theme.textPrimary)
-                            .scrollContentBackground(.hidden)
-                            .frame(height: 92)
-                            .padding(.leading, -5)   // cancel NSTextView's inset so text aligns flush
-                            .onChange(of: vocabularyDraft) { _, text in
-                                updateVocabulary(from: text)
-                            }
-                    }
-                }
-                .padding(.vertical, 13)
-
-                RowDivider()
-
-                Text("One word or phrase per line. If a word keeps coming out wrong, teach it the mishearing with a colon — RAG: rack. Saved automatically.")
+                Text("Type a word and press Return. To fix a specific mishearing, add a colon, like RAG: rack.")
                     .font(Typography.caption)
                     .foregroundStyle(Theme.textTertiary)
-                    .padding(.vertical, 13)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 RowDivider()
 
@@ -222,16 +131,8 @@ struct EngineSettingsView: View {
                     ThemeToggle(isOn: $state.learnCorrectionsEnabled)
                 }
             }
+            .padding(.vertical, 18)
         }
-    }
-
-    /// Parse the raw editor text into the stored glossary (one term per line,
-    /// blanks ignored). One-way: draft → state.
-    private func updateVocabulary(from text: String) {
-        state.customVocabulary = text
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
     }
 
     // MARK: - Derived

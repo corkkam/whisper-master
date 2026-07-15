@@ -18,9 +18,9 @@ struct NotchUndeliveredBanner: View {
                     .foregroundStyle(.white)
 
                 HStack(spacing: 4) {
-                    Text("Saved to history. Press")
-                    KeyHint("⇧⌘V")
-                    Text("or click the menu bar to paste")
+                    Text("Copied to clipboard. Press")
+                    KeyHint("⌘V")
+                    Text("to paste")
                 }
                 .font(.system(size: 10.5, weight: .regular))
                 .foregroundStyle(.white.opacity(0.55))

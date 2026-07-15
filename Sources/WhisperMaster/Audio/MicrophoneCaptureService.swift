@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import CoreAudio
 import Foundation
 
 final class MicrophoneCaptureService {
@@ -15,6 +16,13 @@ final class MicrophoneCaptureService {
     private var levelHandler: LevelHandler?
     private var isCapturing = false
 
+    private var rewarmWork: DispatchWorkItem?
+    private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
+    private static var deviceListAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDevices,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain)
+
     func ensurePermission() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
@@ -25,6 +33,63 @@ final class MicrophoneCaptureService {
             return false
         @unknown default:
             return false
+        }
+    }
+
+    /// Warm the capture graph so the first real `start()` doesn't pay the full
+    /// cold Core Audio spin-up (measured at ~300-500 ms, which was clipping the
+    /// user's first words). Resolves the input format, prepares the engine, and
+    /// does a brief IO start/stop to bring the HAL input driver into residency.
+    /// Installs **no tap**, so nothing is captured — the mic activates only for
+    /// the instant it takes to warm. Best-effort: any failure just means the
+    /// first real recording pays the usual cost. No device manipulation, so this
+    /// stays clear of the audio-routing hazards in the recording path.
+    func prewarm() {
+        guard !isCapturing else { return }
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { return }
+        engine.prepare()
+        do {
+            try engine.start()
+            engine.stop()
+        } catch {
+            // Warm-up is advisory only.
+        }
+    }
+
+    /// Keep the warm state fresh: re-warm whenever the audio device topology
+    /// changes (e.g. AirPods connect/disconnect), which invalidates the launch-
+    /// time warm — the next `start()` would otherwise pay the full cold cost
+    /// again. Read-only Core Audio observation; the actual re-warm is debounced
+    /// and only runs while idle. Installs the listener once.
+    func startAutoRewarm() {
+        guard deviceListenerBlock == nil else { return }
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.scheduleRewarm()
+        }
+        deviceListenerBlock = block
+        AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &Self.deviceListAddress, DispatchQueue.main, block)
+    }
+
+    private func scheduleRewarm() {
+        // Device changes arrive in bursts; warm once, after the route settles.
+        rewarmWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.isCapturing,
+                  AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+            else { return }
+            self.prewarm()
+        }
+        rewarmWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+
+    deinit {
+        if let block = deviceListenerBlock {
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject), &Self.deviceListAddress, DispatchQueue.main, block)
         }
     }
 

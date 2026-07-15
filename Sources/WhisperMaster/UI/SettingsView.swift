@@ -38,7 +38,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .recording: return "How dictation starts, stops, and lands where you're typing."
-        case .engine: return "Everything runs on-device — your audio never leaves this Mac."
+        case .engine: return "Everything runs on-device. Your audio never leaves this Mac."
         case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
         case .history: return "Your recent transcriptions, kept locally."
         case .permissions: return "Whisper Master only asks for what it needs to work."
@@ -56,6 +56,18 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .about: return "Whisper Master"
         }
     }
+
+    /// SF Symbol shown beside the title in the sidebar.
+    var icon: String {
+        switch self {
+        case .recording: return "mic"
+        case .engine: return "waveform"
+        case .mesh: return "laptopcomputer"
+        case .history: return "clock"
+        case .permissions: return "shield"
+        case .about: return "info.circle"
+        }
+    }
 }
 
 /// The settings window — "Daylight": a light, editorial layout with a top tab
@@ -64,6 +76,7 @@ struct SettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
     var reopenOnboarding: () -> Void = {}
+    var checkForUpdates: () -> Void = {}
     var startSetup: () -> Void = {}
     var cancelSetup: () -> Void = {}
     var initialSection: SettingsSection = .recording
@@ -79,6 +92,7 @@ struct SettingsView: View {
         viewModel: DictationViewModel,
         state: AppState,
         reopenOnboarding: @escaping () -> Void = {},
+        checkForUpdates: @escaping () -> Void = {},
         startSetup: @escaping () -> Void = {},
         cancelSetup: @escaping () -> Void = {},
         initialSection: SettingsSection = .recording
@@ -86,6 +100,7 @@ struct SettingsView: View {
         self.viewModel = viewModel
         _state = Bindable(wrappedValue: state)
         self.reopenOnboarding = reopenOnboarding
+        self.checkForUpdates = checkForUpdates
         self.startSetup = startSetup
         self.cancelSetup = cancelSetup
         self.initialSection = initialSection
@@ -153,22 +168,26 @@ struct SettingsView: View {
         return Button {
             selection = section
         } label: {
-            Text(section.title)
-                .font(Typography.sans(16.5, isSelected ? .bold : .regular))
-                .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 20)
-                .padding(.trailing, 16)
-                .padding(.vertical, 12)
-                .background(isSelected ? Theme.selection : Color.clear)   // full-width band, no radius
-                .overlay(alignment: .leading) {
-                    if isSelected {
-                        Rectangle().fill(Theme.accent).frame(width: 3)     // full-height accent bar
-                    }
-                }
-                .contentShape(Rectangle())
+            HStack(spacing: 13) {
+                Image(systemName: section.icon)
+                    .font(.system(size: 16, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? Theme.accent : Theme.textSecondary)
+                    .frame(width: 22, alignment: .center)
+                Text(section.title)
+                    .font(Typography.sans(16.5, isSelected ? .bold : .regular))
+                    .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isSelected ? Theme.selection : Color.clear)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, 12)   // inset the pill from the sidebar edges
     }
 
     // MARK: - Detail
@@ -238,7 +257,7 @@ struct SettingsView: View {
                 accessibilityGranted: accessibilityGranted
             )
         case .about:
-            AboutSettingsView(state: state, reopenOnboarding: reopenOnboarding)
+            AboutSettingsView(state: state, reopenOnboarding: reopenOnboarding, checkForUpdates: checkForUpdates)
         }
     }
 

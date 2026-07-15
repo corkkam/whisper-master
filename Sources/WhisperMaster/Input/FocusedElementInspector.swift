@@ -29,6 +29,82 @@ enum FocusedElementInspector {
         return isConfidentlyNonEditable(focused as! AXUIElement)
     }
 
+    /// True only when a focused element with a clearly non-text role (a button,
+    /// checkbox, slider, …) holds focus. Unlike `noEditableTarget()`, this is
+    /// `false` when **nothing** is focused or focus is unreadable/ambiguous (web
+    /// areas, Electron views) — so callers still attempt a ⌘V paste there, the
+    /// case Accessibility can't see but a real paste handles fine.
+    static func focusIsConfidentlyNonEditable() -> Bool {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            systemWide, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+            let focused
+        else { return false }
+        return isConfidentlyNonEditable(focused as! AXUIElement)
+    }
+
+    /// The focused element **only when it's a confidently editable, AX-readable
+    /// text target** (a settable value, or a text-field/area/combo role). This is
+    /// the case where per-character typing works *and* the in-place refiner can
+    /// later find and edit the text — i.e. native fields. Returns `nil` for web /
+    /// Electron / unreadable focus, where the caller should paste via ⌘V instead.
+    static func editableTarget() -> AXUIElement? {
+        guard let element = focusedElement() else { return nil }
+        var settable: DarwinBoolean = false
+        if AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success,
+           settable.boolValue {
+            return element
+        }
+        if let role = stringAttribute(element, kAXRoleAttribute),
+           role == kAXTextFieldRole || role == kAXTextAreaRole || role == kAXComboBoxRole {
+            return element
+        }
+        return nil
+    }
+
+    /// True when a focused element holds focus but exposes **no way to type** —
+    /// not settable, no text role, and no caret (`kAXSelectedTextRange`). This is
+    /// the "nowhere to type" case AX *can* see: a web area / container / button
+    /// that has focus while no actual text field does (e.g. clicking off the
+    /// message box in an Electron app), which is where a blind ⌘V vanished.
+    ///
+    /// A genuine text target — including a web / Electron `contentEditable` that
+    /// AX won't label a text field — still exposes a caret, so it returns `false`
+    /// here and keeps the ⌘V paste path. When focus is entirely unreadable (`nil`)
+    /// we stay conservative and return `false`, leaving that to ⌘V as before.
+    static func focusHasNoTextTarget() -> Bool {
+        guard let element = focusedElement() else { return false }
+
+        var settable: DarwinBoolean = false
+        if AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success,
+           settable.boolValue {
+            return false
+        }
+        if let role = stringAttribute(element, kAXRoleAttribute),
+           role == kAXTextFieldRole || role == kAXTextAreaRole || role == kAXComboBoxRole {
+            return false
+        }
+        // Present, not typeable by role/settability: a real text target still has
+        // a caret; its absence means there's nowhere for the text to land.
+        return selectedRange(of: element) == nil
+    }
+
+    /// Compact, read-only description of the focused element for diagnostics —
+    /// its role plus which text-editing affordances it exposes. Lets us see, after
+    /// the fact, exactly why a paste took the native / web / nowhere route, so the
+    /// "nowhere to type" classifier can be built from real data instead of guesses.
+    static func focusDiagnostic() -> String {
+        guard let element = focusedElement() else { return "role=none" }
+        let role = stringAttribute(element, kAXRoleAttribute) ?? "unreadable"
+        var settable: DarwinBoolean = false
+        AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable)
+        let hasValue = stringValue(of: element) != nil
+        let hasRange = selectedRange(of: element) != nil
+        return "role=\(role) settable=\(settable.boolValue ? 1 : 0)"
+            + " value=\(hasValue ? 1 : 0) selRange=\(hasRange ? 1 : 0)"
+    }
+
     private static func isConfidentlyNonEditable(_ element: AXUIElement) -> Bool {
         // A settable value means we can type here → definitely a target.
         var settable: DarwinBoolean = false
@@ -46,12 +122,15 @@ enum FocusedElementInspector {
             return false // editable text input
         case kAXButtonRole, kAXCheckBoxRole, kAXRadioButtonRole,
              kAXPopUpButtonRole, kAXMenuButtonRole, kAXMenuItemRole,
-             kAXImageRole, kAXStaticTextRole, kAXSliderRole,
-             kAXWindowRole, kAXScrollAreaRole, kAXOutlineRole,
-             kAXTableRole, kAXListRole:
-            return true // focus is somewhere text can't go
+             kAXImageRole, kAXStaticTextRole, kAXSliderRole:
+            return true // an interactive non-text control clearly holds focus
         default:
-            return false // unknown (web view / custom) → ambiguous → don't warn
+            // Everything else is ambiguous → attempt the paste. Container roles
+            // (scroll area, window, list, table, outline, web area) are commonly
+            // what Electron / browser / custom-UI apps report *while the real
+            // editable field is focused* — flagging them "no target" wrongly
+            // blocked a paste that actually works, so we no longer do.
+            return false
         }
     }
 

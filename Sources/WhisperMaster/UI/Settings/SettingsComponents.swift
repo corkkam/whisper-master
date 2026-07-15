@@ -1,11 +1,13 @@
 import SwiftUI
 
-// Daylight building blocks: rows separated by hairlines (no heavy cards), with a
-// subtle boxed variant reserved for tiles and the words field.
+// Daylight building blocks: settings are grouped into soft, warm cards that lift
+// off the white canvas. Rows sit *inside* a card, so any separator reads as a
+// grouped-row inset rather than a floating underline.
 
-/// A group of settings rows. Default is an airy hairline group (a rule top and
-/// bottom, no fill). Pass `boxed: true` for the few elements that want a panel
-/// (stat tiles, the words field, the engine row).
+/// A group of settings rows, rendered as one filled card. `boxed` no longer
+/// changes the look (every group is a card now); it only tells the card the
+/// content brings its own all-around padding (tiles / the words field) so the
+/// card shouldn't add its own horizontal inset.
 struct SettingsCard<Content: View>: View {
     var boxed: Bool = false
     var contentPadding: CGFloat = 0
@@ -15,29 +17,16 @@ struct SettingsCard<Content: View>: View {
         VStack(spacing: 0) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(contentPadding)
-            .modifier(GroupChrome(boxed: boxed))
-    }
-}
-
-private struct GroupChrome: ViewModifier {
-    let boxed: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if boxed {
-            content
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.surface)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                        .strokeBorder(Theme.stroke, lineWidth: 1)
-                )
-        } else {
-            content
-                .overlay(alignment: .top) { Rectangle().fill(Theme.stroke).frame(height: 1) }
-                .overlay(alignment: .bottom) { Rectangle().fill(Theme.stroke).frame(height: 1) }
-        }
+            .padding(.horizontal, boxed ? 0 : 22)   // inset rows from the rounded edge
+            .background(
+                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                    .fill(Theme.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                    .strokeBorder(Theme.stroke, lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.05), radius: 14, x: 0, y: 4)
     }
 }
 

@@ -117,7 +117,27 @@ jobs:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+          # Baked into Info.plist by bundle.sh so shipped builds have analytics.
+          # Publishable client key, not a real secret; add it as a repo secret.
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
         run: bash Scripts/release.sh
+
+      - name: Publish shareable DMG to R2
+        # Reuses the app release.sh already built + notarized + stapled, wraps it
+        # in a notarized DMG, and uploads it to a STABLE link
+        # (…/WhisperMaster.dmg, always the newest) plus a versioned copy — so
+        # there's always a warning-free direct-download link to hand out.
+        # notarize.sh skips the already-stapled app, so only the DMG itself pays
+        # a notary round-trip. NOTARY_KEY_P8 is already in $GITHUB_ENV.
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+        run: bash Scripts/publish-dmg.sh
 
       - name: Announce release on Telegram
         # Only after a successful upload. No-ops (exit 0) if the Telegram secrets

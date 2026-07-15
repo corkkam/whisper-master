@@ -24,11 +24,6 @@ struct RecordingSettingsView: View {
                     ThemeToggle(isOn: $state.autoPasteEnabled)
                 }
                 RowDivider()
-                SettingsRow("Remove filler words",
-                            subtitle: "Strip \"um\", \"uh\", \"hmm\" and friends from the transcript.") {
-                    ThemeToggle(isOn: $state.removeFillerWordsEnabled)
-                }
-                RowDivider()
                 SettingsRow("Play start / stop sound",
                             subtitle: "Subtle click when recording begins or ends.") {
                     ThemeToggle(isOn: $state.soundEnabled)
@@ -38,11 +33,6 @@ struct RecordingSettingsView: View {
             SectionLabel("Appearance")
 
             SettingsCard {
-                SettingsRow("Hide pill when idle",
-                            subtitle: "The floating dictation pill stays hidden between recordings.") {
-                    ThemeToggle(isOn: $state.hidePillWhenIdle)
-                }
-                RowDivider()
                 SettingsRow("Gentle reminders",
                             subtitle: "A quiet nudge in the notch if you haven't dictated in a while.") {
                     ThemeToggle(isOn: $state.remindersEnabled)

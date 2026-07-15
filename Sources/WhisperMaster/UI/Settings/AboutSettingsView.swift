@@ -6,6 +6,7 @@ import SwiftUI
 struct AboutSettingsView: View {
     @Bindable var state: AppState
     var reopenOnboarding: () -> Void = {}
+    var checkForUpdates: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
@@ -23,12 +24,16 @@ struct AboutSettingsView: View {
             }
 
             HStack(spacing: 12) {
+                SecondaryButton(title: "Check for updates", icon: "arrow.triangle.2.circlepath") {
+                    checkForUpdates()
+                }
                 SecondaryButton(title: "Reveal models", icon: "folder") {
                     NSWorkspace.shared.activateFileViewerSelecting([state.selectedEngine.localModelURL])
                 }
                 PrimaryButton(title: "Reopen onboarding", icon: "sparkles") {
                     reopenOnboarding()
                 }
+                Spacer(minLength: 0)
             }
 
             SettingsCard {
@@ -55,7 +60,7 @@ struct AboutSettingsView: View {
 
             SettingsCard {
                 SettingsRow("Share anonymous usage",
-                            subtitle: "App version, macOS, and feature counts — never your transcripts. Helps improve the app.") {
+                            subtitle: "App version, macOS, and feature counts, never your transcripts. Helps improve the app.") {
                     ThemeToggle(isOn: $state.analyticsEnabled)
                 }
             }
