@@ -39,9 +39,12 @@ struct NotchSurfaceLayout {
     /// How far the surface extends beyond the notch on each side — wide wings
     /// that spread well past the notch.
     var sideExtension: CGFloat = 124
-    /// Thickness of the band below the notch that holds the content. Kept
-    /// shallow so the surface reads as a wide, short shelf.
-    var bottomThickness: CGFloat = 20
+    /// Thickness of the band below the notch that holds the content. A short,
+    /// wide shelf — deep enough for the audio wave and a legible busy ring.
+    var bottomThickness: CGFloat = 24
+    /// Band used for a failed dictation: an icon plus a short reason line, so it
+    /// needs about as much room as the reminder band.
+    var failedThickness: CGFloat = 44
     /// Taller band used when the notch hosts the Bluetooth-mic hint (icon + text
     /// + button need more room than the thin dictation indicator).
     var bannerThickness: CGFloat = 58
@@ -57,6 +60,9 @@ struct NotchSurfaceLayout {
     /// Band for the "smart cleanup is ready" confirmation — same footprint as the
     /// learned hint. (≤ bannerThickness, so `panelSize` already accommodates it.)
     var cleanupReadyThickness: CGFloat = 52
+    /// Band for the "note saved / reminder set" confirmation after a spoken
+    /// command routed into Notes & Reminders — headline plus a short second line.
+    var commandConfirmationThickness: CGFloat = 52
     /// Radius of the concave flare where the top meets the bezel.
     var topConcaveRadius: CGFloat = 12
     /// Radius of the surface's rounded bottom corners.

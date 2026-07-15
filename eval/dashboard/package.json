@@ -26,6 +26,7 @@
     "vite": "^5.4.11"
   },
   "dependencies": {
+    "@clerk/backend": "^3.11.4",
     "@fontsource-variable/fraunces": "^5.2.9",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",

@@ -21,4 +21,13 @@ enum Log {
 
     /// Anonymous, opt-in usage analytics (PostHog) — configuration and gating.
     static let analytics = Logger(subsystem: subsystem, category: "analytics")
+
+    /// Clerk authentication — configuration and the launch sign-in gate.
+    static let auth = Logger(subsystem: subsystem, category: "auth")
+
+    /// Usage stats — local persistence and background sync to the dashboard.
+    static let usage = Logger(subsystem: subsystem, category: "usage")
+
+    /// Notes & reminders — local persistence, firing, and background sync.
+    static let notes = Logger(subsystem: subsystem, category: "notes")
 }

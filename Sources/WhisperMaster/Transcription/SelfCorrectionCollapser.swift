@@ -20,8 +20,15 @@ enum SelfCorrectionCollapser {
     private static let markers1: Set<String> = ["no", "actually"]
 
     static func collapse(_ text: String) -> String {
+        collapseCounting(text).text
+    }
+
+    /// Like `collapse`, but also reports how many tokens were dropped (the
+    /// discarded number runs + the correction markers) — folded into the usage
+    /// dashboard's "words corrected" figure.
+    static func collapseCounting(_ text: String) -> (text: String, corrections: Int) {
         let toks = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        guard !toks.isEmpty else { return text }
+        guard !toks.isEmpty else { return (text, 0) }
 
         var out: [String] = []
         var i = 0
@@ -47,7 +54,8 @@ enum SelfCorrectionCollapser {
             out.append(contentsOf: toks[start..<(start + len)])
             i = nextI
         }
-        return out.joined(separator: " ")
+        let joined = out.joined(separator: " ")
+        return (joined, max(0, toks.count - out.count))
     }
 
     /// Number of consecutive spoken-number-word tokens starting at `i`.

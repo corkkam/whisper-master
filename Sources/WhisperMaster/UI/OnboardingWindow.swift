@@ -10,6 +10,7 @@ final class OnboardingWindow {
         state: AppState,
         permissions: PermissionsManager,
         microphoneCapture: MicrophoneCaptureService,
+        steps: [OnboardingStep] = OnboardingStep.allCases,
         retryEngine: @escaping () -> Void,
         onClose: @escaping () -> Void,
         onComplete: @escaping () -> Void
@@ -18,6 +19,7 @@ final class OnboardingWindow {
             state: state,
             permissions: permissions,
             microphoneCapture: microphoneCapture,
+            steps: steps,
             retryEngine: retryEngine,
             onClose: onClose,
             onComplete: onComplete

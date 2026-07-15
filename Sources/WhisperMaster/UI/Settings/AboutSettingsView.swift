@@ -24,13 +24,13 @@ struct AboutSettingsView: View {
             }
 
             HStack(spacing: 12) {
-                SecondaryButton(title: "Check for updates", icon: "arrow.triangle.2.circlepath") {
+                PrimaryButton(title: "Check for updates", icon: "arrow.triangle.2.circlepath") {
                     checkForUpdates()
                 }
                 SecondaryButton(title: "Reveal models", icon: "folder") {
                     NSWorkspace.shared.activateFileViewerSelecting([state.selectedEngine.localModelURL])
                 }
-                PrimaryButton(title: "Reopen onboarding", icon: "sparkles") {
+                SecondaryButton(title: "Reopen onboarding", icon: "sparkles") {
                     reopenOnboarding()
                 }
                 Spacer(minLength: 0)
@@ -53,15 +53,6 @@ struct AboutSettingsView: View {
                     Text("macOS 14+ · arm64")
                         .font(Typography.mono)
                         .foregroundStyle(Theme.textSecondary)
-                }
-            }
-
-            SectionLabel("Analytics")
-
-            SettingsCard {
-                SettingsRow("Share anonymous usage",
-                            subtitle: "App version, macOS, and feature counts, never your transcripts. Helps improve the app.") {
-                    ThemeToggle(isOn: $state.analyticsEnabled)
                 }
             }
         }

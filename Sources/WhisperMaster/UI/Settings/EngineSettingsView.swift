@@ -1,82 +1,66 @@
 import AppKit
 import SwiftUI
 
-/// Voice-engine section: engine selection, install status + model location, and
-/// the custom-vocabulary ("Words to get right") editor.
+/// Voice-engine section: the on-device model's status card, and the
+/// custom-vocabulary ("Words to get right") editor + correction learning.
 struct EngineSettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
-    @Environment(\.isSnapshot) private var isSnapshot
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
-            ForEach(TranscriberEngine.allCases) { engine in
-                engineCard(engine)
-            }
-
-            SectionLabel("Formatting")
-            formattingCard
-
-            SectionLabel("Smart cleanup")
-            SmartCleanupSettingsSection(state: state)
+            SectionLabel("Model")
+            engineCard
 
             SectionLabel("Words to get right")
             vocabularyCard
         }
     }
 
-    // MARK: - Engine card
+    // MARK: - Engine status card
 
-    private func engineCard(_ engine: TranscriberEngine) -> some View {
-        let isSelected = state.selectedEngine == engine
-        return Button {
-            viewModel.selectEngine(engine)
-        } label: {
-            HStack(spacing: 16) {
-                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(isSelected ? Theme.accent : Theme.textTertiary)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(engine.displayName)
-                        .font(Typography.headline)
-                        .foregroundStyle(Theme.textPrimary)
-                    Text(engine.subtitle)
-                        .font(Typography.subheadline)
-                        .foregroundStyle(Theme.textSecondary)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 5) {
-                    Text(engine.estimatedDownloadSize)
-                        .font(Typography.sans(16, .semibold))
-                        .foregroundStyle(Theme.textPrimary)
-                    engineStatusInline(engine)
-                }
+    /// The transcription engine has a single case, so this is an info/status
+    /// card, not a selectable radio (there's nothing to pick between): the model
+    /// name, what it's good at, its download size, and live readiness.
+    private var engineCard: some View {
+        let engine = state.selectedEngine
+        return HStack(spacing: Theme.Space.lg) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(Theme.accentSoft)
+                    .frame(width: 42, height: 42)
+                Image(systemName: "waveform")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
             }
-            .padding(18)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                    .fill(Theme.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                    .strokeBorder(isSelected ? Theme.accent.opacity(0.5) : Theme.stroke, lineWidth: 1)
-            )
-            .contentShape(Rectangle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text(engine.displayName)
+                    .font(Typography.headline)
+                    .foregroundStyle(Theme.textPrimary)
+                Text("Best-accuracy on-device")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Spacer(minLength: Theme.Space.md)
+            VStack(alignment: .trailing, spacing: 5) {
+                Text(engine.estimatedDownloadSize)
+                    .font(Typography.sans(16, .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                engineStatusInline(engine)
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(!engineSelectionEnabled)
-        .opacity(engineSelectionEnabled ? 1 : 0.55)
+        .padding(Theme.Space.lg)
+        .frame(maxWidth: .infinity)
+        .card()
     }
 
     // MARK: - Engine status (inline, right side of the engine card)
 
-    /// Live readiness shown inside the engine card, so status has no orphaned
-    /// section of its own: a spinner + progress while preparing, else a dot +
-    /// "Ready" / "Not installed".
+    /// Live readiness shown inside the status card: a spinner + progress while
+    /// preparing, else a dot + "Ready" / "Not installed".
     @ViewBuilder
     private func engineStatusInline(_ engine: TranscriberEngine) -> some View {
-        if state.selectedEngine == engine, state.preparingEngine == engine {
+        if state.preparingEngine == engine {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
                 Text(modelStatusText)
@@ -95,24 +79,10 @@ struct EngineSettingsView: View {
 
     // MARK: - Vocabulary card
 
-    private var formattingCard: some View {
-        SettingsCard {
-            SettingsRow("Format numbers & symbols",
-                        subtitle: "Writes spoken numbers and symbols short. \u{201C}twenty five\u{201D} becomes \u{201C}25\u{201D}, and \u{201C}at gmail dot com\u{201D} becomes \u{201C}@gmail.com\u{201D}. Runs instantly on-device.") {
-                ThemeToggle(isOn: $state.itnEnabled)
-            }
-            RowDivider()
-            SettingsRow("Remove filler words",
-                        subtitle: "Strip \"um\", \"uh\", \"hmm\" and friends from the transcript.") {
-                ThemeToggle(isOn: $state.removeFillerWordsEnabled)
-            }
-        }
-    }
-
     private var vocabularyCard: some View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Names, acronyms, or jargon the app keeps mishearing. It listens harder for these, so \u{201C}RAG\u{201D} stops coming out as \u{201C}rack\u{201D}.")
+                Text("Names, acronyms, or jargon the app keeps mishearing. It fixes these in the finished text, so \u{201C}RAG\u{201D} stops coming out as \u{201C}rack\u{201D}.")
                     .font(Typography.body)
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -128,7 +98,7 @@ struct EngineSettingsView: View {
 
                 SettingsRow("Learn from corrections",
                             subtitle: "Fix a misheard word right after it's pasted and it's added here automatically.") {
-                    ThemeToggle(isOn: $state.learnCorrectionsEnabled)
+                    ThemeToggle(isOn: $state.learnCorrectionsEnabled, label: "Learn from corrections")
                 }
             }
             .padding(.vertical, 18)
@@ -136,13 +106,6 @@ struct EngineSettingsView: View {
     }
 
     // MARK: - Derived
-
-    private var engineSelectionEnabled: Bool {
-        switch state.phase {
-        case .idle, .failed: return true
-        case .preparingModels, .recording, .stopping: return false
-        }
-    }
 
     private var modelStatusText: String {
         if let download = state.download, state.preparingEngine == state.selectedEngine {

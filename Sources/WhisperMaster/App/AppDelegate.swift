@@ -1,4 +1,5 @@
 import AppKit
+import ClerkKit
 import Sparkle
 import SwiftUI
 import UserNotifications
@@ -20,9 +21,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state: viewModel.state,
         server: transcriptionServer
     )
+    /// Background backup of usage rollups to the dashboard. Clerk-free itself —
+    /// we inject the signed-in identity here (App layer owns auth). Driven off
+    /// the refresh loop; the local `usageStore` is always the source of truth.
+    private lazy var usageSync = UsageSyncClient(
+        store: viewModel.state.usageStore,
+        identity: { [weak self] in await self?.currentUsageIdentity() }
+    )
+    /// Background backup + cross-device pull of notes & reminders. Same identity
+    /// injection as usage sync; local `notesStore` is the source of truth.
+    private lazy var notesSync = NotesSyncClient(
+        store: viewModel.state.notesStore,
+        identity: { [weak self] in await self?.currentUsageIdentity() }
+    )
+    /// Owns the single looping-alarm alert window. Created lazily on first fire.
+    private let alarmController = AlarmController()
     private var pillWindow: DictationPillWindow?
     private var bluetoothInputMonitor: BluetoothInputMonitor?
     private var onboardingWindow: OnboardingWindow?
+    /// The launch sign-in gate. Nil until first shown; reused thereafter.
+    private var authGateWindow: AuthGateWindow?
+    /// Latched once the user first authenticates, so the post-sign-in bring-up
+    /// (LAN server, mesh, onboarding, settings window) runs exactly once.
+    private var didProceedAfterAuth = false
     private var statusRefreshTimer: Timer?
     private var settingsItem: NSMenuItem?
     private var statusHeader: NSMenuItem?
@@ -45,19 +66,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Configure Clerk before anything reads `Clerk.shared`. Sign-in gates
+        // the whole app: the LAN transcription server, the mesh, onboarding, and
+        // the settings window are all deferred until the user authenticates
+        // (see reconcileAuthGate / proceedAfterAuthIfNeeded). No-op — and the app
+        // stays locked with a setup message — if no publishable key is set.
+        ClerkConfig.configureIfPossible()
+
         setupMainMenu()
         setupStatusItem()
         setupWindow()
         setupPill()
         setupHotkey()
         startStatusRefreshLoop()
-
-        // Advertise the LAN transcription service so iOS clients can stream
-        // audio here and use this Mac's models. Independent of local recording.
-        transcriptionServer.start()
-
-        // Discover other Macs running Whisper Master on the network (the mesh).
-        meshCoordinator.start()
 
         // Sparkle's gentle "update available" reminder posts a macOS
         // notification. The delegate is required so the banner shows even while
@@ -82,11 +103,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // already present instead of racing and re-downloading it.
         _ = BackgroundFileDownloader.shared
 
-        // Start downloading/loading the voice engine immediately, in parallel
-        // with onboarding. Model preparation only needs the network, not the
-        // mic/accessibility permissions the wizard collects — so by the time
-        // the user reaches the last step it's ideally already ready.
-        viewModel.prepareDefaultEngineOnLaunch()
+        // Note: the voice-engine model download is deliberately NOT started here.
+        // It's held behind the sign-in gate and kicked from `proceedAfterAuthIfNeeded`
+        // after the first successful sign-in — so a user who never signs in never
+        // pulls the multi-hundred-MB model, and the download begins in parallel
+        // with onboarding once they're in.
 
         // Dev-only: when WM_EVAL_CASES is set, grade the real pipeline over those
         // cases and write results.json, then leave the app running for inspection.
@@ -99,16 +120,158 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Analytics.shared.configure(enabled: viewModel.state.analyticsEnabled)
         reportLaunchAnalytics()
 
-        if needsOnboarding {
-            showOnboarding()
+        // Put up the sign-in gate. At cold launch there's never a live session
+        // yet (Clerk restores it asynchronously), so this always shows; the
+        // refresh-loop reconcile then either dismisses it — proceeding to
+        // onboarding/settings — the moment a persisted session loads, or leaves
+        // it up showing Clerk's sign-in UI.
+        // Dev build skips the gate; don't even flash the sign-in window.
+        if !authBypassEnabled {
+            presentAuthGate()
+        }
+        reconcileAuthGate()
+    }
+
+    /// True once the user is signed in with a real Clerk session. Everything
+    /// that lets the user actually dictate is gated on this.
+    private var isSignedIn: Bool {
+        authBypassEnabled || (ClerkConfig.isConfigured && Clerk.shared.user != nil)
+    }
+
+    /// Dev-only escape from the sign-in gate, so the whole app can be exercised
+    /// without a Clerk account. True **only** in the locally re-badged dev build
+    /// (bundle id ends in ".dev", produced by `Scripts/dev-install.sh`); the
+    /// shipping build's id is `app.whispermaster.mac`, so this is always false in
+    /// production and the real gate is completely untouched. Set `WM_REQUIRE_AUTH=1`
+    /// to force the real gate back on even in the dev build (to test sign-in).
+    private var authBypassEnabled: Bool {
+        guard (Bundle.main.bundleIdentifier ?? "").hasSuffix(".dev") else { return false }
+        return ProcessInfo.processInfo.environment["WM_REQUIRE_AUTH"] != "1"
+    }
+
+    /// Identity for the usage-sync client: the Clerk user id plus a fresh session
+    /// token (best-effort — a nil token falls back to the dashboard's shared-token
+    /// gate). Returns nil when not signed in, so sync silently no-ops until then.
+    private func currentUsageIdentity() async -> (userId: String, token: String?)? {
+        guard ClerkConfig.isConfigured, let user = Clerk.shared.user else { return nil }
+        let token: String? = try? await Clerk.shared.session?.getToken()
+        return (user.id, token)
+    }
+
+    /// Show the blocking sign-in window (idempotent — never steals focus if it's
+    /// already up, so the 0.5s reconcile tick can call it freely).
+    private func presentAuthGate() {
+        if authGateWindow == nil {
+            authGateWindow = AuthGateWindow(onRetry: { [weak self] in
+                // Re-attempt configuration (idempotent) and re-evaluate the gate,
+                // so the offline/not-loaded Retry button actually tries again.
+                ClerkConfig.configureIfPossible()
+                self?.reconcileAuthGate()
+            })
+        }
+        guard let gate = authGateWindow, !gate.isVisible else { return }
+        gate.show()
+    }
+
+    /// Reconcile the gate against the current Clerk session. Driven both once at
+    /// launch and from the 0.5s status refresh loop (our @Observable→AppKit
+    /// bridge), so sign-in/sign-out flip the gate without any Clerk callback.
+    private func reconcileAuthGate() {
+        // Dev build: skip the gate entirely and go straight into the app.
+        if authBypassEnabled {
+            authGateWindow?.close()
+            proceedAfterAuthIfNeeded()
+            viewModel.state.usageStore.activate(userID: "dev-local")
+            viewModel.state.notesStore.activate(userID: "dev-local")
+            return
+        }
+        // No key configured, or a definitively signed-out session → stay gated.
+        guard ClerkConfig.isConfigured else { presentAuthGate(); return }
+        if let user = Clerk.shared.user {
+            authGateWindow?.close()
+            proceedAfterAuthIfNeeded()
+            // Scope usage stats to this account (idempotent — only reloads on a
+            // change), so the Insights dashboard shows just their numbers.
+            viewModel.state.usageStore.activate(userID: user.id)
+            viewModel.state.notesStore.activate(userID: user.id)
+        } else if Clerk.shared.isLoaded {
+            presentAuthGate()
+            // Signed out — drop the loaded account so their stats aren't visible.
+            viewModel.state.usageStore.deactivate()
+            viewModel.state.notesStore.deactivate()
+        }
+        // Still loading a persisted session: leave the launch-time gate (which
+        // shows a spinner) as-is until `isLoaded` resolves.
+    }
+
+    /// Bring up everything that was held behind the gate, exactly once, after
+    /// the first successful sign-in. Signing out later just re-shows the gate;
+    /// it doesn't tear these back down.
+    private func proceedAfterAuthIfNeeded() {
+        guard !didProceedAfterAuth else { return }
+        didProceedAfterAuth = true
+
+        // Start downloading/loading the voice engine now (held behind the gate).
+        // Model prep only needs the network, not the mic/accessibility permissions
+        // the wizard collects, so it runs in parallel with onboarding — ideally
+        // ready by the time the user reaches the last step.
+        viewModel.prepareDefaultEngineOnLaunch()
+
+        // Advertise the LAN transcription service so iOS clients can stream
+        // audio here and use this Mac's models.
+        transcriptionServer.start()
+        // Discover other Macs running Whisper Master on the network (the mesh).
+        meshCoordinator.start()
+
+        let userID = currentOnboardingUserID()
+
+        // Migration for existing installs: they have no per-user onboarding
+        // record. If the account has already granted the core permissions it's
+        // plainly past onboarding — seed the current steps as seen so we don't
+        // re-run the whole wizard once. Only genuinely new future steps surface.
+        if let userID, !OnboardingProgress.hasRecord(userID: userID),
+           permissionsManager.microphoneStatus() == .granted,
+           permissionsManager.accessibilityGranted() {
+            OnboardingProgress.markSeen(OnboardingStep.allCases.map(\.id), userID: userID)
+        }
+
+        // Show onboarding once per account, and thereafter only the steps this
+        // account hasn't seen yet (e.g. a step added in a later version). No
+        // account id (shouldn't happen post-auth) → fall back to the full flow.
+        let pending = userID.map { OnboardingProgress.pendingSteps(userID: $0) } ?? OnboardingStep.allCases
+        if !pending.isEmpty {
+            showOnboarding(steps: pending, userID: userID)
         } else {
             // Past onboarding (it won't show), so ask for notification permission
-            // here instead — the onboarding step that normally owns the prompt
-            // never runs for these users.
-            notificationCenter.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            // here — the onboarding step that normally owns the prompt never runs.
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
             if !viewModel.state.selectedEngine.isInstalled {
                 showWindow()
             }
+        }
+    }
+
+    /// The account onboarding progress is scoped to: the signed-in Clerk user,
+    /// or `dev-local` when the dev build bypasses the auth gate. Mirrors the
+    /// identity `usageStore.activate(userID:)` uses.
+    private func currentOnboardingUserID() -> String? {
+        if let id = Clerk.shared.user?.id { return id }
+        if authBypassEnabled { return "dev-local" }
+        return nil
+    }
+
+    /// Sign the current user out. The refresh-loop reconcile then re-presents the
+    /// gate once the session clears; we also present it immediately so there's no
+    /// half-second window where the app looks usable.
+    @objc
+    private func signOut() {
+        Task {
+            do {
+                try await Clerk.shared.auth.signOut()
+            } catch {
+                Log.auth.error("Sign out failed: \(error.localizedDescription, privacy: .public)")
+            }
+            self.presentAuthGate()
         }
     }
 
@@ -140,11 +303,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func statusButtonClicked(_ sender: NSStatusBarButton) {
         // Menu is attached via item.menu — let AppKit handle it. This stub
         // exists so the button has a target and accepts both mouse buttons.
-    }
-
-    private var needsOnboarding: Bool {
-        permissionsManager.microphoneStatus() != .granted
-            || !permissionsManager.accessibilityGranted()
     }
 
     /// Standard Dock-app menu bar. Without it, a `.regular` app has no working
@@ -295,6 +453,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(
             NSMenuItem(
+                title: "Sign Out",
+                action: #selector(signOut),
+                keyEquivalent: ""
+            )
+        )
+        menu.addItem(
+            NSMenuItem(
                 title: "Quit Whisper Master",
                 action: #selector(quitApp),
                 keyEquivalent: "q"
@@ -337,6 +502,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshStatusItem() {
+        // Flip the sign-in gate in step with the Clerk session — this timer is
+        // our bridge from Clerk's @Observable state to AppKit, same as for
+        // AppState below.
+        reconcileAuthGate()
+
         guard let item = statusItem, let button = item.button else { return }
         let state = viewModel.state
 
@@ -355,9 +525,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stopItem?.isEnabled = state.canStop
         cancelItem?.isHidden = state.preparingEngine == nil
 
-        // The notch panel is click-through except while the Bluetooth-mic banner
-        // is up, where its button needs to receive clicks.
-        pillWindow?.setInteractive(state.shouldShowBluetoothBanner)
+        // The notch panel is click-through except while an interactive banner is
+        // up — the Bluetooth-mic "use built-in" button, or the tappable command
+        // confirmation ("reminder set · tap to change") — where clicks matter.
+        pillWindow?.setInteractive(state.shouldShowBluetoothBanner || state.shouldShowCommandConfirmation)
 
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
@@ -365,6 +536,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Reconcile the optional cleanup model with its toggle (edge-triggered
         // inside, so this is a no-op unless the user just flipped it).
         viewModel.reconcileCleanupModel()
+
+        // Mirror any changed usage rollups to the cloud (debounced + single-
+        // flight inside; no-ops when the toggle is off, offline, or nothing
+        // changed). The local store already has the data — this is just backup.
+        usageSync.syncIfNeeded(enabled: state.usageSyncEnabled)
+
+        // Notes & reminders: pull the account's items once per activation (so a
+        // second Mac catches up), then mirror local changes up. Both are debounced
+        // + single-flight inside; no-ops when the toggle is off or nothing changed.
+        notesSync.pullIfNeeded(enabled: state.notesSyncEnabled)
+        notesSync.syncIfNeeded(enabled: state.notesSyncEnabled)
+
+        // Fire any reminders that have come due (poll-driven — the app is a
+        // persistent menu-bar process, so this is the reliable path).
+        fireDueReminders()
 
         // Retract the "nowhere to paste" hint once its display window elapses.
         if let at = state.undeliveredTranscriptAt,
@@ -383,6 +569,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let at = state.cleanupModelReadyAt,
            Date().timeIntervalSince(at) >= AppState.cleanupReadyBannerDuration {
             state.cleanupModelReadyAt = nil
+        }
+
+        // Retract the "note saved / reminder set" confirmation once its window
+        // elapses (nil-ing both fields drives the pill re-render + retract).
+        if let at = state.commandConfirmationAt,
+           Date().timeIntervalSince(at) >= AppState.commandConfirmationDuration {
+            state.commandConfirmation = nil
+            state.commandConfirmationAt = nil
+        }
+
+        // Retract the success "delivered" checkmark once its brief window elapses
+        // (nil-ing it drives the pill re-render + retract, like the hints above).
+        if let at = state.deliveredAt,
+           Date().timeIntervalSince(at) >= AppState.deliveredBeatDuration {
+            state.deliveredAt = nil
         }
 
         // Sync the "keep this Mac awake for phone dictation" opt-in to the server.
@@ -541,7 +742,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPill() {
-        pillWindow = DictationPillWindow(state: viewModel.state)
+        pillWindow = DictationPillWindow(state: viewModel.state) { [weak self] in
+            // Tapping the "reminder set · tap to change" banner opens Settings →
+            // Notes & Reminders; the requested section is consumed by SettingsView.
+            guard let self else { return }
+            self.viewModel.state.requestedSettingsSection = .notes
+            self.showWindow()
+        }
         pillWindow?.show()
         // Watch for a Bluetooth mic input so the notch can offer to switch to
         // the built-in mic (keeps earphones in hi-fi). Read-only detection.
@@ -554,6 +761,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch event {
             case .pressed:
+                // Gate dictation on sign-in: a press while signed out surfaces
+                // the sign-in window instead of starting a recording.
+                guard self.isSignedIn else {
+                    self.presentAuthGate()
+                    return
+                }
                 self.viewModel.handleHotkeyPressed()
             case .released:
                 self.viewModel.handleHotkeyReleased()
@@ -561,26 +774,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showOnboarding() {
+    private func showOnboarding(
+        steps: [OnboardingStep] = OnboardingStep.allCases,
+        userID: String? = nil
+    ) {
         if let onboardingWindow {
             onboardingWindow.show()
             return
+        }
+
+        // Whoever we present to, record the whole current flow as seen once they
+        // finish or dismiss — so it opens once per account and only future new
+        // steps reappear. Resolve the id now (menu reopens pass none).
+        let seenUserID = userID ?? currentOnboardingUserID()
+        let markSeen: () -> Void = {
+            if let seenUserID {
+                OnboardingProgress.markSeen(OnboardingStep.allCases.map(\.id), userID: seenUserID)
+            }
         }
 
         onboardingWindow = OnboardingWindow(
             state: viewModel.state,
             permissions: permissionsManager,
             microphoneCapture: onboardingMic,
+            steps: steps,
             retryEngine: { [weak self] in self?.viewModel.prepareDefaultEngineOnLaunch() },
             onClose: { [weak self] in
-                // User dismissed onboarding early — drop to the tray. They can
-                // reopen it any time via the "Reopen Onboarding…" menu item.
+                // User dismissed onboarding early — drop to the tray. Mark it seen
+                // so it doesn't reopen every launch; they can still reopen it via
+                // the "Reopen Onboarding…" menu item.
                 guard let self else { return }
+                markSeen()
                 self.onboardingWindow?.close()
                 self.onboardingWindow = nil
             }
         ) { [weak self] in
             guard let self else { return }
+            markSeen()
             self.onboardingWindow?.close()
             self.onboardingWindow = nil
             Analytics.shared.send(.onboardingFinished)
@@ -615,6 +845,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func startRecording() {
+        guard isSignedIn else {
+            presentAuthGate()
+            return
+        }
         viewModel.startRecording()
     }
 
@@ -704,10 +938,55 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
         )
         UNUserNotificationCenter.current().add(request)
     }
+
+    // MARK: - Reminders
+
+    /// Alert any reminders that have come due (called each refresh tick). Marks
+    /// each fired so it alerts once; the alarm style takes over the alarm window
+    /// (one at a time — a reminder that can't take the busy surface stays due and
+    /// re-fires when it frees up).
+    private func fireDueReminders() {
+        let store = viewModel.state.notesStore
+        for reminder in store.dueReminders(asOf: Date()) {
+            switch reminder.alertStyle {
+            case .notification:
+                postReminderNotification(reminder)
+                store.markFired(reminder.id)
+            case .alarm:
+                // The alarm rings until the user acts: Snooze pushes it out, Done
+                // completes it (or re-arms a repeat). We deliberately DON'T
+                // `markFired` here — the busy guard (`present` returns false while
+                // an alarm is up) stops re-fires, and the user's action is what
+                // clears the due state. Marking fired too would double-advance a
+                // repeating reminder (once on fire, again on Done).
+                let id = reminder.id
+                alarmController.present(
+                    reminder,
+                    onSnooze: { [weak self] in self?.viewModel.state.notesStore.snoozeReminder(id, by: 5 * 60) },
+                    onDone: { [weak self] in self?.viewModel.state.notesStore.completeReminder(id) }
+                )
+            }
+        }
+    }
+
+    private func postReminderNotification(_ reminder: ReminderItem) {
+        let content = UNMutableNotificationContent()
+        content.title = reminder.displayTitle
+        let body = reminder.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !body.isEmpty { content.body = body }
+        content.sound = UNNotificationSound(named: .init("\(ReminderSound.resolved(reminder.soundName)).aiff"))
+        let request = UNNotificationRequest(
+            identifier: "\(Self.reminderNotificationPrefix)\(reminder.id.uuidString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
 }
 
 extension AppDelegate: UNUserNotificationCenterDelegate {
     static let updateNotificationIdentifier = "app.whispermaster.update-available"
+    static let reminderNotificationPrefix = "app.whispermaster.reminder."
 
     /// Show the update banner even when the app is frontmost (otherwise macOS
     /// suppresses notifications for the active app).
@@ -725,10 +1004,15 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if response.notification.request.identifier == Self.updateNotificationIdentifier,
+        let identifier = response.notification.request.identifier
+        if identifier == Self.updateNotificationIdentifier,
            response.actionIdentifier == UNNotificationDefaultActionIdentifier {
             NSApp.activate(ignoringOtherApps: true)
             updaterController.checkForUpdates(nil)
+        } else if identifier.hasPrefix(Self.reminderNotificationPrefix),
+                  response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            // Tapping a reminder opens the app (Notes & Reminders lives in Settings).
+            showWindow()
         }
         completionHandler()
     }

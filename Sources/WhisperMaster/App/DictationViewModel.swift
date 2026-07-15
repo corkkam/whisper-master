@@ -38,6 +38,12 @@ final class DictationViewModel {
     /// kept so a failed/empty engine finish can still deliver what streaming
     /// produced. The full window — not the truncated live-pill remainder.
     private var rawVolatileTranscript = ""
+    /// Smooths the raw per-buffer mic level (fast attack, slow decay) so the
+    /// notch wave breathes instead of snapping to zero between words.
+    private var levelEnvelope = LevelEnvelope()
+    /// Auto-clears a lingering `.failed` phase back to `.idle` so a failure
+    /// message doesn't sit in the notch forever.
+    private var failedResetTask: Task<Void, Never>?
 
     init(
         state: AppState,
@@ -91,8 +97,13 @@ final class DictationViewModel {
         // the previous one.
         correctionLearner.cancel()
         refinementTask?.cancel()
-        // Any pending "nowhere to paste" hint is stale once a new session starts.
+        // Any pending "nowhere to paste" hint, success beat, or failure message
+        // is stale once a new session starts.
         state.undeliveredTranscriptAt = nil
+        state.deliveredAt = nil
+        state.failedAt = nil
+        failedResetTask?.cancel()
+        levelEnvelope.reset()
 
         // If the Apple Intelligence pass is opted in, warm it while the user talks
         // so the post-dictation formatting is hot instead of a cold start. The
@@ -140,7 +151,8 @@ final class DictationViewModel {
                     },
                     levelHandler: { [weak self] level in
                         Task { @MainActor in
-                            self?.state.audioLevel = level
+                            guard let self else { return }
+                            self.state.audioLevel = self.levelEnvelope.step(target: level)
                         }
                     }
                 )
@@ -152,6 +164,7 @@ final class DictationViewModel {
                 recordingStartedAt = Date()
                 state.phase = .recording
                 state.statusMessage = "Recording with \(state.selectedEngine.displayName)..."
+                Feedback.start(soundEnabled: state.soundEnabled)
             } catch {
                 await handleFailure(error)
             }
@@ -168,7 +181,9 @@ final class DictationViewModel {
 
         state.phase = .stopping
         state.audioLevel = 0
+        levelEnvelope.reset()
         state.statusMessage = "Catching final words..."
+        Feedback.stop(soundEnabled: state.soundEnabled)
         Diagnostics.shared.mark(.stopRequested)
 
         Task {
@@ -200,19 +215,22 @@ final class DictationViewModel {
                 Diagnostics.shared.noteStage(.spacing, text: spaced)
                 // Collapse spoken number self-corrections ("twenty no thirty" →
                 // "thirty") before ITN, so the survivor is what gets formatted.
-                let corrected = SelfCorrectionCollapser.collapse(spaced)
+                let (corrected, selfCorrectionFixes) = SelfCorrectionCollapser.collapseCounting(spaced)
                 Diagnostics.shared.noteStage(.selfCorrection, text: corrected)
                 let formatted = await formatFinalTranscript(corrected)
                 Diagnostics.shared.noteStage(.itn, text: formatted)
                 // May leave the text empty (a recording that was only "hmm" /
                 // a silence hallucination) — the guard below then skips
                 // history and injection entirely.
-                let deFillered = filterFillersIfEnabled(formatted)
+                let (deFillered, fillerFixes): (String, Int) = state.removeFillerWordsEnabled
+                    ? FillerWordFilter.cleanCounting(formatted)
+                    : (formatted, 0)
                 Diagnostics.shared.noteStage(.filler, text: deFillered)
                 // Apply the glossary as a safe text replacement (casing + known
                 // mishearings) — the substitute for FluidAudio's transcript-
                 // corrupting streaming rescorer.
-                let cleaned = VocabularyPostProcessor.apply(deFillered, glossary: state.customVocabulary)
+                let (cleaned, dictionaryFixes) = VocabularyPostProcessor.applyCounting(
+                    deFillered, glossary: state.customVocabulary)
                 Diagnostics.shared.noteStage(.vocab, text: cleaned)
                 Diagnostics.shared.noteASR(
                     confirmedChars: rawConfirmedTranscript.count,
@@ -233,14 +251,27 @@ final class DictationViewModel {
                     state.statusMessage = "Finished local transcription."
                     return
                 }
+                // A spoken command? The cheap keyword gate runs first (ordinary
+                // dictation pays nothing); only a command-looking transcript
+                // consults the on-device decision-maker, which routes it into
+                // Notes & Reminders and can still veto a false positive. When it
+                // routes, the paste is *suppressed* — the words became a note or
+                // reminder, not text to type — so we finish here.
+                if await routeVoiceCommandIfNeeded(cleaned) {
+                    reminderScheduler.noteUsed()
+                    Diagnostics.shared.finish(pasteOutcome: "command", finalText: cleaned)
+                    state.statusMessage = "Saved to Notes & Reminders."
+                    return
+                }
                 state.transcript.latestConfirmed = cleaned
                 state.transcript.latestPartial = ""
                 let entryID = state.appendHistory(text: cleaned, engine: state.selectedEngine)
                 reminderScheduler.noteUsed()
+                let wordCount = WordCount.count(cleaned)
                 Analytics.shared.send(.dictationCompleted(
                     engine: state.selectedEngine.rawValue,
                     duration: sessionDuration,
-                    wordCount: cleaned.split(whereSeparator: \.isWhitespace).count
+                    wordCount: wordCount
                 ))
                 // The frontmost app is the one about to receive the paste — we
                 // don't steal focus, so it's still the user's target app.
@@ -248,6 +279,19 @@ final class DictationViewModel {
                 Diagnostics.shared.noteFrontApp(
                     name: front?.localizedName ?? "unknown",
                     bundleID: front?.bundleIdentifier ?? "")
+                // Fold this dictation into the durable usage stats (Insights
+                // dashboard). Same front-app snapshot the diagnostics use — the
+                // app about to receive the paste — now always-on, not DIAGNOSTICS.
+                state.usageStore.record(DictationRecord(
+                    timestamp: Date(),
+                    wordCount: wordCount,
+                    durationSeconds: sessionDuration,
+                    appName: front?.localizedName ?? "",
+                    appBundleID: front?.bundleIdentifier ?? "",
+                    engineRawValue: state.selectedEngine.rawValue,
+                    fixes: FixCounts(
+                        wordsCorrected: selfCorrectionFixes + fillerFixes,
+                        dictionary: dictionaryFixes)))
                 // What AX sees at the moment we choose the paste route — the
                 // evidence for building the "nowhere to type" classifier.
                 Diagnostics.shared.noteFocus(FocusedElementInspector.focusDiagnostic())
@@ -258,6 +302,16 @@ final class DictationViewModel {
                     let result = await pasteFinal(cleaned, entryID: entryID)
                     pasteOutcome = result.outcome
                     pastedText = result.pasted
+                    // Confirm the moment the text actually lands at the cursor:
+                    // a checkmark beat + chime. Routes that pasted somewhere (a
+                    // native field, web, or a terminal) count; the clipboard /
+                    // no-Accessibility / secure-blocked routes already surface
+                    // their own "press ⌘V" hint, so they don't.
+                    let deliveredRoutes: Set<String> = ["native", "web", "terminal"]
+                    if deliveredRoutes.contains(pasteOutcome), state.undeliveredTranscriptAt == nil {
+                        state.deliveredAt = Date()
+                        Feedback.delivered(soundEnabled: state.soundEnabled)
+                    }
                 } else {
                     scheduleRefinement(pasted: cleaned, entryID: entryID, target: nil)
                 }
@@ -324,6 +378,93 @@ final class DictationViewModel {
         Diagnostics.shared.noteLLM(ready: true, raw: cleaned, accepted: accepted, ms: ms)
         guard let cleaned, accepted else { return nil }
         return cleaned
+    }
+
+    // MARK: - Voice commands (Notes & Reminders)
+
+    /// Route a finished transcript into Notes & Reminders when it opens like a
+    /// spoken command. Returns `true` when it handled the text (the caller then
+    /// suppresses the paste). Cheap `CommandDetector` gate first — ordinary
+    /// dictation never touches the model; a command-looking transcript consults
+    /// the on-device decision-maker, which extracts the pieces and can still veto
+    /// a false positive (→ `.dictation`, returns `false`, paste as usual).
+    private func routeVoiceCommandIfNeeded(_ text: String) async -> Bool {
+        guard state.voiceCommandsEnabled else { return false }
+        guard let detected = CommandDetector.detect(text) else { return false }
+        let intent = await classifyIntent(text, fallback: detected)
+        switch intent.kind {
+        case .dictation:
+            return false
+        case .note:
+            createNote(from: intent, fallbackBody: detected.payload)
+            return true
+        case .reminder:
+            createReminder(from: intent, fallbackTitle: detected.payload)
+            return true
+        }
+    }
+
+    /// Ask the on-device model to classify + extract, but only when it's already
+    /// loaded — a command must never block on a cold model download. Falls back
+    /// to the deterministic mapping of the keyword gate otherwise (so a reminder
+    /// still lands, just with no extracted time → the default-time path asks).
+    private func classifyIntent(_ text: String, fallback: DetectedCommand) async -> ClassifiedIntent {
+        guard await MlxCleanupService.shared.isReady else { return ClassifiedIntent(fallback) }
+        guard let raw = await MlxCleanupService.shared.clean(text, systemPrompt: IntentPrompt.system),
+              let parsed = IntentClassifier.parse(raw)
+        else { return ClassifiedIntent(fallback) }
+        return parsed
+    }
+
+    private func createNote(from intent: ClassifiedIntent, fallbackBody: String) {
+        let body = intent.body.isEmpty ? fallbackBody : intent.body
+        state.notesStore.upsertNote(Note(title: intent.title, body: body))
+        state.commandConfirmation = "Note saved"
+        state.commandConfirmationAt = Date()
+        Feedback.delivered(soundEnabled: state.soundEnabled)
+    }
+
+    private func createReminder(from intent: ClassifiedIntent, fallbackTitle: String) {
+        let now = Date()
+        let stated = intent.timePhrase.flatMap { RelativeTimeParser.parse($0, now: now) }
+        let due = stated ?? Self.defaultReminderDue(now: now)
+        let title = intent.title.isEmpty ? fallbackTitle : intent.title
+        state.notesStore.upsertReminder(ReminderItem(
+            title: title,
+            body: intent.body,
+            dueDate: due,
+            alertStyle: state.reminderDefaultAlertStyle,
+            soundName: state.reminderDefaultSound))
+        let when = Self.reminderTimeString(due, now: now)
+        // A stated time is set; an unstated one gets a default the user can adjust
+        // by tapping the banner (→ Settings → Notes & Reminders).
+        state.commandConfirmation = stated != nil
+            ? "Reminder set for \(when)"
+            : "Reminder set for \(when) · tap to change"
+        state.commandConfirmationAt = now
+        Feedback.delivered(soundEnabled: state.soundEnabled)
+    }
+
+    /// Default due time for a reminder whose "when?" wasn't stated (or couldn't be
+    /// parsed): one hour out — the same default the manual "Add reminder" uses.
+    private static func defaultReminderDue(now: Date) -> Date {
+        Calendar.current.date(byAdding: .hour, value: 1, to: now) ?? now.addingTimeInterval(3600)
+    }
+
+    /// A short, human due-time label for the confirmation banner: "5:00 PM" today,
+    /// "tomorrow 9:00 AM", else "Mon 9:00 AM".
+    private static func reminderTimeString(_ date: Date, now: Date) -> String {
+        let cal = Calendar.current
+        let f = DateFormatter()
+        if cal.isDate(date, inSameDayAs: now) {
+            f.dateFormat = "h:mm a"
+        } else if let tomorrow = cal.date(byAdding: .day, value: 1, to: now),
+                  cal.isDate(date, inSameDayAs: tomorrow) {
+            f.dateFormat = "'tomorrow' h:mm a"
+        } else {
+            f.setLocalizedDateFormatFromTemplate("EEE h mm a")
+        }
+        return f.string(from: date)
     }
 
     /// Start watching the pasted field for the user's own fix-ups (to grow the
@@ -529,7 +670,27 @@ final class DictationViewModel {
         await MainActor.run {
             self.state.phase = .failed(error.localizedDescription)
             self.state.audioLevel = 0
+            self.levelEnvelope.reset()
+            self.state.failedAt = Date()
             self.state.statusMessage = "Transcription failed: \(error.localizedDescription)"
+            self.scheduleFailedReset()
+        }
+    }
+
+    /// After a failure has been on screen for `failedBannerDuration`, quietly
+    /// return to idle so the notch retracts instead of showing a stuck glyph.
+    /// Guarded so a new recording (which flips the phase itself) isn't clobbered.
+    private func scheduleFailedReset() {
+        failedResetTask?.cancel()
+        let failedStamp = state.failedAt
+        failedResetTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(AppState.failedBannerDuration * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            // Only reset if this is still the same failure (no new session began).
+            if case .failed = self.state.phase, self.state.failedAt == failedStamp {
+                self.state.phase = .idle
+                self.state.failedAt = nil
+            }
         }
     }
 
@@ -697,7 +858,7 @@ final class DictationViewModel {
     private func polishTiming(for pasteOutcome: String) -> String {
         guard state.llmCleanupEnabled else { return "none" }
         switch pasteOutcome {
-        case "web": return "beforePaste"
+        case "web", "terminal": return "beforePaste"
         case "native", "clipboard", "noAccessibility": return "afterPaste"
         default: return "none"   // historyOnly / empty — nothing pasted
         }
@@ -714,7 +875,7 @@ final class DictationViewModel {
     ///  - **No editable focus:** copy to the clipboard and hint ⌘V; polish the
     ///    history entry in the background.
     /// Delivers the transcript and reports, for diagnostics, both the paste route
-    /// (`noAccessibility` / `native` / `clipboard` / `web`) and the text that was
+    /// (`noAccessibility` / `native` / `clipboard` / `web` / `terminal`) and the text that was
     /// *actually* pasted. Only the web path differs from the deterministic input —
     /// it pastes the polished text — but returning it keeps the trace honest
     /// instead of always recording the pre-polish string.
@@ -727,14 +888,23 @@ final class DictationViewModel {
             return ("noAccessibility", deterministic)
         }
 
-        if let editable = FocusedElementInspector.editableTarget() {
+        // Terminals (Ghostty, Warp, Terminal.app, iTerm, …) always have a real
+        // paste destination — the shell — but don't advertise it through AX the
+        // way a native field does. GPU/custom terminals expose no caret (so they'd
+        // be misread as "nowhere to type" below) and AppKit terminals report
+        // `AXTextArea` (so they'd take the per-char inject path, which terminals
+        // drop). Both honor a real ⌘V, so route any terminal straight to that path
+        // and skip the AX-role branches. See `TerminalApps`.
+        let isTerminal = TerminalApps.frontmostIsTerminal()
+
+        if !isTerminal, let editable = FocusedElementInspector.editableTarget() {
             await textInjector.inject(deterministic)
             state.statusMessage = "Finished local transcription and pasted at cursor."
             scheduleRefinement(pasted: deterministic, entryID: entryID, target: editable)
             return ("native", deterministic)
         }
 
-        if FocusedElementInspector.focusHasNoTextTarget() {
+        if !isTerminal, FocusedElementInspector.focusHasNoTextTarget() {
             copyToClipboard(deterministic)
             state.undeliveredTranscriptAt = Date()
             state.statusMessage = "No text field found. Copied to clipboard, press ⌘V to paste."
@@ -742,18 +912,32 @@ final class DictationViewModel {
             return ("clipboard", deterministic)
         }
 
-        // Web / Electron: Accessibility can't read the field, so in-place refine
-        // isn't safe. Polish up front (best-effort — nil keeps the deterministic
-        // text), then paste the final result once with a real ⌘V, which these apps
-        // honor. This is how polish reaches WhatsApp, Slack, browsers, etc.
+        // Terminal / Web / Electron: Accessibility can't (safely) read the field,
+        // so in-place refine isn't safe. Polish up front (best-effort — nil keeps
+        // the deterministic text), then paste the final result once with a real
+        // ⌘V, which these apps honor. This is how polish reaches WhatsApp, Slack,
+        // browsers, and the shell.
         if state.llmCleanupEnabled { state.statusMessage = "Polishing\u{2026}" }
         let finalText = (await llmRefined(deterministic)) ?? deterministic
-        await pasteViaClipboard(finalText)
-        state.statusMessage = "Finished local transcription and pasted at cursor."
+        // Secure Keyboard Entry (Terminal's menu, or any focused password field)
+        // makes the WindowServer swallow the synthesized ⌘V too. A blind paste
+        // would fail *and* `pasteViaClipboard` would then restore the old clipboard
+        // out from under the user — so leave the transcript on the clipboard for a
+        // manual ⌘V and say why nothing landed.
+        if isTerminal, TerminalApps.secureKeyboardEntryEnabled() {
+            copyToClipboard(finalText)
+            state.undeliveredTranscriptAt = Date()
+            state.statusMessage = "Secure Keyboard Entry is on — auto-paste blocked. "
+                + "Turn it off (Terminal: Shell → Secure Keyboard Entry), or press ⌘V. "
+                + "Text is on the clipboard."
+        } else {
+            await pasteViaClipboard(finalText)
+            state.statusMessage = "Finished local transcription and pasted at cursor."
+        }
         if finalText != deterministic, let entryID {
             state.updateHistoryText(entryID, to: finalText)
         }
-        return ("web", finalText)
+        return (isTerminal ? "terminal" : "web", finalText)
     }
 
     /// Paste `text` with a real ⌘V — a system paste that lands in web/Electron

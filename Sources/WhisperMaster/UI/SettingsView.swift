@@ -1,58 +1,55 @@
 import AppKit
 import SwiftUI
 
-/// The five sections of the settings window, shown as top tabs.
+/// The sections of the settings window, listed top-to-bottom in the vertical
+/// sidebar (the `allCases` order below *is* the sidebar order).
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case recording
+    case insights
+    case notes
+    case settings
     case engine
-    case mesh
     case history
     case permissions
+    case mesh
     case about
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .recording: return "Recording"
+        case .insights: return "Insights"
+        case .notes: return "Notes & Reminders"
+        case .settings: return "Settings"
         case .engine: return "Voice engine"
+        case .history: return "History"
+        case .permissions: return "Permissions"
         case .mesh: return "Nearby Macs"
-        case .history: return "History"
-        case .permissions: return "Permissions"
-        case .about: return "About"
-        }
-    }
-
-    /// Short label for the tab bar.
-    var tab: String {
-        switch self {
-        case .recording: return "Recording"
-        case .engine: return "Engine"
-        case .mesh: return "Mesh"
-        case .history: return "History"
-        case .permissions: return "Permissions"
         case .about: return "About"
         }
     }
 
     var subtitle: String {
         switch self {
-        case .recording: return "How dictation starts, stops, and lands where you're typing."
+        case .insights: return "Your dictation at a glance — words, speed, and streaks."
+        case .notes: return "Jot notes and set reminders that follow you across your Macs."
+        case .settings: return "Everything you can tune, in one place."
         case .engine: return "Everything runs on-device. Your audio never leaves this Mac."
-        case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
         case .history: return "Your recent transcriptions, kept locally."
         case .permissions: return "Whisper Master only asks for what it needs to work."
+        case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
         case .about: return "Voice dictation that stays on your Mac."
         }
     }
 
     var kicker: String {
         switch self {
-        case .recording: return "Capture"
+        case .insights: return "Overview"
+        case .notes: return "Notes"
+        case .settings: return "Preferences"
         case .engine: return "On-device"
-        case .mesh: return "Mesh"
         case .history: return "Activity"
         case .permissions: return "Privacy"
+        case .mesh: return "Mesh"
         case .about: return "Whisper Master"
         }
     }
@@ -60,18 +57,21 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// SF Symbol shown beside the title in the sidebar.
     var icon: String {
         switch self {
-        case .recording: return "mic"
+        case .insights: return "chart.bar"
+        case .notes: return "checklist"
+        case .settings: return "gearshape"
         case .engine: return "waveform"
-        case .mesh: return "laptopcomputer"
         case .history: return "clock"
         case .permissions: return "shield"
+        case .mesh: return "laptopcomputer"
         case .about: return "info.circle"
         }
     }
 }
 
-/// The settings window — "Daylight": a light, editorial layout with a top tab
-/// bar (no sidebar) and a centered, hairline-ruled content column.
+/// The settings window — "Daylight": a light, editorial layout with a vertical
+/// sidebar (icon + title per section) and a centered, hairline-ruled content
+/// column to its right.
 struct SettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
@@ -79,7 +79,10 @@ struct SettingsView: View {
     var checkForUpdates: () -> Void = {}
     var startSetup: () -> Void = {}
     var cancelSetup: () -> Void = {}
-    var initialSection: SettingsSection = .recording
+    // Configured users should land on a useful page, not an empty Insights
+    // dashboard — the not-installed case still redirects to `.engine` via
+    // `autoFocusSetupIfNeeded()`.
+    var initialSection: SettingsSection = .settings
 
     @State private var selection: SettingsSection
     @State private var hasAutoFocusedSetup = false
@@ -95,7 +98,7 @@ struct SettingsView: View {
         checkForUpdates: @escaping () -> Void = {},
         startSetup: @escaping () -> Void = {},
         cancelSetup: @escaping () -> Void = {},
-        initialSection: SettingsSection = .recording
+        initialSection: SettingsSection = .settings
     ) {
         self.viewModel = viewModel
         _state = Bindable(wrappedValue: state)
@@ -118,6 +121,17 @@ struct SettingsView: View {
         .onAppear {
             refreshPermissions()
             autoFocusSetupIfNeeded()
+            // Honor a section requested before the window opened (e.g. a tap on
+            // the notch command-confirmation banner).
+            if let requested = state.requestedSettingsSection {
+                selection = requested
+                state.requestedSettingsSection = nil
+            }
+        }
+        .onChange(of: state.requestedSettingsSection) { _, requested in
+            guard let requested else { return }
+            selection = requested
+            state.requestedSettingsSection = nil
         }
         .onReceive(Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()) { _ in
             refreshPermissions()
@@ -241,8 +255,12 @@ struct SettingsView: View {
     @ViewBuilder
     private var panelContent: some View {
         switch selection {
-        case .recording:
-            RecordingSettingsView(viewModel: viewModel, state: state)
+        case .insights:
+            InsightsSettingsView(viewModel: viewModel, state: state)
+        case .notes:
+            NotesSettingsView(state: state)
+        case .settings:
+            GeneralSettingsView(viewModel: viewModel, state: state)
         case .engine:
             EngineSettingsView(viewModel: viewModel, state: state)
         case .mesh:

@@ -8,6 +8,9 @@ struct OnboardingView: View {
     let state: AppState
     let permissions: PermissionsManager
     let microphoneCapture: MicrophoneCaptureService
+    /// The ordered steps to present. The full wizard by default; a subset when
+    /// only newly-added steps are being shown to an already-onboarded user.
+    let steps: [OnboardingStep]
     let retryEngine: () -> Void
     let onClose: () -> Void
     let onComplete: () -> Void
@@ -16,6 +19,7 @@ struct OnboardingView: View {
         state: AppState,
         permissions: PermissionsManager,
         microphoneCapture: MicrophoneCaptureService,
+        steps: [OnboardingStep] = OnboardingStep.allCases,
         retryEngine: @escaping () -> Void,
         onClose: @escaping () -> Void,
         onComplete: @escaping () -> Void,
@@ -24,13 +28,19 @@ struct OnboardingView: View {
         self.state = state
         self.permissions = permissions
         self.microphoneCapture = microphoneCapture
+        // Never present an empty flow — fall back to the full wizard.
+        let resolved = steps.isEmpty ? OnboardingStep.allCases : steps
+        self.steps = resolved
         self.retryEngine = retryEngine
         self.onClose = onClose
         self.onComplete = onComplete
-        _step = State(initialValue: initialStep)
+        _stepIndex = State(initialValue: resolved.firstIndex(of: initialStep) ?? 0)
     }
 
-    @State private var step: OnboardingStep
+    /// Index into `steps`. `step` is derived from it, so navigation is `±1`
+    /// within the presented subset rather than across `OnboardingStep.allCases`.
+    @State private var stepIndex: Int
+    private var step: OnboardingStep { steps[stepIndex] }
     @State private var micGranted = false
     @State private var micDenied = false
     @State private var requestingMic = false
@@ -41,6 +51,11 @@ struct OnboardingView: View {
     @State private var testLevel: Float = 0
     @State private var testRunning = false
     @State private var testHeardSound = false
+    /// Which way the last navigation moved, so the step transition slides in
+    /// from the correct edge (forward = new page enters from the right).
+    @State private var goingBack = false
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -51,12 +66,14 @@ struct OnboardingView: View {
                     .padding(.horizontal, 28)
                     .padding(.top, 18)
 
-                OnboardingProgressBar(step: step)
+                OnboardingProgressBar(steps: steps, step: step)
                     .padding(.horizontal, 32)
                     .padding(.top, 20)
                     .padding(.bottom, 24)
 
                 stepContent
+                    .id(step)
+                    .transition(stepTransition)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.horizontal, 32)
 
@@ -70,15 +87,29 @@ struct OnboardingView: View {
         .onReceive(Timer.publish(every: 0.75, on: .main, in: .common).autoconnect()) { _ in
             refresh()
         }
+        // Auto-advance a beat *after* a permission flips, so the user actually
+        // sees the "Granted" confirmation before the page slides away.
         .onChange(of: micGranted) { _, granted in
-            if granted, step == .microphone { advance() }
+            if granted { advanceAfterGrant(from: .microphone) }
         }
         .onChange(of: accessibilityGranted) { _, granted in
-            if granted, step == .accessibility { advance() }
+            if granted { advanceAfterGrant(from: .accessibility) }
         }
         .onChange(of: notifGranted) { _, granted in
-            if granted, step == .notifications { advance() }
+            if granted { advanceAfterGrant(from: .notifications) }
         }
+    }
+
+    /// Asymmetric slide+fade between steps, or a plain crossfade under Reduce
+    /// Motion. The slide direction follows `goingBack` so Back reverses it.
+    private var stepTransition: AnyTransition {
+        if reduceMotion { return .opacity }
+        let insertEdge: Edge = goingBack ? .leading : .trailing
+        let removeEdge: Edge = goingBack ? .trailing : .leading
+        return .asymmetric(
+            insertion: .move(edge: insertEdge).combined(with: .opacity),
+            removal: .move(edge: removeEdge).combined(with: .opacity)
+        )
     }
 
     private var topBar: some View {
@@ -97,6 +128,7 @@ struct OnboardingView: View {
                     .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 1))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Close onboarding")
             .help("Close — you can reopen this later from the menu bar")
         }
     }
@@ -108,10 +140,6 @@ struct OnboardingView: View {
             WelcomePage()
         case .microphone:
             microphonePage
-        case .accessibility:
-            accessibilityPage
-        case .notifications:
-            notificationsPage
         case .micTest:
             MicTestPage(
                 micGranted: micGranted,
@@ -121,8 +149,10 @@ struct OnboardingView: View {
                 onStart: startMicTest,
                 onStop: stopMicTest
             )
-        case .smartCleanup:
-            SmartCleanupPage(state: state)
+        case .accessibility:
+            accessibilityPage
+        case .notifications:
+            notificationsPage
         case .done:
             DonePage(state: state, retryEngine: retryEngine)
         }
@@ -135,7 +165,7 @@ struct OnboardingView: View {
             kicker: "Permission",
             icon: "mic.fill",
             heading: "Let me hear you",
-            bodyText: "Whisper Master needs microphone access so it can transcribe your voice while you hold the record key. Audio stays on this Mac.",
+            bodyText: "This is the one permission Whisper Master can't work without — it listens only while you hold the record key, and every word is transcribed right here on your Mac. Nothing is uploaded.",
             granted: micGranted,
             denied: micDenied,
             working: requestingMic,
@@ -148,15 +178,19 @@ struct OnboardingView: View {
         OnboardingPermissionPage(
             kicker: "Permission",
             icon: "keyboard",
-            heading: "Type at the cursor",
-            bodyText: "Accessibility lets Whisper Master paste your transcription into whichever app you're using. You can skip this and copy manually if you'd rather not.",
+            heading: "Drop the words at your cursor",
+            bodyText: "With Accessibility on, your transcription types itself straight into whatever app you're in. Skip it and Whisper Master will pop the text on your clipboard for a quick paste instead.",
             granted: accessibilityGranted,
             denied: false,
             working: false,
-            primaryLabel: "Open Accessibility Settings",
-            primaryAction: { permissions.openAccessibilitySettings() },
-            secondaryLabel: accessibilityGranted ? nil : "Skip for now",
-            secondaryAction: { advance() }
+            // promptAccessibility() adds the app to the Accessibility list and
+            // shows the system prompt (openAccessibilitySettings alone just opens
+            // an empty pane); we then open the pane so the toggle is one click away.
+            primaryLabel: "Allow Accessibility",
+            primaryAction: {
+                permissions.promptAccessibility()
+                permissions.openAccessibilitySettings()
+            }
         )
     }
 
@@ -164,39 +198,68 @@ struct OnboardingView: View {
         OnboardingPermissionPage(
             kicker: "Permission",
             icon: "bell.badge",
-            heading: "Know when there's an update",
-            bodyText: "Whisper Master can let you know when a new version is ready to install. That's the only thing it will notify you about.",
+            heading: "A heads-up when there's an update",
+            bodyText: "The only thing Whisper Master will ever ping you about is a fresh version being ready to install. No streaks, no nudges, no noise.",
             granted: notifGranted,
             denied: notifDenied,
             working: requestingNotif,
             primaryLabel: notifDenied ? "Open Notification Settings" : "Allow Notifications",
-            primaryAction: { Task { await grantNotifications() } },
-            secondaryLabel: notifGranted ? nil : "Skip for now",
-            secondaryAction: { advance() }
+            primaryAction: { Task { await grantNotifications() } }
         )
     }
 
     // MARK: Footer
 
     private var footer: some View {
-        HStack {
-            if step != .welcome {
-                SecondaryButton(title: "Back") { goBack() }
+        VStack(spacing: 10) {
+            HStack {
+                if stepIndex > 0 {
+                    SecondaryButton(title: "Back") { goBack() }
+                }
+                Spacer()
+                footerPrimary
             }
-            Spacer()
+            // Surface the reopen path visibly, not just as the close button's
+            // hover tooltip — the app has no window to return to otherwise.
+            Text("You can reopen this anytime from the menu bar icon.")
+                .font(Typography.caption)
+                .foregroundStyle(Theme.textTertiary)
+        }
+    }
+
+    /// The footer's trailing control. On an ungranted permission step it's a
+    /// *de-emphasized* "Skip for now" so the accent "Allow …" in the content is
+    /// the only prominent CTA — never two accent buttons on screen at once.
+    @ViewBuilder
+    private var footerPrimary: some View {
+        if isPermissionStep, !currentPermissionGranted {
+            SecondaryButton(title: "Skip for now") { advance() }
+        } else {
             PrimaryButton(title: primaryFooterLabel) { primaryFooterAction() }
+        }
+    }
+
+    private var isPermissionStep: Bool {
+        step == .microphone || step == .accessibility || step == .notifications
+    }
+
+    private var currentPermissionGranted: Bool {
+        switch step {
+        case .microphone: return micGranted
+        case .accessibility: return accessibilityGranted
+        case .notifications: return notifGranted
+        default: return false
         }
     }
 
     private var primaryFooterLabel: String {
         switch step {
         case .welcome: return "Get started"
-        case .microphone: return micGranted ? "Continue" : "Skip"
-        case .accessibility: return accessibilityGranted ? "Continue" : "Skip"
-        case .notifications: return notifGranted ? "Continue" : "Skip"
-        case .micTest: return "Continue"
-        case .smartCleanup: return state.llmCleanupEnabled ? "Continue" : "Skip"
         case .done: return "Start dictating"
+        case .microphone, .accessibility, .notifications, .micTest:
+            // "Continue" implies more ahead; on the last page of a partial flow
+            // (just a newly-added step) it finishes, so label it plainly.
+            return stepIndex == steps.count - 1 ? "Done" : "Continue"
         }
     }
 
@@ -212,17 +275,30 @@ struct OnboardingView: View {
     // MARK: Navigation
 
     private func advance() {
-        guard let next = OnboardingStep(rawValue: step.rawValue + 1) else {
+        guard stepIndex + 1 < steps.count else {
             onComplete()
             return
         }
-        withAnimation(.easeInOut(duration: 0.2)) { step = next }
+        goingBack = false
+        withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.step)) { stepIndex += 1 }
     }
 
     private func goBack() {
         if step == .micTest { stopMicTest() }
-        guard let prev = OnboardingStep(rawValue: step.rawValue - 1) else { return }
-        withAnimation(.easeInOut(duration: 0.2)) { step = prev }
+        guard stepIndex > 0 else { return }
+        goingBack = true
+        withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.step)) { stepIndex -= 1 }
+    }
+
+    /// Advance ~0.5s after a permission is granted, but only if we're still on
+    /// the step that just flipped (a manual Continue may have moved us already),
+    /// so the user gets a beat to see the "Granted" confirmation first.
+    private func advanceAfterGrant(from grantedStep: OnboardingStep) {
+        guard step == grantedStep else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            if step == grantedStep { advance() }
+        }
     }
 
     // MARK: Permission state

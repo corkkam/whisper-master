@@ -30,11 +30,18 @@ enum FillerWordFilter {
     private static let sentenceEnders: Set<Character> = [".", "!", "?", "…"]
 
     static func clean(_ text: String) -> String {
-        guard !text.isEmpty else { return text }
+        cleanCounting(text).text
+    }
+
+    /// Like `clean`, but also reports how many filler tokens were dropped — the
+    /// "words corrected" contribution to the usage dashboard's fixes count.
+    static func cleanCounting(_ text: String) -> (text: String, removed: Int) {
+        guard !text.isEmpty else { return (text, 0) }
 
         var kept: [String] = []
         var pendingLeading = ""
         var capitalizeNext = false
+        var removed = 0
 
         for token in text.split(whereSeparator: \.isWhitespace) {
             let (leading, core, trailing) = splitPunctuation(String(token))
@@ -59,6 +66,7 @@ enum FillerWordFilter {
                 kept[kept.count - 1] = previous
             }
             pendingLeading += leading
+            removed += 1
             // Dropping a sentence-opening filler ("Um, hello") leaves the next
             // word to start the sentence — it needs the capital.
             if kept.isEmpty || (kept.last?.last.map(sentenceEnders.contains) ?? false) {
@@ -66,7 +74,7 @@ enum FillerWordFilter {
             }
         }
 
-        return kept.joined(separator: " ")
+        return (kept.joined(separator: " "), removed)
     }
 
     private static func isFiller(_ core: String) -> Bool {

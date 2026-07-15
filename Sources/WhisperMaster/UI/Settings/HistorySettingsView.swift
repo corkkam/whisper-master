@@ -5,11 +5,24 @@ struct HistorySettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
 
+    /// The list shows a capped preview until the user asks for the whole set, so
+    /// a full 50-entry history doesn't dominate the page — but every saved entry
+    /// is reachable, so the count on the "Transcripts saved" tile is honest.
+    @State private var showAll = false
+    /// Per-row delete goes through a confirmation, so does "Clear all".
+    @State private var pendingDelete: TranscriptHistoryEntry?
+    @State private var confirmClearAll = false
+
+    private let previewLimit = 12
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 16) {
-                statCard(value: "\(wordsDictatedToday)", label: "Words dictated today", accent: true)
-                statCard(value: "\(state.history.count)", label: "Transcripts saved", accent: false)
+            HStack(spacing: Theme.Space.lg) {
+                StatTile(value: "\(wordsDictatedToday)",
+                         label: "Words dictated today",
+                         valueColor: Theme.accent)
+                StatTile(value: "\(state.history.count)",
+                         label: "Transcripts saved")
             }
 
             if state.history.isEmpty {
@@ -18,39 +31,53 @@ struct HistorySettingsView: View {
                 HStack {
                     SectionLabel("Recent")
                     Spacer()
-                    Button("Clear all") { viewModel.clearAllHistory() }
+                    Button("Clear all") { confirmClearAll = true }
                         .buttonStyle(.plain)
                         .font(Typography.caption)
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(Theme.danger)
                 }
                 SettingsCard {
-                    let entries = Array(state.history.prefix(12))
+                    let entries = showAll ? state.history : Array(state.history.prefix(previewLimit))
                     ForEach(Array(entries.enumerated()), id: \.element.id) { idx, entry in
                         historyRow(entry)
                         if idx < entries.count - 1 { RowDivider() }
                     }
                 }
+                if !showAll, state.history.count > previewLimit {
+                    Button("Show all \(state.history.count) transcripts") { showAll = true }
+                        .buttonStyle(.plain)
+                        .font(Typography.caption.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 2)
+                }
             }
         }
-    }
-
-    private func statCard(value: String, label: String, accent: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(value)
-                .font(Typography.sans(34, .bold))
-                .foregroundStyle(accent ? Theme.accent : Theme.textPrimary)
-            Text(label)
-                .font(Typography.subheadline)
-                .foregroundStyle(Theme.textSecondary)
+        .confirmationDialog(
+            "Clear all transcripts?",
+            isPresented: $confirmClearAll,
+            titleVisibility: .visible
+        ) {
+            Button("Clear all", role: .destructive) { viewModel.clearAllHistory() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes all \(state.history.count) saved transcripts and can't be undone.")
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1)
-        )
+        .confirmationDialog(
+            "Delete this transcript?",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDelete
+        ) { entry in
+            Button("Delete", role: .destructive) {
+                viewModel.deleteHistoryEntry(entry.id)
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        }
     }
 
     private func historyRow(_ entry: TranscriptHistoryEntry) -> some View {
@@ -80,27 +107,13 @@ struct HistorySettingsView: View {
             }
             Spacer(minLength: 8)
             HStack(spacing: 6) {
-                iconButton("doc.on.doc", help: "Copy") { viewModel.copyToClipboard(entry.text) }
-                iconButton("arrow.up.doc.on.clipboard", help: "Paste at cursor") { viewModel.pasteText(entry.text) }
-                iconButton("trash", help: "Delete") { viewModel.deleteHistoryEntry(entry.id) }
+                IconButton("doc.on.doc", label: "Copy transcript") { viewModel.copyToClipboard(entry.text) }
+                IconButton("arrow.up.doc.on.clipboard", label: "Paste at cursor") { viewModel.pasteText(entry.text) }
+                IconButton("trash", label: "Delete transcript", role: .destructive) { pendingDelete = entry }
             }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
-    }
-
-    private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.textSecondary)
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.surfaceSunken)
-                )
-        }
-        .buttonStyle(.plain)
-        .help(help)
     }
 
     private var emptyHistory: some View {
@@ -119,12 +132,7 @@ struct HistorySettingsView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(44)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1)
-        )
+        .card()
     }
 
     private var wordsDictatedToday: Int {

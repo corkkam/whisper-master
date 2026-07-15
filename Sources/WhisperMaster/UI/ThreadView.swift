@@ -9,7 +9,10 @@ import SwiftUI
 ///
 /// The fold is driven by time (not SwiftUI's implicit animation) so it can
 /// coexist with the per-frame `TimelineView` that animates the wave, and it
-/// resolves interrupted transitions cleanly.
+/// resolves interrupted transitions cleanly. The palette is the warm brand
+/// `Theme.Notch.waveGradient` (cream → white → vermillion), not the old cold
+/// blue. When Reduce Motion is on the travelling wave + spin are dropped for a
+/// static shape with a slow opacity pulse.
 struct ThreadView: View {
     let level: Float
     /// `true` curls the thread into a spinning ring; `false` is the open wave.
@@ -17,6 +20,12 @@ struct ThreadView: View {
 
     var width: CGFloat = 150
     var lineWidth: CGFloat = 2.5
+    /// Slightly thicker stroke once curled, so the ring reads as a real spinner
+    /// inside the slim band.
+    var ringLineWidth: CGFloat = 3.2
+    /// Fixed ring radius — big enough to be visible in the 24-pt band, instead of
+    /// the old height-clamped radius that collapsed the spinner to a dot.
+    var ringRadius: CGFloat = 10
     /// Sine cycles drawn along the thread.
     var cycles: CGFloat = 2.2
     /// Wave amplitude when idle vs. at full speech.
@@ -26,44 +35,81 @@ struct ThreadView: View {
     private let foldDuration: Double = 0.55
     private let waveSpeed: Double = 3.0   // travelling-wave phase
     private let spinSpeed: Double = 3.4   // ring rotation (rad/s)
+    private let breatheSpeed: Double = 1.7 // idle amplitude undulation
     /// Fraction of the ring left open, giving the spinner its rotating gap.
     private let gapFraction: CGFloat = 0.16
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var startMorph: Double = 0
     @State private var endMorph: Double = 0
     @State private var transitionStart: Date = .distantPast
+    /// Entry pop (non-reduced path) and slow opacity pulse (reduced path).
+    @State private var appeared = false
+    @State private var pulse = false
 
     var body: some View {
-        TimelineView(.animation) { context in
-            let now = context.date
-            let morph = morph(at: now)
-            let t = now.timeIntervalSinceReferenceDate
-
-            Canvas { ctx, size in
-                let path = threadPath(in: size, time: t, morph: morph)
-                ctx.stroke(
-                    path,
-                    with: .linearGradient(
-                        gradient,
-                        startPoint: CGPoint(x: 0, y: size.height / 2),
-                        endPoint: CGPoint(x: size.width, y: size.height / 2)
-                    ),
-                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
-                )
+        Group {
+            if reduceMotion {
+                // No continuous TimelineView motion — a single static render with
+                // a gentle opacity pulse so the line still looks alive.
+                waveCanvas(time: 0, morph: folded ? 1 : 0)
+                    .opacity(pulse ? 1 : 0.5)
+            } else {
+                TimelineView(.animation) { context in
+                    let now = context.date
+                    waveCanvas(time: now.timeIntervalSinceReferenceDate, morph: morph(at: now))
+                }
+                // Entry pop: the thread announces itself when listening starts.
+                .scaleEffect(appeared ? 1 : 0.86)
+                .opacity(appeared ? 1 : 0)
             }
-            .frame(width: width)
         }
-        .onAppear {
-            let value: Double = folded ? 1 : 0
-            startMorph = value
-            endMorph = value
+        .onAppear(perform: handleAppear)
+        .onChange(of: folded, handleFoldChange)
+    }
+
+    // MARK: - Rendering
+
+    /// The shared stroke, used by both the animated and reduced paths.
+    private func waveCanvas(time: Double, morph: Double) -> some View {
+        Canvas { ctx, size in
+            let path = threadPath(in: size, time: time, morph: morph)
+            // Thicken toward the ring so the spinner reads within the slim band.
+            let stroke = lineWidth + (ringLineWidth - lineWidth) * CGFloat(morph)
+            ctx.stroke(
+                path,
+                with: .linearGradient(
+                    Theme.Notch.waveGradient,
+                    startPoint: CGPoint(x: 0, y: size.height / 2),
+                    endPoint: CGPoint(x: size.width, y: size.height / 2)
+                ),
+                style: StrokeStyle(lineWidth: stroke, lineCap: .round, lineJoin: .round)
+            )
         }
-        .onChange(of: folded) { _, isFolded in
-            let now = Date()
-            startMorph = morph(at: now)
-            endMorph = isFolded ? 1 : 0
-            transitionStart = now
+        .frame(width: width)
+    }
+
+    // MARK: - Lifecycle
+
+    private func handleAppear() {
+        let value: Double = folded ? 1 : 0
+        startMorph = value
+        endMorph = value
+        if reduceMotion {
+            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        } else {
+            withAnimation(Theme.Motion.appear) { appeared = true }
         }
+    }
+
+    private func handleFoldChange(_ wasFolded: Bool, _ isFolded: Bool) {
+        let now = Date()
+        startMorph = morph(at: now)
+        endMorph = isFolded ? 1 : 0
+        transitionStart = now
     }
 
     // MARK: - Morph progress (time-based, interruption-safe)
@@ -88,10 +134,17 @@ struct ThreadView: View {
     private func threadPath(in size: CGSize, time: Double, morph: Double) -> Path {
         let steps = 140
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
-        let ringRadius = min(size.width, size.height) / 2 - lineWidth
+        // Fixed radius, clamped only if the band is somehow shorter than it.
+        let ringRadius = min(self.ringRadius, size.height / 2 - ringLineWidth / 2)
 
         let speech = min(1, max(0, CGFloat(level) * 18))
-        let waveAmplitude = (idleAmplitude + (maxAmplitude - idleAmplitude) * speech) * CGFloat(1 - morph)
+        // Idle breathing: with little speech, swell/recede the baseline amplitude
+        // so pauses show a living undulation rather than a dead flat line. It's
+        // swamped by real speech (which drives straight to `maxAmplitude`).
+        let breathe = 0.6 + 0.4 * CGFloat(sin(time * breatheSpeed)) // ~0.2…1.0
+        let idleAmp = idleAmplitude * breathe
+        let liveAmplitude = idleAmp + (maxAmplitude - idleAmp) * speech
+        let waveAmplitude = liveAmplitude * CGFloat(1 - morph)
         let phase = CGFloat(time * waveSpeed)
         let spin = CGFloat(time * spinSpeed)
 
@@ -126,13 +179,5 @@ struct ThreadView: View {
             }
         }
         return path
-    }
-
-    private var gradient: Gradient {
-        Gradient(colors: [
-            Color(red: 0.55, green: 0.85, blue: 1.0),
-            .white,
-            Color(red: 0.55, green: 0.85, blue: 1.0)
-        ])
     }
 }
