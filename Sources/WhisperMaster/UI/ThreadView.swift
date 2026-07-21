@@ -18,8 +18,8 @@ struct ThreadView: View {
     /// `true` curls the thread into a spinning ring; `false` is the open wave.
     var folded: Bool
 
-    var width: CGFloat = 150
-    var lineWidth: CGFloat = 2.5
+    var width: CGFloat = 96
+    var lineWidth: CGFloat = 2.0
     /// Slightly thicker stroke once curled, so the ring reads as a real spinner
     /// inside the slim band.
     var ringLineWidth: CGFloat = 3.2
@@ -27,10 +27,10 @@ struct ThreadView: View {
     /// the old height-clamped radius that collapsed the spinner to a dot.
     var ringRadius: CGFloat = 10
     /// Sine cycles drawn along the thread.
-    var cycles: CGFloat = 2.2
+    var cycles: CGFloat = 1.5
     /// Wave amplitude when idle vs. at full speech.
-    var idleAmplitude: CGFloat = 2
-    var maxAmplitude: CGFloat = 8
+    var idleAmplitude: CGFloat = 1.5
+    var maxAmplitude: CGFloat = 6
 
     private let foldDuration: Double = 0.55
     private let waveSpeed: Double = 3.0   // travelling-wave phase
