@@ -52,6 +52,12 @@ model Result {
   @@index([runId])
 }
 
+// ── LEGACY (Phase 5): the three models below moved to Supabase Postgres.
+// The live sync routes (/api/usage, /api/notes) now read/write Supabase — these
+// remain ONLY so `scripts/migrate-mongo-to-supabase.mjs` can read the old Mongo
+// data one last time. After a verified migration they (and the Mongo
+// collections) can be dropped. Run/Result above stay on Mongo.
+
 /// A user's freeform note, upserted by the macOS app (last-writer-wins by
 /// `updatedAt`). `deletedAt` is a soft-delete tombstone so a delete propagates.
 /// Reads are Bearer-authenticated (NOT public) — notes are personal.

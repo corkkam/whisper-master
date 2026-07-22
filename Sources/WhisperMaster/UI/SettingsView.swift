@@ -6,11 +6,13 @@ import SwiftUI
 enum SettingsSection: String, CaseIterable, Identifiable {
     case insights
     case notes
+    case connectors
     case settings
     case engine
     case history
     case permissions
     case mesh
+    case account
     case about
 
     var id: String { rawValue }
@@ -19,11 +21,13 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .insights: return "Insights"
         case .notes: return "Notes & Reminders"
+        case .connectors: return "Connectors"
         case .settings: return "Settings"
         case .engine: return "Voice engine"
         case .history: return "History"
         case .permissions: return "Permissions"
         case .mesh: return "Nearby Macs"
+        case .account: return "Account"
         case .about: return "About"
         }
     }
@@ -32,11 +36,13 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .insights: return "Your dictation at a glance — words, speed, and streaks."
         case .notes: return "Jot notes and set reminders that follow you across your Macs."
+        case .connectors: return "Link your calendar, mail and chat so you can ask about your day."
         case .settings: return "Everything you can tune, in one place."
         case .engine: return "Everything runs on-device. Your audio never leaves this Mac."
         case .history: return "Your recent transcriptions, kept locally."
         case .permissions: return "Whisper Master only asks for what it needs to work."
         case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
+        case .account: return "You’re signed in. Sign out to lock the app."
         case .about: return "Voice dictation that stays on your Mac."
         }
     }
@@ -45,11 +51,13 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .insights: return "Overview"
         case .notes: return "Notes"
+        case .connectors: return "Connected"
         case .settings: return "Preferences"
         case .engine: return "On-device"
         case .history: return "Activity"
         case .permissions: return "Privacy"
         case .mesh: return "Mesh"
+        case .account: return "You"
         case .about: return "Whisper Master"
         }
     }
@@ -59,11 +67,13 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .insights: return "chart.bar"
         case .notes: return "checklist"
+        case .connectors: return "app.connected.to.app.below.fill"
         case .settings: return "gearshape"
         case .engine: return "waveform"
         case .history: return "clock"
         case .permissions: return "shield"
         case .mesh: return "laptopcomputer"
+        case .account: return "person.crop.circle"
         case .about: return "info.circle"
         }
     }
@@ -79,6 +89,7 @@ struct SettingsView: View {
     var checkForUpdates: () -> Void = {}
     var startSetup: () -> Void = {}
     var cancelSetup: () -> Void = {}
+    var signOut: () -> Void = {}
     // Configured users should land on a useful page, not an empty Insights
     // dashboard — the not-installed case still redirects to `.engine` via
     // `autoFocusSetupIfNeeded()`.
@@ -98,6 +109,7 @@ struct SettingsView: View {
         checkForUpdates: @escaping () -> Void = {},
         startSetup: @escaping () -> Void = {},
         cancelSetup: @escaping () -> Void = {},
+        signOut: @escaping () -> Void = {},
         initialSection: SettingsSection = .settings
     ) {
         self.viewModel = viewModel
@@ -106,6 +118,7 @@ struct SettingsView: View {
         self.checkForUpdates = checkForUpdates
         self.startSetup = startSetup
         self.cancelSetup = cancelSetup
+        self.signOut = signOut
         self.initialSection = initialSection
         _selection = State(initialValue: initialSection)
     }
@@ -259,6 +272,8 @@ struct SettingsView: View {
             InsightsSettingsView(viewModel: viewModel, state: state)
         case .notes:
             NotesSettingsView(state: state)
+        case .connectors:
+            ConnectorsSettingsView(viewModel: viewModel, state: state)
         case .settings:
             GeneralSettingsView(viewModel: viewModel, state: state)
         case .engine:
@@ -274,6 +289,8 @@ struct SettingsView: View {
                 micDenied: micDenied,
                 accessibilityGranted: accessibilityGranted
             )
+        case .account:
+            AccountSettingsView(state: state, signOut: signOut)
         case .about:
             AboutSettingsView(state: state, reopenOnboarding: reopenOnboarding, checkForUpdates: checkForUpdates)
         }

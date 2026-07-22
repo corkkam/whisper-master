@@ -27,27 +27,32 @@ struct DictationPillContent: View {
     /// and this is the user's only feedback that the words went somewhere.
     private var showCommandConfirmation: Bool { state.shouldShowCommandConfirmation }
 
+    /// The "what's my day" answer — the immediate result of a connector query the
+    /// user just asked for. Just under the command confirmation.
+    private var showDaySummary: Bool { !showCommandConfirmation && state.shouldShowDaySummary }
+
     /// The "nowhere to paste" hint — the immediate consequence of a dictation
     /// that had no target field.
-    private var showUndelivered: Bool { !showCommandConfirmation && state.shouldShowUndeliveredBanner }
+    private var showUndelivered: Bool { !showCommandConfirmation && !showDaySummary && state.shouldShowUndeliveredBanner }
 
     /// The "learned a word" confirmation — just under the undelivered hint.
-    private var showLearned: Bool { !showCommandConfirmation && !showUndelivered && state.shouldShowLearnedBanner }
+    private var showLearned: Bool { !showCommandConfirmation && !showDaySummary && !showUndelivered && state.shouldShowLearnedBanner }
 
     /// The one-shot "smart cleanup is ready" confirmation — just under the
     /// learned hint. (Model download *progress* never appears here.)
-    private var showCleanupReady: Bool { !showCommandConfirmation && !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
+    private var showCleanupReady: Bool { !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
 
     /// The Bluetooth-mic hint takes precedence over the dictation indicator and
     /// uses a taller band to fit its text + button.
-    private var showBanner: Bool { !showCommandConfirmation && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
+    private var showBanner: Bool { !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
 
     /// A gentle reminder — lower priority than the hints above, shown only when
     /// idle (`AppState.shouldShowReminder` already gates that).
-    private var showReminder: Bool { !showCommandConfirmation && !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
+    private var showReminder: Bool { !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
 
     private var bandThickness: CGFloat {
         if showCommandConfirmation { return layout.commandConfirmationThickness }
+        if showDaySummary { return layout.daySummaryThickness }
         if showUndelivered { return layout.undeliveredThickness }
         if showLearned { return layout.learnedThickness }
         if showCleanupReady { return layout.cleanupReadyThickness }
@@ -64,7 +69,7 @@ struct DictationPillContent: View {
     /// Whether the surface should be dropped down and visible.
     private var isExpanded: Bool {
         // Hints + the delivered beat show even when idle.
-        if showCommandConfirmation || showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
+        if showCommandConfirmation || showDaySummary || showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
             || state.shouldShowDeliveredBeat { return true }
         guard hasContent else { return false }
         if state.phase == .idle && state.hidePillWhenIdle { return false }
@@ -99,8 +104,15 @@ struct DictationPillContent: View {
                 .frame(height: bandThickness)
         }
         .frame(height: isExpanded ? expandedHeight : 0, alignment: .top)
-        .background(shape.fill(.black))
+        // Opaque black keeps the surface molded to the physical notch; the sheen +
+        // lit rim are liquid-glass *highlights* on top of the black (not
+        // transparency), so the hardware blend is preserved.
+        .background {
+            shape.fill(.black)
+            shape.fill(Theme.Notch.glassSheen).allowsHitTesting(false)
+        }
         .clipShape(shape)
+        .overlay { shape.stroke(Theme.Notch.glassBorder, lineWidth: 1) }
         .opacity(isExpanded ? 1 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // Only the interactive banners take clicks (the Bluetooth "use built-in"
@@ -118,6 +130,7 @@ struct DictationPillContent: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showBanner)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showReminder)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showCommandConfirmation)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showDaySummary)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowDeliveredBeat)
     }
 
@@ -127,6 +140,8 @@ struct DictationPillContent: View {
             NotchCommandConfirmationBanner(message: message)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onOpenNotes)
+        } else if showDaySummary, let summary = state.activeDaySummary {
+            NotchDaySummaryBanner(summary: summary)
         } else if showUndelivered {
             NotchUndeliveredBanner()
         } else if showLearned, let term = state.learnedTerm {

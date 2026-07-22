@@ -35,7 +35,7 @@ final class BluetoothInputMonitor {
     private func check() {
         Task.detached { [weak self] in
             let isBluetooth = AudioInputDevices.isDefaultInputBluetooth()
-            await MainActor.run { self?.apply(isBluetooth: isBluetooth) }
+            await self?.apply(isBluetooth: isBluetooth)
         }
     }
 

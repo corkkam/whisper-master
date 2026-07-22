@@ -11,7 +11,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-APP_NAME="Whisper Master"
+# Release channel (stable|beta). Beta builds a side-by-side bundle, generates
+# appcast-beta.xml (never touching stable's appcast.xml), and uploads only the
+# beta artifacts. See channel.sh + CLAUDE.md → beta channel.
+source "$(dirname "$0")/channel.sh"
+
+APP_NAME="$CH_APP_NAME"
 APP_PATH="build/${APP_NAME}.app"
 STAGE="build/sparkle"
 REBUILD="${REBUILD:-1}"
@@ -49,7 +54,17 @@ done
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PATH/Contents/Info.plist")
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PATH/Contents/Info.plist")
-echo ">> Releasing version $VERSION (build $BUILD)"
+echo ">> Releasing version $VERSION (build $BUILD) on the $CHANNEL channel"
+
+# A beta release MUST carry a pre-release version tag (e.g. 1.2.8-beta.1). This
+# keeps the archive filename (WhisperMaster-<version>.zip) distinct from every
+# stable archive at the R2 bucket root, so a beta upload can never overwrite a
+# stable zip whose bytes an installed app / the CDN still expects.
+if [[ "$CHANNEL" == "beta" && "$VERSION" != *-beta* ]]; then
+    echo "error: beta release version '$VERSION' must contain a '-beta.N' pre-release tag" >&2
+    echo "       Bump CFBundleShortVersionString in Resources/Info.plist to e.g. ${VERSION}-beta.1" >&2
+    exit 1
+fi
 
 # --- Notarize + staple the app before zipping ---
 # Stapling embeds the ticket inside the .app, so it travels in the Sparkle zip
@@ -76,6 +91,13 @@ else
     "$GEN_APPCAST" "$STAGE" --download-url-prefix "${R2_PUBLIC_BASE_URL%/}/"
 fi
 
+# generate_appcast always writes "appcast.xml". Beta gets its own feed file so a
+# beta release never rewrites stable's appcast.xml — rename before upload. STAGE
+# is wiped each run and holds only this channel's zip, so the feed is clean.
+if [[ "$CHANNEL" == "beta" ]]; then
+    mv "$STAGE/appcast.xml" "$STAGE/$CH_APPCAST_NAME"
+fi
+
 # --- Upload archive + appcast to R2 ---
 echo ">> Uploading to R2 bucket: $R2_BUCKET"
 export RCLONE_S3_PROVIDER=Cloudflare
@@ -86,6 +108,6 @@ export RCLONE_S3_REGION=auto
 rclone copy "$STAGE/" ":s3:$R2_BUCKET/" --s3-no-check-bucket --progress
 
 echo ""
-echo "Released $VERSION:"
-echo "  appcast: ${R2_PUBLIC_BASE_URL%/}/appcast.xml"
+echo "Released $VERSION on the $CHANNEL channel:"
+echo "  appcast: ${R2_PUBLIC_BASE_URL%/}/$CH_APPCAST_NAME"
 echo "  archive: ${R2_PUBLIC_BASE_URL%/}/$(basename "$ZIP")"

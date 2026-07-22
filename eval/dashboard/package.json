@@ -31,6 +31,7 @@
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@prisma/client": "^6.19.0",
+    "@supabase/supabase-js": "^2.108.2",
     "@tanstack/svelte-query": "^6.1.36"
   }
 }

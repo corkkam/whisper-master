@@ -5,8 +5,8 @@ import SwiftUI
 /// Priority: an in-flight model **download** shows determinate progress; a
 /// **failure** shows an error glyph plus a short reason; a just-landed
 /// transcript shows the **delivered** checkmark beat; any other **working**
-/// state shows the morphing `ThreadView` (open wave while recording, spinning
-/// ring while preparing/loading/finalizing); otherwise nothing.
+/// state shows the `OrbView` (energized/audio-reactive while recording, calmly
+/// breathing while preparing/loading/finalizing); otherwise nothing.
 struct DictationStatusView: View {
     let state: AppState
 
@@ -21,7 +21,7 @@ struct DictationStatusView: View {
             } else if state.shouldShowDeliveredBeat {
                 delivered
             } else if isWorking {
-                ThreadView(level: state.audioLevel, folded: !isRecording)
+                OrbView(level: state.audioLevel, energized: isRecording)
             } else {
                 EmptyView()
             }

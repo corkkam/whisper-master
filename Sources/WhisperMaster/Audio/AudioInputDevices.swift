@@ -102,10 +102,10 @@ enum AudioInputDevices {
             mSelector: kAudioObjectPropertyName,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain)
-        var name: CFString = "" as CFString
-        var size = UInt32(MemoryLayout<CFString>.size)
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         let status = AudioObjectGetPropertyData(device, &address, 0, nil, &size, &name)
-        return status == noErr ? (name as String) : "unknown"
+        return status == noErr ? (name?.takeRetainedValue() as String? ?? "unknown") : "unknown"
     }
 
     private static func inputChannelCount(of device: AudioDeviceID) -> Int {

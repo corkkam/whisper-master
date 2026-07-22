@@ -113,12 +113,14 @@ enum SnapshotMode {
         switch section {
         case .insights: InsightsSettingsView(viewModel: viewModel, state: state)
         case .notes: NotesSettingsView(state: state)
+        case .connectors: ConnectorsSettingsView(viewModel: viewModel, state: state)
         case .settings: GeneralSettingsView(viewModel: viewModel, state: state)
         case .engine: EngineSettingsView(viewModel: viewModel, state: state)
         case .mesh: MeshSettingsView(viewModel: viewModel, state: state)
         case .history: HistorySettingsView(viewModel: viewModel, state: state)
         case .permissions:
             PermissionsSettingsView(permissions: PermissionsManager(), micGranted: true, micDenied: false, accessibilityGranted: false)
+        case .account: AccountSettingsView(state: state)
         case .about: AboutSettingsView(state: state)
         }
     }
@@ -150,6 +152,13 @@ enum SnapshotMode {
         ]
         seedUsage(state.usageStore)
         seedNotes(state.notesStore)
+        // A couple of connectors switched on so the Connectors tab renders with
+        // real-looking status chips (persistence off, so it never touches the real
+        // device-wide connector choices).
+        state.connectorStore.persistenceEnabled = false
+        state.connectorStore.setEnabled(.appleCalendar, true)
+        state.connectorStore.setEnabled(.slack, true)
+        state.connectorStore.calendarAccessGranted = true
     }
 
     /// A couple of believable notes + reminders so the Notes & Reminders panel

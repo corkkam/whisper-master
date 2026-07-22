@@ -18,10 +18,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-APP_NAME="Whisper Master"
+# Release channel (stable|beta) → CH_APP_NAME + CH_DMG_STABLE_NAME. Beta uploads
+# to WhisperMaster-beta.dmg (the gated /download beta link), never the stable
+# WhisperMaster.dmg. See channel.sh.
+source "$(dirname "$0")/channel.sh"
+
+APP_NAME="$CH_APP_NAME"
 APP_PATH="build/${APP_NAME}.app"
 DMG_PATH="build/${APP_NAME}.dmg"
-STABLE_NAME="WhisperMaster.dmg"
+STABLE_NAME="$CH_DMG_STABLE_NAME"
 
 # --- Load R2 credentials (CI passes these as env vars) ---
 if [[ -f .env ]]; then

@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var window: NSWindow?
     private var hotkeyManager: HotkeyManager?
+    /// The dedicated "ask about my day" push-to-talk monitor (see `setupHotkey`).
+    private var dayQueryHotkeyManager: HotkeyManager?
     private let permissionsManager = PermissionsManager()
     private let onboardingMic = MicrophoneCaptureService()
     private lazy var viewModel = DictationViewModel(
@@ -44,6 +46,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Latched once the user first authenticates, so the post-sign-in bring-up
     /// (LAN server, mesh, onboarding, settings window) runs exactly once.
     private var didProceedAfterAuth = false
+    /// Set when the user taps **Sign Out**. Overrides the dev-build auth bypass
+    /// so an explicit sign-out actually re-gates the app (otherwise the reconcile
+    /// tick would immediately let a `.dev` build back in). Cleared on the next
+    /// real sign-in. In-memory only, so a relaunch restores the dev convenience.
+    private var userDidSignOut = false
+    /// True while the app's own windows (Settings, dictation pill) are hidden
+    /// behind the sign-in gate. Tracks the gated↔ungated transition so we hide /
+    /// reveal them exactly once instead of every 0.5s reconcile tick.
+    private var appSurfacesHidden = false
     private var statusRefreshTimer: Timer?
     private var settingsItem: NSMenuItem?
     private var statusHeader: NSMenuItem?
@@ -61,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `SUFeedURL` appcast, verified with the `SUPublicEDKey`.
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
-        updaterDelegate: nil,
+        updaterDelegate: self,
         userDriverDelegate: self
     )
 
@@ -145,6 +156,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// production and the real gate is completely untouched. Set `WM_REQUIRE_AUTH=1`
     /// to force the real gate back on even in the dev build (to test sign-in).
     private var authBypassEnabled: Bool {
+        // An explicit sign-out defeats the bypass so the gate can actually return.
+        guard !userDidSignOut else { return false }
         guard (Bundle.main.bundleIdentifier ?? "").hasSuffix(".dev") else { return false }
         return ProcessInfo.processInfo.environment["WM_REQUIRE_AUTH"] != "1"
     }
@@ -173,6 +186,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         gate.show()
     }
 
+    /// Gate for the two dictation entry points (hotkey + tray): a press while
+    /// signed out surfaces the auth gate instead of recording. (Reconstructed
+    /// after data loss from session transcripts; the Supabase waitlist check that
+    /// once lived here was removed before the crash, leaving the sign-in gate.)
+    private func ensureCanDictate() -> Bool {
+        guard isSignedIn else { presentAuthGate(); return false }
+        return true
+    }
+
     /// Reconcile the gate against the current Clerk session. Driven both once at
     /// launch and from the 0.5s status refresh loop (our @Observable→AppKit
     /// bridge), so sign-in/sign-out flip the gate without any Clerk callback.
@@ -186,17 +208,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         // No key configured, or a definitively signed-out session → stay gated.
-        guard ClerkConfig.isConfigured else { presentAuthGate(); return }
+        guard ClerkConfig.isConfigured else { presentAuthGate(); hideAppSurfacesForGate(); return }
         if let user = Clerk.shared.user {
+            // A real sign-in clears the manual sign-out latch (restores the dev
+            // bypass for the next launch) and reveals the app again.
+            userDidSignOut = false
             authGateWindow?.close()
             proceedAfterAuthIfNeeded()
+            revealAppSurfacesAfterAuth()
             // Scope usage stats to this account (idempotent — only reloads on a
             // change), so the Insights dashboard shows just their numbers.
             viewModel.state.usageStore.activate(userID: user.id)
             viewModel.state.notesStore.activate(userID: user.id)
         } else if Clerk.shared.isLoaded {
             presentAuthGate()
-            // Signed out — drop the loaded account so their stats aren't visible.
+            // Signed out — hide the app and drop the loaded account so neither the
+            // UI nor their stats are visible behind the gate.
+            hideAppSurfacesForGate()
             viewModel.state.usageStore.deactivate()
             viewModel.state.notesStore.deactivate()
         }
@@ -265,14 +293,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// half-second window where the app looks usable.
     @objc
     private func signOut() {
+        // Latch first so the dev-build bypass can't immediately let us back in,
+        // then hide the app and show the gate right away — no half-second window
+        // where the app still looks usable while the network sign-out is in flight.
+        userDidSignOut = true
+        hideAppSurfacesForGate()
+        presentAuthGate()
+        viewModel.state.usageStore.deactivate()
+        viewModel.state.notesStore.deactivate()
         Task {
             do {
                 try await Clerk.shared.auth.signOut()
             } catch {
                 Log.auth.error("Sign out failed: \(error.localizedDescription, privacy: .public)")
             }
-            self.presentAuthGate()
+            // Reconcile picks up the cleared session on the next tick and keeps
+            // the gate up (the latch holds it there even in a dev build).
+            self.reconcileAuthGate()
         }
+    }
+
+    /// Hide every app surface so nothing is viewable behind the sign-in gate.
+    /// Idempotent via `appSurfacesHidden`, so the 0.5s reconcile tick can call it
+    /// freely while signed out. The pill/onboarding may not exist yet at cold
+    /// launch (they're created post-auth) — the optionals no-op in that case.
+    private func hideAppSurfacesForGate() {
+        guard !appSurfacesHidden else { return }
+        appSurfacesHidden = true
+        window?.orderOut(nil)
+        onboardingWindow?.close()
+        pillWindow?.hide()
+    }
+
+    /// Bring the passive dictation pill back after a sign-in. The Settings window
+    /// is intentionally left closed (the user opens it explicitly); only the
+    /// always-present notch pill is restored.
+    private func revealAppSurfacesAfterAuth() {
+        guard appSurfacesHidden else { return }
+        appSurfacesHidden = false
+        pillWindow?.show()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -586,6 +645,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.deliveredAt = nil
         }
 
+        // Retract the "what's my day" answer once its (longer) window elapses.
+        if let at = state.daySummaryAt,
+           Date().timeIntervalSince(at) >= AppState.daySummaryDuration {
+            state.activeDaySummary = nil
+            state.daySummaryAt = nil
+        }
+
         // Sync the "keep this Mac awake for phone dictation" opt-in to the server.
         // `setKeepAwakeAlways` is transition-guarded, so calling it every tick is
         // cheap — the timer is our bridge from @Observable state to AppKit.
@@ -705,9 +771,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             reopenOnboarding: { [weak self] in self?.showOnboarding() },
             checkForUpdates: { [weak self] in self?.updaterController.checkForUpdates(nil) },
             startSetup: { [weak self] in self?.viewModel.prepareSelectedEngineInBackground() },
-            cancelSetup: { [weak self] in self?.viewModel.cancelModelPreparation() }
+            cancelSetup: { [weak self] in self?.viewModel.cancelModelPreparation() },
+            signOut: { [weak self] in self?.signOut() }
         )
-        let host = NSHostingController(rootView: rootView)
+        // Inject the shared Clerk instance so the Account panel can read the
+        // signed-in user reactively (same source the auth gate observes).
+        let host = NSHostingController(rootView: rootView.environment(Clerk.shared))
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 780, height: 580),
@@ -761,16 +830,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch event {
             case .pressed:
-                // Gate dictation on sign-in: a press while signed out surfaces
-                // the sign-in window instead of starting a recording.
-                guard self.isSignedIn else {
-                    self.presentAuthGate()
-                    return
-                }
+                // Gate dictation on sign-in AND waitlist acceptance: a press while
+                // signed out surfaces the sign-in window; while not-yet-accepted,
+                // the waitlist notice — instead of starting a recording.
+                guard self.ensureCanDictate() else { return }
                 self.viewModel.handleHotkeyPressed()
             case .released:
                 self.viewModel.handleHotkeyReleased()
             }
+        }
+
+        // The dedicated "ask about my day" push-to-talk: a separate key that
+        // always routes the finished transcript to the connectors (answered in the
+        // notch) instead of pasting it. Same sign-in gate as dictation.
+        dayQueryHotkeyManager = HotkeyManager(hotkey: viewModel.state.dayQueryHotkey) { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .pressed:
+                guard self.ensureCanDictate() else { return }
+                self.viewModel.handleDayQueryHotkeyPressed()
+            case .released:
+                self.viewModel.handleDayQueryHotkeyReleased()
+            }
+        }
+        viewModel.dayQueryHotkeyUpdater = { [weak self] hotkey in
+            self?.dayQueryHotkeyManager?.setHotkey(hotkey)
         }
     }
 
@@ -824,6 +908,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func showWindow() {
+        // The whole app is gated: while signed out, any path to Settings (tray,
+        // Dock menu, Dock-icon reopen, ⌘,) surfaces the sign-in window instead.
+        guard isSignedIn else {
+            presentAuthGate()
+            return
+        }
         NSApp.activate(ignoringOtherApps: true)
         if let window { applyDefaultWindowFrame(window) }
         window?.makeKeyAndOrderFront(nil)
@@ -832,6 +922,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func showOnboardingFromMenu() {
+        guard isSignedIn else {
+            presentAuthGate()
+            return
+        }
         showOnboarding()
     }
 
@@ -845,10 +939,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func startRecording() {
-        guard isSignedIn else {
-            presentAuthGate()
-            return
-        }
+        guard ensureCanDictate() else { return }
         viewModel.startRecording()
     }
 
@@ -894,6 +985,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bluetoothInputMonitor?.stop()
         viewModel.shutdown()
         NSApp.terminate(nil)
+    }
+}
+
+extension AppDelegate: SPUUpdaterDelegate {
+    /// Choose the appcast feed dynamically from the signed-in user's beta flag.
+    /// Sparkle calls this on the main thread before every check, so it always
+    /// tracks the *current* Clerk session: a beta user (or one just flipped
+    /// stable server-side) lands on the right feed without a relaunch. Returning
+    /// nil would fall back to the static `SUFeedURL` in Info.plist; we always
+    /// return a concrete channel so the two never drift.
+    nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
+        MainActor.assumeIsolated { BetaAccess.currentChannel.feedURLString }
     }
 }
 

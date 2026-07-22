@@ -80,11 +80,18 @@ final class AppState {
     /// awaiting a tap. Generous, but bounded — if the user walks away it retracts
     /// (and no reminder is created, since none of the times were chosen).
     static let reminderTimePromptDuration: TimeInterval = 30
+    /// How long a "what's my day" answer stays down in the notch. Longer than the
+    /// other hints — the user asked for it and is reading a few facts.
+    static let daySummaryDuration: TimeInterval = 12
 
     var selectedEngine: TranscriberEngine = .slidingWindow
     var preparedEngine: TranscriberEngine?
     var preparingEngine: TranscriberEngine?
     var hotkey: HotkeyManager.HotkeyOption = .rightOption
+    /// Push-to-talk key that always means "ask about my day" — the finished
+    /// transcript is routed to the connectors and answered in the notch instead of
+    /// being pasted. Defaults to a different key than `hotkey`.
+    var dayQueryHotkey: HotkeyManager.HotkeyOption = .rightCommand
     var holdToTalkEnabled: Bool = true
     var autoPasteEnabled: Bool = true
     var soundEnabled: Bool = true
@@ -111,6 +118,11 @@ final class AppState {
     /// this is the only feedback). Transient; auto-expired by the refresh loop.
     var commandConfirmation: String?
     var commandConfirmationAt: Date?
+    /// The answer to a "what's my day" query, dropped down in the notch. Set by the
+    /// view model after aggregating the connectors; transient (never persisted),
+    /// auto-expired by the refresh loop after `daySummaryDuration`.
+    var activeDaySummary: DaySummary?
+    var daySummaryAt: Date?
     /// A one-shot request to open the Settings window on a given section — set by
     /// the tappable command-confirmation banner ("tap to change") so a spoken
     /// reminder's default time is one click from adjustable. Transient; consumed
@@ -283,6 +295,10 @@ final class AppState {
     /// `AppDelegate` (`notesStore.activate`) once auth resolves.
     let notesStore = NotesStore(load: false)
 
+    /// The user's connector choices (Gmail, Google Calendar, Outlook, Slack, iCal,
+    /// …) behind the Connectors tab. Device-wide (see `ConnectorStore`).
+    let connectorStore = ConnectorStore()
+
     init() {
         history = Self.loadHistory()
         customVocabulary = Self.loadVocabulary()
@@ -350,11 +366,24 @@ final class AppState {
             && !shouldShowReminderTimePrompt
     }
 
+    /// Show the "what's my day" answer. High priority — the user just asked for
+    /// it — but yields to the quick-prompt/command confirmation which need a tap.
+    var shouldShowDaySummary: Bool {
+        guard let at = daySummaryAt, activeDaySummary != nil else { return false }
+        return Date().timeIntervalSince(at) < Self.daySummaryDuration
+            && phase == .idle
+            && download == nil
+            && preparingEngine == nil
+            && !shouldShowReminderTimePrompt
+            && !shouldShowCommandConfirmation
+    }
+
     /// Show the Bluetooth-mic hint in the notch only when idle (never mid-
     /// recording) and the user hasn't dismissed it.
     var shouldShowBluetoothBanner: Bool {
         bluetoothInputActive && !bluetoothBannerDismissed && phase == .idle
             && !shouldShowReminderTimePrompt && !shouldShowCommandConfirmation
+            && !shouldShowDaySummary
     }
 
     /// Show the "saved, nowhere to paste" hint when a recent dictation had no
@@ -418,6 +447,7 @@ final class AppState {
             && !shouldShowUndeliveredBanner
             && !shouldShowLearnedBanner
             && !shouldShowCleanupReadyBanner
+            && !shouldShowDaySummary
     }
 
     func resetTranscript() {

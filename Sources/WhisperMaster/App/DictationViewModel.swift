@@ -11,6 +11,10 @@ final class DictationViewModel {
     private let microphoneCapture: MicrophoneCaptureService
     private let permissionsManager: PermissionsManager
     private let hotkeyUpdater: (HotkeyManager.HotkeyOption) -> Void
+    /// Applies a change to the dedicated day-query hotkey to the live monitor.
+    /// Settable by the App layer (which owns the second `HotkeyManager`); defaults
+    /// to a no-op so tests/headless construction don't need it.
+    var dayQueryHotkeyUpdater: (HotkeyManager.HotkeyOption) -> Void = { _ in }
     private let transcriber: FluidAudioStreamingTranscriber
     private let textInjector: TextInjector
     private var pendingAppendTasks: [UUID: Task<Void, Never>] = [:]
@@ -19,6 +23,10 @@ final class DictationViewModel {
     /// When the current recording actually started capturing, for the analytics
     /// duration bucket. `nil` between sessions.
     private var recordingStartedAt: Date?
+    /// True when the current session was started by the dedicated "ask about my
+    /// day" hotkey — its finished transcript is answered from the connectors and
+    /// shown in the notch instead of being pasted. Consumed (and reset) at stop.
+    private var dayQueryArmed = false
     /// Drives gentle "you haven't used me in a while" reminders in the notch.
     private lazy var reminderScheduler = ReminderScheduler(state: state)
     /// Owns the optional on-device cleanup model: background download, progress
@@ -84,8 +92,11 @@ final class DictationViewModel {
         reminderScheduler.tick()
     }
 
-    func startRecording() {
+    func startRecording(dayQuery: Bool = false) {
         guard state.canStart else { return }
+        // Every session begins as a normal dictation unless the dedicated day-query
+        // hotkey armed it — reset here so a stale arm can't leak into the next one.
+        dayQueryArmed = dayQuery
 
         // Open a diagnostics session at the true key-press instant (this runs
         // synchronously from the hotkey handler). No-op unless a DIAGNOSTICS build.
@@ -178,6 +189,10 @@ final class DictationViewModel {
         // finalize work; cleared so a cancelled/failed run can't reuse it.
         let sessionDuration = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
         recordingStartedAt = nil
+        // Consume the day-query arm now (synchronously, at the user's stop) so it
+        // can't linger; the async finalize below reads this captured copy.
+        let queryMode = dayQueryArmed
+        dayQueryArmed = false
 
         state.phase = .stopping
         state.audioLevel = 0
@@ -249,6 +264,20 @@ final class DictationViewModel {
                     // "miss" worth inspecting, and the audio is captured.
                     Diagnostics.shared.finish(pasteOutcome: "empty", finalText: "")
                     state.statusMessage = "Finished local transcription."
+                    return
+                }
+                // A "what's my day" question? Either the dedicated day-query hotkey
+                // was held (queryMode), or the transcript itself opens with a
+                // day-query wake phrase (only honored when the user actually has a
+                // connector on, so it can't hijack an ordinary dictation). The
+                // paste is *suppressed* — the words asked for an answer, which lands
+                // in the notch instead of the cursor.
+                let connectorsActive = !state.connectorStore.enabled.isEmpty
+                if queryMode || (connectorsActive && DayQueryDetector.matches(cleaned)) {
+                    await runDayQuery(cleaned)
+                    reminderScheduler.noteUsed()
+                    Diagnostics.shared.finish(pasteOutcome: "dayQuery", finalText: cleaned)
+                    state.statusMessage = "Answered from your connectors."
                     return
                 }
                 // A spoken command? The cheap keyword gate runs first (ordinary
@@ -378,6 +407,50 @@ final class DictationViewModel {
         Diagnostics.shared.noteLLM(ready: true, raw: cleaned, accepted: accepted, ms: ms)
         guard let cleaned, accepted else { return nil }
         return cleaned
+    }
+
+    // MARK: - Day query (Connectors)
+
+    /// Answer a "what's my day" question from the enabled connectors and drop the
+    /// answer into the notch. Real calendar data comes from EventKit (which
+    /// aggregates the account calendars macOS knows about); OAuth connectors that
+    /// aren't configured are reported honestly rather than faked.
+    private func runDayQuery(_ question: String) async {
+        // If a calendar connector is on but access was never requested, ask now —
+        // the user just explicitly asked about their day.
+        if state.connectorStore.anyCalendarEnabled, CalendarConnector.shared.isUndetermined {
+            let granted = await CalendarConnector.shared.requestAccess()
+            state.connectorStore.calendarAccessGranted = granted
+        }
+        let summary = DaySummaryService.build(store: state.connectorStore)
+        state.activeDaySummary = summary
+        state.daySummaryAt = Date()
+        Feedback.delivered(soundEnabled: state.soundEnabled)
+    }
+
+    /// The dedicated "ask about my day" hotkey was pressed — start a recording
+    /// armed as a day query (its transcript is answered, not pasted).
+    func handleDayQueryHotkeyPressed() {
+        guard state.holdToTalkEnabled else { return }
+        if state.preparingEngine != nil {
+            state.statusMessage = "Voice engine is still getting ready."
+            return
+        }
+        if state.canStart {
+            startRecording(dayQuery: true)
+        }
+    }
+
+    func handleDayQueryHotkeyReleased() {
+        guard state.holdToTalkEnabled else { return }
+        if state.canStop {
+            stopRecording()
+        }
+    }
+
+    func updateDayQueryHotkey(_ hotkey: HotkeyManager.HotkeyOption) {
+        state.dayQueryHotkey = hotkey
+        dayQueryHotkeyUpdater(hotkey)
     }
 
     // MARK: - Voice commands (Notes & Reminders)

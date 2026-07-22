@@ -105,6 +105,15 @@ enum Theme {
         static let textSecondary = Color.white.opacity(0.62)
         static let textTertiary = Color.white.opacity(0.42)
         static let hairline = Color.white.opacity(0.14)
+        // NOTE: reconstructed after data loss. These two glass tokens were a
+        // manual (non-Claude) edit, so the exact original values could not be
+        // recovered from transcripts — tune to taste. Used by the glass pill
+        // overlay in DictationPillContent (`.fill(glassSheen)` / `.stroke(glassBorder)`).
+        static let glassSheen = LinearGradient(
+            colors: [Color.white.opacity(0.18), Color.white.opacity(0.03)],
+            startPoint: .top, endPoint: .bottom
+        )
+        static let glassBorder = Color.white.opacity(0.18)
         static let success = Color(red: 0.55, green: 0.86, blue: 0.62)
         static let danger = Color(red: 1.0, green: 0.52, blue: 0.45)
         static let warning = Color(red: 1.0, green: 0.76, blue: 0.36)

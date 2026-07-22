@@ -1,5 +1,5 @@
 import { json, error } from '@sveltejs/kit';
-import { prisma } from '$lib/server/db';
+import { supabaseAdmin } from '$lib/server/supabase';
 import { resolveUserId } from '$lib/server/resolveUserId';
 import type { RequestHandler } from './$types';
 
@@ -12,6 +12,10 @@ import type { RequestHandler } from './$types';
 // AUTH: same as /api/usage via the shared `resolveUserId`. Unlike usage, the GET
 // is Bearer-authenticated (NOT public) and only ever returns the *authenticated*
 // user's own items — notes are personal, so there is no public [userId] route.
+//
+// Storage: Supabase Postgres (Phase 5), snake_case columns. LWW is enforced in
+// app code (fetch stored `updated_at`, skip older) rather than a DB trigger, so
+// the semantics match the previous Prisma implementation exactly.
 
 interface NotePayload {
   id: string;
@@ -41,7 +45,25 @@ function isNote(v: unknown): v is NotePayload {
 function isReminder(v: unknown): v is ReminderPayload {
   return isNote(v) && isIso((v as { dueDate?: unknown }).dueDate);
 }
-const optDate = (v: unknown): Date | null => (isIso(v) ? new Date(v) : null);
+const optIso = (v: unknown): string | null => (isIso(v) ? new Date(v).toISOString() : null);
+
+/** Stored `updated_at` per itemId, so we can skip a stale push (last-writer-wins). */
+async function existingUpdatedAt(
+  table: 'notes' | 'reminders',
+  userId: string,
+  ids: string[]
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (ids.length === 0) return map;
+  const { data, error: qErr } = await supabaseAdmin()
+    .from(table)
+    .select('item_id, updated_at')
+    .eq('user_id', userId)
+    .in('item_id', ids);
+  if (qErr) throw error(500, qErr.message);
+  for (const row of data ?? []) map.set(row.item_id as string, Date.parse(row.updated_at as string));
+  return map;
+}
 
 export const POST: RequestHandler = async ({ request }) => {
   let body: Record<string, unknown>;
@@ -58,54 +80,57 @@ export const POST: RequestHandler = async ({ request }) => {
   if (!notes.every(isNote)) throw error(400, 'each note needs { id, createdAt, updatedAt }');
   if (!reminders.every(isReminder)) throw error(400, 'each reminder needs { id, dueDate, createdAt, updatedAt }');
 
-  try {
-    // Guarded upsert: skip a row whose stored copy is newer (last-writer-wins).
-    await Promise.all([
-      ...(notes as NotePayload[]).map(async (n) => {
-        const existing = await prisma.note.findUnique({
-          where: { userId_itemId: { userId, itemId: n.id } }
-        });
-        if (existing && existing.updatedAt >= new Date(n.updatedAt)) return;
-        const data = {
-          title: n.title ?? '',
-          body: n.body ?? '',
-          createdAt: new Date(n.createdAt),
-          updatedAt: new Date(n.updatedAt),
-          deletedAt: optDate(n.deletedAt)
-        };
-        return prisma.note.upsert({
-          where: { userId_itemId: { userId, itemId: n.id } },
-          update: data,
-          create: { userId, itemId: n.id, ...data }
-        });
-      }),
-      ...(reminders as ReminderPayload[]).map(async (r) => {
-        const existing = await prisma.reminderItem.findUnique({
-          where: { userId_itemId: { userId, itemId: r.id } }
-        });
-        if (existing && existing.updatedAt >= new Date(r.updatedAt)) return;
-        const data = {
-          title: r.title ?? '',
-          body: r.body ?? '',
-          dueDate: new Date(r.dueDate),
-          alertStyle: r.alertStyle ?? 'notification',
-          soundName: r.soundName ?? 'Glass',
-          repeatRule: r.repeatRule ?? 'none',
-          isCompleted: r.isCompleted ?? false,
-          firedAt: optDate(r.firedAt),
-          createdAt: new Date(r.createdAt),
-          updatedAt: new Date(r.updatedAt),
-          deletedAt: optDate(r.deletedAt)
-        };
-        return prisma.reminderItem.upsert({
-          where: { userId_itemId: { userId, itemId: r.id } },
-          update: data,
-          create: { userId, itemId: r.id, ...data }
-        });
-      })
-    ]);
-  } catch (e) {
-    throw error(500, e instanceof Error ? e.message : 'database error. Is DATABASE_URL set?');
+  const supabase = supabaseAdmin();
+
+  // Notes: keep only rows newer than what's stored, then upsert on (user_id, item_id).
+  const noteList = notes as NotePayload[];
+  const noteSeen = await existingUpdatedAt('notes', userId, noteList.map((n) => n.id));
+  const noteRows = noteList
+    .filter((n) => {
+      const prev = noteSeen.get(n.id);
+      return prev === undefined || prev < Date.parse(n.updatedAt);
+    })
+    .map((n) => ({
+      user_id: userId,
+      item_id: n.id,
+      title: n.title ?? '',
+      body: n.body ?? '',
+      created_at: new Date(n.createdAt).toISOString(),
+      updated_at: new Date(n.updatedAt).toISOString(),
+      deleted_at: optIso(n.deletedAt)
+    }));
+
+  // Reminders: same guard.
+  const remList = reminders as ReminderPayload[];
+  const remSeen = await existingUpdatedAt('reminders', userId, remList.map((r) => r.id));
+  const remRows = remList
+    .filter((r) => {
+      const prev = remSeen.get(r.id);
+      return prev === undefined || prev < Date.parse(r.updatedAt);
+    })
+    .map((r) => ({
+      user_id: userId,
+      item_id: r.id,
+      title: r.title ?? '',
+      body: r.body ?? '',
+      due_date: new Date(r.dueDate).toISOString(),
+      alert_style: r.alertStyle ?? 'notification',
+      sound_name: r.soundName ?? 'Glass',
+      repeat_rule: r.repeatRule ?? 'none',
+      is_completed: r.isCompleted ?? false,
+      fired_at: optIso(r.firedAt),
+      created_at: new Date(r.createdAt).toISOString(),
+      updated_at: new Date(r.updatedAt).toISOString(),
+      deleted_at: optIso(r.deletedAt)
+    }));
+
+  if (noteRows.length) {
+    const { error: e } = await supabase.from('notes').upsert(noteRows, { onConflict: 'user_id,item_id' });
+    if (e) throw error(500, e.message);
+  }
+  if (remRows.length) {
+    const { error: e } = await supabase.from('reminders').upsert(remRows, { onConflict: 'user_id,item_id' });
+    if (e) throw error(500, e.message);
   }
 
   return json({ ok: true, notes: notes.length, reminders: reminders.length });
@@ -113,37 +138,40 @@ export const POST: RequestHandler = async ({ request }) => {
 
 export const GET: RequestHandler = async ({ request, url }) => {
   const userId = await resolveUserId(request, url.searchParams.get('userId') ?? undefined);
+  const supabase = supabaseAdmin();
 
-  const [noteRows, reminderRows] = await Promise.all([
-    prisma.note.findMany({ where: { userId } }),
-    prisma.reminderItem.findMany({ where: { userId } })
+  const [noteRes, remRes] = await Promise.all([
+    supabase.from('notes').select('*').eq('user_id', userId),
+    supabase.from('reminders').select('*').eq('user_id', userId)
   ]);
+  if (noteRes.error) throw error(500, noteRes.error.message);
+  if (remRes.error) throw error(500, remRes.error.message);
 
   // Map back to the app's wire shape (its stable `id`, ISO dates, `deletedAt`
   // omitted when null so the Swift optional decodes cleanly).
-  const iso = (d: Date | null) => (d ? d.toISOString() : undefined);
+  const iso = (d: string | null) => d ?? undefined;
   return json({
-    notes: noteRows.map((n) => ({
-      id: n.itemId,
+    notes: (noteRes.data ?? []).map((n) => ({
+      id: n.item_id,
       title: n.title,
       body: n.body,
-      createdAt: n.createdAt.toISOString(),
-      updatedAt: n.updatedAt.toISOString(),
-      deletedAt: iso(n.deletedAt)
+      createdAt: new Date(n.created_at).toISOString(),
+      updatedAt: new Date(n.updated_at).toISOString(),
+      deletedAt: iso(n.deleted_at)
     })),
-    reminders: reminderRows.map((r) => ({
-      id: r.itemId,
+    reminders: (remRes.data ?? []).map((r) => ({
+      id: r.item_id,
       title: r.title,
       body: r.body,
-      dueDate: r.dueDate.toISOString(),
-      alertStyle: r.alertStyle,
-      soundName: r.soundName,
-      repeatRule: r.repeatRule,
-      isCompleted: r.isCompleted,
-      firedAt: iso(r.firedAt),
-      createdAt: r.createdAt.toISOString(),
-      updatedAt: r.updatedAt.toISOString(),
-      deletedAt: iso(r.deletedAt)
+      dueDate: new Date(r.due_date).toISOString(),
+      alertStyle: r.alert_style,
+      soundName: r.sound_name,
+      repeatRule: r.repeat_rule,
+      isCompleted: r.is_completed,
+      firedAt: iso(r.fired_at),
+      createdAt: new Date(r.created_at).toISOString(),
+      updatedAt: new Date(r.updated_at).toISOString(),
+      deletedAt: iso(r.deleted_at)
     }))
   });
 };

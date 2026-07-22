@@ -21,11 +21,11 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.7</string>
+	<string>1.2.8-beta.1</string>
 	<key>CFBundleVersion</key>
-	<string>1783276595</string>
+	<string>1784749591</string>
 	<key>ClerkPublishableKey</key>
-	<string>pk_test_c3dlZXBpbmctaHVtcGJhY2stNjguY2xlcmsuYWNjb3VudHMuZGV2JA</string>
+	<string>REPLACE_WITH_CLERK_PUBLISHABLE_KEY</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
@@ -36,6 +36,10 @@
 	<array>
 		<string>_whispermaster._tcp</string>
 	</array>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Whisper Master reads your calendar so it can tell you what's on your day when you ask.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Whisper Master reads your calendar so it can tell you what's on your day when you ask.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright 2026 Whisper Master</string>
 	<key>NSLocalNetworkUsageDescription</key>

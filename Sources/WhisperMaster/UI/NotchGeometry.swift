@@ -38,9 +38,9 @@ struct NotchGeometry: Equatable {
 struct NotchSurfaceLayout {
     /// How far the surface extends beyond the notch on each side.
     var sideExtension: CGFloat = 60
-    /// Thickness of the band below the notch that holds the content. Kept
-    /// shallow so the surface reads as a wide, short shelf.
-    var bottomThickness: CGFloat = 20
+    /// Thickness of the band below the notch that holds the content — sized to
+    /// give the dictation orb (32pt) breathing room without clipping its dots.
+    var bottomThickness: CGFloat = 38
     /// Band used for a failed dictation: an icon plus a short reason line, so it
     /// needs about as much room as the reminder band.
     var failedThickness: CGFloat = 44
@@ -62,6 +62,9 @@ struct NotchSurfaceLayout {
     /// Band for the "note saved / reminder set" confirmation after a spoken
     /// command routed into Notes & Reminders — headline plus a short second line.
     var commandConfirmationThickness: CGFloat = 52
+    /// Band for the "what's my day" answer — headline plus a next-thing line.
+    /// Same footprint as the Bluetooth banner (the tallest), so `panelSize` fits it.
+    var daySummaryThickness: CGFloat = 58
     /// Radius of the concave flare where the top meets the bezel.
     var topConcaveRadius: CGFloat = 12
     /// Radius of the surface's rounded bottom corners.

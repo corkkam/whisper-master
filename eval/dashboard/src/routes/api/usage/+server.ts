@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { verifyToken } from '@clerk/backend';
-import { prisma } from '$lib/server/db';
+import { supabaseAdmin } from '$lib/server/supabase';
 import type { RequestHandler } from './$types';
 
 // POST { userId: string, days: DayEntry[] } — upsert a user's per-day usage rollups.
@@ -121,28 +121,25 @@ export const POST: RequestHandler = async ({ request }) => {
     );
   }
 
-  try {
-    await Promise.all(
-      (days as DayEntry[]).map((d) => {
-        const data = {
-          words: d.words,
-          dictations: d.dictations,
-          durationSeconds: d.durationSeconds,
-          fixesWordsCorrected: d.fixesWordsCorrected ?? 0,
-          fixesDictionary: d.fixesDictionary ?? 0,
-          // Store perApp as-is (defaults to {}); Prisma Json accepts any JSON value.
-          perApp: (d.perApp ?? {}) as object
-        };
-        return prisma.usageDaily.upsert({
-          where: { userId_day: { userId, day: d.day } },
-          update: data,
-          create: { userId, day: d.day, ...data }
-        });
-      })
-    );
-  } catch (e) {
-    throw error(500, e instanceof Error ? e.message : 'database error. Is DATABASE_URL set?');
-  }
+  // Upsert into Supabase Postgres (snake_case columns) on the (user_id, day)
+  // unique key. A full daily rollup is idempotent, so a plain upsert is correct
+  // — no need for the row-level LWW guard the notes route uses.
+  const rows = (days as DayEntry[]).map((d) => ({
+    user_id: userId,
+    day: d.day,
+    words: d.words,
+    dictations: d.dictations,
+    duration_seconds: d.durationSeconds,
+    fixes_words_corrected: d.fixesWordsCorrected ?? 0,
+    fixes_dictionary: d.fixesDictionary ?? 0,
+    per_app: d.perApp ?? {},
+    updated_at: new Date().toISOString()
+  }));
+
+  const { error: upErr } = await supabaseAdmin()
+    .from('usage_daily')
+    .upsert(rows, { onConflict: 'user_id,day' });
+  if (upErr) throw error(500, upErr.message);
 
   return json({ ok: true, upserted: days.length });
 };

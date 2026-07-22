@@ -3,10 +3,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-APP_NAME="Whisper Master"
+# Release channel (stable|beta) → CH_APP_NAME. Beta wraps "Whisper Master Beta.app".
+source "$(dirname "$0")/channel.sh"
+
+APP_NAME="$CH_APP_NAME"
 APP_PATH="build/${APP_NAME}.app"
 DMG_PATH="build/${APP_NAME}.dmg"
-VOLUME_NAME="Whisper Master"
+VOLUME_NAME="$CH_APP_NAME"
 REBUILD="${REBUILD:-1}"
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}" # pass "-" to skip DMG signing
 

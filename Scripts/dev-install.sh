@@ -25,7 +25,11 @@ set -euo pipefail
 #   • Sparkle auto-update DISABLED (SUFeedURL removed, automatic checks off) so
 #     the dev build can never silently update itself into the production build.
 #
-# Signed ad-hoc — this is a local build, not for distribution / notarization.
+# Signed with a stable local identity (Apple Development cert if present, else
+# ad-hoc) — this is a local build, not for distribution / notarization. A stable
+# identity keeps the keychain "Always Allow" grant valid across rebuilds; ad-hoc
+# re-prompts every time because its code identity changes each build. Override
+# with DEV_SIGN_IDENTITY (set "-" to force ad-hoc).
 #
 # Usage:
 #   bash Scripts/dev-install.sh                 # build (Debug) + install + launch
@@ -91,10 +95,32 @@ $PLB -c "Set :SUEnableAutomaticChecks false" "$INFO" 2>/dev/null || true
 $PLB -c "Delete :SUFeedURL"                  "$INFO" 2>/dev/null || true
 
 # 3. Re-sign — editing Info.plist and renaming the executable invalidate the
-#    original seal. Ad-hoc is fine for a local build; nested frameworks keep
-#    their own (unchanged) signatures, we only reseal the top-level bundle.
-echo ">> Re-signing ad-hoc"
-codesign --force --sign - \
+#    original seal. Nested frameworks keep their own (unchanged) signatures; we
+#    only reseal the top-level bundle.
+#
+#    Signing identity matters for the KEYCHAIN, not just the seal: macOS ties a
+#    keychain item's ACL (what "Always Allow" grants) to the app's *designated
+#    requirement*. An ad-hoc signature's requirement is derived from the binary's
+#    cdhash, which changes on every rebuild — so Clerk's stored session token
+#    prompts "… wants to use your confidential information" again after each
+#    dev-install, and "Always Allow" never sticks. Signing with a STABLE identity
+#    (a real cert) keeps the designated requirement constant across rebuilds, so
+#    one "Always Allow" holds. Override with DEV_SIGN_IDENTITY; set it to "-" to
+#    force the old ad-hoc behaviour.
+DEV_SIGN_IDENTITY="${DEV_SIGN_IDENTITY:-}"
+if [[ -z "$DEV_SIGN_IDENTITY" ]]; then
+    # Prefer a stable Apple Development identity if one exists; else fall back
+    # to ad-hoc (repeated keychain prompts, but no cert required).
+    DEV_SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+        | awk -F'"' '/Apple Development/{print $2; exit}')"
+    DEV_SIGN_IDENTITY="${DEV_SIGN_IDENTITY:--}"
+fi
+if [[ "$DEV_SIGN_IDENTITY" == "-" ]]; then
+    echo ">> Re-signing ad-hoc (keychain will re-prompt after each rebuild)"
+else
+    echo ">> Re-signing with stable identity: $DEV_SIGN_IDENTITY"
+fi
+codesign --force --sign "$DEV_SIGN_IDENTITY" \
     --entitlements Resources/WhisperMaster.entitlements \
     "$STAGE_APP"
 codesign --verify --strict "$STAGE_APP"

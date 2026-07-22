@@ -5,13 +5,16 @@ set -euo pipefail
 # project.yml by XcodeGen) and stages it at build/Whisper Master.app, the path
 # that make-dmg.sh and install.sh consume.
 
-APP_NAME="Whisper Master"          # distribution .app filename (with space)
+cd "$(dirname "$0")/.."
+
+# Release channel (stable|beta) → CH_APP_NAME, CH_BUNDLE_ID, CH_SU_FEED_URL.
+source "$(dirname "$0")/channel.sh"
+
+APP_NAME="$CH_APP_NAME"            # distribution .app filename (with space)
 SCHEME="WhisperMaster"             # Xcode scheme / product name (no space)
 CONFIG="${CONFIG:-Release}"        # Release | Debug
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}" # keychain identity; pass "-" for ad-hoc
 DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-7MFYAGK3VV}" # Developer ID team (manual signing requires it)
-
-cd "$(dirname "$0")/.."
 
 # Load local config (git-ignored). Supplies POSTHOG_API_KEY for the analytics
 # key baked into Info.plist below; CI passes the same var from a secret instead.
@@ -95,6 +98,24 @@ echo ">> Staging $APP_DIR"
 rm -rf "$APP_DIR"
 cp -R "$PRODUCT" "$APP_DIR"
 
+# Beta channel: re-badge the staged bundle so it installs SIDE-BY-SIDE with the
+# stable app (distinct bundle id → its own TCC/Sparkle/settings) and polls the
+# beta appcast. Done on the staged copy only — project.yml/Info.plist are
+# untouched. The edited Info.plist invalidates the seal, so it is re-signed by
+# the signing step below (DevID) or the ad-hoc fallback further down. The
+# executable name is intentionally left as WhisperMaster: side-by-side works via
+# the distinct bundle id + ".app" folder name; the process name doesn't matter
+# for a distributed build. See channel.sh.
+if [[ "$CHANNEL" == "beta" ]]; then
+    INFO="$APP_DIR/Contents/Info.plist"
+    PLB=/usr/libexec/PlistBuddy
+    echo ">> Re-badging for beta channel: id=$CH_BUNDLE_ID name=\"$CH_APP_NAME\""
+    $PLB -c "Set :CFBundleIdentifier $CH_BUNDLE_ID" "$INFO"
+    $PLB -c "Set :CFBundleName $CH_APP_NAME" "$INFO"
+    $PLB -c "Set :CFBundleDisplayName $CH_APP_NAME" "$INFO"
+    $PLB -c "Set :SUFeedURL $CH_SU_FEED_URL" "$INFO"
+fi
+
 # xcodebuild re-signs the outer Sparkle.framework but NOT the code nested inside
 # it (Updater.app, Autoupdate, the XPC services), so they keep Sparkle's ad-hoc
 # signature with no secure timestamp — which makes Apple notarization fail. When
@@ -118,6 +139,15 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
     codesign -f -s "$SIGN_IDENTITY" -o runtime --timestamp \
         --entitlements Resources/WhisperMaster.entitlements "$APP_DIR"
     codesign --verify --deep --strict "$APP_DIR"
+fi
+
+# Ad-hoc + beta: the DevID block above was skipped, but the beta re-badge edited
+# Info.plist and invalidated the ad-hoc seal — re-sign the top level so the
+# staged bundle stays launchable (local `CHANNEL=beta SIGN_IDENTITY=- bundle.sh`
+# smoke checks). Real beta releases go through release.sh with a Developer ID.
+if [[ "$SIGN_IDENTITY" == "-" && "$CHANNEL" == "beta" ]]; then
+    echo ">> Re-signing beta bundle ad-hoc (Info.plist was edited)"
+    codesign -f -s - --entitlements Resources/WhisperMaster.entitlements "$APP_DIR"
 fi
 
 echo "Built $APP_DIR (signed: ${SIGN_IDENTITY})"
