@@ -21,7 +21,7 @@ enum UpdateChannel: String {
     var feedURLString: String {
         switch self {
         case .stable: return "https://model.scoopscore.in/appcast.xml"
-        case .beta: return "https://model.scoopscore.in/appcast-beta.xml"
+        case .beta: return "https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast-beta.xml"
         }
     }
 }

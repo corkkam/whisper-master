@@ -27,7 +27,7 @@ case "$CHANNEL" in
     beta)
         CH_APP_NAME="Whisper Master Beta"
         CH_BUNDLE_ID="app.whispermaster.mac.beta"
-        CH_SU_FEED_URL="https://model.scoopscore.in/appcast-beta.xml"
+        CH_SU_FEED_URL="https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast-beta.xml"
         CH_APPCAST_NAME="appcast-beta.xml"
         CH_DMG_STABLE_NAME="WhisperMaster-beta.dmg"
         ;;

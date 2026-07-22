@@ -53,7 +53,7 @@
 	<key>SUFeedURL</key>
 	<string>https://model.scoopscore.in/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>cmaCrnrt6lBk+fGN+1qzcSK8uyADiLSBveAFYwEk5hk=</string>
+	<string>GzJbT0hu27rHZeu6Bs8Q9BZ0Le/7te8V0zvREWkhHsk=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>3600</integer>
 </dict>

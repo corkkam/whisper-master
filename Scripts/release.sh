@@ -95,7 +95,15 @@ fi
 # beta release never rewrites stable's appcast.xml — rename before upload. STAGE
 # is wiped each run and holds only this channel's zip, so the feed is clean.
 if [[ "$CHANNEL" == "beta" ]]; then
-    mv "$STAGE/appcast.xml" "$STAGE/$CH_APPCAST_NAME"
+    # Older generate_appcast always writes "appcast.xml"; newer versions derive
+    # the feed filename from the app's SUFeedURL and may already emit
+    # "$CH_APPCAST_NAME" directly. Handle both without failing.
+    if [[ -f "$STAGE/appcast.xml" && ! -f "$STAGE/$CH_APPCAST_NAME" ]]; then
+        mv "$STAGE/appcast.xml" "$STAGE/$CH_APPCAST_NAME"
+    elif [[ -f "$STAGE/appcast.xml" && -f "$STAGE/$CH_APPCAST_NAME" ]]; then
+        rm -f "$STAGE/appcast.xml"   # keep the channel-named feed, drop the generic one
+    fi
+    [[ -f "$STAGE/$CH_APPCAST_NAME" ]] || { echo "error: expected $CH_APPCAST_NAME was not produced" >&2; exit 1; }
 fi
 
 # --- Upload archive + appcast to R2 ---
