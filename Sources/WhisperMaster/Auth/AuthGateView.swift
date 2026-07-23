@@ -19,18 +19,15 @@ struct AuthGateView: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            VStack(spacing: 14) {
-                BrandLogo(size: 56)
-                VStack(spacing: 6) {
-                    Text("Whisper Master")
-                        .font(Typography.title)
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("Sign in to continue")
-                        .font(Typography.subheadline)
-                        .foregroundStyle(Theme.textSecondary)
-                }
-            }
-            .padding(.top, 8)
+            // Brand logo only — Clerk's `AuthView` renders its own header
+            // ("Continue to Whisper Master" / "Welcome! Sign in to continue")
+            // that we can't hide (no public API on AuthView), so repeating the
+            // wordmark + tagline here just stacked four near-identical welcome
+            // lines. The logo gives the app identity above the card without the
+            // echo. If ClerkKitUI ever exposes a header toggle, restore the
+            // wordmark and hide Clerk's instead.
+            BrandLogo(size: 64)
+                .padding(.top, 8)
 
             content
         }
