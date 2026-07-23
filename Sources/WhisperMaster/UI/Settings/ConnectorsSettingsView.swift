@@ -151,14 +151,14 @@ struct ConnectorsSettingsView: View {
 
     // MARK: - Connector lists
 
+    /// Two responsive columns of connector tiles, matching the design's grid.
+    private let grid = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
+
     private var featuredSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel("Connectors")
-            SettingsCard {
-                ForEach(Array(ConnectorKind.featured.enumerated()), id: \.element) { index, kind in
-                    if index > 0 { RowDivider() }
-                    connectorRow(kind)
-                }
+            LazyVGrid(columns: grid, spacing: 14) {
+                ForEach(ConnectorKind.featured, id: \.self) { connectorTile($0) }
             }
         }
     }
@@ -166,43 +166,68 @@ struct ConnectorsSettingsView: View {
     private var popularSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel("Popular connectors")
-            SettingsCard {
-                ForEach(Array(ConnectorKind.popular.enumerated()), id: \.element) { index, kind in
-                    if index > 0 { RowDivider() }
-                    connectorRow(kind)
-                }
+            LazyVGrid(columns: grid, spacing: 14) {
+                ForEach(ConnectorKind.popular, id: \.self) { connectorTile($0) }
             }
         }
     }
 
-    private func connectorRow(_ kind: ConnectorKind) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: kind.icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 26)
+    /// A single connector as a glass tile: a colored icon square, its name +
+    /// blurb, an honest status chip, and the enable toggle — the design's card
+    /// grid, driven by the same `ConnectorStore` state as the old rows.
+    private func connectorTile(_ kind: ConnectorKind) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .fill(tileTint(kind))
+                    Image(systemName: kind.icon)
+                        .font(.system(size: 19, weight: .medium))
+                        .foregroundStyle(tileGlyph(kind))
+                }
+                .frame(width: 44, height: 44)
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(kind.displayName)
                         .font(Typography.headline)
                         .foregroundStyle(Theme.textPrimary)
-                    statusChip(for: kind)
+                    Text(kind.blurb)
+                        .font(Typography.subheadline)
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
                 }
-                Text(kind.blurb)
-                    .font(Typography.subheadline)
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 12)
-            ThemeToggle(
-                isOn: Binding(
-                    get: { store.isEnabled(kind) },
-                    set: { toggle(kind, $0) }
-                ),
-                label: kind.displayName)
+
+            HStack(spacing: 8) {
+                statusChip(for: kind)
+                Spacer(minLength: 0)
+                ThemeToggle(
+                    isOn: Binding(
+                        get: { store.isEnabled(kind) },
+                        set: { toggle(kind, $0) }
+                    ),
+                    label: kind.displayName)
+            }
         }
-        .padding(.vertical, 15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .glassCard(radius: 18)
+    }
+
+    /// The tile's icon-square fill: a warm accent wash for live calendar
+    /// connectors, sage for connected OAuth, neutral for the rest.
+    private func tileTint(_ kind: ConnectorKind) -> Color {
+        if kind.auth == .system { return Theme.Accent.n300.opacity(0.7) }
+        if store.isEnabled(kind), OAuthConnectorConfig.isConfigured(kind) { return Theme.Sage.n300.opacity(0.7) }
+        return Theme.Neutral.n300.opacity(0.7)
+    }
+
+    private func tileGlyph(_ kind: ConnectorKind) -> Color {
+        if kind.auth == .system { return Theme.Accent.n800 }
+        if store.isEnabled(kind), OAuthConnectorConfig.isConfigured(kind) { return Theme.Sage.n800 }
+        return Theme.Neutral.n800
     }
 
     /// A small status chip: "Live" for a granted calendar connector, "Needs setup"
