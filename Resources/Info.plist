@@ -21,9 +21,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.8-beta.2</string>
+	<string>1.2.8-dev.1</string>
 	<key>CFBundleVersion</key>
-	<string>1784833945</string>
+	<string>1784836545</string>
 	<key>ClerkPublishableKey</key>
 	<string>REPLACE_WITH_CLERK_PUBLISHABLE_KEY</string>
 	<key>LSMinimumSystemVersion</key>
