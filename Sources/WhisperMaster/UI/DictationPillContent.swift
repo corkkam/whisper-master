@@ -104,15 +104,11 @@ struct DictationPillContent: View {
                 .frame(height: bandThickness)
         }
         .frame(height: isExpanded ? expandedHeight : 0, alignment: .top)
-        // Opaque black keeps the surface molded to the physical notch; the sheen +
-        // lit rim are liquid-glass *highlights* on top of the black (not
-        // transparency), so the hardware blend is preserved.
+        // Pitch-black fill molded to the physical notch — no sheen or lit rim.
         .background {
-            shape.fill(.black)
-            shape.fill(Theme.Notch.glassSheen).allowsHitTesting(false)
+            shape.fill(Theme.Notch.surface)
         }
         .clipShape(shape)
-        .overlay { shape.stroke(Theme.Notch.glassBorder, lineWidth: 1) }
         .opacity(isExpanded ? 1 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // Only the interactive banners take clicks (the Bluetooth "use built-in"

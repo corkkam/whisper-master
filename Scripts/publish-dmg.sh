@@ -18,9 +18,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Release channel (stable|beta) → CH_APP_NAME + CH_DMG_STABLE_NAME. Beta uploads
-# to WhisperMaster-beta.dmg (the gated /download beta link), never the stable
-# WhisperMaster.dmg. See channel.sh.
+# Release channel (stable|beta|dev) → CH_APP_NAME + CH_DMG_STABLE_NAME. Beta/dev
+# upload to WhisperMaster-beta.dmg / WhisperMaster-dev.dmg (the gated download
+# links), never the stable WhisperMaster.dmg. See channel.sh.
 source "$(dirname "$0")/channel.sh"
 
 APP_NAME="$CH_APP_NAME"

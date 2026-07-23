@@ -7,7 +7,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Release channel (stable|beta) → CH_APP_NAME, CH_BUNDLE_ID, CH_SU_FEED_URL.
+# Release channel (stable|beta|dev) → CH_APP_NAME, CH_BUNDLE_ID, CH_SU_FEED_URL.
 source "$(dirname "$0")/channel.sh"
 
 APP_NAME="$CH_APP_NAME"            # distribution .app filename (with space)
@@ -98,18 +98,18 @@ echo ">> Staging $APP_DIR"
 rm -rf "$APP_DIR"
 cp -R "$PRODUCT" "$APP_DIR"
 
-# Beta channel: re-badge the staged bundle so it installs SIDE-BY-SIDE with the
-# stable app (distinct bundle id → its own TCC/Sparkle/settings) and polls the
-# beta appcast. Done on the staged copy only — project.yml/Info.plist are
-# untouched. The edited Info.plist invalidates the seal, so it is re-signed by
-# the signing step below (DevID) or the ad-hoc fallback further down. The
-# executable name is intentionally left as WhisperMaster: side-by-side works via
-# the distinct bundle id + ".app" folder name; the process name doesn't matter
-# for a distributed build. See channel.sh.
-if [[ "$CHANNEL" == "beta" ]]; then
+# Non-stable channels (beta, dev): re-badge the staged bundle so it installs
+# SIDE-BY-SIDE with the stable app (distinct bundle id → its own TCC/Sparkle/
+# settings) and polls that channel's appcast. Done on the staged copy only —
+# project.yml/Info.plist are untouched. The edited Info.plist invalidates the
+# seal, so it is re-signed by the signing step below (DevID) or the ad-hoc
+# fallback further down. The executable name is intentionally left as
+# WhisperMaster: side-by-side works via the distinct bundle id + ".app" folder
+# name; the process name doesn't matter for a distributed build. See channel.sh.
+if [[ "$CHANNEL" != "stable" ]]; then
     INFO="$APP_DIR/Contents/Info.plist"
     PLB=/usr/libexec/PlistBuddy
-    echo ">> Re-badging for beta channel: id=$CH_BUNDLE_ID name=\"$CH_APP_NAME\""
+    echo ">> Re-badging for $CHANNEL channel: id=$CH_BUNDLE_ID name=\"$CH_APP_NAME\""
     $PLB -c "Set :CFBundleIdentifier $CH_BUNDLE_ID" "$INFO"
     $PLB -c "Set :CFBundleName $CH_APP_NAME" "$INFO"
     $PLB -c "Set :CFBundleDisplayName $CH_APP_NAME" "$INFO"
@@ -141,12 +141,13 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
     codesign --verify --deep --strict "$APP_DIR"
 fi
 
-# Ad-hoc + beta: the DevID block above was skipped, but the beta re-badge edited
-# Info.plist and invalidated the ad-hoc seal — re-sign the top level so the
-# staged bundle stays launchable (local `CHANNEL=beta SIGN_IDENTITY=- bundle.sh`
-# smoke checks). Real beta releases go through release.sh with a Developer ID.
-if [[ "$SIGN_IDENTITY" == "-" && "$CHANNEL" == "beta" ]]; then
-    echo ">> Re-signing beta bundle ad-hoc (Info.plist was edited)"
+# Ad-hoc + non-stable channel: the DevID block above was skipped, but the
+# re-badge edited Info.plist and invalidated the ad-hoc seal — re-sign the top
+# level so the staged bundle stays launchable (local
+# `CHANNEL=beta|dev SIGN_IDENTITY=- bundle.sh` smoke checks). Real releases go
+# through release.sh with a Developer ID.
+if [[ "$SIGN_IDENTITY" == "-" && "$CHANNEL" != "stable" ]]; then
+    echo ">> Re-signing $CHANNEL bundle ad-hoc (Info.plist was edited)"
     codesign -f -s - --entitlements Resources/WhisperMaster.entitlements "$APP_DIR"
 fi
 

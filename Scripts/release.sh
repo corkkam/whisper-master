@@ -56,13 +56,14 @@ VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_P
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PATH/Contents/Info.plist")
 echo ">> Releasing version $VERSION (build $BUILD) on the $CHANNEL channel"
 
-# A beta release MUST carry a pre-release version tag (e.g. 1.2.8-beta.1). This
-# keeps the archive filename (WhisperMaster-<version>.zip) distinct from every
-# stable archive at the R2 bucket root, so a beta upload can never overwrite a
-# stable zip whose bytes an installed app / the CDN still expects.
-if [[ "$CHANNEL" == "beta" && "$VERSION" != *-beta* ]]; then
-    echo "error: beta release version '$VERSION' must contain a '-beta.N' pre-release tag" >&2
-    echo "       Bump CFBundleShortVersionString in Resources/Info.plist to e.g. ${VERSION}-beta.1" >&2
+# A beta/dev release MUST carry a matching pre-release version tag (e.g.
+# 1.2.8-beta.1 / 1.2.8-dev.1). This keeps the archive filename
+# (WhisperMaster-<version>.zip) distinct from every stable archive at the R2
+# bucket root, so a beta/dev upload can never overwrite a stable zip whose bytes
+# an installed app / the CDN still expects.
+if [[ "$CHANNEL" != "stable" && "$VERSION" != *-${CHANNEL}* ]]; then
+    echo "error: $CHANNEL release version '$VERSION' must contain a '-${CHANNEL}.N' pre-release tag" >&2
+    echo "       Bump CFBundleShortVersionString in Resources/Info.plist to e.g. ${VERSION}-${CHANNEL}.1" >&2
     exit 1
 fi
 
@@ -91,10 +92,11 @@ else
     "$GEN_APPCAST" "$STAGE" --download-url-prefix "${R2_PUBLIC_BASE_URL%/}/"
 fi
 
-# generate_appcast always writes "appcast.xml". Beta gets its own feed file so a
-# beta release never rewrites stable's appcast.xml — rename before upload. STAGE
-# is wiped each run and holds only this channel's zip, so the feed is clean.
-if [[ "$CHANNEL" == "beta" ]]; then
+# generate_appcast always writes "appcast.xml". Beta/dev get their own feed file
+# so a non-stable release never rewrites stable's appcast.xml — rename before
+# upload. STAGE is wiped each run and holds only this channel's zip, so the feed
+# is clean.
+if [[ "$CHANNEL" != "stable" ]]; then
     # Older generate_appcast always writes "appcast.xml"; newer versions derive
     # the feed filename from the app's SUFeedURL and may already emit
     # "$CH_APPCAST_NAME" directly. Handle both without failing.

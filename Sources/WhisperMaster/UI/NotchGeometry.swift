@@ -36,8 +36,8 @@ struct NotchGeometry: Equatable {
 ///
 /// All the tunable numbers live here so the view and window stay declarative.
 struct NotchSurfaceLayout {
-    /// How far the surface extends beyond the notch on each side.
-    var sideExtension: CGFloat = 60
+    /// How far the surface extends beyond the notch on each side (the left/right wings).
+    var sideExtension: CGFloat = 96
     /// Thickness of the band below the notch that holds the content — sized to
     /// give the dictation orb (32pt) breathing room without clipping its dots.
     var bottomThickness: CGFloat = 38

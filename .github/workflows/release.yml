@@ -1,14 +1,18 @@
 name: Release to R2
 
-# Pushes to dev that BUMP CFBundleShortVersionString build, sign, notarize, and
-# ship a Sparkle update to the R2 feed. Ordinary pushes (code, fixes, docs) only
-# run the cheap Ubuntu gate below and cost ~nothing — the macOS runner (billed
-# ~10x, made longer by the Apple notary wait) is reserved for actual releases.
-# Force a release without a version change via the manual "Run workflow" button.
-# Put [skip release] in the commit message to skip even a version-bump push.
+# Version-bump pushes build, sign, notarize, and ship a Sparkle update to R2.
+# Branch → channel mapping (see Scripts/channel.sh):
+#   push to dev  → CHANNEL=dev    → appcast-dev.xml + WhisperMaster-dev.dmg
+#   push to main → CHANNEL=stable → appcast.xml     + WhisperMaster.dmg
+# (Beta is a separate MANUAL flow: CHANNEL=beta bash Scripts/release.sh.)
+# Ordinary pushes (code, fixes, docs) only run the cheap Ubuntu gate below and
+# cost ~nothing — the macOS runner (billed ~10x, made longer by the Apple notary
+# wait) is reserved for actual releases. Force a release without a version change
+# via the manual "Run workflow" button. Put [skip release] in the commit message
+# to skip even a version-bump push.
 on:
   push:
-    branches: [dev]
+    branches: [dev, main]
   workflow_dispatch:
 
 concurrency:
@@ -99,6 +103,22 @@ jobs:
         # and got undercut by manual builds.
         run: /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%s)" Resources/Info.plist
 
+      - name: Resolve release channel from branch
+        # dev branch → dev channel; main branch → stable channel. Exported to
+        # $GITHUB_ENV so channel.sh (sourced by release.sh / publish-dmg.sh)
+        # picks it up. release.sh enforces that the dev channel's version carries
+        # a `-dev.N` pre-release tag, so a dev build can never overwrite a stable
+        # archive at the R2 bucket root.
+        run: |
+          set -euo pipefail
+          case "${{ github.ref_name }}" in
+            main) CHANNEL=stable ;;
+            dev)  CHANNEL=dev ;;
+            *)    echo "error: release branch '${{ github.ref_name }}' has no channel mapping" >&2; exit 1 ;;
+          esac
+          echo "CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
+          echo ">> Releasing on the $CHANNEL channel (branch ${{ github.ref_name }})"
+
       - name: Write notary API key
         env:
           NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
@@ -140,12 +160,14 @@ jobs:
         run: bash Scripts/publish-dmg.sh
 
       - name: Announce release on Telegram
-        # Only after a successful upload. No-ops (exit 0) if the Telegram secrets
-        # aren't configured. continue-on-error so a notification hiccup never
-        # fails the release (or skips the release-tag step below). Posts the
-        # release commit message and attaches the built app zip.
-        # Put [skip announce] in the commit message to release without posting.
-        if: ${{ !contains(github.event.head_commit.message, '[skip announce]') }}
+        # Only after a successful upload, and only for STABLE (main-branch)
+        # releases — dev-channel builds are internal and must not post to the
+        # public group. No-ops (exit 0) if the Telegram secrets aren't
+        # configured. continue-on-error so a notification hiccup never fails the
+        # release (or skips the release-tag step below). Posts the release commit
+        # message and attaches the built app zip. Put [skip announce] in the
+        # commit message to release without posting.
+        if: ${{ env.CHANNEL == 'stable' && !contains(github.event.head_commit.message, '[skip announce]') }}
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
