@@ -9,6 +9,8 @@ import SwiftUI
 struct GeneralSettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
+    /// Navigate to one of the folded sub-pages (Insights, Voice engine, …).
+    var openSubPage: (SettingsSection) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
@@ -31,6 +33,38 @@ struct GeneralSettingsView: View {
                 SettingsRow("Share anonymous usage",
                             subtitle: "App version, macOS, and feature counts, never your transcripts. Helps improve the app.") {
                     ThemeToggle(isOn: $state.analyticsEnabled, label: "Share anonymous usage")
+                }
+            }
+
+            // The pages folded out of the sidebar live here, as a tappable list.
+            SectionLabel("More")
+            SettingsCard {
+                ForEach(Array(SettingsSection.secondary.enumerated()), id: \.element) { index, section in
+                    if index > 0 { RowDivider() }
+                    Button { openSubPage(section) } label: {
+                        HStack(spacing: 13) {
+                            Image(systemName: section.icon)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(Theme.accentText)
+                                .frame(width: 24, alignment: .center)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(section.title)
+                                    .font(Typography.headline)
+                                    .foregroundStyle(Theme.textPrimary)
+                                Text(section.subtitle)
+                                    .font(Typography.subheadline)
+                                    .foregroundStyle(Theme.textSecondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 12)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Theme.textTertiary)
+                        }
+                        .padding(.vertical, 14)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }

@@ -111,6 +111,7 @@ enum SnapshotMode {
     @ViewBuilder
     private static func sectionView(_ section: SettingsSection, viewModel: DictationViewModel, state: AppState) -> some View {
         switch section {
+        case .today: TodayView(viewModel: viewModel, state: state)
         case .insights: InsightsSettingsView(viewModel: viewModel, state: state)
         case .notes: NotesSettingsView(state: state)
         case .connectors: ConnectorsSettingsView(viewModel: viewModel, state: state)

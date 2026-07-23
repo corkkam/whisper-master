@@ -1,13 +1,19 @@
 import AppKit
+import ClerkKit
 import SwiftUI
 
-/// The sections of the settings window, listed top-to-bottom in the vertical
-/// sidebar (the `allCases` order below *is* the sidebar order).
+/// The sections of the main window. The **primary** four (`today`, `notes`,
+/// `connectors`, `settings`) are the sidebar nav, matching the Organic design;
+/// the rest are **secondary** pages folded under Settings (reached from its
+/// "More" list) so the sidebar stays to four items. `allCases` order is the
+/// sidebar order for the primaries.
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case insights
+    case today
     case notes
     case connectors
     case settings
+    // Folded under Settings ("More"):
+    case insights
     case engine
     case history
     case permissions
@@ -17,12 +23,24 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// The four items shown in the sidebar.
+    static let primary: [SettingsSection] = [.today, .notes, .connectors, .settings]
+    /// The pages folded into the Settings screen's "More" list.
+    static let secondary: [SettingsSection] = [.insights, .engine, .history, .permissions, .mesh, .account, .about]
+
+    var isPrimary: Bool { SettingsSection.primary.contains(self) }
+
+    /// The sidebar item that should read as selected for this section (a
+    /// secondary page highlights its parent, Settings).
+    var sidebarParent: SettingsSection { isPrimary ? self : .settings }
+
     var title: String {
         switch self {
-        case .insights: return "Insights"
+        case .today: return "Today"
         case .notes: return "Notes & Reminders"
         case .connectors: return "Connectors"
         case .settings: return "Settings"
+        case .insights: return "Insights"
         case .engine: return "Voice engine"
         case .history: return "History"
         case .permissions: return "Permissions"
@@ -32,12 +50,16 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Compact label for the sidebar / "More" rows.
+    var navLabel: String { title }
+
     var subtitle: String {
         switch self {
-        case .insights: return "Your dictation at a glance — words, speed, and streaks."
+        case .today: return "Here's the shape of your day. Talk to me any time."
         case .notes: return "Jot notes and set reminders that follow you across your Macs."
-        case .connectors: return "Link your calendar, mail and chat so you can ask about your day."
-        case .settings: return "Everything you can tune, in one place."
+        case .connectors: return "Link your calendar so Whisper can brief you and act on what you say."
+        case .settings: return "Everything you can tune, in one warm place."
+        case .insights: return "Your dictation at a glance — words, speed, and streaks."
         case .engine: return "Everything runs on-device. Your audio never leaves this Mac."
         case .history: return "Your recent transcriptions, kept locally."
         case .permissions: return "Whisper Master only asks for what it needs to work."
@@ -49,10 +71,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var kicker: String {
         switch self {
-        case .insights: return "Overview"
-        case .notes: return "Notes"
-        case .connectors: return "Connected"
+        case .today: return "Your day"
+        case .notes: return "Captured by voice"
+        case .connectors: return "Integrations"
         case .settings: return "Preferences"
+        case .insights: return "Overview"
         case .engine: return "On-device"
         case .history: return "Activity"
         case .permissions: return "Privacy"
@@ -62,16 +85,17 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         }
     }
 
-    /// SF Symbol shown beside the title in the sidebar.
+    /// SF Symbol shown beside the title.
     var icon: String {
         switch self {
-        case .insights: return "chart.bar"
+        case .today: return "sun.max"
         case .notes: return "checklist"
-        case .connectors: return "app.connected.to.app.below.fill"
-        case .settings: return "gearshape"
+        case .connectors: return "point.3.connected.trianglepath.dotted"
+        case .settings: return "slider.horizontal.3"
+        case .insights: return "chart.bar"
         case .engine: return "waveform"
         case .history: return "clock"
-        case .permissions: return "shield"
+        case .permissions: return "lock.shield"
         case .mesh: return "laptopcomputer"
         case .account: return "person.crop.circle"
         case .about: return "info.circle"
@@ -79,9 +103,9 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
 }
 
-/// The settings window — "Daylight": a light, editorial layout with a vertical
-/// sidebar (icon + title per section) and a centered, hairline-ruled content
-/// column to its right.
+/// The main window — "Organic": a warm, blurred ground with a floating
+/// frosted-glass panel that holds a slim sidebar (brand, four nav pills, a mic
+/// card and the account) beside a scrolling content pane.
 struct SettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
@@ -90,16 +114,14 @@ struct SettingsView: View {
     var startSetup: () -> Void = {}
     var cancelSetup: () -> Void = {}
     var signOut: () -> Void = {}
-    // Configured users should land on a useful page, not an empty Insights
-    // dashboard — the not-installed case still redirects to `.engine` via
-    // `autoFocusSetupIfNeeded()`.
-    var initialSection: SettingsSection = .settings
+    var initialSection: SettingsSection = .today
 
     @State private var selection: SettingsSection
     @State private var hasAutoFocusedSetup = false
     @State private var micGranted = false
     @State private var micDenied = false
     @State private var accessibilityGranted = false
+    @Environment(\.isSnapshot) private var isSnapshot
     private let permissions = PermissionsManager()
 
     init(
@@ -110,7 +132,7 @@ struct SettingsView: View {
         startSetup: @escaping () -> Void = {},
         cancelSetup: @escaping () -> Void = {},
         signOut: @escaping () -> Void = {},
-        initialSection: SettingsSection = .settings
+        initialSection: SettingsSection = .today
     ) {
         self.viewModel = viewModel
         _state = Bindable(wrappedValue: state)
@@ -124,18 +146,24 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            nav
-            sectionSeparator
-            detail
+        ZStack {
+            WarmBackground()
+
+            HStack(spacing: 0) {
+                sidebar
+                Rectangle()
+                    .fill(Theme.stroke)
+                    .frame(width: 1)
+                detail
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .glassPanel(radius: 22)
+            .padding(EdgeInsets(top: 12, leading: 14, bottom: 16, trailing: 16))
         }
-        .frame(minWidth: 760, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
-        .background(WarmBackground())
+        .frame(minWidth: 900, maxWidth: .infinity, minHeight: 620, maxHeight: .infinity)
         .onAppear {
             refreshPermissions()
             autoFocusSetupIfNeeded()
-            // Honor a section requested before the window opened (e.g. a tap on
-            // the notch command-confirmation banner).
             if let requested = state.requestedSettingsSection {
                 selection = requested
                 state.requestedSettingsSection = nil
@@ -151,78 +179,89 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Sidebar (vertical nav)
+    // MARK: - Sidebar
 
-    private var nav: some View {
+    private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 12) {
-                BrandLogo(size: 32, cornerRadius: 8)
-                Text("Whisper Master")
-                    .font(Typography.sans(18, .bold))
+            // Brand lockup — padded down to clear the native traffic-light buttons.
+            HStack(spacing: 11) {
+                BrandLogo(size: 34, cornerRadius: 11)
+                Text("Whisper\nMaster")
+                    .font(Typography.heading(17, relativeTo: .title3))
                     .foregroundStyle(Theme.textPrimary)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 32)
-            .padding(.bottom, 30)
+            .padding(.horizontal, 18)
+            .padding(.top, 34)
+            .padding(.bottom, 24)
 
-            VStack(spacing: 0) {
-                ForEach(SettingsSection.allCases) { section in
+            VStack(spacing: 3) {
+                ForEach(SettingsSection.primary) { section in
                     navRow(section)
                 }
             }
+            .padding(.horizontal, 12)
 
-            Spacer(minLength: 0)
-        }
-        .frame(width: 252)
-        .frame(maxHeight: .infinity)
-    }
+            Spacer(minLength: 16)
 
-    /// Double-rule seam between the sidebar and the content: two lines with a
-    /// small gap and a soft shadow falling onto the content for a bit of depth.
-    private var sectionSeparator: some View {
-        HStack(spacing: 4) {
-            Rectangle().fill(Theme.strokeStrong).frame(width: 2)
-            Rectangle().fill(Theme.stroke).frame(width: 2)
+            VStack(spacing: 12) {
+                SidebarMicCard(state: state, viewModel: viewModel)
+                SidebarAccountRow(isSnapshot: isSnapshot)
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 16)
         }
+        .frame(width: 250)
         .frame(maxHeight: .infinity)
-        .background(Theme.canvas)
-        .shadow(color: .black.opacity(0.08), radius: 5, x: 2, y: 0)
-        .zIndex(1)
+        .background(Color.white.opacity(0.14))
     }
 
     private func navRow(_ section: SettingsSection) -> some View {
-        let isSelected = selection == section
+        let isSelected = selection.sidebarParent == section
         return Button {
             selection = section
         } label: {
-            HStack(spacing: 13) {
+            HStack(spacing: 12) {
                 Image(systemName: section.icon)
                     .font(.system(size: 16, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? Theme.accent : Theme.textSecondary)
+                    .foregroundStyle(isSelected ? Theme.accentText : Theme.textSecondary)
                     .frame(width: 22, alignment: .center)
-                Text(section.title)
-                    .font(Typography.sans(16.5, isSelected ? .bold : .regular))
-                    .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
+                Text(section.navLabel)
+                    .font(Typography.sans(14.5, isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? Theme.accentText : Theme.textSecondary)
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
-            .padding(.vertical, 11)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isSelected ? Theme.selection : Color.clear)
-            )
+            .padding(.vertical, 10)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: Theme.pillRadius, style: .continuous)
+                        .fill(Color.white.opacity(0.55))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.pillRadius, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.6), lineWidth: 1)
+                        )
+                        .shadow(color: Theme.shadowRaised.color, radius: 6, x: 0, y: 3)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 12)   // inset the pill from the sidebar edges
     }
 
     // MARK: - Detail
 
     private var detail: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                header
+            VStack(alignment: .leading, spacing: 24) {
+                if selection.isPrimary {
+                    // Today renders its own greeting header; the other primaries
+                    // use the shared kicker/title header.
+                    if selection != .today {
+                        header(selection)
+                    }
+                } else {
+                    subPageHeader(selection)
+                }
 
                 if shouldShowSetupBanner, selection != .engine {
                     SetupBanner(
@@ -236,52 +275,73 @@ struct SettingsView: View {
                 panelContent
             }
             .padding(.horizontal, 40)
-            .padding(.top, 36)
-            .padding(.bottom, 52)
-            // Cap the reading column and center it, while the scroll view itself
-            // fills the pane — so on wide/fullscreen the content stays balanced
-            // and the scrollbar stays at the window's right edge (nothing empty
-            // to the right of it).
-            .frame(maxWidth: 720)
+            .padding(.top, 34)
+            .padding(.bottom, 48)
+            .frame(maxWidth: 780)
             .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
+    private func header(_ section: SettingsSection) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            KickerLabel(section.kicker)
+            Text(section.title)
+                .font(Typography.largeTitle)
+                .foregroundStyle(Theme.textPrimary)
+            Text(section.subtitle)
+                .font(Typography.body)
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Header for a folded (secondary) page — adds a back affordance to Settings.
+    private func subPageHeader(_ section: SettingsSection) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Button {
+                selection = .settings
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.left").font(.system(size: 11, weight: .bold))
+                    Text("Settings").font(Typography.caption)
+                }
+                .foregroundStyle(Theme.accentText)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
             VStack(alignment: .leading, spacing: 8) {
-                KickerLabel(selection.kicker)
-                Text(selection.title)
+                KickerLabel(section.kicker)
+                Text(section.title)
                     .font(Typography.largeTitle)
                     .foregroundStyle(Theme.textPrimary)
-                Text(selection.subtitle)
+                Text(section.subtitle)
                     .font(Typography.body)
                     .foregroundStyle(Theme.textSecondary)
             }
-            Spacer(minLength: 16)
-            if state.phase == .recording {
-                RecordingLevelBadge(level: state.audioLevel)
-            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
     private var panelContent: some View {
         switch selection {
-        case .insights:
-            InsightsSettingsView(viewModel: viewModel, state: state)
+        case .today:
+            TodayView(viewModel: viewModel, state: state, openConnectors: { selection = .connectors })
         case .notes:
             NotesSettingsView(state: state)
         case .connectors:
             ConnectorsSettingsView(viewModel: viewModel, state: state)
         case .settings:
-            GeneralSettingsView(viewModel: viewModel, state: state)
+            GeneralSettingsView(viewModel: viewModel, state: state, openSubPage: { selection = $0 })
         case .engine:
             EngineSettingsView(viewModel: viewModel, state: state)
         case .mesh:
             MeshSettingsView(viewModel: viewModel, state: state)
         case .history:
             HistorySettingsView(viewModel: viewModel, state: state)
+        case .insights:
+            InsightsSettingsView(viewModel: viewModel, state: state)
         case .permissions:
             PermissionsSettingsView(
                 permissions: permissions,
@@ -320,38 +380,174 @@ struct SettingsView: View {
         micDenied = micStatus == .denied
         accessibilityGranted = permissions.accessibilityGranted()
     }
-
 }
 
-/// A compact live input-level meter shown in the header while recording.
-private struct RecordingLevelBadge: View {
-    let level: Float
-    private let barCount = 14
+// MARK: - Sidebar mic card
+
+/// The sidebar's push-to-talk affordance: idle shows the ⌥ hint, recording
+/// shows a pulsing "Listening…" state. Tapping toggles recording (the global
+/// hotkey remains the primary trigger).
+private struct SidebarMicCard: View {
+    @Bindable var state: AppState
+    let viewModel: DictationViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    private var isRecording: Bool { state.phase == .recording }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "waveform")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Theme.accent)
-            HStack(alignment: .center, spacing: 2.5) {
-                ForEach(0..<barCount, id: \.self) { i in
-                    Capsule()
-                        .fill(i < activeBars ? Theme.accent : Theme.textTertiary.opacity(0.4))
-                        .frame(width: 2.5, height: barHeight(i))
+        Button(action: toggle) {
+            HStack(spacing: 11) {
+                ZStack {
+                    Circle()
+                        .fill(isRecording ? Color.white.opacity(0.22) : Theme.accent)
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(isRecording ? .white : Color(hex: 0xf5ead8))
+                }
+                .frame(width: 36, height: 36)
+                .overlay {
+                    if isRecording {
+                        Circle()
+                            .stroke(Theme.accent.opacity(0.55), lineWidth: 2)
+                            .scaleEffect(pulse ? 1.5 : 1)
+                            .opacity(pulse ? 0 : 0.8)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(isRecording ? "Listening…" : "Hold ⌥ to dictate")
+                        .font(Typography.heading(13.5, relativeTo: .callout))
+                        .foregroundStyle(isRecording ? .white : Theme.textPrimary)
+                    Text(isRecording ? "Tap to stop" : "or tap to start")
+                        .font(Typography.caption)
+                        .foregroundStyle(isRecording ? Color.white.opacity(0.8) : Theme.textSecondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(13)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(isRecording ? Theme.accent : Color.white.opacity(0.42))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(isRecording ? Theme.Accent.n300.opacity(0.6) : Color.white.opacity(0.55), lineWidth: 1)
+                    )
+                    .shadow(color: Theme.shadowRaised.color, radius: 8, x: 0, y: 4)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: isRecording)
+        .onChange(of: isRecording) { _, rec in
+            guard !reduceMotion else { return }
+            pulse = false
+            if rec { withAnimation(.easeOut(duration: 1.3).repeatForever(autoreverses: false)) { pulse = true } }
+        }
+        .accessibilityLabel(isRecording ? "Stop dictation" : "Start dictation")
+    }
+
+    private func toggle() {
+        if isRecording { viewModel.stopRecording() } else { viewModel.startRecording() }
+    }
+}
+
+// MARK: - Sidebar account row
+
+/// The signed-in identity at the bottom of the sidebar. Snapshot-guarded so the
+/// headless renderer (no Clerk environment) shows a stable stand-in.
+private struct SidebarAccountRow: View {
+    let isSnapshot: Bool
+
+    var body: some View {
+        if isSnapshot {
+            AccountRowContent(name: "Alex Rivera", subtitle: "Pro · on-device", imageURL: nil)
+        } else {
+            LiveSidebarAccountRow()
+        }
+    }
+}
+
+private struct LiveSidebarAccountRow: View {
+    @Environment(Clerk.self) private var clerk
+
+    var body: some View {
+        let user = clerk.user
+        AccountRowContent(
+            name: Self.displayName(user),
+            subtitle: "on-device",
+            imageURL: Self.imageURL(user)
+        )
+    }
+
+    private static func displayName(_ user: User?) -> String {
+        guard let user else { return "Signed in" }
+        let name = [user.firstName, user.lastName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        if !name.isEmpty { return name }
+        if let username = user.username, !username.isEmpty { return username }
+        if let email = user.primaryEmailAddress?.emailAddress ?? user.emailAddresses.first?.emailAddress {
+            return String(email.prefix(while: { $0 != "@" }))
+        }
+        return "Signed in"
+    }
+
+    private static func imageURL(_ user: User?) -> URL? {
+        guard let user, user.hasImage, !user.imageUrl.isEmpty else { return nil }
+        return URL(string: user.imageUrl)
+    }
+}
+
+private struct AccountRowContent: View {
+    let name: String
+    let subtitle: String
+    var imageURL: URL?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Group {
+                if let imageURL {
+                    AsyncImage(url: imageURL) { phase in
+                        if case .success(let image) = phase {
+                            image.resizable().scaledToFill()
+                        } else { initials }
+                    }
+                } else {
+                    initials
                 }
             }
+            .frame(width: 30, height: 30)
+            .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name)
+                    .font(Typography.sans(13, .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.surface))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
     }
 
-    private var activeBars: Int {
-        Int(Double(min(1, max(0, level * 8))) * Double(barCount))
+    private var initials: some View {
+        ZStack {
+            Circle().fill(Theme.accent2)
+            Text(initialsText)
+                .font(Typography.sans(12, .bold))
+                .foregroundStyle(.white)
+        }
     }
 
-    private func barHeight(_ i: Int) -> CGFloat {
-        4 + abs(sin(Double(i) * 0.7)) * 12
+    private var initialsText: String {
+        let parts = name.split(separator: " ").prefix(2).compactMap { $0.first.map(String.init) }
+        let joined = parts.joined().uppercased()
+        return joined.isEmpty ? "?" : joined
     }
 }

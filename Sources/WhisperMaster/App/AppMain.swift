@@ -5,6 +5,11 @@ import Foundation
 struct WhisperMasterApp {
     @MainActor
     static func main() {
+        // Register the bundled brand faces (Caprasimo / Figtree) with Core Text
+        // before any UI renders, so both the app and the snapshot path use them
+        // (falls back to system faces if a file is missing).
+        BrandFont.registerAll()
+
         // Hidden snapshot mode for design iteration: render the UI to PNGs and
         // exit without launching the full menu-bar app. Triggered by setting
         // WM_SNAPSHOT to an output directory. DEBUG-only — excluded from
