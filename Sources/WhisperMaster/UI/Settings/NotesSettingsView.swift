@@ -325,7 +325,7 @@ private struct ReminderEditor: View {
         }
         .padding(Theme.Space.xl)
         .frame(width: 460, height: 460)
-        .background(Theme.canvasGradient.ignoresSafeArea())
+        .background(WarmBackground())
     }
 
     private func fieldLabel(_ text: String) -> some View {
@@ -369,6 +369,6 @@ private struct NoteEditor: View {
         }
         .padding(Theme.Space.xl)
         .frame(width: 460, height: 380)
-        .background(Theme.canvasGradient.ignoresSafeArea())
+        .background(WarmBackground())
     }
 }

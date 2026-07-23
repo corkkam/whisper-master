@@ -36,7 +36,7 @@ struct AuthGateView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(28)
-        .background(Theme.canvas)
+        .background(WarmBackground())
     }
 
     @ViewBuilder

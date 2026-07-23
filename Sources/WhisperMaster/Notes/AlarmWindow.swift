@@ -52,6 +52,6 @@ struct AlarmView: View {
         }
         .padding(Theme.Space.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.canvasGradient.ignoresSafeArea())
+        .background(WarmBackground())
     }
 }

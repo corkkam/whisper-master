@@ -138,7 +138,7 @@ enum SnapshotMode {
         .padding(.horizontal, 44)
         .padding(.vertical, 40)
         .frame(width: 768, alignment: .topLeading)
-        .background(Theme.canvasGradient)
+        .background(WarmBackground())
     }
 
     private static func seedMockData(_ state: AppState) {

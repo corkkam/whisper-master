@@ -130,7 +130,7 @@ struct SettingsView: View {
             detail
         }
         .frame(minWidth: 760, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
-        .background(Theme.canvasGradient.ignoresSafeArea())
+        .background(WarmBackground())
         .onAppear {
             refreshPermissions()
             autoFocusSetupIfNeeded()
