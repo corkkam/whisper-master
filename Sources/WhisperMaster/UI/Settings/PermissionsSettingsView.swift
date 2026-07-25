@@ -1,6 +1,9 @@
 import SwiftUI
 
 /// Permissions section: microphone + accessibility status, with grant buttons.
+/// Status is driven by the parent (`SettingsView`), which polls and also
+/// refreshes when the app becomes active so a System Settings toggle flips the
+/// UI immediately when the user returns.
 struct PermissionsSettingsView: View {
     let permissions: PermissionsManager
     let micGranted: Bool
@@ -16,7 +19,11 @@ struct PermissionsSettingsView: View {
                     granted: micGranted,
                     denied: micDenied
                 ) {
-                    permissions.openMicrophoneSettings()
+                    if micDenied || micGranted {
+                        permissions.openMicrophoneSettings()
+                    } else {
+                        Task { _ = await permissions.requestMicrophone() }
+                    }
                 }
                 RowDivider()
                 permissionRow(
@@ -25,6 +32,10 @@ struct PermissionsSettingsView: View {
                     granted: accessibilityGranted,
                     denied: false
                 ) {
+                    // Add the app to the Accessibility list (system prompt) and
+                    // open the pane so the toggle is one click away. Parent
+                    // refresh on become-active / poll flips "Granted" live.
+                    permissions.promptAccessibility()
                     permissions.openAccessibilitySettings()
                 }
             }
@@ -56,6 +67,7 @@ struct PermissionsSettingsView: View {
                         .font(Typography.caption)
                 }
                 .foregroundStyle(Theme.success)
+                .accessibilityLabel("\(title) granted")
             } else {
                 PrimaryButton(title: denied ? "Open Settings" : "Grant access", action: action)
             }

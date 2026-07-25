@@ -1,14 +1,21 @@
 import Foundation
 
 /// Per-account record of which onboarding steps a user has already been shown,
-/// so the first-run wizard opens **once per user** and, when a new step is added
-/// later, surfaces **only that new step** instead of the whole flow again.
+/// so the first-run wizard opens **once per user**.
 ///
 /// Persisted in `UserDefaults` as a `userId → [stepID]` map (steps are keyed by
 /// `OnboardingStep.id`, a stable string). Usage is per-account because the Clerk
 /// gate lets several people sign into one Mac — the same rationale as `UsageStore`.
 enum OnboardingProgress {
     private static let key = "WhisperMaster.onboardingSeenSteps.v1"
+
+    /// Legacy step ids from earlier multi-step wizards. Any of these patterns
+    /// means the account already finished onboarding and should not be re-shown
+    /// the single permissions screen.
+    private static let legacyPermissionStepIDs: Set<String> = [
+        "microphone",
+        "accessibility",
+    ]
 
     private static func map() -> [String: [String]] {
         UserDefaults.standard.dictionary(forKey: key) as? [String: [String]] ?? [:]
@@ -33,11 +40,20 @@ enum OnboardingProgress {
         UserDefaults.standard.set(current, forKey: key)
     }
 
-    /// The steps this account has not yet seen, in canonical flow order. Empty
-    /// once the account is fully onboarded; exactly the freshly-added steps after
-    /// a new case is appended to `OnboardingStep`.
-    static func pendingSteps(userID: String) -> [OnboardingStep] {
+    /// Whether this account has already completed onboarding (current or legacy).
+    static func isComplete(userID: String) -> Bool {
         let seen = seenStepIDs(userID: userID)
-        return OnboardingStep.allCases.filter { !seen.contains($0.id) }
+        if seen.contains(OnboardingStep.permissions.id) { return true }
+        // Old split mic + accessibility pages.
+        if legacyPermissionStepIDs.isSubset(of: seen) { return true }
+        // Finished any earlier multi-step wizard (ended on "All set").
+        if seen.contains("done") { return true }
+        return false
+    }
+
+    /// Steps still to present. Empty once onboarded; otherwise the single
+    /// permissions screen.
+    static func pendingSteps(userID: String) -> [OnboardingStep] {
+        isComplete(userID: userID) ? [] : OnboardingStep.allCases
     }
 }

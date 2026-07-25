@@ -26,7 +26,7 @@ struct WelcomePage: View {
             VStack(alignment: .leading, spacing: 12) {
                 OnboardingBullet(text: "Speak, and your words land at the cursor — anywhere on your Mac.")
                 OnboardingBullet(text: "Every word is transcribed on-device. Nothing leaves this machine.")
-                OnboardingBullet(text: "Three quick permissions and a five-second mic check — that's it.")
+                OnboardingBullet(text: "One permissions screen and a five-second mic check — that's it.")
             }
 
             Spacer(minLength: 0)

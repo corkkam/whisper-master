@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Step 5 — the live mic check. The waveform reacts to real input here; this is
-/// the motif's loud moment. Capture start/stop is owned by the flow and injected.
+/// Live mic check (right after the combined permissions step). The waveform
+/// reacts to real input here; this is the motif's loud moment. Capture
+/// start/stop is owned by the flow and injected.
 struct MicTestPage: View {
     let micGranted: Bool
     let level: Float

@@ -709,8 +709,17 @@ final class DictationViewModel {
         prepareSelectedEngineInBackground()
     }
 
+    /// First-launch / post-auth engine prep. Downloads the voice model only when
+    /// it is not already installed at the local path; otherwise loads the
+    /// existing install. Safe to call repeatedly — no-ops while the same engine
+    /// is already prepared or mid-prep.
     func prepareDefaultEngineOnLaunch() {
-        state.statusMessage = "Getting voice engine ready..."
+        let engine = state.selectedEngine
+        if state.preparedEngine == engine { return }
+        if state.preparingEngine == engine { return }
+        state.statusMessage = engine.isInstalled
+            ? "Loading voice engine..."
+            : "Downloading voice engine..."
         prepareSelectedEngineInBackground()
     }
 

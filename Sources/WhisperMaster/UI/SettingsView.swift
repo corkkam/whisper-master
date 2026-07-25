@@ -174,7 +174,13 @@ struct SettingsView: View {
             selection = requested
             state.requestedSettingsSection = nil
         }
-        .onReceive(Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()) { _ in
+        // Poll so a System Settings toggle (esp. Accessibility) shows up without
+        // a relaunch; also refresh the instant we become active again after the
+        // user flips the switch and returns to the app.
+        .onReceive(Timer.publish(every: 0.75, on: .main, in: .common).autoconnect()) { _ in
+            refreshPermissions()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshPermissions()
         }
     }

@@ -47,20 +47,15 @@ enum SnapshotMode {
             )
         }
 
-        // Onboarding steps.
-        for step in OnboardingStep.allCases {
-            let onboarding = OnboardingView(
-                state: state,
-                permissions: PermissionsManager(),
-                microphoneCapture: MicrophoneCaptureService(),
-                retryEngine: {},
-                onClose: {},
-                onComplete: {},
-                initialStep: step
-            )
-            .frame(width: 640, height: 580)
-            render(onboarding, to: dir.appendingPathComponent("onboarding-\(step.rawValue)-\(step.title.lowercased().replacingOccurrences(of: " ", with: "")).png"))
-        }
+        // Single-step onboarding (permissions).
+        let onboarding = OnboardingView(
+            state: state,
+            permissions: PermissionsManager(),
+            onClose: {},
+            onComplete: {}
+        )
+        .frame(width: 640, height: 520)
+        render(onboarding, to: dir.appendingPathComponent("onboarding-permissions.png"))
 
         // Notch pill / moment-of-truth states. The dark surface is rendered on a
         // neutral backdrop so the black band reads. Each state uses its own fresh

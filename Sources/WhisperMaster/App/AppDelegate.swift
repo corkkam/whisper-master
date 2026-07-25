@@ -12,7 +12,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The dedicated "ask about my day" push-to-talk monitor (see `setupHotkey`).
     private var dayQueryHotkeyManager: HotkeyManager?
     private let permissionsManager = PermissionsManager()
-    private let onboardingMic = MicrophoneCaptureService()
     private lazy var viewModel = DictationViewModel(
         hotkeyUpdater: { [weak self] hotkey in
             self?.hotkeyManager?.setHotkey(hotkey)
@@ -243,10 +242,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !didProceedAfterAuth else { return }
         didProceedAfterAuth = true
 
-        // Start downloading/loading the voice engine now (held behind the gate).
-        // Model prep only needs the network, not the mic/accessibility permissions
-        // the wizard collects, so it runs in parallel with onboarding — ideally
-        // ready by the time the user reaches the last step.
+        // Voice engine: download only if the model isn't already on disk, else
+        // just load it. Runs in parallel with the single-step permissions
+        // screen — model prep only needs the network, not mic/accessibility.
         viewModel.prepareDefaultEngineOnLaunch()
 
         // Advertise the LAN transcription service so iOS clients can stream
@@ -259,23 +257,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Migration for existing installs: they have no per-user onboarding
         // record. If the account has already granted the core permissions it's
-        // plainly past onboarding — seed the current steps as seen so we don't
-        // re-run the whole wizard once. Only genuinely new future steps surface.
+        // plainly past onboarding — seed as seen so we don't re-show the wizard.
         if let userID, !OnboardingProgress.hasRecord(userID: userID),
            permissionsManager.microphoneStatus() == .granted,
            permissionsManager.accessibilityGranted() {
             OnboardingProgress.markSeen(OnboardingStep.allCases.map(\.id), userID: userID)
         }
 
-        // Show onboarding once per account, and thereafter only the steps this
-        // account hasn't seen yet (e.g. a step added in a later version). No
-        // account id (shouldn't happen post-auth) → fall back to the full flow.
+        // Single-step permissions wizard once per account. Past that: quiet
+        // notification prompt + open Settings if the model still needs install
+        // (progress lives in Settings / the notch, not a done step).
         let pending = userID.map { OnboardingProgress.pendingSteps(userID: $0) } ?? OnboardingStep.allCases
         if !pending.isEmpty {
             showOnboarding(steps: pending, userID: userID)
         } else {
-            // Past onboarding (it won't show), so ask for notification permission
-            // here — the onboarding step that normally owns the prompt never runs.
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
             if !viewModel.state.selectedEngine.isInstalled {
                 showWindow()
@@ -888,17 +883,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingWindow = OnboardingWindow(
             state: viewModel.state,
             permissions: permissionsManager,
-            microphoneCapture: onboardingMic,
             steps: steps,
-            retryEngine: { [weak self] in self?.viewModel.prepareDefaultEngineOnLaunch() },
             onClose: { [weak self] in
-                // User dismissed onboarding early — drop to the tray. Mark it seen
-                // so it doesn't reopen every launch; they can still reopen it via
+                // User dismissed early — drop to the tray. Mark it seen so it
+                // doesn't reopen every launch; they can still reopen it via
                 // the "Reopen Onboarding…" menu item.
                 guard let self else { return }
                 markSeen()
                 self.onboardingWindow?.close()
                 self.onboardingWindow = nil
+                // Keep engine prep going (download-if-missing / load-if-present).
+                self.viewModel.prepareDefaultEngineOnLaunch()
             }
         ) { [weak self] in
             guard let self else { return }
@@ -906,8 +901,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.onboardingWindow?.close()
             self.onboardingWindow = nil
             Analytics.shared.send(.onboardingFinished)
-            // Engine prep was kicked off at launch; retry here only if it
-            // never started or previously failed (the call is idempotent).
+            // Notifications used to be their own step; prompt quietly now.
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            // Engine prep was kicked off at launch; this is idempotent — if the
+            // model is already on disk it just loads, never re-downloads.
             self.viewModel.prepareDefaultEngineOnLaunch()
             self.showWindow()
         }

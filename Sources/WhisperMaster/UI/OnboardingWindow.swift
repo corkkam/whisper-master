@@ -1,5 +1,4 @@
 import AppKit
-import AVFoundation
 import SwiftUI
 
 @MainActor
@@ -9,9 +8,9 @@ final class OnboardingWindow {
     init(
         state: AppState,
         permissions: PermissionsManager,
-        microphoneCapture: MicrophoneCaptureService,
+        microphoneCapture: MicrophoneCaptureService? = nil,
         steps: [OnboardingStep] = OnboardingStep.allCases,
-        retryEngine: @escaping () -> Void,
+        retryEngine: (() -> Void)? = nil,
         onClose: @escaping () -> Void,
         onComplete: @escaping () -> Void
     ) {
@@ -33,7 +32,7 @@ final class OnboardingWindow {
         window.standardWindowButton(.closeButton)?.isHidden = true
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
-        window.setContentSize(NSSize(width: 640, height: 600))
+        window.setContentSize(NSSize(width: 640, height: 520))
         window.center()
         window.isReleasedWhenClosed = false
         // Normal level (not .floating): a floating window sits above System
