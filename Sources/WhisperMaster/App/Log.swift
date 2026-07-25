@@ -30,4 +30,7 @@ enum Log {
 
     /// Notes & reminders — local persistence, firing, and background sync.
     static let notes = Logger(subsystem: subsystem, category: "notes")
+
+    /// General app lifecycle (launch-at-login, window policy, etc.).
+    static let app = Logger(subsystem: subsystem, category: "app")
 }

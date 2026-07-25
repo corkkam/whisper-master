@@ -84,6 +84,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // stays locked with a setup message — if no publishable key is set.
         ClerkConfig.configureIfPossible()
 
+        // Sync the Settings "Open at login" toggle with the OS Login Items state
+        // (the user may have changed it in System Settings while we were quit).
+        LaunchAtLogin.shared.refresh()
+
         setupMainMenu()
         setupStatusItem()
         setupWindow()
@@ -335,6 +339,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        // Closing the settings (or any) window must NOT quit — the menu-bar tray
+        // and Dock icon are the persistent surface so dictation stays available
+        // in the background (hotkeys, pill, mesh, model downloads). Minimize /
+        // Hide / close all leave the process running; only Quit ends it.
         false
     }
 
@@ -914,6 +922,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             presentAuthGate()
             return
         }
+        // Re-sync Login Items in case the user flipped it in System Settings.
+        LaunchAtLogin.shared.refresh()
         NSApp.activate(ignoringOtherApps: true)
         if let window { applyDefaultWindowFrame(window) }
         window?.makeKeyAndOrderFront(nil)

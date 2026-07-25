@@ -20,6 +20,27 @@ struct GeneralSettingsView: View {
             // Delivery, Formatting, Smart cleanup.
             TranscriptSettingsView(state: state)
 
+            SectionLabel("Startup")
+            SettingsCard {
+                SettingsRow("Open at login",
+                            subtitle: "Start Whisper Master automatically when you log in or restart your Mac. You can turn this off anytime — also in System Settings → General → Login Items.") {
+                    ThemeToggle(
+                        isOn: Binding(
+                            get: { LaunchAtLogin.shared.isEnabled },
+                            set: { LaunchAtLogin.shared.setEnabled($0) }
+                        ),
+                        label: "Open at login"
+                    )
+                }
+                if let error = LaunchAtLogin.shared.lastError {
+                    Text(error)
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.danger)
+                        .padding(.top, 4)
+                }
+            }
+            .onAppear { LaunchAtLogin.shared.refresh() }
+
             SectionLabel("Backup")
             SettingsCard {
                 SettingsRow("Back up my stats",
