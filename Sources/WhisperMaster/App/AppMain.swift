@@ -5,7 +5,8 @@ import Foundation
 struct WhisperMasterApp {
     @MainActor
     static func main() {
-        // Register the bundled brand faces (Caprasimo / Figtree) with Core Text
+        // Register the bundled brand faces (Bricolage Grotesque / Instrument
+        // Sans) with Core Text
         // before any UI renders, so both the app and the snapshot path use them
         // (falls back to system faces if a file is missing).
         BrandFont.registerAll()

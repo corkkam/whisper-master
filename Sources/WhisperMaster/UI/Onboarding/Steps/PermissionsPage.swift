@@ -74,7 +74,7 @@ struct PermissionsPage: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(Typography.headline)
+                    .font(Typography.headline).tracking(Typography.headlineTracking)
                     .foregroundStyle(Theme.textPrimary)
                 Text(subtitle)
                     .font(Typography.caption)

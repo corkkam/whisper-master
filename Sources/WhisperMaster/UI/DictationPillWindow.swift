@@ -12,13 +12,21 @@ final class DictationPillWindow {
     /// Opens Settings → Notes & Reminders when the command-confirmation banner is
     /// tapped. Injected by `AppDelegate`, which owns the settings window.
     private let onOpenNotes: () -> Void
+    /// Copies the undelivered transcript when its banner's Copy button is tapped.
+    /// Injected by `AppDelegate`, which owns the view model that does the copying.
+    private let onCopyUndelivered: () -> Void
 
     private var screenObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
 
-    init(state: AppState, onOpenNotes: @escaping () -> Void = {}) {
+    init(
+        state: AppState,
+        onOpenNotes: @escaping () -> Void = {},
+        onCopyUndelivered: @escaping () -> Void = {}
+    ) {
         self.state = state
         self.onOpenNotes = onOpenNotes
+        self.onCopyUndelivered = onCopyUndelivered
 
         panel = NSPanel(
             contentRect: .zero,
@@ -30,11 +38,16 @@ final class DictationPillWindow {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        // The pill draws on the physical black bezel, so it stays ink whatever
+        // the app-wide light/dark setting is — a light band on a notch reads as
+        // broken. Pinning the panel also keeps `Theme.Notch` resolving on-dark.
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.hasShadow = false
         panel.isMovable = false
         panel.ignoresMouseEvents = true
 
-        host = NSHostingView(rootView: DictationPillContent(state: state, onOpenNotes: onOpenNotes))
+        host = NSHostingView(rootView: DictationPillContent(
+            state: state, onOpenNotes: onOpenNotes, onCopyUndelivered: onCopyUndelivered))
         host.autoresizingMask = [.width, .height]
         panel.contentView = host
 
@@ -51,7 +64,8 @@ final class DictationPillWindow {
     }
 
     /// Let the panel receive clicks only while it shows an interactive element
-    /// (the Bluetooth-mic banner). Otherwise it stays click-through so the
+    /// (the Bluetooth-mic banner, the tappable command confirmation, the
+    /// undelivered hint's Copy button). Otherwise it stays click-through so the
     /// passive dictation indicator never intercepts the menu bar.
     func setInteractive(_ interactive: Bool) {
         panel.ignoresMouseEvents = !interactive
@@ -70,7 +84,12 @@ final class DictationPillWindow {
         let origin = layout.panelOrigin(for: geometry, on: screen)
 
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
-        host.rootView = DictationPillContent(state: state, geometry: geometry, layout: layout, onOpenNotes: onOpenNotes)
+        host.rootView = DictationPillContent(
+            state: state,
+            geometry: geometry,
+            layout: layout,
+            onOpenNotes: onOpenNotes,
+            onCopyUndelivered: onCopyUndelivered)
     }
 
     private func observeEnvironment() {

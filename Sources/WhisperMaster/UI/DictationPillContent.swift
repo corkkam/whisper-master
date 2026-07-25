@@ -13,6 +13,10 @@ struct DictationPillContent: View {
     /// Tap action for the command-confirmation banner — opens Settings → Notes &
     /// Reminders so a spoken reminder's default time is one click from editable.
     var onOpenNotes: () -> Void = {}
+    /// Puts the transcript that couldn't be pasted on the clipboard — the Copy
+    /// button on the undelivered hint. Injected so the view stays AppKit-free;
+    /// the owner reads the current (possibly polished) text itself.
+    var onCopyUndelivered: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -68,9 +72,11 @@ struct DictationPillContent: View {
 
     /// Whether the surface should be dropped down and visible.
     private var isExpanded: Bool {
-        // Hints + the delivered beat show even when idle.
+        // Hints, the delivered beat, and the polish that runs on after a paste
+        // all show even when idle.
         if showCommandConfirmation || showDaySummary || showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
-            || state.shouldShowDeliveredBeat { return true }
+            || state.shouldShowDeliveredBeat || state.shouldShowLiveTranscript
+            || state.shouldShowPolishedBeat { return true }
         guard hasContent else { return false }
         if state.phase == .idle && state.hidePillWhenIdle { return false }
         return true
@@ -80,6 +86,7 @@ struct DictationPillContent: View {
     private var hasContent: Bool {
         if state.download != nil || state.preparingEngine != nil { return true }
         if state.shouldShowDeliveredBeat { return true }
+        if state.shouldShowLiveTranscript || state.shouldShowPolishedBeat { return true }
         switch state.phase {
         case .recording, .preparingModels, .stopping, .failed: return true
         case .idle: return false
@@ -112,9 +119,10 @@ struct DictationPillContent: View {
         .opacity(isExpanded ? 1 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // Only the interactive banners take clicks (the Bluetooth "use built-in"
-        // button and the tappable command confirmation); the dictation indicator
-        // stays click-through (the panel toggles ignoresMouseEvents to match).
-        .allowsHitTesting(showBanner || showCommandConfirmation)
+        // button, the tappable command confirmation, and the undelivered hint's
+        // Copy button); the dictation indicator stays click-through (the panel
+        // toggles ignoresMouseEvents to match).
+        .allowsHitTesting(showBanner || showCommandConfirmation || showUndelivered)
         // Appear *instantly* (no animation when expanding), animate only the
         // retract. A spring on the way in read as "the notch appears late" even
         // though the state flips synchronously on key-press. Banners (below) keep
@@ -128,6 +136,7 @@ struct DictationPillContent: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showCommandConfirmation)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showDaySummary)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowDeliveredBeat)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowPolishedBeat)
     }
 
     @ViewBuilder
@@ -139,7 +148,7 @@ struct DictationPillContent: View {
         } else if showDaySummary, let summary = state.activeDaySummary {
             NotchDaySummaryBanner(summary: summary)
         } else if showUndelivered {
-            NotchUndeliveredBanner()
+            NotchUndeliveredBanner(text: state.undeliveredText ?? "", onCopy: onCopyUndelivered)
         } else if showLearned, let term = state.learnedTerm {
             NotchLearnedBanner(term: term)
         } else if showCleanupReady {

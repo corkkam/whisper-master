@@ -166,7 +166,7 @@ struct OnboardingPermissionPage: View {
                 if granted {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle.fill")
-                        Text("Granted").font(Typography.headline)
+                        Text("Granted").font(Typography.headline).tracking(Typography.headlineTracking)
                     }
                     .foregroundStyle(Theme.success)
                 } else if working {

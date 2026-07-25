@@ -64,7 +64,7 @@ struct DonePage: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(statusTitle)
-                    .font(Typography.headline)
+                    .font(Typography.headline).tracking(Typography.headlineTracking)
                     .foregroundStyle(Theme.textPrimary)
                 if let detail = statusDetail {
                     Text(detail)

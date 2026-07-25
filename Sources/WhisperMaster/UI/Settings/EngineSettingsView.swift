@@ -35,7 +35,7 @@ struct EngineSettingsView: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(engine.displayName)
-                    .font(Typography.headline)
+                    .font(Typography.headline).tracking(Typography.headlineTracking)
                     .foregroundStyle(Theme.textPrimary)
                 Text("Best-accuracy on-device")
                     .font(Typography.subheadline)

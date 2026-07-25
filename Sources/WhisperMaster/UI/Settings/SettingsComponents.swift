@@ -50,7 +50,7 @@ struct StatTile<Accessory: View>: View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             HStack(alignment: .top) {
                 Text(value)
-                    .font(Typography.metric)
+                    .font(Typography.metric).tracking(Typography.metricTracking)
                     .foregroundStyle(valueColor)
                 Spacer(minLength: 0)
                 accessory
@@ -147,7 +147,7 @@ struct SettingsRow<Control: View>: View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(Typography.headline)
+                    .font(Typography.headline).tracking(Typography.headlineTracking)
                     .foregroundStyle(Theme.textPrimary)
                 if let subtitle {
                     Text(subtitle)
@@ -170,33 +170,36 @@ struct RowDivider: View {
     }
 }
 
-/// Uppercased group heading shown above a group.
+/// Uppercased group heading. Mono + wide tracking: this is the "instrument
+/// panel" voice, and it is where most of the system's character comes from for
+/// the least effort.
 struct SectionLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text.uppercased())
-            .font(Typography.label)
-            .tracking(1.6)
+        Text(text)
+            .monoLabel()
             .foregroundStyle(Theme.textTertiary)
     }
 }
 
-/// Accent kicker above a section title.
+/// Accent kicker above a section title. Same instrument voice, in ember.
 struct KickerLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text.uppercased())
-            .font(Typography.kicker)
-            .tracking(2.2)
+        Text(text)
+            .monoLabel()
             .foregroundStyle(Theme.accent)
     }
 }
 
-/// Light pill toggle. Off is warm sand, on is the vermillion accent.
+/// Pill switch. On is **signal**, not ember — an enabled setting is a settled
+/// machine state, and ember is reserved for the user's own live voice. Painting
+/// every toggle ember is exactly the "generic accent colour" the design system
+/// forbids, and it would leave the Settings page reading as one orange field.
 ///
 /// Pass `label` (the setting name) so VoiceOver announces "<name>, switch, on"
 /// instead of a bare "button" — the custom `Button` is swapped for a real
@@ -206,18 +209,25 @@ struct ThemeToggle: View {
     var label: String = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The unlit knob: near-white on paper, haze on ink, so it stays legible as
+    /// a *knob* against the sunken track in both modes.
+    private static let knobOff = Color.dynamic(light: 0xffffff, dark: 0xaab3c4)
+
     var body: some View {
         Button {
             isOn.toggle()
         } label: {
             ZStack(alignment: isOn ? .trailing : .leading) {
                 Capsule()
-                    .fill(isOn ? Theme.accent : Theme.surfaceSunken)
+                    .fill(isOn ? Theme.accent2Fill : Theme.surfaceSunken)
+                    .overlay(Capsule().strokeBorder(isOn ? .clear : Theme.line, lineWidth: 1))
                     .frame(width: 44, height: 26)
                 Circle()
-                    .fill(Color.white)
+                    // On: the near-black tint of signal, sitting on its own fill.
+                    // Off: a pale knob on a sunken well — a dark knob reads as on.
+                    .fill(isOn ? Theme.accent2On : Self.knobOff)
+                    .overlay(Circle().strokeBorder(Theme.line, lineWidth: isOn ? 0 : 1))
                     .frame(width: 20, height: 20)
-                    .shadow(color: .black.opacity(0.22), radius: 1.5, x: 0, y: 1)
                     .padding(3)
             }
         }
@@ -273,17 +283,22 @@ private struct ButtonLabel: View {
     }
 }
 
+/// Primary action: an ember pill. The label sits *on* the accent in its own
+/// near-black tint (never white, which is only 2.5:1 on ember).
 struct AccentButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(.white)
-            .padding(.horizontal, 16)
+            .foregroundStyle(Theme.accentOn)
+            .padding(.horizontal, 18)
             .padding(.vertical, 9)
             .background(
-                RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                    .fill(Theme.accent.opacity(configuration.isPressed ? 0.85 : 1))
+                Capsule().fill(Theme.accentFill)
             )
-            .contentShape(Rectangle())
+            .shadow(
+                color: Theme.Ember.base.opacity(configuration.isPressed ? 0 : 0.45),
+                radius: 18, x: 0, y: 8
+            )
+            .contentShape(Capsule())
     }
 }
 
@@ -291,16 +306,58 @@ struct GhostButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(Theme.textPrimary)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 18)
             .padding(.vertical, 9)
             .background(
-                RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                    .fill(configuration.isPressed ? Theme.surfaceSunken : Theme.surface)
+                Capsule().fill(configuration.isPressed ? Theme.surfaceGlass2 : Theme.surfaceGlass)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                    .strokeBorder(Theme.strokeStrong, lineWidth: 1)
+                Capsule().strokeBorder(Theme.line, lineWidth: 1)
             )
-            .contentShape(Rectangle())
+            .contentShape(Capsule())
+    }
+}
+
+/// System / Light / Dark, as a segmented pill. Focus and selection are the
+/// machine telling you where you are, so the selected segment is a signal-tinted
+/// glow rather than a bright border.
+struct AppearancePicker: View {
+    @Binding var selection: AppAppearance
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var slider
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(AppAppearance.allCases) { mode in
+                let isSelected = mode == selection
+
+                Button { selection = mode } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: mode.icon)
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(mode.title)
+                            .font(Typography.caption)
+                    }
+                    .foregroundStyle(isSelected ? Theme.accentOn : Theme.textTertiary)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 7)
+                    .background {
+                        if isSelected {
+                            Capsule()
+                                .fill(Theme.accentFill)
+                                .matchedGeometryEffect(id: "appearance", in: slider)
+                        }
+                    }
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(mode.title)
+                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+            }
+        }
+        .padding(3)
+        .background(Capsule().fill(Theme.surfaceGlass))
+        .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: selection)
     }
 }

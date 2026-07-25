@@ -8,6 +8,9 @@ import UserNotifications
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var window: NSWindow?
+    /// Last appearance pushed onto `NSApp`, so the 0.5s refresh loop can spot a
+    /// change without reassigning (and re-rendering) every tick.
+    private var appliedAppearance: AppAppearance?
     private var hotkeyManager: HotkeyManager?
     /// The dedicated "ask about my day" push-to-talk monitor (see `setupHotkey`).
     private var dayQueryHotkeyManager: HotkeyManager?
@@ -86,6 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Sync the Settings "Open at login" toggle with the OS Login Items state
         // (the user may have changed it in System Settings while we were quit).
         LaunchAtLogin.shared.refresh()
+
+        applyAppearance()
 
         setupMainMenu()
         setupStatusItem()
@@ -563,11 +568,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshStatusItem()
     }
 
+    /// Push the user's light/dark choice onto the whole app. Setting
+    /// `NSApp.appearance` cascades to every window, so this is the only place
+    /// appearance is decided; `nil` hands control back to the system setting.
+    /// Idempotent — the refresh loop calls it every tick.
+    private func applyAppearance() {
+        let wanted = viewModel.state.appearance
+        guard wanted != appliedAppearance else { return }
+        appliedAppearance = wanted
+        NSApp.appearance = wanted.nsAppearance
+        // The window background is an AppKit colour, so nudge it to re-resolve.
+        window?.backgroundColor = Theme.canvasNSColor
+    }
+
     private func refreshStatusItem() {
         // Flip the sign-in gate in step with the Clerk session — this timer is
         // our bridge from Clerk's @Observable state to AppKit, same as for
         // AppState below.
         reconcileAuthGate()
+        applyAppearance()
 
         guard let item = statusItem, let button = item.button else { return }
         let state = viewModel.state
@@ -588,9 +607,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cancelItem?.isHidden = state.preparingEngine == nil
 
         // The notch panel is click-through except while an interactive banner is
-        // up — the Bluetooth-mic "use built-in" button, or the tappable command
-        // confirmation ("reminder set · tap to change") — where clicks matter.
-        pillWindow?.setInteractive(state.shouldShowBluetoothBanner || state.shouldShowCommandConfirmation)
+        // up — the Bluetooth-mic "use built-in" button, the tappable command
+        // confirmation ("reminder set · tap to change"), or the undelivered
+        // hint's Copy button — where clicks matter.
+        pillWindow?.setInteractive(
+            state.shouldShowBluetoothBanner
+                || state.shouldShowCommandConfirmation
+                || state.shouldShowUndeliveredBanner)
 
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
@@ -618,6 +641,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let at = state.undeliveredTranscriptAt,
            Date().timeIntervalSince(at) >= AppState.undeliveredBannerDuration {
             state.undeliveredTranscriptAt = nil
+            state.undeliveredText = nil
+        }
+
+        // Retract the polished-transcript beat once its window elapses.
+        if let at = state.polishedAt,
+           Date().timeIntervalSince(at) >= AppState.polishedBeatDuration {
+            state.polishedText = nil
+            state.polishedAt = nil
         }
 
         // Retract the "learned a word" confirmation once its window elapses.
@@ -791,8 +822,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
-        // Light "Daylight" chrome: paper titlebar that blends with the theme.
-        window.appearance = NSAppearance(named: .aqua)
+        // Appearance is app-wide (`applyAppearance`), so the window inherits it
+        // rather than pinning light — `canvasNSColor` resolves per mode.
         window.backgroundColor = Theme.canvasNSColor
         window.contentViewController = host
         window.isReleasedWhenClosed = false
@@ -814,13 +845,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPill() {
-        pillWindow = DictationPillWindow(state: viewModel.state) { [weak self] in
-            // Tapping the "reminder set · tap to change" banner opens Settings →
-            // Notes & Reminders; the requested section is consumed by SettingsView.
-            guard let self else { return }
-            self.viewModel.state.requestedSettingsSection = .notes
-            self.showWindow()
-        }
+        pillWindow = DictationPillWindow(
+            state: viewModel.state,
+            onOpenNotes: { [weak self] in
+                // Tapping the "reminder set · tap to change" banner opens Settings →
+                // Notes & Reminders; the requested section is consumed by SettingsView.
+                guard let self else { return }
+                self.viewModel.state.requestedSettingsSection = .notes
+                self.showWindow()
+            },
+            onCopyUndelivered: { [weak self] in
+                // The Copy button on the "nowhere to type that" hint — hands over
+                // the polished transcript when the on-device pass produced one.
+                self?.viewModel.copyUndeliveredTranscript()
+            })
         pillWindow?.show()
         // Watch for a Bluetooth mic input so the notch can offer to switch to
         // the built-in mic (keeps earphones in hi-fi). Read-only detection.

@@ -48,6 +48,7 @@ final class AppState {
     static let historyDefaultsKey = "WhisperMaster.transcriptHistory.v1"
     static let historyLimit = 50
     static let vocabularyDefaultsKey = "WhisperMaster.customVocabulary.v1"
+    static let appearanceDefaultsKey = "WhisperMaster.appearance.v1"
     static let remindersEnabledDefaultsKey = "WhisperMaster.remindersEnabled.v1"
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
     static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
@@ -83,6 +84,9 @@ final class AppState {
     /// How long a "what's my day" answer stays down in the notch. Longer than the
     /// other hints — the user asked for it and is reading a few facts.
     static let daySummaryDuration: TimeInterval = 12
+    /// How long the polished transcript stays in the notch after the on-device
+    /// polish rewrote a dictation — long enough to read the new wording.
+    static let polishedBeatDuration: TimeInterval = 4
 
     var selectedEngine: TranscriberEngine = .slidingWindow
     var preparedEngine: TranscriberEngine?
@@ -133,6 +137,21 @@ final class AppState {
     /// Transient (never persisted); set by the view model, auto-expired by the
     /// AppDelegate refresh loop once `undeliveredBannerDuration` has passed.
     var undeliveredTranscriptAt: Date?
+    /// The transcript that had nowhere to go, kept alongside
+    /// `undeliveredTranscriptAt` so the hint can show the words and offer a Copy
+    /// button. Replaced in place if a late polish produces better wording, so
+    /// what the button copies is always the best version. Transient.
+    var undeliveredText: String?
+    /// True while the optional on-device polish is running over the transcript we
+    /// just delivered. Drives the notch "thinking" orb — the deterministic text
+    /// is already pasted, so this is purely a "still improving it" signal.
+    var isPolishing: Bool = false
+    /// The polished wording, once the on-device pass produced one that actually
+    /// reached the user (pasted in place, or copied). Shown briefly in the notch
+    /// so a rewrite the user didn't ask twice for isn't invisible. Transient;
+    /// auto-expired by the AppDelegate refresh loop after `polishedBeatDuration`.
+    var polishedText: String?
+    var polishedAt: Date?
     /// The canonical word just auto-learned into the glossary, and when — drives
     /// a brief notch confirmation so the silent addition is visible. Transient
     /// (never persisted); auto-expired by the AppDelegate refresh loop after
@@ -166,6 +185,17 @@ final class AppState {
     /// One-shot flag the Settings "Retry" button sets; drained by the manager on
     /// the next refresh tick to re-attempt a failed load.
     var cleanupRetryRequested: Bool = false
+    /// Light / dark / follow-the-system. Persisted; applied app-wide by
+    /// `AppDelegate.applyAppearance()`, which sets `NSApp.appearance` — the one
+    /// lever that cascades to every window. The dictation pill deliberately
+    /// opts out and stays ink, since it draws on the physical bezel.
+    var appearance: AppAppearance = .system {
+        didSet {
+            guard appearance != oldValue else { return }
+            UserDefaults.standard.set(appearance.rawValue, forKey: Self.appearanceDefaultsKey)
+        }
+    }
+
     /// Whether gentle "you haven't used me in a while" reminders are enabled.
     /// Persisted; **opt-in** — off until the user turns it on in Settings.
     var remindersEnabled: Bool = false {
@@ -302,6 +332,9 @@ final class AppState {
     init() {
         history = Self.loadHistory()
         customVocabulary = Self.loadVocabulary()
+        // Follow the system appearance unless the user has pinned one.
+        appearance = (UserDefaults.standard.string(forKey: Self.appearanceDefaultsKey))
+            .flatMap(AppAppearance.init(rawValue:)) ?? .system
         // Opt-in: off until the user has explicitly turned it on.
         remindersEnabled = UserDefaults.standard.object(forKey: Self.remindersEnabledDefaultsKey) as? Bool ?? false
         // Opt-in: off until the user has explicitly turned it on.
@@ -430,6 +463,44 @@ final class AppState {
         guard let at = deliveredAt else { return false }
         return Date().timeIntervalSince(at) < Self.deliveredBeatDuration
             && phase == .idle
+            && download == nil
+            && preparingEngine == nil
+            && !shouldShowUndeliveredBanner
+    }
+
+    /// The words to render live on the notch band: everything the engine has
+    /// locked in, plus the volatile tail it is still revising. After a stop this
+    /// is the finished transcript, so the band keeps showing what was heard
+    /// through finalizing and the optional polish.
+    var liveTranscriptText: String {
+        let confirmed = transcript.latestConfirmed.trimmingCharacters(in: .whitespacesAndNewlines)
+        let partial = transcript.latestPartial.trimmingCharacters(in: .whitespacesAndNewlines)
+        if partial.isEmpty { return confirmed }
+        if confirmed.isEmpty { return partial }
+        return confirmed + " " + partial
+    }
+
+    /// Whether the band should show the live dictation line (orb + the words as
+    /// they land). True for the whole working stretch — recording, finalizing,
+    /// and the polish that runs on after the paste.
+    var shouldShowLiveTranscript: Bool {
+        guard download == nil else { return false }
+        if isPolishing { return true }
+        switch phase {
+        case .recording, .stopping: return true
+        case .idle, .preparingModels, .failed: return false
+        }
+    }
+
+    /// Show the polished transcript for a beat once the on-device pass rewrote
+    /// the dictation. Idle-only, and it yields to the undelivered hint — which
+    /// shows the same (polished) text with a Copy button, so the two would be
+    /// redundant.
+    var shouldShowPolishedBeat: Bool {
+        guard let at = polishedAt, polishedText != nil else { return false }
+        return Date().timeIntervalSince(at) < Self.polishedBeatDuration
+            && phase == .idle
+            && !isPolishing
             && download == nil
             && preparingEngine == nil
             && !shouldShowUndeliveredBanner

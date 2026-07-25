@@ -70,7 +70,7 @@ struct AuthGateView: View {
     private var configurationNeeded: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Sign-in isn’t configured yet")
-                .font(Typography.headline)
+                .font(Typography.headline).tracking(Typography.headlineTracking)
                 .foregroundStyle(Theme.textPrimary)
             Text("Add your Clerk publishable key to enable login. Set `ClerkPublishableKey` in Resources/Info.plist (or the `CLERK_PUBLISHABLE_KEY` environment variable) to a `pk_test_…` / `pk_live_…` key from the Clerk dashboard, then relaunch.")
                 .font(Typography.subheadline)

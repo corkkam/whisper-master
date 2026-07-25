@@ -108,11 +108,15 @@ final class DictationViewModel {
         // the previous one.
         correctionLearner.cancel()
         refinementTask?.cancel()
-        // Any pending "nowhere to paste" hint, success beat, or failure message
-        // is stale once a new session starts.
+        // Any pending "nowhere to paste" hint, success beat, polish result, or
+        // failure message is stale once a new session starts.
         state.undeliveredTranscriptAt = nil
+        state.undeliveredText = nil
         state.deliveredAt = nil
         state.failedAt = nil
+        state.isPolishing = false
+        state.polishedText = nil
+        state.polishedAt = nil
         failedResetTask?.cancel()
         levelEnvelope.reset()
 
@@ -374,11 +378,15 @@ final class DictationViewModel {
                     if applied {
                         onScreen = refined
                         if let entryID { self.state.updateHistoryText(entryID, to: refined) }
+                        self.notePolished(refined)
                     }
-                } else if let entryID {
-                    // Nothing was pasted (no editable target) — history is the
-                    // only artifact, so the polish belongs there.
-                    self.state.updateHistoryText(entryID, to: refined)
+                } else {
+                    // Nothing was pasted (no editable target) — history and the
+                    // clipboard are the only artifacts, so the polish belongs
+                    // there, and the notch hint should offer the better wording.
+                    if let entryID { self.state.updateHistoryText(entryID, to: refined) }
+                    self.adoptPolishedUndelivered(was: pasted, now: refined)
+                    self.notePolished(refined)
                 }
             }
             guard !Task.isCancelled else { return }
@@ -386,16 +394,43 @@ final class DictationViewModel {
         }
     }
 
+    /// Show the polished wording in the notch for a beat. Called only from the
+    /// paths where the polish actually reached the user (pasted, edited in place,
+    /// or left on the clipboard) — a rewrite the user never received would be a
+    /// lie on the band.
+    private func notePolished(_ text: String) {
+        state.polishedText = text
+        state.polishedAt = Date()
+    }
+
+    /// A polish landed for a transcript that had nowhere to paste. Point the
+    /// notch hint (and its Copy button) at the better wording, and swap the
+    /// clipboard over too — but only if our own text is still on it, so a copy
+    /// the user made in the meantime is never clobbered.
+    private func adoptPolishedUndelivered(was deterministic: String, now refined: String) {
+        guard state.undeliveredTranscriptAt != nil || state.undeliveredText == deterministic else { return }
+        state.undeliveredText = refined
+        if NSPasteboard.general.string(forType: .string) == deterministic {
+            copyToClipboard(refined)
+        }
+    }
+
     /// Run the optional on-device qwen cleanup and return the polished text only
     /// if the feature is enabled, the model is loaded, and the output survives
     /// `CleanupFaithfulnessGuard`. Returns `nil` (→ keep the deterministic paste)
     /// otherwise. Near-instant when disabled or not-yet-ready.
+    ///
+    /// Flips `state.isPolishing` for the duration so the notch orb can show the
+    /// "thinking" figure while the model works — the text is already delivered,
+    /// so this is a progress signal, never a block.
     private func llmRefined(_ input: String) async -> String? {
         guard state.llmCleanupEnabled, !input.isEmpty else { return nil }
         guard await MlxCleanupService.shared.isReady else {
             Diagnostics.shared.noteLLM(ready: false, raw: nil, accepted: false, ms: 0)
             return nil
         }
+        state.isPolishing = true
+        defer { state.isPolishing = false }
         let polish = state.llmGrammarPolishEnabled
         let prompt = CleanupPrompt.resolved(grammarPolish: polish)
         let start = Date()
@@ -663,6 +698,17 @@ final class DictationViewModel {
         Task { [textInjector] in
             await textInjector.pressCommandV()
         }
+    }
+
+    /// The Copy button on the "nowhere to type that" notch hint. Puts the
+    /// transcript on the clipboard — the polished wording when the on-device pass
+    /// produced one — and leaves the hint up, since the user may still be looking
+    /// for somewhere to put it. Falls back to the newest history entry if the
+    /// transient text has already been cleared.
+    func copyUndeliveredTranscript() {
+        let text = state.undeliveredText ?? state.history.first?.text ?? ""
+        guard !text.isEmpty else { return }
+        copyToClipboard(text)
     }
 
     func pasteLastTranscript() {
@@ -965,6 +1011,10 @@ final class DictationViewModel {
     private func pasteFinal(_ deterministic: String, entryID: UUID?) async -> (outcome: String, pasted: String) {
         guard permissionsManager.accessibilityGranted() else {
             copyToClipboard(deterministic)
+            // Nothing was typed anywhere, so this needs the same visible recovery
+            // as the no-text-field case: the words on the band plus a Copy button.
+            state.undeliveredText = deterministic
+            state.undeliveredTranscriptAt = Date()
             state.statusMessage = "Copied to clipboard, press ⌘V. Enable Accessibility for auto-paste."
             scheduleRefinement(pasted: deterministic, entryID: entryID, target: nil)
             return ("noAccessibility", deterministic)
@@ -988,6 +1038,7 @@ final class DictationViewModel {
 
         if !isTerminal, FocusedElementInspector.focusHasNoTextTarget() {
             copyToClipboard(deterministic)
+            state.undeliveredText = deterministic
             state.undeliveredTranscriptAt = Date()
             state.statusMessage = "No text field found. Copied to clipboard, press ⌘V to paste."
             scheduleRefinement(pasted: deterministic, entryID: entryID, target: nil)
@@ -1008,6 +1059,7 @@ final class DictationViewModel {
         // manual ⌘V and say why nothing landed.
         if isTerminal, TerminalApps.secureKeyboardEntryEnabled() {
             copyToClipboard(finalText)
+            state.undeliveredText = finalText
             state.undeliveredTranscriptAt = Date()
             state.statusMessage = "Secure Keyboard Entry is on — auto-paste blocked. "
                 + "Turn it off (Terminal: Shell → Secure Keyboard Entry), or press ⌘V. "
@@ -1016,8 +1068,11 @@ final class DictationViewModel {
             await pasteViaClipboard(finalText)
             state.statusMessage = "Finished local transcription and pasted at cursor."
         }
-        if finalText != deterministic, let entryID {
-            state.updateHistoryText(entryID, to: finalText)
+        if finalText != deterministic {
+            if let entryID { state.updateHistoryText(entryID, to: finalText) }
+            // The polish happened *before* this paste, so the words that landed
+            // are already the good ones — show them so the rewrite is visible.
+            notePolished(finalText)
         }
         return (isTerminal ? "terminal" : "web", finalText)
     }

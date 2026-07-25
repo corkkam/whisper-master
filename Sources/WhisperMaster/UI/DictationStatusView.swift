@@ -3,10 +3,11 @@ import SwiftUI
 /// Maps the current app state to the indicator shown inside the notch surface.
 ///
 /// Priority: an in-flight model **download** shows determinate progress; a
-/// **failure** shows an error glyph plus a short reason; a just-landed
-/// transcript shows the **delivered** checkmark beat; any other **working**
-/// state shows the `OrbView` (energized/audio-reactive while recording, calmly
-/// breathing while preparing/loading/finalizing); otherwise nothing.
+/// **failure** shows an error glyph plus a short reason; a finished **polish**
+/// shows the rewritten transcript for a beat; any **working** state shows the
+/// live dictation line (the orb — listening while recording, thinking while the
+/// on-device polish runs — alongside the words as they land); a just-landed
+/// transcript shows the **delivered** checkmark; otherwise nothing.
 struct DictationStatusView: View {
     let state: AppState
 
@@ -18,17 +19,16 @@ struct DictationStatusView: View {
                 downloadProgress(download.fractionCompleted)
             } else if isFailed {
                 failure
+            } else if state.shouldShowPolishedBeat, let polished = state.polishedText {
+                polishedBeat(polished)
+            } else if isWorking {
+                liveTranscript
             } else if state.shouldShowDeliveredBeat {
                 delivered
-            } else if isWorking {
-                OrbView(level: state.audioLevel, energized: isRecording)
             } else {
                 EmptyView()
             }
         }
-        // Collapse to a single spoken element describing the current state.
-        .accessibilityElement()
-        .accessibilityLabel(accessibilityLabel)
     }
 
     // MARK: - State classification
@@ -43,16 +43,25 @@ struct DictationStatusView: View {
         return false
     }
 
-    /// Any state that should show the thread — recording or an indeterminate
-    /// "busy" phase (preparing models, loading an engine, finalizing).
+    /// Any state that should show the orb — recording, an indeterminate "busy"
+    /// phase (preparing models, loading an engine, finalizing), or the polish
+    /// that runs on after the transcript has already been delivered.
     private var isWorking: Bool {
         if state.preparingEngine != nil { return true }
+        if state.isPolishing { return true }
         switch state.phase {
         case .recording, .preparingModels, .stopping:
             return true
         case .idle, .failed:
             return false
         }
+    }
+
+    /// Which figure the orb draws for the current work.
+    private var orbMode: OrbView.Mode {
+        if isRecording { return .listening }
+        if state.isPolishing { return .thinking }
+        return .working
     }
 
     /// A short, human failure line — the status message with its diagnostic
@@ -65,17 +74,38 @@ struct DictationStatusView: View {
         return message.isEmpty ? "Dictation failed — try again" : message
     }
 
-    private var accessibilityLabel: String {
-        if let download = state.download {
-            return "Downloading \(Int(download.fractionCompleted * 100)) percent"
-        }
-        if isFailed { return failureReason }
-        if state.shouldShowDeliveredBeat { return "Delivered" }
-        if isWorking { return isRecording ? "Listening" : "Transcribing" }
-        return ""
+    /// What the live line is spoken as: the transcript once there are words,
+    /// otherwise the state on its own.
+    private var liveAccessibilityLabel: String {
+        let stateWord = isRecording ? "Listening" : (state.isPolishing ? "Polishing" : "Transcribing")
+        let words = state.liveTranscriptText
+        return words.isEmpty ? stateWord : "\(stateWord). \(words)"
     }
 
     // MARK: - Subviews
+
+    /// The orb plus the words as they land — the whole recording → finalizing →
+    /// polishing stretch. Confirmed text is full strength, the volatile tail
+    /// quieter; once the transcript is final it is all confirmed.
+    private var liveTranscript: some View {
+        NotchTranscriptRow(
+            confirmed: state.transcript.latestConfirmed.trimmingCharacters(in: .whitespacesAndNewlines),
+            partial: state.transcript.latestPartial.trimmingCharacters(in: .whitespacesAndNewlines),
+            level: state.audioLevel,
+            mode: orbMode,
+            accessibilityLabel: liveAccessibilityLabel
+        )
+    }
+
+    /// The rewritten transcript, held for a beat so the polish is visible rather
+    /// than a silent substitution.
+    private func polishedBeat(_ text: String) -> some View {
+        NotchTranscriptRow(
+            confirmed: text,
+            icon: "sparkles",
+            accessibilityLabel: "Polished. \(text)"
+        )
+    }
 
     private var failure: some View {
         HStack(spacing: Theme.Space.sm) {
@@ -89,18 +119,24 @@ struct DictationStatusView: View {
                 .multilineTextAlignment(.leading)
         }
         .padding(.horizontal, Theme.Space.md)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(failureReason)
     }
 
     /// The success beat: a checkmark that bounces in (unless Reduce Motion is on)
     /// and scales/fades with the surface.
     @ViewBuilder
     private var delivered: some View {
-        if reduceMotion {
-            deliveredGlyph
-        } else {
-            deliveredGlyph
-                .symbolEffect(.bounce, value: state.shouldShowDeliveredBeat)
+        Group {
+            if reduceMotion {
+                deliveredGlyph
+            } else {
+                deliveredGlyph
+                    .symbolEffect(.bounce, value: state.shouldShowDeliveredBeat)
+            }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Delivered")
     }
 
     private var deliveredGlyph: some View {
@@ -121,5 +157,7 @@ struct DictationStatusView: View {
                 .foregroundStyle(Theme.Notch.text)
                 .font(Typography.notchBody)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Downloading \(Int(fraction * 100)) percent")
     }
 }

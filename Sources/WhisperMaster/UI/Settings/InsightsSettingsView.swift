@@ -40,7 +40,7 @@ struct InsightsSettingsView: View {
         // 200 wpm so a burst can't overrun it.
         StatTile(value: "\(usage.recentWpm)",
                  label: "words per minute",
-                 valueColor: Theme.accent) {
+                 valueColor: Theme.accent2) {
             GaugeArc(progress: min(1, Double(usage.recentWpm) / 200))
                 .frame(width: 76, height: 34)
         }
@@ -126,7 +126,7 @@ struct InsightsSettingsView: View {
                 ZStack(alignment: .leading) {
                     Capsule().fill(Theme.surfaceSunken)
                     Capsule()
-                        .fill(Theme.accent.opacity(opacity))
+                        .fill(Theme.accent2.opacity(opacity))
                         // Floor the width so a tiny share still shows a nub.
                         .frame(width: max(6, geo.size.width * CGFloat(share)))
                 }
@@ -185,7 +185,7 @@ struct InsightsSettingsView: View {
     private func cardHeader(title: String, statLabel: String, statValue: Int) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
-                .font(Typography.headline)
+                .font(Typography.headline).tracking(Typography.headlineTracking)
                 .foregroundStyle(Theme.textPrimary)
             Spacer(minLength: 8)
             HStack(spacing: 7) {
@@ -195,7 +195,7 @@ struct InsightsSettingsView: View {
                     .foregroundStyle(Theme.textTertiary)
                 Text("\(statValue)")
                     .font(Typography.sans(15, .bold))
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(Theme.accent2)
             }
         }
     }
@@ -208,7 +208,7 @@ struct InsightsSettingsView: View {
                 .font(.system(size: 32))
                 .foregroundStyle(Theme.textTertiary)
             Text("No insights yet")
-                .font(Typography.title)
+                .font(Typography.title).tracking(Typography.titleTracking)
                 .foregroundStyle(Theme.textPrimary)
             Text("Start dictating and this page fills up — your speed, the words you've saved, the apps you use most, and a streak worth keeping.")
                 .font(Typography.body)
@@ -234,7 +234,7 @@ private struct GaugeArc: View {
             ArcShape(progress: 1)
                 .stroke(Theme.surfaceSunken, style: StrokeStyle(lineWidth: 7, lineCap: .round))
             ArcShape(progress: max(0, min(1, progress)))
-                .stroke(Theme.accent, style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                .stroke(Theme.accent2, style: StrokeStyle(lineWidth: 7, lineCap: .round))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -334,10 +334,10 @@ private struct HeatmapGrid: View {
     static func color(forBucket bucket: Int) -> Color {
         switch bucket {
         case 0: return Theme.surfaceSunken
-        case 1: return Theme.accent.opacity(0.28)
-        case 2: return Theme.accent.opacity(0.5)
-        case 3: return Theme.accent.opacity(0.75)
-        default: return Theme.accent
+        case 1: return Theme.accent2.opacity(0.28)
+        case 2: return Theme.accent2.opacity(0.5)
+        case 3: return Theme.accent2.opacity(0.75)
+        default: return Theme.accent2
         }
     }
 }

@@ -1,22 +1,31 @@
 import SwiftUI
 
-/// The dictation "orb" that lives in the notch band — now a `ThinkingOrb` (the
+/// The dictation "orb" that lives in the notch band — a `ThinkingOrb` (the
 /// SwiftUI port of `thinking-orbs`). One dotted, honestly-3D orb across the whole
-/// working lifecycle:
+/// working lifecycle, changing figure with what the app is actually doing:
 ///
-/// - **recording** → the `listening` wave, its undulation driven by the live mic
-///   level through the engine's `gain` knob (louder = bigger waves; the tempo
-///   stays constant so the phase never jumps);
-/// - **preparing / finalizing** → the `working` orbits (particles running tilted
-///   paths), a calm "busy" indicator while there's no audio to react to.
+/// - **listening** (recording) → the `listening` wave, its undulation driven by
+///   the live mic level through the engine's `gain` knob (louder = bigger waves;
+///   the tempo stays constant so the phase never jumps);
+/// - **working** (preparing / finalizing) → the `working` orbits (particles
+///   running tilted paths), a calm "busy" indicator while there's no audio to
+///   react to;
+/// - **thinking** (on-device polish) → the `solving` scramble, so the beat where
+///   the model is rewriting the transcript reads as thought rather than as more
+///   of the same waiting.
 ///
 /// The notch is a dark substrate, so `dark: true` renders light ink. Entry pop
 /// and Reduce-Motion handling live in `ThinkingOrb` itself.
 struct OrbView: View {
+    /// What the orb is depicting. Mapped to a `ThinkingOrb` figure below.
+    enum Mode {
+        case listening
+        case working
+        case thinking
+    }
+
     let level: Float
-    /// `true` while recording (audio-reactive `listening`); `false` while
-    /// preparing/finalizing (calm `working`).
-    var energized: Bool
+    var mode: Mode = .working
 
     /// Rendered edge length. The dot field fills this square.
     var diameter: CGFloat = 32
@@ -34,14 +43,22 @@ struct OrbView: View {
         return 0.35 + 1.05 * activity
     }
 
+    private var orbState: OrbState {
+        switch mode {
+        case .listening: return .listening
+        case .working: return .working
+        case .thinking: return .solving
+        }
+    }
+
     var body: some View {
         ThinkingOrb(
-            state: energized ? .listening : .working,
+            state: orbState,
             renderSize: diameter,
             preset: .small,
             dark: true,
             speed: 1,
-            extraOpts: energized ? ["gain": waveGain] : [:]
+            extraOpts: mode == .listening ? ["gain": waveGain] : [:]
         )
         .scaleEffect(reduceMotion || appeared ? 1 : 0.86)
         .opacity(reduceMotion || appeared ? 1 : 0)

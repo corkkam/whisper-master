@@ -57,7 +57,7 @@ struct ConnectorsSettingsView: View {
                 SettingsCard {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Nothing on your calendar today")
-                            .font(Typography.headline).foregroundStyle(Theme.textPrimary)
+                            .font(Typography.headline).tracking(Typography.headlineTracking).foregroundStyle(Theme.textPrimary)
                         Text("You're clear. Ask “what's my day” anytime.")
                             .font(Typography.subheadline).foregroundStyle(Theme.textSecondary)
                     }
@@ -83,7 +83,7 @@ struct ConnectorsSettingsView: View {
                 .frame(width: 64, alignment: .leading)
             VStack(alignment: .leading, spacing: 3) {
                 Text(event.title)
-                    .font(Typography.headline)
+                    .font(Typography.headline).tracking(Typography.headlineTracking)
                     .foregroundStyle(Theme.textPrimary)
                     .strikethrough(!event.isUpcoming)
                 if !event.calendarTitle.isEmpty {
@@ -189,7 +189,7 @@ struct ConnectorsSettingsView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(kind.displayName)
-                        .font(Typography.headline)
+                        .font(Typography.headline).tracking(Typography.headlineTracking)
                         .foregroundStyle(Theme.textPrimary)
                     Text(kind.blurb)
                         .font(Typography.subheadline)

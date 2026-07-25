@@ -90,7 +90,7 @@ struct MeshSettingsView: View {
                         .frame(width: 132, height: 132)
                         .padding(10)
                         .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white)
+                            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.surfaceGlass2)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -100,7 +100,7 @@ struct MeshSettingsView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Scan to pair")
-                        .font(Typography.headline)
+                        .font(Typography.headline).tracking(Typography.headlineTracking)
                         .foregroundStyle(Theme.textPrimary)
                     Text("Phone app → Remote Mac → Scan QR code")
                         .font(Typography.subheadline)
@@ -127,7 +127,7 @@ struct MeshSettingsView: View {
                 .frame(width: 28)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(Typography.headline)
+                    .font(Typography.headline).tracking(Typography.headlineTracking)
                     .foregroundStyle(Theme.textPrimary)
                 Text(message)
                     .font(Typography.subheadline)
@@ -189,7 +189,7 @@ struct MeshSettingsView: View {
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(summaryHeadline)
-                        .font(Typography.headline)
+                        .font(Typography.headline).tracking(Typography.headlineTracking)
                         .foregroundStyle(Theme.textPrimary)
                     Text("Macs on this Wi-Fi share transcription. Your name is never shared. Each Mac shows up generically.")
                         .font(Typography.subheadline)
@@ -268,7 +268,7 @@ private struct PeerRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(peer.displayName)
-                    .font(Typography.headline)
+                    .font(Typography.headline).tracking(Typography.headlineTracking)
                     .foregroundStyle(Theme.textPrimary)
                 Text(loadCaption)
                     .font(Typography.subheadline)

@@ -20,6 +20,14 @@ struct GeneralSettingsView: View {
             // Delivery, Formatting, Smart cleanup.
             TranscriptSettingsView(state: state)
 
+            SectionLabel("Appearance")
+            SettingsCard {
+                SettingsRow("Theme",
+                            subtitle: "Follow your Mac's appearance, or pin Whisper Master to light or dark. The dictation pill always stays dark — it sits on the notch.") {
+                    AppearancePicker(selection: $state.appearance)
+                }
+            }
+
             SectionLabel("Startup")
             SettingsCard {
                 SettingsRow("Open at login",
@@ -70,7 +78,7 @@ struct GeneralSettingsView: View {
                                 .frame(width: 24, alignment: .center)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(section.title)
-                                    .font(Typography.headline)
+                                    .font(Typography.headline).tracking(Typography.headlineTracking)
                                     .foregroundStyle(Theme.textPrimary)
                                 Text(section.subtitle)
                                     .font(Typography.subheadline)

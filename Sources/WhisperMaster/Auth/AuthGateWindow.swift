@@ -37,8 +37,7 @@ final class AuthGateWindow {
         window.level = .normal
         window.hidesOnDeactivate = false
         window.isMovableByWindowBackground = true
-        // Light "Daylight" chrome to match the settings/onboarding windows.
-        window.appearance = NSAppearance(named: .aqua)
+        // Inherits the app-wide appearance (`AppDelegate.applyAppearance`).
         window.backgroundColor = Theme.canvasNSColor
     }
 

@@ -18,7 +18,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case history
     case permissions
     case mesh
-    case account
     case about
 
     var id: String { rawValue }
@@ -26,7 +25,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// The four items shown in the sidebar.
     static let primary: [SettingsSection] = [.today, .notes, .connectors, .settings]
     /// The pages folded into the Settings screen's "More" list.
-    static let secondary: [SettingsSection] = [.insights, .engine, .history, .permissions, .mesh, .account, .about]
+    static let secondary: [SettingsSection] = [.insights, .engine, .history, .permissions, .mesh, .about]
 
     var isPrimary: Bool { SettingsSection.primary.contains(self) }
 
@@ -45,7 +44,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .history: return "History"
         case .permissions: return "Permissions"
         case .mesh: return "Nearby Macs"
-        case .account: return "Account"
         case .about: return "About"
         }
     }
@@ -64,7 +62,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .history: return "Your recent transcriptions, kept locally."
         case .permissions: return "Whisper Master only asks for what it needs to work."
         case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
-        case .account: return "You’re signed in. Sign out to lock the app."
         case .about: return "Voice dictation that stays on your Mac."
         }
     }
@@ -80,7 +77,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .history: return "Activity"
         case .permissions: return "Privacy"
         case .mesh: return "Mesh"
-        case .account: return "You"
         case .about: return "Whisper Master"
         }
     }
@@ -97,7 +93,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .history: return "clock"
         case .permissions: return "lock.shield"
         case .mesh: return "laptopcomputer"
-        case .account: return "person.crop.circle"
         case .about: return "info.circle"
         }
     }
@@ -211,14 +206,14 @@ struct SettingsView: View {
 
             VStack(spacing: 12) {
                 SidebarMicCard(state: state, viewModel: viewModel)
-                SidebarAccountRow(isSnapshot: isSnapshot)
+                SidebarAccountRow(isSnapshot: isSnapshot, signOut: signOut)
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 16)
         }
         .frame(width: 250)
         .frame(maxHeight: .infinity)
-        .background(Color.white.opacity(0.14))
+        .background(Theme.surfaceGlass)
     }
 
     private func navRow(_ section: SettingsSection) -> some View {
@@ -240,13 +235,15 @@ struct SettingsView: View {
             .padding(.vertical, 10)
             .background {
                 if isSelected {
+                    // Selection is an accent-tinted glow, never a brighter
+                    // border — a bright slab is the system's anti-pattern.
                     RoundedRectangle(cornerRadius: Theme.pillRadius, style: .continuous)
-                        .fill(Color.white.opacity(0.55))
+                        .fill(Theme.accentSoft)
                         .overlay(
                             RoundedRectangle(cornerRadius: Theme.pillRadius, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.6), lineWidth: 1)
+                                .strokeBorder(Theme.accent.opacity(0.22), lineWidth: 1)
                         )
-                        .shadow(color: Theme.shadowRaised.color, radius: 6, x: 0, y: 3)
+                        .shadow(color: Theme.Ember.base.opacity(0.22), radius: 14, x: 0, y: 5)
                 }
             }
             .contentShape(Rectangle())
@@ -292,7 +289,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             KickerLabel(section.kicker)
             Text(section.title)
-                .font(Typography.largeTitle)
+                .font(Typography.largeTitle).tracking(Typography.largeTitleTracking)
                 .foregroundStyle(Theme.textPrimary)
             Text(section.subtitle)
                 .font(Typography.body)
@@ -319,7 +316,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 KickerLabel(section.kicker)
                 Text(section.title)
-                    .font(Typography.largeTitle)
+                    .font(Typography.largeTitle).tracking(Typography.largeTitleTracking)
                     .foregroundStyle(Theme.textPrimary)
                 Text(section.subtitle)
                     .font(Typography.body)
@@ -355,8 +352,6 @@ struct SettingsView: View {
                 micDenied: micDenied,
                 accessibilityGranted: accessibilityGranted
             )
-        case .account:
-            AccountSettingsView(state: state, signOut: signOut)
         case .about:
             AboutSettingsView(state: state, reopenOnboarding: reopenOnboarding, checkForUpdates: checkForUpdates)
         }
@@ -406,10 +401,10 @@ private struct SidebarMicCard: View {
             HStack(spacing: 11) {
                 ZStack {
                     Circle()
-                        .fill(isRecording ? Color.white.opacity(0.22) : Theme.accent)
+                        .fill(isRecording ? Theme.accentOn.opacity(0.25) : Theme.accentFill)
                     Image(systemName: "mic.fill")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(isRecording ? .white : Color(hex: 0xf5ead8))
+                        .foregroundStyle(Theme.accentOn)
                 }
                 .frame(width: 36, height: 36)
                 .overlay {
@@ -424,20 +419,20 @@ private struct SidebarMicCard: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(isRecording ? "Listening…" : "Hold ⌥ to dictate")
                         .font(Typography.heading(13.5, relativeTo: .callout))
-                        .foregroundStyle(isRecording ? .white : Theme.textPrimary)
+                        .foregroundStyle(isRecording ? Theme.accentOn : Theme.textPrimary)
                     Text(isRecording ? "Tap to stop" : "or tap to start")
                         .font(Typography.caption)
-                        .foregroundStyle(isRecording ? Color.white.opacity(0.8) : Theme.textSecondary)
+                        .foregroundStyle(isRecording ? Theme.accentOn.opacity(0.75) : Theme.textSecondary)
                 }
                 Spacer(minLength: 0)
             }
             .padding(13)
             .background {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(isRecording ? Theme.accent : Color.white.opacity(0.42))
+                    .fill(isRecording ? Theme.accentFill : Theme.surfaceGlass)
                     .overlay(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(isRecording ? Theme.Accent.n300.opacity(0.6) : Color.white.opacity(0.55), lineWidth: 1)
+                            .strokeBorder(isRecording ? Theme.Ember.bright.opacity(0.55) : Theme.line, lineWidth: 1)
                     )
                     .shadow(color: Theme.shadowRaised.color, radius: 8, x: 0, y: 4)
             }
@@ -460,49 +455,55 @@ private struct SidebarMicCard: View {
 
 // MARK: - Sidebar account row
 
-/// The signed-in identity at the bottom of the sidebar. Snapshot-guarded so the
-/// headless renderer (no Clerk environment) shows a stable stand-in.
+/// The signed-in identity at the bottom of the sidebar, with the account button
+/// sitting to the right of the name and avatar — it opens `AccountPopover`
+/// (email, account id, sign out) so there's no separate Account page.
+/// Snapshot-guarded so the headless renderer (no Clerk environment) shows a
+/// stable stand-in.
 private struct SidebarAccountRow: View {
     let isSnapshot: Bool
+    var signOut: () -> Void = {}
+
+    @State private var showAccount = false
 
     var body: some View {
+        row
+            // Anchored above the row (it lives at the sidebar's bottom edge).
+            .popover(isPresented: $showAccount, arrowEdge: .top) {
+                AccountPopover(signOut: signOut)
+            }
+    }
+
+    @ViewBuilder
+    private var row: some View {
         if isSnapshot {
-            AccountRowContent(name: "Alex Rivera", subtitle: "Pro · on-device", imageURL: nil)
+            AccountRowContent(
+                name: "Alex Rivera",
+                subtitle: "on-device",
+                imageURL: nil,
+                isOpen: showAccount,
+                open: { showAccount = true }
+            )
         } else {
-            LiveSidebarAccountRow()
+            LiveSidebarAccountRow(isOpen: showAccount, open: { showAccount = true })
         }
     }
 }
 
 private struct LiveSidebarAccountRow: View {
+    let isOpen: Bool
+    var open: () -> Void
     @Environment(Clerk.self) private var clerk
 
     var body: some View {
         let user = clerk.user
         AccountRowContent(
-            name: Self.displayName(user),
+            name: AccountIdentity.displayName(for: user),
             subtitle: "on-device",
-            imageURL: Self.imageURL(user)
+            imageURL: AccountIdentity.imageURL(for: user),
+            isOpen: isOpen,
+            open: open
         )
-    }
-
-    private static func displayName(_ user: User?) -> String {
-        guard let user else { return "Signed in" }
-        let name = [user.firstName, user.lastName]
-            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        if !name.isEmpty { return name }
-        if let username = user.username, !username.isEmpty { return username }
-        if let email = user.primaryEmailAddress?.emailAddress ?? user.emailAddresses.first?.emailAddress {
-            return String(email.prefix(while: { $0 != "@" }))
-        }
-        return "Signed in"
-    }
-
-    private static func imageURL(_ user: User?) -> URL? {
-        guard let user, user.hasImage, !user.imageUrl.isEmpty else { return nil }
-        return URL(string: user.imageUrl)
     }
 }
 
@@ -510,44 +511,68 @@ private struct AccountRowContent: View {
     let name: String
     let subtitle: String
     var imageURL: URL?
+    var isOpen: Bool
+    var open: () -> Void
+
+    @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            Group {
-                if let imageURL {
-                    AsyncImage(url: imageURL) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFill()
-                        } else { initials }
+        Button(action: open) {
+            HStack(spacing: 10) {
+                Group {
+                    if let imageURL {
+                        AsyncImage(url: imageURL) { phase in
+                            if case .success(let image) = phase {
+                                image.resizable().scaledToFill()
+                            } else { initials }
+                        }
+                    } else {
+                        initials
                     }
-                } else {
-                    initials
                 }
-            }
-            .frame(width: 30, height: 30)
-            .clipShape(Circle())
+                .frame(width: 30, height: 30)
+                .clipShape(Circle())
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(name)
-                    .font(Typography.sans(13, .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(Typography.caption)
-                    .foregroundStyle(Theme.textTertiary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name)
+                        .font(Typography.sans(13, .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                Spacer(minLength: 0)
+
+                // The account button, to the right of the name + avatar.
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isOpen ? Theme.accentText : Theme.textSecondary)
+                    .frame(width: 24, height: 24)
+                    .background {
+                        Circle().fill(hovering || isOpen ? Theme.surfaceGlass2 : Color.clear)
+                    }
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .background {
+                RoundedRectangle(cornerRadius: Theme.pillRadius, style: .continuous)
+                    .fill(hovering || isOpen ? Theme.surfaceGlass : Color.clear)
+            }
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel("Account: \(name)")
+        .accessibilityHint("Shows your email, account ID, and sign out")
     }
 
     private var initials: some View {
         ZStack {
-            Circle().fill(Theme.accent2)
+            Circle().fill(Theme.accent2Fill)
             Text(initialsText)
                 .font(Typography.sans(12, .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.accent2On)
         }
     }
 

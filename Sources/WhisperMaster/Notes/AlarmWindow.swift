@@ -24,7 +24,7 @@ struct AlarmView: View {
 
             VStack(spacing: Theme.Space.xs) {
                 Text(reminder.displayTitle)
-                    .font(Typography.title)
+                    .font(Typography.title).tracking(Typography.titleTracking)
                     .foregroundStyle(Theme.textPrimary)
                     .multilineTextAlignment(.center)
 

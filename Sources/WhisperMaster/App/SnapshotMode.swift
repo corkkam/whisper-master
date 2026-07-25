@@ -47,6 +47,21 @@ enum SnapshotMode {
             )
         }
 
+        // The account popup that hangs off the sidebar profile row (it replaced
+        // the Account page, so it has no section panel of its own).
+        let accountPopover = AccountPopoverCard(
+            displayName: "Alex Rivera",
+            email: "alex@whispermaster.app",
+            accountID: "user_2aBcDeFgHiJkLmN",
+            memberSince: "Joined June 2026",
+            imageURL: nil,
+            signOut: {}
+        )
+        .background(Theme.surface)
+        .padding(20)
+        .background(Color(white: 0.9))
+        render(accountPopover, to: dir.appendingPathComponent("panel-account-popover.png"))
+
         // Single-step onboarding (permissions).
         let onboarding = OnboardingView(
             state: state,
@@ -63,9 +78,12 @@ enum SnapshotMode {
         renderPill(dir, name: "pill-1-listening") { s in
             s.phase = .recording
             s.audioLevel = 0.42
+            s.transcript.latestConfirmed = "let's ship the notch transcript today and"
+            s.transcript.latestPartial = "see how it reads"
         }
         renderPill(dir, name: "pill-2-finalizing") { s in
             s.phase = .stopping
+            s.transcript.latestConfirmed = "let's ship the notch transcript today"
         }
         renderPill(dir, name: "pill-3-delivered") { s in
             s.phase = .idle
@@ -78,11 +96,22 @@ enum SnapshotMode {
         }
         renderPill(dir, name: "pill-5-undelivered") { s in
             s.phase = .idle
+            s.undeliveredText = "Ship the notch transcript today and see how it reads."
             s.undeliveredTranscriptAt = Date()
         }
         renderPill(dir, name: "pill-6-bluetooth") { s in
             s.phase = .idle
             s.bluetoothInputActive = true
+        }
+        renderPill(dir, name: "pill-7-polishing") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.transcript.latestConfirmed = "so like let's ship the notch transcript today"
+        }
+        renderPill(dir, name: "pill-8-polished") { s in
+            s.phase = .idle
+            s.polishedText = "Let's ship the notch transcript today."
+            s.polishedAt = Date()
         }
 
         print("Snapshots written to \(dir.path)")
@@ -116,7 +145,6 @@ enum SnapshotMode {
         case .history: HistorySettingsView(viewModel: viewModel, state: state)
         case .permissions:
             PermissionsSettingsView(permissions: PermissionsManager(), micGranted: true, micDenied: false, accessibilityGranted: false)
-        case .account: AccountSettingsView(state: state)
         case .about: AboutSettingsView(state: state)
         }
     }
@@ -125,7 +153,7 @@ enum SnapshotMode {
         VStack(alignment: .leading, spacing: 26) {
             VStack(alignment: .leading, spacing: 7) {
                 KickerLabel(section.kicker)
-                Text(section.title).font(Typography.largeTitle).foregroundStyle(Theme.textPrimary)
+                Text(section.title).font(Typography.largeTitle).tracking(Typography.largeTitleTracking).foregroundStyle(Theme.textPrimary)
                 Text(section.subtitle).font(Typography.body).foregroundStyle(Theme.textSecondary)
             }
             sectionView(section, viewModel: viewModel, state: state)
@@ -225,18 +253,46 @@ enum SnapshotMode {
         }
     }
 
+    /// Renders each surface **twice**, once per appearance, as `<name>-light.png`
+    /// and `<name>-dark.png`. Since the theme became dual-mode, a single-mode
+    /// snapshot only covers half the regression surface.
+    ///
+    /// Two things have to agree for the tokens to resolve correctly: SwiftUI's
+    /// `colorScheme` environment (read by the glass recipes) and AppKit's
+    /// current drawing appearance (read by the dynamic `NSColor` providers
+    /// behind every token). Setting only one of them silently renders a mixed
+    /// palette.
     private static func render<V: View>(_ view: V, to url: URL) {
-        let renderer = ImageRenderer(content: view.environment(\.isSnapshot, true))
-        renderer.scale = 2
-        guard let image = renderer.nsImage,
-              let tiff = image.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]) else {
-            print("Failed to render \(url.lastPathComponent)")
-            return
+        for scheme in [ColorScheme.light, .dark] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            let name = url.deletingPathExtension().lastPathComponent
+            let target = url
+                .deletingLastPathComponent()
+                .appendingPathComponent("\(name)-\(suffix).png")
+
+            guard let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua) else { continue }
+
+            var image: NSImage?
+            appearance.performAsCurrentDrawingAppearance {
+                let renderer = ImageRenderer(
+                    content: view
+                        .environment(\.isSnapshot, true)
+                        .environment(\.colorScheme, scheme)
+                )
+                renderer.scale = 2
+                image = renderer.nsImage
+            }
+
+            guard let image,
+                  let tiff = image.tiffRepresentation,
+                  let rep = NSBitmapImageRep(data: tiff),
+                  let png = rep.representation(using: .png, properties: [:]) else {
+                print("Failed to render \(target.lastPathComponent)")
+                continue
+            }
+            try? png.write(to: target)
+            print("Wrote \(target.lastPathComponent)")
         }
-        try? png.write(to: url)
-        print("Wrote \(url.lastPathComponent)")
     }
 }
 #endif

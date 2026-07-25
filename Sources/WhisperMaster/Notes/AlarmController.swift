@@ -51,7 +51,7 @@ final class AlarmController {
         win.level = .floating
         win.hidesOnDeactivate = false
         win.isMovableByWindowBackground = true
-        win.appearance = NSAppearance(named: .aqua)
+        // Inherits the app-wide appearance (`AppDelegate.applyAppearance`).
         win.backgroundColor = Theme.canvasNSColor
         window = win
 

@@ -42,7 +42,7 @@ struct TodayView: View {
                 .tracking(2.0)
                 .foregroundStyle(Theme.accentText)
             Text("\(timeOfDayGreeting)\(greetingName.map { ", \($0)" } ?? "")")
-                .font(Typography.largeTitle)
+                .font(Typography.largeTitle).tracking(Typography.largeTitleTracking)
                 .foregroundStyle(Theme.textPrimary)
             Text("Here's the shape of your day. Talk to me any time.")
                 .font(Typography.body)
@@ -176,7 +176,7 @@ struct TodayView: View {
                     Image(systemName: "mic.fill").font(.system(size: 12, weight: .semibold))
                     Text(isRecording ? "Stop" : "Start talking").font(Typography.bodyMedium)
                 }
-                .foregroundStyle(Color(hex: 0xf5ead8))
+                .foregroundStyle(Theme.accentOn)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 9)
                 .background(
@@ -217,13 +217,13 @@ struct TodayView: View {
     private func chipLabel(_ text: String, filled: Bool) -> some View {
         Text(text)
             .font(Typography.caption)
-            .foregroundStyle(filled ? Color(hex: 0xf5ead8) : Theme.textPrimary)
+            .foregroundStyle(filled ? Theme.accentOn : Theme.textPrimary)
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
             .background(
                 Capsule(style: .continuous)
-                    .fill(filled ? Theme.accent : Color.white.opacity(0.4))
-                    .overlay(Capsule().strokeBorder(filled ? Color.clear : Color.white.opacity(0.55), lineWidth: 1))
+                    .fill(filled ? Theme.accentFill : Theme.surfaceGlass)
+                    .overlay(Capsule().strokeBorder(filled ? Color.clear : Theme.line, lineWidth: 1))
             )
     }
 

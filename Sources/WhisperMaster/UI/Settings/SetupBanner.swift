@@ -34,7 +34,7 @@ struct SetupBanner: View {
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(headline)
-                        .font(Typography.headline)
+                        .font(Typography.headline).tracking(Typography.headlineTracking)
                         .foregroundStyle(Theme.textPrimary)
                     Text(subhead)
                         .font(Typography.subheadline)

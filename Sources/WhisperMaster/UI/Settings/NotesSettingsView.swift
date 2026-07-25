@@ -92,7 +92,7 @@ struct NotesSettingsView: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
                     Text(reminder.displayTitle)
-                        .font(Typography.headline)
+                        .font(Typography.headline).tracking(Typography.headlineTracking)
                         .foregroundStyle(reminder.isCompleted ? Theme.textTertiary : Theme.textPrimary)
                         .strikethrough(reminder.isCompleted)
                     if reminder.repeatRule != .none {
@@ -152,7 +152,7 @@ struct NotesSettingsView: View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(note.displayTitle)
-                    .font(Typography.headline)
+                    .font(Typography.headline).tracking(Typography.headlineTracking)
                     .foregroundStyle(Theme.textPrimary)
                 if !note.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(note.body)
@@ -225,7 +225,7 @@ struct NotesSettingsView: View {
     private func emptyCard(_ title: String, _ subtitle: String) -> some View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(Typography.headline).foregroundStyle(Theme.textPrimary)
+                Text(title).font(Typography.headline).tracking(Typography.headlineTracking).foregroundStyle(Theme.textPrimary)
                 Text(subtitle).font(Typography.subheadline).foregroundStyle(Theme.textSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -274,7 +274,7 @@ private struct ReminderEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.lg) {
-            Text("Reminder").font(Typography.title).foregroundStyle(Theme.textPrimary)
+            Text("Reminder").font(Typography.title).tracking(Typography.titleTracking).foregroundStyle(Theme.textPrimary)
 
             VStack(alignment: .leading, spacing: Theme.Space.md) {
                 fieldLabel("Title")
@@ -348,7 +348,7 @@ private struct NoteEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.lg) {
-            Text("Note").font(Typography.title).foregroundStyle(Theme.textPrimary)
+            Text("Note").font(Typography.title).tracking(Typography.titleTracking).foregroundStyle(Theme.textPrimary)
 
             TextField("Title (optional)", text: $draft.title)
                 .textFieldStyle(.roundedBorder)

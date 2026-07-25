@@ -122,7 +122,7 @@ struct HistorySettingsView: View {
                 .font(.system(size: 32))
                 .foregroundStyle(Theme.textTertiary)
             Text("No transcripts yet")
-                .font(Typography.title)
+                .font(Typography.title).tracking(Typography.titleTracking)
                 .foregroundStyle(Theme.textPrimary)
             Text("Hold your push-to-talk key and dictate. Finished transcripts land here, ready to paste again.")
                 .font(Typography.body)
