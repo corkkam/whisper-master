@@ -63,11 +63,65 @@ struct DictationPillContent: View {
         if showBanner { return layout.bannerThickness }
         if showReminder { return layout.reminderThickness }
         if isFailed { return layout.failedThickness }
-        return layout.bottomThickness // live indicator + delivered beat both slim
+        // The transcript band is the one that breathes: it grows a row at a time
+        // as the words wrap, up to the three-line window.
+        let model = transcriptModel
+        if !model.isEmpty { return layout.transcriptThickness(lines: model.visibleLineCount) }
+        return layout.bottomThickness // lone orb + delivered beat both slim
     }
 
     private var expandedHeight: CGFloat {
         geometry.notchHeight + bandThickness
+    }
+
+    /// Whether the band is the dictation indicator rather than one of the banners
+    /// — i.e. whether `DictationStatusView` is what's rendering.
+    private var bandIsDictation: Bool {
+        !(showCommandConfirmation || showDaySummary || showUndelivered || showLearned
+            || showCleanupReady || showBanner || showReminder || isFailed)
+            && state.download == nil
+    }
+
+    /// The rolling transcript, resolved here rather than in the row so the band's
+    /// thickness and the row's line count come from the same wrap — no
+    /// measurement round-trip, no one-frame lag between the two.
+    ///
+    /// It is resolved at the **expanded** width unconditionally, which looks
+    /// circular (the width depends on whether there's a transcript) but isn't:
+    /// an empty model means the compact surface, and a non-empty one means the
+    /// expanded surface, so the expanded width is the right width whenever the
+    /// answer is used at all.
+    ///
+    /// This also mirrors which branch `DictationStatusView` renders: the finished
+    /// transcript stays in `state.transcript` after a paste, so non-empty text
+    /// alone isn't enough (the delivered checkmark would inherit the wide band).
+    private var transcriptModel: NotchTranscriptModel {
+        guard bandIsDictation else { return NotchTranscriptModel() }
+        let width = NotchTranscriptRow.textWidth(
+            surfaceWidth: layout.surfaceWidth(for: geometry, .transcript))
+        if state.shouldShowPolishedBeat, let polished = state.polishedText {
+            return .resolve(confirmed: polished, partial: "", width: width)
+        }
+        guard state.shouldShowLiveTranscript else { return NotchTranscriptModel() }
+        return .resolve(
+            confirmed: state.transcript.latestConfirmed.trimmingCharacters(in: .whitespacesAndNewlines),
+            partial: state.transcript.latestPartial.trimmingCharacters(in: .whitespacesAndNewlines),
+            width: width
+        )
+    }
+
+    /// Which of the three widths the current band wants: transcript when there are
+    /// words to read, a bare badge for the lone orb / delivered checkmark, and the
+    /// banner width for everything else (every hint is written against it).
+    private var surfaceKind: NotchSurfaceWidth {
+        if !transcriptModel.isEmpty { return .transcript }
+        return bandIsDictation ? .glyph : .banner
+    }
+
+    /// Width of the black surface. The panel itself is always sized for the widest
+    /// state, so the surface is framed inside it and centered on the notch.
+    private var surfaceWidth: CGFloat {
+        layout.surfaceWidth(for: geometry, surfaceKind)
     }
 
     /// Whether the surface should be dropped down and visible.
@@ -110,7 +164,7 @@ struct DictationPillContent: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: bandThickness)
         }
-        .frame(height: isExpanded ? expandedHeight : 0, alignment: .top)
+        .frame(width: surfaceWidth, height: isExpanded ? expandedHeight : 0, alignment: .top)
         // Pitch-black fill molded to the physical notch — no sheen or lit rim.
         .background {
             shape.fill(Theme.Notch.surface)
@@ -128,6 +182,11 @@ struct DictationPillContent: View {
         // though the state flips synchronously on key-press. Banners (below) keep
         // the softer spring since they slide in inside an already-open notch.
         .animation(isExpanded ? nil : Theme.Motion.respecting(reduceMotion, Theme.Motion.retract), value: isExpanded)
+        // The surface widens when the first words land and narrows when they go —
+        // animated so it reads as the notch making room, not as a size jump.
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: surfaceWidth)
+        // …and it deepens a row at a time as the transcript wraps onto new lines.
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: bandThickness)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showUndelivered)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showLearned)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showCleanupReady)
@@ -158,7 +217,7 @@ struct DictationPillContent: View {
         } else if showReminder, let line = state.activeReminder {
             NotchReminderBanner(text: line)
         } else {
-            DictationStatusView(state: state)
+            DictationStatusView(state: state, transcript: transcriptModel)
         }
     }
 }

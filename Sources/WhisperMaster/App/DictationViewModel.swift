@@ -46,6 +46,16 @@ final class DictationViewModel {
     /// kept so a failed/empty engine finish can still deliver what streaming
     /// produced. The full window — not the truncated live-pill remainder.
     private var rawVolatileTranscript = ""
+    /// Running text from the transcriber's low-latency **preview** track, which
+    /// lands seconds before the accurate track says anything at all. It exists to
+    /// fill the notch while you're still speaking and is **display-only**: it is
+    /// never merged into `rawConfirmedTranscript`/`rawVolatileTranscript`, so it
+    /// can't reach the paste, the history, the salvage path, or the cleanup passes.
+    private var previewTranscript = ""
+    /// The accurate track's newest hypothesis for the current window — the tail
+    /// shown after `rawConfirmedTranscript`. Held as state so the display can be
+    /// recomputed when only the preview track ticked.
+    private var latestHypothesis = ""
     /// Smooths the raw per-buffer mic level (fast attack, slow decay) so the
     /// notch wave breathes instead of snapping to zero between words.
     private var levelEnvelope = LevelEnvelope()
@@ -130,6 +140,8 @@ final class DictationViewModel {
         state.resetTranscript()
         rawConfirmedTranscript = ""
         rawVolatileTranscript = ""
+        previewTranscript = ""
+        latestHypothesis = ""
         state.statusMessage = "Getting voice engine ready..."
 
         Task {
@@ -933,6 +945,19 @@ final class DictationViewModel {
     }
 
     private func applyTranscriptUpdate(_ update: StreamingTranscriptUpdate) {
+        // The preview track only ever paints the notch. Nothing here may touch the
+        // raw accumulators — they are what `stop()` salvages and what gets pasted.
+        if update.isPreview {
+            previewTranscript = TranscriptMerger.tidiedPreview(
+                TranscriptMerger.bestEffort(
+                    confirmed: update.confirmedText,
+                    volatile: update.partialText
+                )
+            )
+            refreshLiveTranscriptDisplay()
+            return
+        }
+
         if update.isConfirmed, !update.confirmedText.isEmpty {
             Diagnostics.shared.noteFirstConfirmed()
             rawConfirmedTranscript = TranscriptMerger.mergedConfirmed(
@@ -946,12 +971,37 @@ final class DictationViewModel {
         // Keep the full volatile window for salvage; the pill preview can use
         // the shorter latest hypothesis for snappier live feedback.
         rawVolatileTranscript = update.partialText
-        let latestSource = !update.latestText.isEmpty ? update.latestText : update.partialText
-        let remainder = TranscriptMerger.partialRemainder(
-            partialText: latestSource,
-            confirmedText: rawConfirmedTranscript
-        )
-        state.transcript.latestPartial = filterFillersIfEnabled(remainder)
+        latestHypothesis = !update.latestText.isEmpty ? update.latestText : update.partialText
+        refreshLiveTranscriptDisplay()
+    }
+
+    /// Put the best live text we have on the notch.
+    ///
+    /// Two tracks feed this. The accurate one says nothing for its first
+    /// `chunkSeconds + rightContextSeconds` of audio (13 s as shipped), so until it
+    /// speaks up the notch shows the **preview** track — all of it in volatile ink,
+    /// since none of it is locked in. The moment the accurate track produces
+    /// anything it owns the display outright and the preview steps aside.
+    ///
+    /// The two are deliberately **not** blended: the preview decodes its own
+    /// windows, so its wording won't be an exact prefix of the confirmed text and
+    /// `partialRemainder` would fail to find the seam and duplicate the whole
+    /// tail. Handover is near-seamless anyway — by the time the accurate track
+    /// confirms, its confirmed+volatile pair covers everything the preview did.
+    private func refreshLiveTranscriptDisplay() {
+        guard rawConfirmedTranscript.isEmpty, latestHypothesis.isEmpty else {
+            state.transcript.latestConfirmed = filterFillersIfEnabled(rawConfirmedTranscript)
+            state.transcript.latestPartial = filterFillersIfEnabled(
+                TranscriptMerger.partialRemainder(
+                    partialText: latestHypothesis,
+                    confirmedText: rawConfirmedTranscript
+                )
+            )
+            return
+        }
+
+        state.transcript.latestConfirmed = ""
+        state.transcript.latestPartial = filterFillersIfEnabled(previewTranscript)
     }
 
     /// What streaming already produced (confirmed + current volatile window) —

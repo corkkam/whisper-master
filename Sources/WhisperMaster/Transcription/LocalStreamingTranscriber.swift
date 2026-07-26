@@ -7,6 +7,11 @@ struct StreamingTranscriptUpdate: Sendable {
     let confirmedText: String
     let latestText: String
     let isConfirmed: Bool
+    /// True when this came from the low-latency **preview** track, which exists
+    /// only to put words on the notch while you are still speaking. Preview text
+    /// is never pasted, saved to history, or salvaged — the accurate track owns
+    /// the transcript. See `FluidAudioStreamingTranscriber`.
+    var isPreview: Bool = false
 }
 
 protocol LocalStreamingTranscriber: Sendable {

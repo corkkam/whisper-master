@@ -61,6 +61,34 @@ enum TranscriptMerger {
             .joined(separator: " ")
     }
 
+    /// Tidy the seams in the **preview** track's running text, for display only.
+    ///
+    /// The preview track confirms every window, so its text is a concatenation of
+    /// very short per-window decodes. Two artifacts show up at those seams: a
+    /// window that decoded to nothing but punctuation leaves an orphan token
+    /// ("milk. . and eggs"), and a window-final period lands mid-sentence
+    /// ("milk. and eggs"). Both are cosmetic, and on a live preview they read as
+    /// glitches, so they're removed.
+    ///
+    /// Only ever applied to preview text. The accurate transcript is stitched with
+    /// `mergedConfirmed`'s overlap detection and must not be second-guessed here —
+    /// stripping a legitimate sentence-final period would corrupt what gets pasted.
+    static func tidiedPreview(_ text: String) -> String {
+        // Orphans first: any token with no letter or digit in it carries no words.
+        let tokens = normalizedSpaces(in: text)
+            .split(separator: " ")
+            .map(String.init)
+            .filter { $0.contains(where: { $0.isLetter || $0.isNumber }) }
+
+        // Then window-final periods that a following lowercase word disproves.
+        let repaired = tokens.enumerated().map { index, token -> String in
+            let next = index + 1 < tokens.count ? tokens[index + 1].first : nil
+            guard token.hasSuffix("."), let next, next.isLowercase else { return token }
+            return String(token.dropLast())
+        }
+        return repaired.joined(separator: " ")
+    }
+
     /// Collapse newlines and runs of whitespace into single spaces.
     static func normalizedSpaces(in text: String) -> String {
         text

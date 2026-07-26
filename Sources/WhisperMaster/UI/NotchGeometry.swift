@@ -32,15 +32,36 @@ struct NotchGeometry: Equatable {
     }
 }
 
+/// How wide the black surface is drawn, chosen by what the band is holding. The
+/// notch opens as a badge, widens for a banner, and widens again to give the
+/// rolling transcript room to read.
+enum NotchSurfaceWidth {
+    /// Just the orb, or a single-glyph beat like the delivered checkmark.
+    case glyph
+    /// A banner: icon, headline, sub-line, sometimes a button.
+    case banner
+    /// The rolling transcript, which needs real reading width.
+    case transcript
+}
+
 /// Design constants and sizing math for the black surface that wraps the notch.
 ///
 /// All the tunable numbers live here so the view and window stay declarative.
 struct NotchSurfaceLayout {
-    /// How far the surface extends beyond the notch on each side (the left/right wings).
+    /// Wings for a band holding nothing but the orb — a small badge hugging the
+    /// notch, so a lone orb isn't marooned in a wide empty band.
+    var glyphSideExtension: CGFloat = 34
+    /// Wings for a banner (the default, and what every hint is written against).
     var sideExtension: CGFloat = 96
+    /// Wings for the rolling transcript. The banner width fits only a few words,
+    /// so this is wider — and it applies only while there is text to read. Kept
+    /// well short of the menu-bar edges: three lines carry the length, so the
+    /// surface doesn't have to.
+    var transcriptSideExtension: CGFloat = 190
     /// Thickness of the band below the notch that holds the content — sized to
-    /// give the dictation orb (32pt) breathing room without clipping its dots.
-    var bottomThickness: CGFloat = 38
+    /// give the dictation orb breathing room without clipping its dots, so it
+    /// tracks `NotchTranscriptRow.orbDiameter` and matches a one-line transcript.
+    var bottomThickness: CGFloat = NotchTranscriptRow.orbDiameter + NotchTranscriptRow.verticalPadding * 2
     /// Band used for a failed dictation: an icon plus a short reason line, so it
     /// needs about as much room as the reminder band.
     var failedThickness: CGFloat = 44
@@ -77,12 +98,47 @@ struct NotchSurfaceLayout {
         geometry.hasNotch ? geometry.notchWidth : fallbackBodyWidth
     }
 
-    /// Full size of the floating panel for a given geometry. Height fits the
-    /// tallest band the surface can show (the banner) so the panel never clips.
+    /// Full width of the black surface — the notch body plus its wings. Narrower
+    /// surfaces are centered on the notch inside the panel, which is always sized
+    /// for the widest one.
+    func surfaceWidth(for geometry: NotchGeometry, _ width: NotchSurfaceWidth) -> CGFloat {
+        let wing: CGFloat = switch width {
+        case .glyph: glyphSideExtension
+        case .banner: sideExtension
+        case .transcript: transcriptSideExtension
+        }
+        return bodyWidth(for: geometry) + wing * 2
+    }
+
+    /// Band that holds the rolling transcript, sized to `lines` rows of text — or
+    /// to the orb when the transcript is still shorter than it. This is the one
+    /// band whose thickness is content-driven: it grows as the lines fill, up to
+    /// `NotchTranscriptModel.visibleLines`.
+    func transcriptThickness(lines: Int) -> CGFloat {
+        max(
+            NotchTranscriptRow.orbDiameter + NotchTranscriptRow.verticalPadding * 2,
+            NotchTextMetrics.blockHeight(lines: lines) + NotchTranscriptRow.verticalPadding * 2
+        )
+    }
+
+    /// The tallest band the surface can ever show — what the panel has to fit.
+    private var maxBandThickness: CGFloat {
+        max(
+            max(bottomThickness, reminderThickness),
+            max(
+                max(undeliveredThickness, bannerThickness),
+                transcriptThickness(lines: NotchTranscriptModel.visibleLines)
+            )
+        )
+    }
+
+    /// Full size of the floating panel for a given geometry. Width fits the widest
+    /// surface (the transcript band) and height the tallest band, so the panel
+    /// never clips whichever state the notch is in.
     func panelSize(for geometry: NotchGeometry) -> CGSize {
         CGSize(
-            width: bodyWidth(for: geometry) + sideExtension * 2,
-            height: geometry.notchHeight + max(bottomThickness, max(reminderThickness, max(undeliveredThickness, bannerThickness)))
+            width: surfaceWidth(for: geometry, .transcript),
+            height: geometry.notchHeight + maxBandThickness
         )
     }
 

@@ -75,11 +75,31 @@ enum SnapshotMode {
         // Notch pill / moment-of-truth states. The dark surface is rendered on a
         // neutral backdrop so the black band reads. Each state uses its own fresh
         // AppState so the fields don't bleed across renders.
+        // Recording, before the first word lands — the compact surface with the
+        // orb pinned left and the state in words beside it.
+        renderPill(dir, name: "pill-0-listening-empty") { s in
+            s.phase = .recording
+            s.audioLevel = 0.18
+        }
         renderPill(dir, name: "pill-1-listening") { s in
             s.phase = .recording
             s.audioLevel = 0.42
             s.transcript.latestConfirmed = "let's ship the notch transcript today and"
             s.transcript.latestPartial = "see how it reads"
+        }
+        // Two wrapped lines — the band has grown a row but nothing has scrolled.
+        renderPill(dir, name: "pill-1b-listening-two-lines") { s in
+            s.phase = .recording
+            s.audioLevel = 0.5
+            s.transcript.latestConfirmed = "let's ship the notch transcript today and see how it reads once the words start wrapping onto"
+            s.transcript.latestPartial = "a second line"
+        }
+        // Past three lines — the oldest text has scrolled off behind the top fade.
+        renderPill(dir, name: "pill-1c-listening-scrolled") { s in
+            s.phase = .recording
+            s.audioLevel = 0.62
+            s.transcript.latestConfirmed = "yesterday I walked down to the harbour to watch the boats come in, the water was calm and the air smelled like salt and diesel, an old fisherman was mending his net on the dock and he nodded at me as I passed, further along a group of kids were dropping crab lines off the pier and shouting every time one of them"
+            s.transcript.latestPartial = "caught something"
         }
         renderPill(dir, name: "pill-2-finalizing") { s in
             s.phase = .stopping
@@ -123,12 +143,15 @@ enum SnapshotMode {
         let state = AppState()
         state.hidePillWhenIdle = false
         configure(state)
+        // Size the stand-in panel exactly as the real one, so a layout change to
+        // `NotchSurfaceLayout` can't silently clip the snapshot.
+        let panel = NotchSurfaceLayout().panelSize(for: .none)
         let view = ZStack(alignment: .top) {
             Color(white: 0.28)
             DictationPillContent(state: state, geometry: .none)
-                .frame(width: 428, height: 90, alignment: .top)
+                .frame(width: panel.width, height: panel.height, alignment: .top)
         }
-        .frame(width: 520, height: 150)
+        .frame(width: panel.width + 92, height: panel.height + 60)
         render(view, to: dir.appendingPathComponent("\(name).png"))
     }
 

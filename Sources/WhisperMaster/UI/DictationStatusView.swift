@@ -10,6 +10,9 @@ import SwiftUI
 /// transcript shows the **delivered** checkmark; otherwise nothing.
 struct DictationStatusView: View {
     let state: AppState
+    /// The transcript already wrapped for the current band width. Resolved by the
+    /// owner so the band's height and this view's line count can't disagree.
+    var transcript: NotchTranscriptModel = NotchTranscriptModel()
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -74,12 +77,19 @@ struct DictationStatusView: View {
         return message.isEmpty ? "Dictation failed — try again" : message
     }
 
+    /// How the live line is announced: the state, then the words.
+    private var liveStateWord: String {
+        if isRecording { return "Listening" }
+        if state.isPolishing { return "Polishing" }
+        if state.preparingEngine != nil { return "Getting ready" }
+        return "Transcribing"
+    }
+
     /// What the live line is spoken as: the transcript once there are words,
     /// otherwise the state on its own.
     private var liveAccessibilityLabel: String {
-        let stateWord = isRecording ? "Listening" : (state.isPolishing ? "Polishing" : "Transcribing")
         let words = state.liveTranscriptText
-        return words.isEmpty ? stateWord : "\(stateWord). \(words)"
+        return words.isEmpty ? liveStateWord : "\(liveStateWord). \(words)"
     }
 
     // MARK: - Subviews
@@ -89,8 +99,7 @@ struct DictationStatusView: View {
     /// quieter; once the transcript is final it is all confirmed.
     private var liveTranscript: some View {
         NotchTranscriptRow(
-            confirmed: state.transcript.latestConfirmed.trimmingCharacters(in: .whitespacesAndNewlines),
-            partial: state.transcript.latestPartial.trimmingCharacters(in: .whitespacesAndNewlines),
+            model: transcript,
             level: state.audioLevel,
             mode: orbMode,
             accessibilityLabel: liveAccessibilityLabel
@@ -101,7 +110,7 @@ struct DictationStatusView: View {
     /// than a silent substitution.
     private func polishedBeat(_ text: String) -> some View {
         NotchTranscriptRow(
-            confirmed: text,
+            model: transcript,
             icon: "sparkles",
             accessibilityLabel: "Polished. \(text)"
         )
