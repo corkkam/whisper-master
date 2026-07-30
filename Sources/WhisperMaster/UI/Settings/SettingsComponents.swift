@@ -117,17 +117,11 @@ struct IconButton: View {
         Button(role: role, action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(role == .destructive ? Theme.danger : Theme.textSecondary)
-                .frame(width: 30, height: 30)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.chipRadius, style: .continuous)
-                        .fill(Theme.surfaceSunken.opacity(0.6))
-                )
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        // Tone, hover, press, pointer cursor and the tooltip all come from the
+        // ladder now. The label stays here because a tooltip is not one.
+        .iconButton(tone: role == .destructive ? .destructive : .neutral, tooltip: accessibilityLabel)
         .accessibilityLabel(accessibilityLabel)
-        .help(accessibilityLabel)
     }
 }
 
@@ -236,6 +230,7 @@ struct ThemeToggle: View {
         .accessibilityRepresentation {
             Toggle(label, isOn: $isOn)
         }
+        .pointerCursor()
     }
 }
 
@@ -250,23 +245,50 @@ struct StatusDot: View {
 
 // MARK: - Buttons
 
+/// The screen's one real action. Thin wrapper over `PrimaryButtonStyle` — see
+/// `UI/Components/ButtonStyles.swift` for the ladder and when each rung applies.
 struct PrimaryButton: View {
     let title: String
     var icon: String?
+    var isFullWidth: Bool = false
     let action: () -> Void
     var body: some View {
         Button(action: action) { ButtonLabel(title: title, icon: icon) }
-            .buttonStyle(AccentButtonStyle())
+            .primaryButton(isFullWidth: isFullWidth)
     }
 }
 
+/// A supporting action beside a `PrimaryButton`.
 struct SecondaryButton: View {
+    let title: String
+    var icon: String?
+    var isFullWidth: Bool = false
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) { ButtonLabel(title: title, icon: icon) }
+            .secondaryButton(isFullWidth: isFullWidth)
+    }
+}
+
+/// The lowest-emphasis rung as a named view: "Skip", "Not now", "Cancel".
+struct TextButton: View {
     let title: String
     var icon: String?
     let action: () -> Void
     var body: some View {
         Button(action: action) { ButtonLabel(title: title, icon: icon) }
-            .buttonStyle(GhostButtonStyle())
+            .textButton()
+    }
+}
+
+/// An irreversible action — delete, clear, sign out.
+struct DestructiveButton: View {
+    let title: String
+    var icon: String?
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) { ButtonLabel(title: title, icon: icon) }
+            .destructiveButton()
     }
 }
 
@@ -280,41 +302,6 @@ private struct ButtonLabel: View {
             }
             Text(title).font(Typography.bodyMedium)
         }
-    }
-}
-
-/// Primary action: an ember pill. The label sits *on* the accent in its own
-/// near-black tint (never white, which is only 2.5:1 on ember).
-struct AccentButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(Theme.accentOn)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 9)
-            .background(
-                Capsule().fill(Theme.accentFill)
-            )
-            .shadow(
-                color: Theme.Ember.base.opacity(configuration.isPressed ? 0 : 0.45),
-                radius: 18, x: 0, y: 8
-            )
-            .contentShape(Capsule())
-    }
-}
-
-struct GhostButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(Theme.textPrimary)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 9)
-            .background(
-                Capsule().fill(configuration.isPressed ? Theme.surfaceGlass2 : Theme.surfaceGlass)
-            )
-            .overlay(
-                Capsule().strokeBorder(Theme.line, lineWidth: 1)
-            )
-            .contentShape(Capsule())
     }
 }
 
@@ -353,6 +340,7 @@ struct AppearancePicker: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(mode.title)
                 .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+                .pointerCursor()
             }
         }
         .padding(3)

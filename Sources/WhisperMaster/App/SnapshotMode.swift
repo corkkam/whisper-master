@@ -62,44 +62,49 @@ enum SnapshotMode {
         .background(Color(white: 0.9))
         render(accountPopover, to: dir.appendingPathComponent("panel-account-popover.png"))
 
-        // Single-step onboarding (permissions).
-        let onboarding = OnboardingView(
-            state: state,
-            permissions: PermissionsManager(),
-            onClose: {},
-            onComplete: {}
-        )
-        .frame(width: 640, height: 520)
-        render(onboarding, to: dir.appendingPathComponent("onboarding-permissions.png"))
+        // Onboarding, in the notch — one render per beat, plus the two states
+        // inside the microphone beat that the orb is doing the work in.
+        renderOnboarding(dir, name: "onboarding-1-microphone", state: state) {
+            .snapshot(step: .microphone)
+        }
+        renderOnboarding(dir, name: "onboarding-1b-mic-listening", state: state) {
+            .snapshot(step: .microphone, micGranted: true, level: 0.34)
+        }
+        renderOnboarding(dir, name: "onboarding-1c-mic-heard", state: state) {
+            .snapshot(step: .microphone, micGranted: true, heardVoice: true, level: 0.5)
+        }
+        renderOnboarding(dir, name: "onboarding-2-accessibility", state: state) {
+            .snapshot(step: .accessibility, micGranted: true)
+        }
+        renderOnboarding(dir, name: "onboarding-3-ready", state: state) {
+            .snapshot(step: .ready, micGranted: true, accessibilityGranted: true)
+        }
 
         // Notch pill / moment-of-truth states. The dark surface is rendered on a
         // neutral backdrop so the black band reads. Each state uses its own fresh
         // AppState so the fields don't bleed across renders.
-        // Recording, before the first word lands — the compact surface with the
-        // orb pinned left and the state in words beside it.
+        // Recording — the menu-bar row, with the state in words at the leading edge
+        // and the orb at the trailing one.
         renderPill(dir, name: "pill-0-listening-empty") { s in
             s.phase = .recording
             s.audioLevel = 0.18
         }
-        renderPill(dir, name: "pill-1-listening") { s in
+        // Toggle mode — "Dictating (hands-free)" is the longest state word there is,
+        // and `wideSideExtension` is sized to it. If this one ever renders truncated
+        // or runs under the camera housing, the wing is too short.
+        renderPill(dir, name: "pill-0b-listening-hands-free") { s in
+            s.phase = .recording
+            s.holdToTalkEnabled = false
+            s.audioLevel = 0.3
+        }
+        // The same row *with words streaming in*, which must look identical to the
+        // one above: the band never shows the live transcript. This render is the
+        // regression check on that, so don't "fix" it by expecting a wide band.
+        renderPill(dir, name: "pill-1-listening-transcript-hidden") { s in
             s.phase = .recording
             s.audioLevel = 0.42
             s.transcript.latestConfirmed = "let's ship the notch transcript today and"
             s.transcript.latestPartial = "see how it reads"
-        }
-        // Two wrapped lines — the band has grown a row but nothing has scrolled.
-        renderPill(dir, name: "pill-1b-listening-two-lines") { s in
-            s.phase = .recording
-            s.audioLevel = 0.5
-            s.transcript.latestConfirmed = "let's ship the notch transcript today and see how it reads once the words start wrapping onto"
-            s.transcript.latestPartial = "a second line"
-        }
-        // Past three lines — the oldest text has scrolled off behind the top fade.
-        renderPill(dir, name: "pill-1c-listening-scrolled") { s in
-            s.phase = .recording
-            s.audioLevel = 0.62
-            s.transcript.latestConfirmed = "yesterday I walked down to the harbour to watch the boats come in, the water was calm and the air smelled like salt and diesel, an old fisherman was mending his net on the dock and he nodded at me as I passed, further along a group of kids were dropping crab lines off the pier and shouting every time one of them"
-            s.transcript.latestPartial = "caught something"
         }
         renderPill(dir, name: "pill-2-finalizing") { s in
             s.phase = .stopping
@@ -128,15 +133,63 @@ enum SnapshotMode {
             s.isPolishing = true
             s.transcript.latestConfirmed = "so like let's ship the notch transcript today"
         }
+        // The polished beat is now the only band that carries text, so it is where
+        // the wrap and the rolling window get exercised.
         renderPill(dir, name: "pill-8-polished") { s in
             s.phase = .idle
             s.polishedText = "Let's ship the notch transcript today."
+            s.polishedAt = Date()
+        }
+        // Two wrapped lines — the band has grown a row but nothing has scrolled.
+        renderPill(dir, name: "pill-8b-polished-two-lines") { s in
+            s.phase = .idle
+            s.polishedText = "Let's ship the notch transcript today and see how it reads once the words start wrapping onto a second line."
+            s.polishedAt = Date()
+        }
+        // Past three lines — the oldest text has scrolled off behind the top fade.
+        renderPill(dir, name: "pill-8c-polished-scrolled") { s in
+            s.phase = .idle
+            s.polishedText = "Yesterday I walked down to the harbour to watch the boats come in. The water was calm and the air smelled like salt and diesel. An old fisherman was mending his net on the dock and he nodded at me as I passed. Further along, a group of kids were dropping crab lines off the pier and shouting every time one of them caught something."
             s.polishedAt = Date()
         }
 
         print("Snapshots written to \(dir.path)")
         exit(0)
     }
+
+    /// Render the notch onboarding band in a single pinned beat, on the same
+    /// neutral backdrop the pill snapshots use so the black surface reads.
+    private static func renderOnboarding(
+        _ dir: URL,
+        name: String,
+        state: AppState,
+        model: () -> NotchOnboardingModel
+    ) {
+        let layout = NotchOnboardingLayout()
+        // Size the stand-in panel exactly as the real one, so a layout change
+        // can't silently clip the snapshot.
+        let panel = layout.panelSize(for: .none)
+        let view = ZStack(alignment: .top) {
+            Color(white: 0.28)
+            NotchOnboardingView(model: model(), state: state, layout: layout)
+                .frame(width: panel.width, height: panel.height, alignment: .top)
+        }
+        .frame(width: panel.width + 92, height: panel.height + 60)
+        render(view, to: dir.appendingPathComponent("\(name).png"))
+    }
+
+    /// A stand-in for the hardware every user actually has: the built-in Retina
+    /// display's measured notch (`safeAreaInsets.top = 37.5`, 208pt housing on a
+    /// 1710pt-wide screen).
+    ///
+    /// The pill snapshots used to render with `.none`, which has **no notch** — so
+    /// the camera dead-zone, the menu-bar row, and the screen-width clamp were all
+    /// absent from every snapshot, i.e. the harness was silently checking a layout
+    /// no user sees. The width clamp makes these images wide; that is the real
+    /// surface width.
+    private static let snapshotNotch = NotchGeometry(
+        notchWidth: 208, notchHeight: 37.5, screenWidth: 1710
+    )
 
     /// Render the notch pill in a single state onto a neutral backdrop.
     private static func renderPill(_ dir: URL, name: String, configure: (AppState) -> Void) {
@@ -145,10 +198,13 @@ enum SnapshotMode {
         configure(state)
         // Size the stand-in panel exactly as the real one, so a layout change to
         // `NotchSurfaceLayout` can't silently clip the snapshot.
-        let panel = NotchSurfaceLayout().panelSize(for: .none)
+        let geometry = snapshotNotch
+        let panel = NotchSurfaceLayout().panelSize(for: geometry)
         let view = ZStack(alignment: .top) {
+            // A pale backdrop, so the black surface and the dead-zone above the
+            // band are both legible as shapes.
             Color(white: 0.28)
-            DictationPillContent(state: state, geometry: .none)
+            DictationPillContent(state: state, geometry: geometry)
                 .frame(width: panel.width, height: panel.height, alignment: .top)
         }
         .frame(width: panel.width + 92, height: panel.height + 60)
@@ -199,13 +255,36 @@ enum SnapshotMode {
         ]
         seedUsage(state.usageStore)
         seedNotes(state.notesStore)
-        // A couple of connectors switched on so the Connectors tab renders with
-        // real-looking status chips (persistence off, so it never touches the real
-        // device-wide connector choices).
+        // Two *differently named* Google Calendar instances plus an iCal one, so the
+        // multi-instance UI — the whole point of the redesign — is visible in the
+        // headless renderer rather than only on a Mac with real accounts attached.
+        // Persistence off on both the store and the Keychain, so seeding can never
+        // touch a real per-account file or prompt for keychain access.
         state.connectorStore.persistenceEnabled = false
-        state.connectorStore.setEnabled(.appleCalendar, true)
-        state.connectorStore.setEnabled(.slack, true)
+        ConnectorCredentials.persistenceEnabled = false
+        state.connectorStore.add(ConnectorInstance(
+            kind: .googleCalendar, label: "Work", identity: "sam@acme.com",
+            config: .calendars(identifiers: ["mock-work"], sourceTitle: "Google")))
+        state.connectorStore.add(ConnectorInstance(
+            kind: .googleCalendar, label: "Personal", identity: "sam@gmail.com",
+            config: .calendars(identifiers: ["mock-personal"], sourceTitle: "Google")))
+        state.connectorStore.add(ConnectorInstance(
+            kind: .appleCalendar, label: "iCloud", identity: "iCloud",
+            config: .calendars(identifiers: ["mock-icloud"], sourceTitle: "iCloud")))
         state.connectorStore.calendarAccessGranted = true
+        // The assistant, one standing permission and one automation, so the whole
+        // Connectors page renders headlessly rather than only its top half.
+        state.connectorAgentEnabled = true
+        state.cleanupModelReady = true
+        let mockSlack = state.connectorStore.add(ConnectorInstance(
+            kind: .slack, label: "Work chat", identity: "Acme / whisper"))
+        state.connectorStore.addGrant(
+            Grant(tool: "send_message", instanceID: mockSlack.id, target: "#standup"))
+        state.automationStore.persistenceEnabled = false
+        state.automationStore.add(ScheduledTask(
+            title: "Morning briefing",
+            instructions: "what's on my work calendar today",
+            schedule: .daily(hour: 8, minute: 30)))
     }
 
     /// A couple of believable notes + reminders so the Notes & Reminders panel

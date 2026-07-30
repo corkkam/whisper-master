@@ -249,6 +249,7 @@ struct SettingsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     // MARK: - Detail
@@ -312,6 +313,7 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .pointerCursor()
 
             VStack(alignment: .leading, spacing: 8) {
                 KickerLabel(section.kicker)
@@ -446,6 +448,7 @@ private struct SidebarMicCard: View {
             if rec { withAnimation(.easeOut(duration: 1.3).repeatForever(autoreverses: false)) { pulse = true } }
         }
         .accessibilityLabel(isRecording ? "Stop dictation" : "Start dictation")
+        .pointerCursor()
     }
 
     private func toggle() {
@@ -565,6 +568,7 @@ private struct AccountRowContent: View {
         .onHover { hovering = $0 }
         .accessibilityLabel("Account: \(name)")
         .accessibilityHint("Shows your email, account ID, and sign out")
+        .pointerCursor()
     }
 
     private var initials: some View {

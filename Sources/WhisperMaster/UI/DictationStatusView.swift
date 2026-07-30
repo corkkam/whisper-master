@@ -5,30 +5,39 @@ import SwiftUI
 /// Priority: an in-flight model **download** shows determinate progress; a
 /// **failure** shows an error glyph plus a short reason; a finished **polish**
 /// shows the rewritten transcript for a beat; any **working** state shows the
-/// live dictation line (the orb — listening while recording, thinking while the
-/// on-device polish runs — alongside the words as they land); a just-landed
-/// transcript shows the **delivered** checkmark; otherwise nothing.
+/// dictation line (the state in words plus the orb — listening while recording,
+/// thinking while the on-device polish runs, and *never* the transcript as it
+/// streams); a just-landed transcript shows the **delivered** checkmark;
+/// otherwise nothing.
 struct DictationStatusView: View {
     let state: AppState
     /// The transcript already wrapped for the current band width. Resolved by the
     /// owner so the band's height and this view's line count can't disagree.
     var transcript: NotchTranscriptModel = NotchTranscriptModel()
+    /// What the band is doing, resolved by the owner so the light in the surface
+    /// and the content inside it can't disagree about the state.
+    var activity: NotchActivity = .idle
+    /// Metrics for the notch row, when the status is being drawn *in* the menu bar
+    /// rather than in a band below it. `nil` keeps the band's own metrics.
+    var rowOrbSize: CGFloat?
+    var rowVerticalInset: CGFloat?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
-            if let download = state.download {
-                downloadProgress(download.fractionCompleted)
-            } else if isFailed {
+            switch activity {
+            case .preparing where state.download != nil:
+                downloadProgress(state.download?.fractionCompleted ?? 0)
+            case .failed:
                 failure
-            } else if state.shouldShowPolishedBeat, let polished = state.polishedText {
-                polishedBeat(polished)
-            } else if isWorking {
+            case .polished:
+                polishedBeat(state.polishedText ?? "")
+            case .listening, .transcribing, .polishing, .preparing:
                 liveTranscript
-            } else if state.shouldShowDeliveredBeat {
+            case .delivered:
                 delivered
-            } else {
+            case .idle:
                 EmptyView()
             }
         }
@@ -36,36 +45,9 @@ struct DictationStatusView: View {
 
     // MARK: - State classification
 
-    private var isRecording: Bool {
-        if case .recording = state.phase { return true }
-        return false
-    }
-
-    private var isFailed: Bool {
-        if case .failed = state.phase { return true }
-        return false
-    }
-
-    /// Any state that should show the orb — recording, an indeterminate "busy"
-    /// phase (preparing models, loading an engine, finalizing), or the polish
-    /// that runs on after the transcript has already been delivered.
-    private var isWorking: Bool {
-        if state.preparingEngine != nil { return true }
-        if state.isPolishing { return true }
-        switch state.phase {
-        case .recording, .preparingModels, .stopping:
-            return true
-        case .idle, .failed:
-            return false
-        }
-    }
-
-    /// Which figure the orb draws for the current work.
-    private var orbMode: OrbView.Mode {
-        if isRecording { return .listening }
-        if state.isPolishing { return .thinking }
-        return .working
-    }
+    /// Which figure the orb draws for the current work. The live branch above only
+    /// runs for states that have one, so the fallback is never reached in practice.
+    private var orbMode: OrbView.Mode { activity.orbMode ?? .working }
 
     /// A short, human failure line — the status message with its diagnostic
     /// prefix stripped, or a friendly fallback when there's nothing to show.
@@ -77,32 +59,27 @@ struct DictationStatusView: View {
         return message.isEmpty ? "Dictation failed — try again" : message
     }
 
-    /// How the live line is announced: the state, then the words.
+    /// The state in words — what the bar carries at its leading edge, and what
+    /// VoiceOver announces the line as.
     private var liveStateWord: String {
-        if isRecording { return "Listening" }
-        if state.isPolishing { return "Polishing" }
-        if state.preparingEngine != nil { return "Getting ready" }
-        return "Transcribing"
-    }
-
-    /// What the live line is spoken as: the transcript once there are words,
-    /// otherwise the state on its own.
-    private var liveAccessibilityLabel: String {
-        let words = state.liveTranscriptText
-        return words.isEmpty ? liveStateWord : "\(liveStateWord). \(words)"
+        activity.label(holdToTalk: state.holdToTalkEnabled)
     }
 
     // MARK: - Subviews
 
-    /// The orb plus the words as they land — the whole recording → finalizing →
-    /// polishing stretch. Confirmed text is full strength, the volatile tail
-    /// quieter; once the transcript is final it is all confirmed.
+    /// The orb plus the state word — the whole recording → finalizing → polishing
+    /// stretch. `transcript` is empty here by design: the band reports what the app
+    /// is doing, and the words themselves land in the target app rather than being
+    /// read back off the bezel (see `DictationPillContent.transcriptModel`).
     private var liveTranscript: some View {
         NotchTranscriptRow(
             model: transcript,
             level: state.audioLevel,
             mode: orbMode,
-            accessibilityLabel: liveAccessibilityLabel
+            label: liveStateWord,
+            accessibilityLabel: liveStateWord,
+            orbSize: rowOrbSize,
+            verticalInset: rowVerticalInset
         )
     }
 
@@ -112,6 +89,9 @@ struct DictationStatusView: View {
         NotchTranscriptRow(
             model: transcript,
             icon: "sparkles",
+            // Signal: the rewrite is the machine's work, not yours.
+            tint: activity.accent ?? Theme.Notch.success,
+            label: activity.label(holdToTalk: state.holdToTalkEnabled),
             accessibilityLabel: "Polished. \(text)"
         )
     }

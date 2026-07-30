@@ -42,6 +42,13 @@ enum DayQueryDetector {
     }
 }
 
+/// A connector that was asked for data but couldn't provide it, and why. Surfaced in
+/// the answer so a gap is stated rather than looking like an empty day.
+struct DaySummaryGap: Equatable, Sendable {
+    let instanceLabel: String
+    let reason: ConnectorError
+}
+
 /// The result of a day query — the compact answer surfaced in the notch. Kept to
 /// a headline + one detail line so it fits the notch band like the other banners.
 struct DaySummary: Equatable, Sendable {
@@ -49,50 +56,128 @@ struct DaySummary: Equatable, Sendable {
     let detail: String
     /// Full event list behind the summary, for a future richer surface / logging.
     let events: [DayEvent]
-    /// Connectors that were on but couldn't contribute (OAuth not configured, or
-    /// calendar access not granted) — surfaced so the answer is honest about gaps.
-    let unavailable: [String]
+    /// Connectors that were on but couldn't contribute — surfaced so the answer is
+    /// honest about gaps rather than reporting a quiet, wrong "you're clear".
+    let gaps: [DaySummaryGap]
+    /// The instance label this answer was narrowed to, when the user named one
+    /// ("what's on my *work* calendar"). nil for a merged answer across all of them.
+    let scopedTo: String?
 
     var accessibilityText: String {
         var parts = [headline, detail]
-        if !unavailable.isEmpty { parts.append("Not connected: \(unavailable.joined(separator: ", ")).") }
+        if !gaps.isEmpty {
+            let names = gaps.map(\.instanceLabel).joined(separator: ", ")
+            parts.append("Couldn't read: \(names).")
+        }
         return parts.joined(separator: ". ")
     }
 }
 
-/// Builds a `DaySummary` from the enabled connectors. Real calendar data comes
-/// from `CalendarConnector` (EventKit); OAuth connectors that aren't configured
-/// are reported in `unavailable` rather than faked.
+/// Builds a `DaySummary` by fanning out across connector **instances**.
+///
+/// Two behaviours, per the addressing decision:
+///
+/// - An **unqualified** read merges every enabled event-providing instance and tags
+///   each event with the instance it came from. "What's my day" genuinely means all of
+///   it, so answering from one default account would reproduce the same class of quiet
+///   wrongness as the original bug.
+/// - A read that **names** an instance ("what's on my work calendar") is scoped to it.
+///
+/// Failures are recorded per instance and reported as `gaps`, never swallowed.
 @MainActor
 enum DaySummaryService {
-    static func build(store: ConnectorStore, calendar: CalendarConnector? = nil, now: Date = Date()) -> DaySummary {
-        let calendar = calendar ?? .shared
-        var unavailable: [String] = []
-
-        // Calendar (the part that's genuinely live today).
-        var events: [DayEvent] = []
-        if store.anyCalendarEnabled {
-            if calendar.isAuthorized {
-                events = calendar.todaysEvents(now: now)
-            } else {
-                unavailable.append("Calendar (allow access)")
-            }
+    /// The local-only build: EventKit instances only, synchronous.
+    ///
+    /// Kept because the surfaces that render on appearance (`TodayView`, the Connectors
+    /// panel) must not block on a network round-trip to draw. API-backed instances are
+    /// reported as pending and filled in by `buildAsync`.
+    static func build(store: ConnectorInstanceStore,
+                      spokenQuery: String? = nil,
+                      now: Date = Date()) -> DaySummary {
+        let targets = resolveTargets(store: store, spokenQuery: spokenQuery)
+        var collector = Collector()
+        for instance in targets.instances where !instance.config.isNetworkBacked {
+            guard let provider = ProviderRegistry.eventProvider(for: instance) else { continue }
+            collector.absorb(provider.todaysEvents(for: instance, now: now),
+                             instance: instance, store: store)
         }
-
-        // OAuth connectors the user turned on but that can't fetch yet.
-        for kind in store.enabledOrdered where kind.auth == .oauth {
-            // Outlook's calendar side flows through EventKit; only flag its mail.
-            if !OAuthConnectorConfig.isConfigured(kind) {
-                unavailable.append(kind.displayName)
-            }
-        }
-
-        let headline = Self.headline(for: events, now: now)
-        let detail = Self.detail(for: events, now: now)
-        return DaySummary(headline: headline, detail: detail, events: events, unavailable: unavailable)
+        return collector.finish(now: now, scopedTo: targets.scoped?.displayLabel)
     }
 
-    private static func headline(for events: [DayEvent], now: Date) -> String {
+    /// The full build, including API-backed instances. Used by the day-query path, which
+    /// is already asynchronous and where waiting a moment for real data is the point.
+    static func buildAsync(store: ConnectorInstanceStore,
+                           spokenQuery: String? = nil,
+                           now: Date = Date()) async -> DaySummary {
+        let targets = resolveTargets(store: store, spokenQuery: spokenQuery)
+        var collector = Collector()
+        for instance in targets.instances {
+            if instance.config.isNetworkBacked {
+                guard let provider = ProviderRegistry.googleCalendarAPI,
+                      instance.kind == .googleCalendar else { continue }
+                collector.absorb(await provider.todaysEventsAsync(for: instance, now: now),
+                                 instance: instance, store: store)
+            } else if let provider = ProviderRegistry.eventProvider(for: instance) {
+                collector.absorb(provider.todaysEvents(for: instance, now: now),
+                                 instance: instance, store: store)
+            }
+        }
+        return collector.finish(now: now, scopedTo: targets.scoped?.displayLabel)
+    }
+
+    /// Which instances answer this question: the one it names, else all of them.
+    private static func resolveTargets(
+        store: ConnectorInstanceStore, spokenQuery: String?
+    ) -> (instances: [ConnectorInstance], scoped: ConnectorInstance?) {
+        let candidates = store.readable(providing: .events)
+        let scoped = spokenQuery.flatMap { ConnectorLabelMatcher.match($0, in: candidates) }
+        return (scoped.map { [$0] } ?? candidates, scoped)
+    }
+
+    /// Accumulates one fan-out: dedupes events, records per-instance failures, and
+    /// keeps the sync and async paths from drifting apart.
+    ///
+    /// `@MainActor` restated — a nested type doesn't inherit the enclosing enum's
+    /// isolation, and this touches the observable store.
+    @MainActor
+    private struct Collector {
+        private var events: [DayEvent] = []
+        private var gaps: [DaySummaryGap] = []
+        private var seenEventIDs = Set<String>()
+
+        mutating func absorb(_ outcome: ProviderReadOutcome<[DayEvent]>,
+                             instance: ConnectorInstance,
+                             store: ConnectorInstanceStore) {
+            if let error = outcome.error {
+                store.setError(instance.id, error)
+                gaps.append(DaySummaryGap(instanceLabel: instance.displayLabel, reason: error))
+                return
+            }
+            store.setError(instance.id, nil)
+            // Two instances can legitimately overlap (one bound to every calendar,
+            // another to a subset of it), so dedupe by event id. First writer wins,
+            // which by `ordered` is the longest-standing instance.
+            for event in outcome.value where !seenEventIDs.contains(event.id) {
+                seenEventIDs.insert(event.id)
+                events.append(event)
+            }
+        }
+
+        func finish(now: Date, scopedTo: String?) -> DaySummary {
+            let sorted = events.sorted { $0.start < $1.start }
+            return DaySummary(
+                headline: DaySummaryService.headline(for: sorted, gaps: gaps, now: now),
+                detail: DaySummaryService.detail(for: sorted, now: now),
+                events: sorted,
+                gaps: gaps,
+                scopedTo: scopedTo)
+        }
+    }
+
+    private static func headline(for events: [DayEvent], gaps: [DaySummaryGap], now: Date) -> String {
+        // A gap with nothing read is not an empty day — say so rather than claiming
+        // the user is clear when we simply couldn't look.
+        if events.isEmpty, !gaps.isEmpty { return "Couldn't read your calendar" }
         if events.isEmpty { return "Nothing on your calendar today" }
         let count = events.count
         let upcoming = events.filter { $0.end >= now }.count
@@ -104,10 +189,11 @@ enum DaySummaryService {
         guard !events.isEmpty else { return "You're clear. Enjoy it." }
         // The next event that hasn't ended yet, else the first of the day.
         let next = events.first { $0.end >= now } ?? events[0]
-        if next.isAllDay {
-            return "Next: \(next.title) · all day"
-        }
-        return "Next: \(next.title) · \(timeString(next.start))"
+        let when = next.isAllDay ? "all day" : timeString(next.start)
+        // Name the connector when the user has more than one — "Next: 1:1 · 3pm ·
+        // Work" is the payoff for having named them.
+        let where_ = next.instanceLabel.isEmpty ? "" : " · \(next.instanceLabel)"
+        return "Next: \(next.title) · \(when)\(where_)"
     }
 
     private static func timeString(_ date: Date) -> String {

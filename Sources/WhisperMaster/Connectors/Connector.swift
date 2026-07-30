@@ -1,19 +1,5 @@
 import Foundation
 
-/// How a connector authenticates / where its data actually comes from.
-enum ConnectorAuth: Equatable, Sendable {
-    /// Read through a macOS system framework the user has already granted (e.g.
-    /// EventKit for calendars). No OAuth, no secrets — works locally. The macOS
-    /// Calendar app already aggregates iCloud, Google, Exchange/Outlook and any
-    /// `.ics` subscription, so a "Google Calendar" or "Outlook" calendar the user
-    /// added there is readable this way with zero cloud round-trip.
-    case system
-    /// Needs an OAuth app registered with the provider (client id/secret) plus a
-    /// user sign-in. **Not functional until credentials are configured** (see
-    /// `OAuthConnectorConfig`) — the UI shows a "needs setup" state until then.
-    case oauth
-}
-
 /// Coarse grouping used to lay the Connectors list out in sections.
 enum ConnectorCategory: String, CaseIterable, Sendable {
     case calendar
@@ -31,12 +17,19 @@ enum ConnectorCategory: String, CaseIterable, Sendable {
     }
 }
 
-/// The catalog of connectors the app knows about. The five the product leads
-/// with — Gmail, Google Calendar, Outlook, Slack, iCal — are `isFeatured`; the
-/// rest are the "popular connectors" surfaced below them.
+/// The catalog **keys** the app knows about. The five the product leads with —
+/// Gmail, Google Calendar, Outlook, Slack, iCal — are `isFeatured`; the rest are
+/// the "popular connectors" surfaced below them.
+///
+/// A kind is a catalog entry, **not** a connection: the unit of connection is
+/// `ConnectorInstance`, and there can be many per kind ("Google Calendar Personal",
+/// "Google Calendar Work"). Everything about *how* a kind connects — auth method,
+/// credential fields, capabilities — lives in its `ConnectorDescriptor`, so this
+/// enum stays presentation metadata.
 ///
 /// The `rawValue` is the stable persistence key (do not rename cases without a
-/// migration — it's what `ConnectorStore` writes to `UserDefaults`).
+/// migration — it's what `ConnectorInstance` encodes and what the legacy
+/// `UserDefaults` migration reads).
 enum ConnectorKind: String, CaseIterable, Identifiable, Codable, Sendable {
     // Featured (the ones the product names up front)
     case gmail
@@ -105,15 +98,6 @@ enum ConnectorKind: String, CaseIterable, Identifiable, Codable, Sendable {
         }
     }
 
-    var auth: ConnectorAuth {
-        switch self {
-        // Calendars come through EventKit (macOS Calendar aggregates the account
-        // calendars), so they need no OAuth of our own.
-        case .appleCalendar, .googleCalendar, .outlook: return .system
-        default: return .oauth
-        }
-    }
-
     var category: ConnectorCategory {
         switch self {
         case .appleCalendar, .googleCalendar: return .calendar
@@ -121,15 +105,6 @@ enum ConnectorKind: String, CaseIterable, Identifiable, Codable, Sendable {
         case .outlook: return .mail          // Outlook straddles mail + calendar
         case .slack: return .messaging
         case .notion, .linear, .googleDrive, .github, .zoom, .asana: return .productivity
-        }
-    }
-
-    /// Whether this connector's data can flow into a day summary through EventKit
-    /// (all the calendar-bearing ones). Used by `DaySummaryService`.
-    var feedsCalendar: Bool {
-        switch self {
-        case .appleCalendar, .googleCalendar, .outlook: return true
-        default: return false
         }
     }
 

@@ -94,6 +94,7 @@ struct GeneralSettingsView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .pointerCursor()
                 }
             }
         }

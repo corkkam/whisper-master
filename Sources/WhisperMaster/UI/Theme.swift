@@ -239,6 +239,43 @@ enum Theme {
         static let xxl: CGFloat = 32
     }
 
+    // MARK: Interaction state layers
+
+    /// How strongly an interactive surface responds to hover, focus and press.
+    ///
+    /// The spec (`docs/07-design-system.md` §6) fixes hover *motion* — 2px up on
+    /// the house curve — but not hover *intensity*, which is why every control
+    /// used to invent its own. These are that missing half: one tint, four
+    /// strengths, so a hovered row in Settings and a hovered button in the
+    /// onboarding band respond by the same amount.
+    ///
+    /// The tint is ink over paper and bone over ink, so a single overlay works in
+    /// both moods without a per-mode branch at the call site.
+    enum StateLayer {
+        /// A whisper — "this responds".
+        static let hover: Double = 0.08
+        /// Keyboard focus. Stronger than hover, because it has to be findable
+        /// without a pointer.
+        static let focus: Double = 0.12
+        /// Press feedback, at focus strength.
+        static let pressed: Double = 0.12
+
+        /// Disabled containers and content, following Material Design 3's split:
+        /// the container barely registers, the label stays just readable enough
+        /// to identify. Content at 38% of `textPrimary` clears 3:1 in both modes —
+        /// above the non-text floor, deliberately below the body-copy floor,
+        /// because disabled text is not copy the user has to read.
+        static let disabledContainer: Double = 0.12
+        static let disabledContent: Double = 0.38
+
+        /// The hover lift, per §6: **2px up, never a scale.** Scaling a control on
+        /// hover is the bouncy, overshooting idiom this system rejects.
+        static let lift: CGFloat = -2
+
+        /// The overlay colour every state layer is drawn in.
+        static let tint = Color.dynamic(light: 0x10141c, dark: 0xf2efe9)
+    }
+
     // MARK: Elevation — deep, soft, wide.
 
     struct Shadow {
@@ -303,6 +340,15 @@ enum Theme {
             startPoint: .top, endPoint: .bottom
         )
         static let glassBorder = Color.white.opacity(0.09)
+
+        /// Control fills for buttons living on the band. The app-wide
+        /// `surfaceGlass` tokens are mode-dependent, and this surface has no
+        /// modes — it is always ink, because it sits on the physical bezel.
+        static let controlFill = Color.white.opacity(0.06)
+        static let controlFillPressed = Color.white.opacity(0.10)
+        /// The band's state-layer tint: bone, since the ground is always dark.
+        static let stateLayerTint = Color(hex: 0xf2efe9)
+
         static let success = Signal.base
         static let danger = Color(hex: 0xff5f52)
         static let warning = Color(hex: 0xffc25c)
@@ -456,6 +502,9 @@ enum Typography {
     static let label = sans(12, .semibold, relativeTo: .caption)
 
     // On-notch text.
+    /// The dictation bar's state line ("Dictating") — bold, since on the bar it is
+    /// the only text and has to read at a glance from across the menu bar.
+    static let notchLabel = sans(13, .bold, relativeTo: .caption)
     static let notchTitle = sans(12, .semibold, relativeTo: .caption)
     static let notchBody = sans(13, .medium, relativeTo: .caption)
     static let notchCaption = sans(10.5, .semibold, relativeTo: .caption2)

@@ -325,9 +325,26 @@ final class AppState {
     /// `AppDelegate` (`notesStore.activate`) once auth resolves.
     let notesStore = NotesStore(load: false)
 
-    /// The user's connector choices (Gmail, Google Calendar, Outlook, Slack, iCal,
-    /// …) behind the Connectors tab. Device-wide (see `ConnectorStore`).
-    let connectorStore = ConnectorStore()
+    /// The user's connector **instances** behind the Connectors tab — many named
+    /// connections per kind ("Google Calendar Work"). Like `usageStore` and
+    /// `notesStore`: starts empty and is scoped to the signed-in account by
+    /// `AppDelegate` (`connectorStore.activate(userID:)`) once auth resolves.
+    let connectorStore = ConnectorInstanceStore(load: false)
+
+    /// Saved automations + their run history. Per-account like the others.
+    let automationStore = AutomationStore(load: false)
+
+    /// The one write awaiting the user's consent, surfaced as a notch card.
+    let approvals = ApprovalCoordinator()
+
+    /// Opt-in, off by default — same posture as `llmCleanupEnabled`. When off, a day
+    /// query answers from the deterministic `DaySummaryService` and no tool is ever
+    /// called.
+    var connectorAgentEnabled: Bool = false {
+        didSet { UserDefaults.standard.set(connectorAgentEnabled, forKey: Self.connectorAgentDefaultsKey) }
+    }
+
+    static let connectorAgentDefaultsKey = "WhisperMaster.connectorAgent.enabled.v1"
 
     init() {
         history = Self.loadHistory()
@@ -335,6 +352,8 @@ final class AppState {
         // Follow the system appearance unless the user has pinned one.
         appearance = (UserDefaults.standard.string(forKey: Self.appearanceDefaultsKey))
             .flatMap(AppAppearance.init(rawValue:)) ?? .system
+        // Opt-in: off until the user has explicitly turned it on.
+        connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? false
         // Opt-in: off until the user has explicitly turned it on.
         remindersEnabled = UserDefaults.standard.object(forKey: Self.remindersEnabledDefaultsKey) as? Bool ?? false
         // Opt-in: off until the user has explicitly turned it on.
@@ -468,21 +487,9 @@ final class AppState {
             && !shouldShowUndeliveredBanner
     }
 
-    /// The words to render live on the notch band: everything the engine has
-    /// locked in, plus the volatile tail it is still revising. After a stop this
-    /// is the finished transcript, so the band keeps showing what was heard
-    /// through finalizing and the optional polish.
-    var liveTranscriptText: String {
-        let confirmed = transcript.latestConfirmed.trimmingCharacters(in: .whitespacesAndNewlines)
-        let partial = transcript.latestPartial.trimmingCharacters(in: .whitespacesAndNewlines)
-        if partial.isEmpty { return confirmed }
-        if confirmed.isEmpty { return partial }
-        return confirmed + " " + partial
-    }
-
-    /// Whether the band should show the live dictation line (orb + the words as
-    /// they land). True for the whole working stretch — recording, finalizing,
-    /// and the polish that runs on after the paste.
+    /// Whether the band should show the live dictation line (the state word + the
+    /// orb — never the streaming transcript). True for the whole working stretch —
+    /// recording, finalizing, and the polish that runs on after the paste.
     var shouldShowLiveTranscript: Bool {
         guard download == nil else { return false }
         if isPolishing { return true }

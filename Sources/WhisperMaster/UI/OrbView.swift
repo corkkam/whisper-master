@@ -30,6 +30,11 @@ struct OrbView: View {
     /// Rendered edge length. The dot field fills this square.
     var diameter: CGFloat = 32
 
+    /// Which baked density/speed tuning to draw. The notch band uses the
+    /// inline-scale `small` design; the onboarding band's hero orb is big enough
+    /// to want the `large` one (they are separate designs, not a scale factor).
+    var preset: OrbPreset = .small
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Entry pop (mirrors the old orb's appearance beat).
@@ -55,7 +60,7 @@ struct OrbView: View {
         ThinkingOrb(
             state: orbState,
             renderSize: diameter,
-            preset: .small,
+            preset: preset,
             dark: true,
             speed: 1,
             extraOpts: mode == .listening ? ["gain": waveGain] : [:]

@@ -35,6 +35,7 @@ struct HistorySettingsView: View {
                         .buttonStyle(.plain)
                         .font(Typography.caption)
                         .foregroundStyle(Theme.danger)
+                        .pointerCursor()
                 }
                 SettingsCard {
                     let entries = showAll ? state.history : Array(state.history.prefix(previewLimit))
@@ -50,6 +51,7 @@ struct HistorySettingsView: View {
                         .foregroundStyle(Theme.accent)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 2)
+                        .pointerCursor()
                 }
             }
         }

@@ -28,6 +28,7 @@ struct NotchBluetoothBanner: View {
                     .background(Capsule().fill(Theme.Notch.text))
             }
             .buttonStyle(.plain)
+            .pointerCursor()
 
             // Icon-only visually, but keeps a text label for VoiceOver.
             Button("Dismiss", systemImage: "xmark", action: dismiss)
@@ -37,6 +38,7 @@ struct NotchBluetoothBanner: View {
                 .buttonStyle(.plain)
                 .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
+                .pointerCursor()
         }
     }
 

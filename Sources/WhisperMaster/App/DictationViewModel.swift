@@ -102,6 +102,64 @@ final class DictationViewModel {
         reminderScheduler.tick()
     }
 
+    /// Fires due automations. Driven from the same 0.5 s refresh tick — see
+    /// `AutomationScheduler` for the catch-up and overlap policies.
+    func tickAutomations() {
+        guard state.connectorAgentEnabled else { return }
+        automationScheduler.tick()
+    }
+
+    /// Run one automation now, from the Settings list.
+    func runAutomationNow(_ task: ScheduledTask) {
+        automationScheduler.runNow(task)
+    }
+
+    /// Drives scheduled automations. Lazy so nothing is constructed for a user who
+    /// never opts in.
+    private lazy var automationScheduler = AutomationScheduler(
+        store: state.automationStore,
+        runner: { [weak self] task, trigger in
+            await self?.runAutomation(task, trigger: trigger)
+                ?? TaskRun(taskID: task.id, status: .failed, answer: "Cancelled.", trigger: trigger)
+        })
+
+    /// One automation firing: ask its question through the same agent a spoken query
+    /// uses, `unattended` so an unapproved write is denied rather than raising a card
+    /// nobody is there to read.
+    private func runAutomation(_ task: ScheduledTask, trigger: String) async -> TaskRun {
+        var run = TaskRun(taskID: task.id, trigger: trigger)
+        guard await MlxCleanupService.shared.isReady else {
+            run.status = .failed
+            run.answer = "The on-device model wasn't ready."
+            run.finishedAt = Date()
+            return run
+        }
+        let agent = ConnectorAgentService(store: state.connectorStore, approvals: state.approvals)
+        let outcome = await agent.answer(
+            question: task.instructions,
+            unattended: true,
+            generate: ConnectorAgentService.liveGenerator())
+        if let outcome {
+            run.status = .ok
+            run.answer = outcome.answer
+            // Surface it where the user already looks. A scheduled answer nobody sees
+            // is a scheduled answer that didn't happen.
+            state.activeDaySummary = DaySummary(
+                headline: task.title, detail: outcome.answer,
+                events: [], gaps: [], scopedTo: nil)
+            state.daySummaryAt = Date()
+        } else {
+            // Fall back to the deterministic summary rather than reporting nothing.
+            let summary = await DaySummaryService.buildAsync(store: state.connectorStore)
+            run.status = .ok
+            run.answer = "\(summary.headline). \(summary.detail)"
+            state.activeDaySummary = summary
+            state.daySummaryAt = Date()
+        }
+        run.finishedAt = Date()
+        return run
+    }
+
     func startRecording(dayQuery: Bool = false) {
         guard state.canStart else { return }
         // Every session begins as a normal dictation unless the dedicated day-query
@@ -288,7 +346,7 @@ final class DictationViewModel {
                 // connector on, so it can't hijack an ordinary dictation). The
                 // paste is *suppressed* — the words asked for an answer, which lands
                 // in the notch instead of the cursor.
-                let connectorsActive = !state.connectorStore.enabled.isEmpty
+                let connectorsActive = state.connectorStore.hasReadableCalendar
                 if queryMode || (connectorsActive && DayQueryDetector.matches(cleaned)) {
                     await runDayQuery(cleaned)
                     reminderScheduler.noteUsed()
@@ -458,18 +516,44 @@ final class DictationViewModel {
 
     // MARK: - Day query (Connectors)
 
-    /// Answer a "what's my day" question from the enabled connectors and drop the
-    /// answer into the notch. Real calendar data comes from EventKit (which
-    /// aggregates the account calendars macOS knows about); OAuth connectors that
-    /// aren't configured are reported honestly rather than faked.
+    /// Answer a "what's my day" question from the connector instances and drop the
+    /// answer into the notch.
+    ///
+    /// The question text is passed through so a query that **names** an instance
+    /// ("what's on my work calendar") is scoped to it; an unqualified one merges every
+    /// enabled calendar instance. Instances that couldn't be read are reported as gaps
+    /// rather than silently reducing the answer.
     private func runDayQuery(_ question: String) async {
         // If a calendar connector is on but access was never requested, ask now —
         // the user just explicitly asked about their day.
-        if state.connectorStore.anyCalendarEnabled, CalendarConnector.shared.isUndetermined {
+        if state.connectorStore.hasReadableCalendar, CalendarConnector.shared.isUndetermined {
             let granted = await CalendarConnector.shared.requestAccess()
             state.connectorStore.calendarAccessGranted = granted
+            if granted {
+                for kind in ConnectorKind.allCases {
+                    state.connectorStore.clearErrors(ofKind: kind, matching: .needsCalendarAccess)
+                }
+            }
         }
-        let summary = DaySummaryService.build(store: state.connectorStore)
+        // Try the local tool-calling loop first when the user opted in. It falls back
+        // to the deterministic summary on any failure — a malformed call, an unknown
+        // tool, an exhausted budget — so the notch always answers with something true.
+        if state.connectorAgentEnabled, await MlxCleanupService.shared.isReady {
+            let agent = ConnectorAgentService(store: state.connectorStore, approvals: state.approvals)
+            if let outcome = await agent.answer(
+                question: question, generate: ConnectorAgentService.liveGenerator()) {
+                state.activeDaySummary = DaySummary(
+                    headline: outcome.answer,
+                    detail: outcome.instanceLabels.isEmpty
+                        ? ""
+                        : "From \(Set(outcome.instanceLabels).sorted().joined(separator: ", "))",
+                    events: [], gaps: [], scopedTo: nil)
+                state.daySummaryAt = Date()
+                Feedback.delivered(soundEnabled: state.soundEnabled)
+                return
+            }
+        }
+        let summary = await DaySummaryService.buildAsync(store: state.connectorStore, spokenQuery: question)
         state.activeDaySummary = summary
         state.daySummaryAt = Date()
         Feedback.delivered(soundEnabled: state.soundEnabled)

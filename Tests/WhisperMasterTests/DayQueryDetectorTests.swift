@@ -41,33 +41,17 @@ final class DayQueryDetectorTests: XCTestCase {
         XCTAssertTrue(Set(ConnectorKind.featured).isDisjoint(with: Set(ConnectorKind.popular)))
     }
 
-    func testCalendarConnectorsUseSystemAuthAndFeedCalendar() {
+    /// Auth method and capabilities moved off `ConnectorKind` onto its descriptor when
+    /// a kind stopped being the unit of connection. The calendar kinds are the ones
+    /// that read through EventKit, so they carry no credential.
+    func testCalendarConnectorsAreSystemBackedAndProvideEvents() {
         for kind in [ConnectorKind.appleCalendar, .googleCalendar, .outlook] {
-            XCTAssertEqual(kind.auth, .system, "\(kind) should read via EventKit")
-            XCTAssertTrue(kind.feedsCalendar)
+            let descriptor = ConnectorCatalog.descriptor(for: kind)
+            XCTAssertEqual(descriptor.authKind, .none, "\(kind) should read via EventKit")
+            XCTAssertTrue(descriptor.capabilities.contains(.events))
         }
-        XCTAssertEqual(ConnectorKind.gmail.auth, .oauth)
-        XCTAssertEqual(ConnectorKind.slack.auth, .oauth)
-        XCTAssertFalse(ConnectorKind.gmail.feedsCalendar)
-    }
-
-    // MARK: - ConnectorStore
-
-    @MainActor
-    func testStoreEnableDisableRoundTrips() {
-        let store = ConnectorStore(load: false)
-        XCTAssertFalse(store.isEnabled(.appleCalendar))
-        XCTAssertFalse(store.anyCalendarEnabled)
-
-        store.setEnabled(.appleCalendar, true)
-        XCTAssertTrue(store.isEnabled(.appleCalendar))
-        XCTAssertTrue(store.anyCalendarEnabled)
-
-        store.setEnabled(.slack, true)
-        XCTAssertEqual(store.enabledOrdered.first, .slack) // featured order: slack before appleCalendar
-        XCTAssertFalse(store.enabledOrdered.contains(.gmail))
-
-        store.setEnabled(.appleCalendar, false)
-        XCTAssertFalse(store.anyCalendarEnabled)
+        XCTAssertEqual(ConnectorCatalog.descriptor(for: .gmail).authKind, .staticSecret)
+        XCTAssertEqual(ConnectorCatalog.descriptor(for: .slack).authKind, .staticSecret)
+        XCTAssertFalse(ConnectorCatalog.descriptor(for: .gmail).capabilities.contains(.events))
     }
 }

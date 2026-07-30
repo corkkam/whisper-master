@@ -21,11 +21,26 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.8-beta.4</string>
+	<string>1.2.8-beta.5</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>Google OAuth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.140047576864-ev40jmg8f2ju19j39qj1u761vse6ddhl</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
-	<string>1785092488</string>
+	<string>1785392542</string>
 	<key>ClerkPublishableKey</key>
 	<string>REPLACE_WITH_CLERK_PUBLISHABLE_KEY</string>
+	<key>GoogleOAuthClientID</key>
+	<string>140047576864-ev40jmg8f2ju19j39qj1u761vse6ddhl.apps.googleusercontent.com</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>

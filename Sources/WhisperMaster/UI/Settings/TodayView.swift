@@ -59,6 +59,11 @@ struct TodayView: View {
 
             if !calendarAuthorized {
                 connectCalendarPrompt
+            } else if !hasCalendarConnector {
+                // Access granted but nothing bound yet. Distinct from "nothing on
+                // today" — an empty agenda because no calendar is connected is a
+                // setup gap, and saying "enjoy the open space" would be a lie.
+                emptyLine("No calendar connected yet. Add one in Connectors to see your day here.")
             } else if events.isEmpty {
                 emptyLine("Nothing on your calendar today. Enjoy the open space.")
             } else {
@@ -81,11 +86,20 @@ struct TodayView: View {
                 .monospacedDigit()
                 .foregroundStyle(event.isUpcoming ? Theme.accentText : Theme.textTertiary)
                 .frame(width: 58, alignment: .leading)
-            Text(event.title)
-                .font(Typography.sans(13.5, .medium))
-                .foregroundStyle(event.isUpcoming ? Theme.textPrimary : Theme.textSecondary)
-                .strikethrough(!event.isUpcoming, color: Theme.textTertiary)
-                .lineLimit(2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.title)
+                    .font(Typography.sans(13.5, .medium))
+                    .foregroundStyle(event.isUpcoming ? Theme.textPrimary : Theme.textSecondary)
+                    .strikethrough(!event.isUpcoming, color: Theme.textTertiary)
+                    .lineLimit(2)
+                // Only worth the line when more than one calendar is connected —
+                // that's when "which one?" is a real question.
+                if showsProvenance, !event.instanceLabel.isEmpty {
+                    Text(event.instanceLabel)
+                        .font(Typography.sans(11.5, .medium))
+                        .foregroundStyle(Theme.textTertiary)
+                }
+            }
             Spacer(minLength: 0)
         }
     }
@@ -104,11 +118,13 @@ struct TodayView: View {
                         chipLabel("Connect calendar", filled: true)
                     }
                     .buttonStyle(.plain)
+                    .pointerCursor()
                 }
                 Button(action: openConnectors) {
                     chipLabel("Open Connectors", filled: false)
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
             }
         }
     }
@@ -160,6 +176,7 @@ struct TodayView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     // MARK: Ask row
@@ -187,6 +204,7 @@ struct TodayView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .pointerCursor()
             Spacer(minLength: 0)
         }
     }
@@ -239,18 +257,39 @@ struct TodayView: View {
             .sorted { $0.dueDate < $1.dueDate }
     }
 
+    /// Whether any calendar connector instance exists to read from at all.
+    private var hasCalendarConnector: Bool {
+        isSnapshot || state.connectorStore.hasReadableCalendar
+    }
+
+    /// Show the connector label under each event only when there's more than one
+    /// calendar instance to disambiguate between.
+    private var showsProvenance: Bool {
+        isSnapshot || state.connectorStore.readable(providing: .events).count > 1
+    }
+
+    /// Read through the instance fan-out rather than straight from EventKit, so the
+    /// agenda respects which calendars each connector is bound to and each row can
+    /// name the connector it came from.
     private func refreshCalendar() {
         guard !isSnapshot else { return }
         let cal = CalendarConnector.shared
         calendarAuthorized = cal.isAuthorized
         calendarUndetermined = cal.isUndetermined
-        events = cal.isAuthorized ? cal.todaysEvents() : []
+        events = cal.isAuthorized
+            ? DaySummaryService.build(store: state.connectorStore).events
+            : []
     }
 
     private func requestCalendar() {
         Task { @MainActor in
             let granted = await CalendarConnector.shared.requestAccess()
             state.connectorStore.calendarAccessGranted = granted
+            if granted {
+                for kind in ConnectorKind.allCases {
+                    state.connectorStore.clearErrors(ofKind: kind, matching: .needsCalendarAccess)
+                }
+            }
             refreshCalendar()
         }
     }

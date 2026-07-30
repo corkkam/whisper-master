@@ -63,6 +63,7 @@ struct SmartCleanupSettingsSection: View {
                     Button("Retry") { state.cleanupRetryRequested = true }
                         .buttonStyle(.plain)
                         .foregroundStyle(Theme.accent)
+                        .pointerCursor()
                 } else {
                     ProgressView().controlSize(.small)
                     Text("Preparing the model\u{2026}")

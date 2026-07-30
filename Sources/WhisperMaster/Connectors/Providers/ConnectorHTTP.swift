@@ -1,0 +1,122 @@
+import Foundation
+
+/// One thing read out of a non-calendar connector — a Slack mention, a Linear issue, a
+/// GitHub review request, an unread mail, a Drive file.
+///
+/// Deliberately one shape rather than a typed struct per domain. The agent's tools all
+/// ask the same question ("what's recent/assigned/unread here"), and inventing
+/// `SlackMessage` / `LinearIssue` / `DriveFile` before any surface renders them
+/// differently would be speculative structure. When a surface genuinely needs
+/// domain-specific fields, that's the moment to split this.
+struct ConnectorItem: Equatable, Sendable, Identifiable {
+    let id: String
+    let title: String
+    /// One supporting line — a channel name, an author, a due date.
+    let detail: String
+    let timestamp: Date?
+    let url: String?
+    /// The connector instance this came from, so a merged answer can name it.
+    let instanceLabel: String
+
+    init(id: String, title: String, detail: String = "",
+         timestamp: Date? = nil, url: String? = nil, instanceLabel: String = "") {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.timestamp = timestamp
+        self.url = url
+        self.instanceLabel = instanceLabel
+    }
+}
+
+/// A provider that can list recent/assigned/unread items. Covers `.messages`,
+/// `.tasks`, `.files` and `.mail` with one method — see `ConnectorItem`.
+@MainActor
+protocol ItemReadingProvider: ConnectorProvider {
+    func recentItems(for instance: ConnectorInstance, limit: Int) async -> ProviderReadOutcome<[ConnectorItem]>
+}
+
+/// Shared JSON-over-HTTP plumbing for the network providers.
+///
+/// Centralised so every provider gets the same timeouts, the same rate-limit
+/// detection, and the same rule that a failure is *reported* rather than thrown into a
+/// fan-out — one broken connector must not take down a whole answer.
+enum ConnectorHTTP {
+    enum Failure: Error, Equatable {
+        case unauthorized
+        case rateLimited
+        case transport(String)
+        case badStatus(Int, String)
+        case malformedResponse
+
+        /// The instance error state this failure becomes on the row.
+        var connectorError: ConnectorError {
+            switch self {
+            case .unauthorized: return .credentialInvalid
+            case .rateLimited: return .rateLimited
+            case .transport, .badStatus, .malformedResponse: return .credentialInvalid
+            }
+        }
+    }
+
+    /// A JSON GET with a bearer token. 401/403 → `.unauthorized` (the credential is the
+    /// problem), 429 → `.rateLimited` (time is the problem) — the distinction is what
+    /// lets the UI say something useful instead of "it didn't work".
+    static func getJSON(_ url: URL,
+                        token: String,
+                        headers: [String: String] = [:],
+                        timeout: TimeInterval = 20) async throws -> [String: Any] {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = timeout
+        if !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw Failure.transport(error.localizedDescription)
+        }
+
+        guard let http = response as? HTTPURLResponse else { throw Failure.malformedResponse }
+        switch http.statusCode {
+        case 200..<300: break
+        case 401, 403: throw Failure.unauthorized
+        case 429: throw Failure.rateLimited
+        default:
+            throw Failure.badStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw Failure.malformedResponse
+        }
+        return json
+    }
+
+    /// Slack answers 200 with `{"ok": false, "error": "invalid_auth"}` rather than an
+    /// HTTP status, so its providers route through this to get the same failure taxonomy
+    /// as everyone else.
+    static func requireSlackOK(_ json: [String: Any]) throws {
+        guard (json["ok"] as? Bool) == true else {
+            let error = json["error"] as? String ?? "unknown"
+            if error.contains("auth") || error.contains("token") { throw Failure.unauthorized }
+            if error.contains("ratelimit") { throw Failure.rateLimited }
+            throw Failure.badStatus(200, error)
+        }
+    }
+
+    /// ISO-8601 with or without fractional seconds — providers are inconsistent even
+    /// within one API.
+    static func parseISO8601(_ string: String?) -> Date? {
+        guard let string, !string.isEmpty else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = withFraction.date(from: string) { return date }
+        return ISO8601DateFormatter().date(from: string)
+    }
+}

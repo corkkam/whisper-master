@@ -188,6 +188,7 @@ struct AccountPopoverCard: View {
                                             .strokeBorder(Theme.stroke, lineWidth: 1)
                                     )
                             )
+                            .pointerCursor()
                         Button("Sign out", action: signOut)
                             .buttonStyle(.plain)
                             .font(Typography.caption)
@@ -198,6 +199,7 @@ struct AccountPopoverCard: View {
                                 RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
                                     .fill(Theme.danger)
                             )
+                            .pointerCursor()
                     }
                 }
             } else {
@@ -218,6 +220,7 @@ struct AccountPopoverCard: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
             }
         }
         .padding(16)

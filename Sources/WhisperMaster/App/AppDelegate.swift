@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let alarmController = AlarmController()
     private var pillWindow: DictationPillWindow?
     private var bluetoothInputMonitor: BluetoothInputMonitor?
-    private var onboardingWindow: OnboardingWindow?
+    private var onboardingWindow: NotchOnboardingWindow?
     /// The launch sign-in gate. Nil until first shown; reused thereafter.
     private var authGateWindow: AuthGateWindow?
     /// Latched once the user first authenticates, so the post-sign-in bring-up
@@ -213,6 +213,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             proceedAfterAuthIfNeeded()
             viewModel.state.usageStore.activate(userID: "dev-local")
             viewModel.state.notesStore.activate(userID: "dev-local")
+            viewModel.state.connectorStore.activate(userID: "dev-local")
+            viewModel.state.automationStore.activate(userID: "dev-local")
             return
         }
         // No key configured, or a definitively signed-out session → stay gated.
@@ -228,6 +230,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // change), so the Insights dashboard shows just their numbers.
             viewModel.state.usageStore.activate(userID: user.id)
             viewModel.state.notesStore.activate(userID: user.id)
+            viewModel.state.connectorStore.activate(userID: user.id)
+            viewModel.state.automationStore.activate(userID: user.id)
         } else if Clerk.shared.isLoaded {
             presentAuthGate()
             // Signed out — hide the app and drop the loaded account so neither the
@@ -235,6 +239,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hideAppSurfacesForGate()
             viewModel.state.usageStore.deactivate()
             viewModel.state.notesStore.deactivate()
+            viewModel.state.connectorStore.deactivate()
+        viewModel.state.automationStore.deactivate()
+            viewModel.state.automationStore.deactivate()
         }
         // Still loading a persisted session: leave the launch-time gate (which
         // shows a spinner) as-is until `isLoaded` resolves.
@@ -274,7 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (progress lives in Settings / the notch, not a done step).
         let pending = userID.map { OnboardingProgress.pendingSteps(userID: $0) } ?? OnboardingStep.allCases
         if !pending.isEmpty {
-            showOnboarding(steps: pending, userID: userID)
+            showOnboarding(userID: userID)
         } else {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
             if !viewModel.state.selectedEngine.isInstalled {
@@ -305,6 +312,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presentAuthGate()
         viewModel.state.usageStore.deactivate()
         viewModel.state.notesStore.deactivate()
+        viewModel.state.connectorStore.deactivate()
+        viewModel.state.automationStore.deactivate()
         Task {
             do {
                 try await Clerk.shared.auth.signOut()
@@ -608,15 +617,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // The notch panel is click-through except while an interactive banner is
         // up — the Bluetooth-mic "use built-in" button, the tappable command
-        // confirmation ("reminder set · tap to change"), or the undelivered
-        // hint's Copy button — where clicks matter.
+        // confirmation ("reminder set · tap to change"), the undelivered hint's
+        // Copy button, or a write-approval card — where clicks matter.
         pillWindow?.setInteractive(
-            state.shouldShowBluetoothBanner
+            state.approvals.pending != nil
+                || state.shouldShowBluetoothBanner
                 || state.shouldShowCommandConfirmation
                 || state.shouldShowUndeliveredBanner)
 
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
+
+        // Fire any due automation off the same tick. openworker runs this in an
+        // always-on server; a menu-bar app reuses the poll it already has. Cheap when
+        // nothing is due, which is nearly always.
+        viewModel.tickAutomations()
 
         // Reconcile the optional cleanup model with its toggle (edge-triggered
         // inside, so this is a no-op unless the user just flipped it).
@@ -899,10 +914,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showOnboarding(
-        steps: [OnboardingStep] = OnboardingStep.allCases,
-        userID: String? = nil
-    ) {
+    /// Present first-run setup **in the notch** (`NotchOnboardingWindow`), so the
+    /// permissions are granted on the same surface dictation will use.
+    ///
+    /// The dictation pill is hidden while it's up: both panels anchor to the notch
+    /// and the engine download that starts at launch would otherwise draw its
+    /// progress band straight through the onboarding one.
+    private func showOnboarding(userID: String? = nil) {
         if let onboardingWindow {
             onboardingWindow.show()
             return
@@ -918,35 +936,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        onboardingWindow = OnboardingWindow(
+        pillWindow?.hide()
+
+        onboardingWindow = NotchOnboardingWindow(
             state: viewModel.state,
             permissions: permissionsManager,
-            steps: steps,
+            onOpenSettings: { [weak self] in self?.showWindow() },
             onClose: { [weak self] in
                 // User dismissed early — drop to the tray. Mark it seen so it
                 // doesn't reopen every launch; they can still reopen it via
                 // the "Reopen Onboarding…" menu item.
                 guard let self else { return }
                 markSeen()
-                self.onboardingWindow?.close()
-                self.onboardingWindow = nil
+                self.dismissOnboarding()
                 // Keep engine prep going (download-if-missing / load-if-present).
                 self.viewModel.prepareDefaultEngineOnLaunch()
+            },
+            onComplete: { [weak self] in
+                guard let self else { return }
+                markSeen()
+                self.dismissOnboarding()
+                Analytics.shared.send(.onboardingFinished)
+                // Notifications used to be their own step; prompt quietly now.
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+                // Engine prep was kicked off at launch; this is idempotent — if the
+                // model is already on disk it just loads, never re-downloads.
+                self.viewModel.prepareDefaultEngineOnLaunch()
+                self.showWindow()
             }
-        ) { [weak self] in
-            guard let self else { return }
-            markSeen()
-            self.onboardingWindow?.close()
-            self.onboardingWindow = nil
-            Analytics.shared.send(.onboardingFinished)
-            // Notifications used to be their own step; prompt quietly now.
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-            // Engine prep was kicked off at launch; this is idempotent — if the
-            // model is already on disk it just loads, never re-downloads.
-            self.viewModel.prepareDefaultEngineOnLaunch()
-            self.showWindow()
-        }
+        )
         onboardingWindow?.show()
+    }
+
+    /// Tear the onboarding band down and give the notch back to the dictation
+    /// pill — unless the sign-in gate is up, which owns surface visibility.
+    private func dismissOnboarding() {
+        onboardingWindow?.close()
+        onboardingWindow = nil
+        if !appSurfacesHidden { pillWindow?.show() }
     }
 
     @objc

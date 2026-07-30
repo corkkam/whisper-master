@@ -14,10 +14,18 @@ struct NotchDaySummaryBanner: View {
         )
     }
 
-    /// The next-thing line, with a quiet "not connected" tail when a turned-on
-    /// connector couldn't contribute — so a gap is never silently hidden.
+    /// The next-thing line, with a quiet tail when an enabled connector couldn't
+    /// contribute — so a gap is never silently hidden — and a "just this one" note
+    /// when the question named a single connector.
     private var subtitleText: String {
-        guard !summary.unavailable.isEmpty else { return summary.detail }
-        return "\(summary.detail)  ·  connect \(summary.unavailable.joined(separator: ", "))"
+        var line = summary.detail
+        if let scopedTo = summary.scopedTo {
+            line += "  ·  \(scopedTo) only"
+        }
+        if !summary.gaps.isEmpty {
+            let names = summary.gaps.map(\.instanceLabel).joined(separator: ", ")
+            line += "  ·  couldn't read \(names)"
+        }
+        return line
     }
 }

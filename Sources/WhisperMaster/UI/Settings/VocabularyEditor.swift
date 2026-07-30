@@ -39,6 +39,7 @@ struct VocabularyEditor: View {
                     .foregroundStyle(Theme.textTertiary)
             }
             .buttonStyle(.plain)
+            .pointerCursor()
         }
         .padding(.leading, 12)
         .padding(.trailing, 9)
@@ -68,6 +69,7 @@ struct VocabularyEditor: View {
                         .buttonStyle(.plain)
                         .font(Typography.caption.weight(.semibold))
                         .foregroundStyle(Theme.accent)
+                        .pointerCursor()
                 }
             }
         }

@@ -9,12 +9,15 @@ struct NotchGeometry: Equatable {
     let notchWidth: CGFloat
     /// Height of the notch, i.e. the top safe-area inset. Zero when absent.
     let notchHeight: CGFloat
+    /// Width of the display the surface is drawn on, so the wide dictation band
+    /// can be held inside the screen. Zero means "unknown" — no clamp applied.
+    let screenWidth: CGFloat
 
     /// Whether the display actually has a notch.
     var hasNotch: Bool { notchHeight > 0 }
 
     /// A notch-less geometry with a sensible dead-zone height for fallback layouts.
-    static let none = NotchGeometry(notchWidth: 0, notchHeight: 0)
+    static let none = NotchGeometry(notchWidth: 0, notchHeight: 0, screenWidth: 0)
 
     /// Resolve the notch geometry for a screen.
     ///
@@ -22,26 +25,35 @@ struct NotchGeometry: Equatable {
     /// flank it; `safeAreaInsets.top` gives its height.
     static func measure(_ screen: NSScreen) -> NotchGeometry {
         let inset = screen.safeAreaInsets.top
-        guard inset > 0 else { return .none }
+        guard inset > 0 else {
+            // No notch, but the screen width still bounds the wide band.
+            return NotchGeometry(notchWidth: 0, notchHeight: 0, screenWidth: screen.frame.width)
+        }
 
         let leftWidth = screen.auxiliaryTopLeftArea?.width ?? 0
         let rightWidth = screen.auxiliaryTopRightArea?.width ?? 0
         let width = screen.frame.width - leftWidth - rightWidth
 
-        return NotchGeometry(notchWidth: max(0, width), notchHeight: inset)
+        return NotchGeometry(
+            notchWidth: max(0, width),
+            notchHeight: inset,
+            screenWidth: screen.frame.width
+        )
     }
 }
 
 /// How wide the black surface is drawn, chosen by what the band is holding. The
-/// notch opens as a badge, widens for a banner, and widens again to give the
-/// rolling transcript room to read.
+/// notch opens as a badge, widens for a banner, and opens all the way out into
+/// the long dictation bar.
 enum NotchSurfaceWidth {
-    /// Just the orb, or a single-glyph beat like the delivered checkmark.
+    /// A single-glyph beat — the delivered checkmark.
     case glyph
     /// A banner: icon, headline, sub-line, sometimes a button.
     case banner
-    /// The rolling transcript, which needs real reading width.
-    case transcript
+    /// The dictation bar: the state on the left, the orb on the right, and the
+    /// transcript rolling by between them. Long, so the words have room to read
+    /// and the two ends read as two ends.
+    case wide
 }
 
 /// Design constants and sizing math for the black surface that wraps the notch.
@@ -53,11 +65,14 @@ struct NotchSurfaceLayout {
     var glyphSideExtension: CGFloat = 34
     /// Wings for a banner (the default, and what every hint is written against).
     var sideExtension: CGFloat = 96
-    /// Wings for the rolling transcript. The banner width fits only a few words,
-    /// so this is wider — and it applies only while there is text to read. Kept
-    /// well short of the menu-bar edges: three lines carry the length, so the
-    /// surface doesn't have to.
-    var transcriptSideExtension: CGFloat = 190
+    /// Wings for the dictation bar — the state at one end, the orb at the other.
+    /// Sized to the *longest state word* ("Dictating (hands-free)") plus
+    /// `NotchTranscriptRow.horizontalPadding`, not to a sentence of transcript: the
+    /// band no longer streams the live words, so anything wider is empty black.
+    var wideSideExtension: CGFloat = 190
+    /// Smallest gap left between the wide bar and each screen edge, so it reads as
+    /// a bar laid on the menu bar rather than one jammed against the corners.
+    var wideScreenInset: CGFloat = 28
     /// Thickness of the band below the notch that holds the content — sized to
     /// give the dictation orb breathing room without clipping its dots, so it
     /// tracks `NotchTranscriptRow.orbDiameter` and matches a one-line transcript.
@@ -92,6 +107,32 @@ struct NotchSurfaceLayout {
     var bottomCornerRadius: CGFloat = 14
     /// Body width used on notch-less displays so the surface still has presence.
     var fallbackBodyWidth: CGFloat = 180
+    /// Row height used on notch-less displays, where there is no safe-area inset to
+    /// borrow. The system menu bar is 22pt; a hair more keeps the content off both
+    /// edges without reading as a band.
+    var fallbackRowThickness: CGFloat = 26
+
+    /// Height of the menu-bar row — the strip the dictation status sits *in* rather
+    /// than below.
+    ///
+    /// On a notched display this is the safe-area inset (37.5pt on the built-in
+    /// Retina displays), which is exactly the height of the menu bar beside the
+    /// camera housing. That is what makes the status line read as part of the menu
+    /// bar instead of an overlay laid on top of it.
+    func rowThickness(for geometry: NotchGeometry) -> CGFloat {
+        geometry.hasNotch ? geometry.notchHeight : fallbackRowThickness
+    }
+
+    /// Orb diameter for the notch row, sized to leave a hairline of breathing room
+    /// inside it. The band below the notch has room for the full
+    /// `NotchTranscriptRow.orbDiameter`; the row does not.
+    func rowOrbDiameter(for geometry: NotchGeometry) -> CGFloat {
+        max(18, rowThickness(for: geometry) - rowVerticalPadding * 2)
+    }
+
+    /// Inset above and below the row's content — the breathing room that keeps the
+    /// state word and the orb off the menu bar's own top and bottom edges.
+    var rowVerticalPadding: CGFloat = 7
 
     /// Width of the notch body before side extensions are added.
     private func bodyWidth(for geometry: NotchGeometry) -> CGFloat {
@@ -105,9 +146,13 @@ struct NotchSurfaceLayout {
         let wing: CGFloat = switch width {
         case .glyph: glyphSideExtension
         case .banner: sideExtension
-        case .transcript: transcriptSideExtension
+        case .wide: wideSideExtension
         }
-        return bodyWidth(for: geometry) + wing * 2
+        let full = bodyWidth(for: geometry) + wing * 2
+        // The bar is the only surface long enough to run off a small display, so
+        // it's the only one the screen width bounds.
+        guard width == .wide, geometry.screenWidth > 0 else { return full }
+        return min(full, max(bodyWidth(for: geometry), geometry.screenWidth - wideScreenInset * 2))
     }
 
     /// Band that holds the rolling transcript, sized to `lines` rows of text — or
@@ -133,11 +178,11 @@ struct NotchSurfaceLayout {
     }
 
     /// Full size of the floating panel for a given geometry. Width fits the widest
-    /// surface (the transcript band) and height the tallest band, so the panel
-    /// never clips whichever state the notch is in.
+    /// surface (the dictation bar) and height the tallest band, so the panel never
+    /// clips whichever state the notch is in.
     func panelSize(for geometry: NotchGeometry) -> CGSize {
         CGSize(
-            width: surfaceWidth(for: geometry, .transcript),
+            width: surfaceWidth(for: geometry, .wide),
             height: geometry.notchHeight + maxBandThickness
         )
     }

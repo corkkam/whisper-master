@@ -173,7 +173,9 @@ struct MeshSettingsView: View {
                     .foregroundStyle(Theme.accent)
             }
             .buttonStyle(.plain)
-            .help("Copy address")
+            .accessibilityLabel("Copy address")
+            .nativeTooltip("Copy address")
+            .pointerCursor()
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

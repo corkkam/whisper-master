@@ -83,6 +83,7 @@ struct NotchUndeliveredBanner: View {
                 .background(Capsule().fill(Theme.Notch.text))
         }
         .buttonStyle(.plain)
+        .pointerCursor()
         .disabled(copied)
     }
 

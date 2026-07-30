@@ -1,42 +1,255 @@
 import SwiftUI
 
-/// The "Connectors" tab: link calendars, mail and chat so the app can answer
-/// "what's my day" from the notch.
+/// The "Connectors" tab: the user's **named connections**, many per kind.
 ///
-/// Calendar connectors (iCal / Google Calendar / Outlook) read live through
-/// macOS EventKit — the system Calendar app already aggregates those accounts, so
-/// they work with no OAuth once calendar access is granted. Gmail, Slack and the
-/// mail side of Outlook are OAuth and show a "needs setup" state until credentials
-/// are configured (`OAuthConnectorConfig`).
+/// This replaced a grid of one-tile-per-kind toggles, which couldn't express two of
+/// anything and left eight tiles permanently on "Needs setup" because nothing behind
+/// them was implemented. The page now shows only connections that exist and can
+/// actually be read, and everything else lives behind "Add connector", where a kind
+/// without an implementation is honestly marked rather than offering a dead button.
 struct ConnectorsSettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
     @Environment(\.isSnapshot) private var isSnapshot
 
-    private var store: ConnectorStore { state.connectorStore }
+    private var store: ConnectorInstanceStore { state.connectorStore }
 
-    /// Today's real events, loaded from EventKit when calendar access is granted.
+    /// Today's real events, merged across the enabled calendar instances.
     @State private var todayEvents: [DayEvent] = []
+    @State private var isAddingConnector = false
+    @State private var renaming: ConnectorInstance?
+    @State private var editingCalendars: ConnectorInstance?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
             askSection
+            connectedSection
             if showTodaySection { todaySection }
-            featuredSection
-            popularSection
+            ConnectorAgentSettings(viewModel: viewModel, state: state)
         }
         .onAppear {
             refreshCalendarAccess()
             refreshToday()
         }
+        .sheet(isPresented: $isAddingConnector) {
+            AddConnectorSheet(store: store) { refreshToday() }
+        }
+        .sheet(item: $renaming) { instance in
+            RenameConnectorSheet(instance: instance, store: store)
+        }
+        .sheet(item: $editingCalendars) { instance in
+            CalendarSelectionSheet(instance: instance, store: store) { refreshToday() }
+        }
     }
 
-    // MARK: - Today (live EventKit preview)
+    // MARK: - Connected instances
 
-    /// Show the live preview once a calendar connector is on and access is granted
-    /// (or always, in the snapshot renderer, with mock events).
+    private var connectedSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                SectionLabel("Your connections")
+                Spacer()
+                SecondaryButton(title: "Add connector", icon: "plus") { isAddingConnector = true }
+                    .disabled(isSnapshot)
+            }
+
+            if store.instances.isEmpty {
+                emptyState
+            } else {
+                SettingsCard {
+                    ForEach(Array(store.ordered.enumerated()), id: \.element.id) { index, instance in
+                        if index > 0 { RowDivider() }
+                        instanceRow(instance)
+                    }
+                }
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        SettingsCard {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("No connectors yet")
+                    .font(Typography.headline).tracking(Typography.headlineTracking)
+                    .foregroundStyle(Theme.textPrimary)
+                Text("Add a calendar and name it — \u{201C}Work\u{201D}, \u{201C}Personal\u{201D} — then ask about your day and the answer says which one it came from.")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 10)
+        }
+    }
+
+    /// One connection: icon, the **user's name for it**, the account identity under
+    /// it, a default badge, an honest status line, and a ⋯ menu.
+    private func instanceRow(_ instance: ConnectorInstance) -> some View {
+        HStack(alignment: .top, spacing: 13) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(tileTint(instance))
+                Image(systemName: instance.kind.icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(tileGlyph(instance))
+            }
+            .frame(width: 38, height: 38)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 7) {
+                    Text(instance.displayLabel)
+                        .font(Typography.headline).tracking(Typography.headlineTracking)
+                        .foregroundStyle(Theme.textPrimary)
+                    if store.isDefault(instance.id), store.instances(of: instance.kind).count > 1 {
+                        Chip("Default")
+                    }
+                }
+                // The identity stays visible even after a rename, so "Work" is still
+                // traceable to the account it reads.
+                Text("\(instance.kind.displayName) · \(instance.identity)")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+                statusLine(instance)
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 8) {
+                ThemeToggle(
+                    isOn: Binding(
+                        get: { instance.isEnabled },
+                        set: { store.setEnabled(instance.id, $0); refreshToday() }),
+                    label: instance.displayLabel)
+                menu(for: instance)
+            }
+        }
+        .padding(.vertical, 12)
+    }
+
+    /// The one line that says what's actually true about this connection — including
+    /// a repair action when it's broken. An instance never silently reads nothing.
+    @ViewBuilder
+    private func statusLine(_ instance: ConnectorInstance) -> some View {
+        if let error = instance.lastError {
+            HStack(spacing: 6) {
+                StatusDot(color: Theme.danger, size: 6)
+                Text(error.message)
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                if let repair = error.repairTitle {
+                    Button(repair) { repairAction(instance, error) }
+                        .buttonStyle(.plain)
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.accentText)
+                        .pointerCursor()
+                        .disabled(isSnapshot)
+                }
+            }
+        } else if !instance.isEnabled {
+            HStack(spacing: 6) {
+                StatusDot(color: Theme.Neutral.n300, size: 6)
+                Text("Paused").font(Typography.caption).foregroundStyle(Theme.textTertiary)
+            }
+        } else {
+            HStack(spacing: 6) {
+                StatusDot(color: Theme.success, size: 6)
+                Text(calendarScopeDescription(instance))
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textTertiary)
+            }
+        }
+    }
+
+    /// What this instance is bound to — the thing the old UI couldn't say, because
+    /// every calendar connector read every calendar.
+    private func calendarScopeDescription(_ instance: ConnectorInstance) -> String {
+        guard let identifiers = instance.config.calendarIdentifiers else { return "Connected" }
+        if identifiers.isEmpty { return "Reading every calendar on this Mac" }
+        return "Reading \(identifiers.count) calendar\(identifiers.count == 1 ? "" : "s")"
+    }
+
+    /// `ImageRenderer` can't draw AppKit-backed controls, and `Menu` is one — it comes
+    /// out as a placeholder glyph. Substitute a static stand-in during a snapshot
+    /// render, same as `VocabularyEditor` and the hotkey picker do.
+    @ViewBuilder
+    private func menu(for instance: ConnectorInstance) -> some View {
+        if isSnapshot {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 26, height: 20)
+        } else {
+            liveMenu(for: instance)
+        }
+    }
+
+    private func liveMenu(for instance: ConnectorInstance) -> some View {
+        Menu {
+            Button("Rename\u{2026}") { renaming = instance }
+            if instance.descriptor.isSystemBacked {
+                Button("Choose calendars\u{2026}") { editingCalendars = instance }
+            }
+            if store.instances(of: instance.kind).count > 1, !store.isDefault(instance.id) {
+                Button("Make default") { store.setDefault(instance.id) }
+            }
+            Divider()
+            Button("Remove", role: .destructive) {
+                store.remove(instance.id)
+                refreshToday()
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 26, height: 20)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+
+    private func repairAction(_ instance: ConnectorInstance, _ error: ConnectorError) {
+        switch error {
+        case .needsCalendarAccess:
+            Task { @MainActor in
+                let granted = await CalendarConnector.shared.requestAccess()
+                store.calendarAccessGranted = granted
+                if granted {
+                    for kind in ConnectorKind.allCases {
+                        store.clearErrors(ofKind: kind, matching: .needsCalendarAccess)
+                    }
+                }
+                refreshToday()
+            }
+        case .calendarMissing:
+            editingCalendars = instance
+        case .credentialInvalid, .tokenExpired:
+            isAddingConnector = true
+        case .rateLimited:
+            break
+        }
+    }
+
+    private func tileTint(_ instance: ConnectorInstance) -> Color {
+        if instance.lastError != nil { return Theme.dangerSoft }
+        if !instance.isEnabled { return Theme.Neutral.n300.opacity(0.6) }
+        return instance.descriptor.isSystemBacked
+            ? Theme.Accent.n300.opacity(0.7)
+            : Theme.Sage.n300.opacity(0.7)
+    }
+
+    private func tileGlyph(_ instance: ConnectorInstance) -> Color {
+        if instance.lastError != nil { return Theme.danger }
+        if !instance.isEnabled { return Theme.Neutral.n800 }
+        return instance.descriptor.isSystemBacked ? Theme.Accent.n800 : Theme.Sage.n800
+    }
+
+    // MARK: - Today (live, merged across instances)
+
     private var showTodaySection: Bool {
-        isSnapshot || (store.anyCalendarEnabled && store.calendarAccessGranted)
+        isSnapshot || (store.hasReadableCalendar && store.calendarAccessGranted)
     }
 
     private var displayEvents: [DayEvent] {
@@ -48,7 +261,9 @@ struct ConnectorsSettingsView: View {
             HStack {
                 SectionLabel("Today")
                 Spacer()
-                Text("Live from your calendar")
+                Text(store.readable(providing: .events).count > 1 || isSnapshot
+                     ? "Merged from your calendars"
+                     : "Live from your calendar")
                     .font(Typography.caption)
                     .foregroundStyle(Theme.textTertiary)
             }
@@ -58,7 +273,7 @@ struct ConnectorsSettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Nothing on your calendar today")
                             .font(Typography.headline).tracking(Typography.headlineTracking).foregroundStyle(Theme.textPrimary)
-                        Text("You're clear. Ask “what's my day” anytime.")
+                        Text("You're clear. Ask \u{201C}what's my day\u{201D} anytime.")
                             .font(Typography.subheadline).foregroundStyle(Theme.textSecondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -86,10 +301,10 @@ struct ConnectorsSettingsView: View {
                     .font(Typography.headline).tracking(Typography.headlineTracking)
                     .foregroundStyle(Theme.textPrimary)
                     .strikethrough(!event.isUpcoming)
-                if !event.calendarTitle.isEmpty {
-                    let source = event.sourceTitle.isEmpty ? event.calendarTitle
-                        : "\(event.calendarTitle) · \(event.sourceTitle)"
-                    Text(source)
+                // Names the *connector* the event came from — the payoff for having
+                // named them, and impossible in the old one-query-for-everything model.
+                if !event.provenance.isEmpty {
+                    Text(event.provenance)
                         .font(Typography.subheadline)
                         .foregroundStyle(Theme.textSecondary)
                 }
@@ -101,7 +316,8 @@ struct ConnectorsSettingsView: View {
 
     private func refreshToday() {
         guard !isSnapshot else { return }
-        todayEvents = CalendarConnector.shared.isAuthorized ? CalendarConnector.shared.todaysEvents() : []
+        refreshCalendarAccess()
+        todayEvents = DaySummaryService.build(store: store).events
     }
 
     // MARK: - Ask about your day
@@ -111,7 +327,7 @@ struct ConnectorsSettingsView: View {
             SectionLabel("Ask about your day")
             SettingsCard {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Hold your day-query key and ask — “what's my day?”, “what's on my calendar?” — and the answer drops into the notch. You can also just say it on the normal dictation key.")
+                    Text("Hold your day-query key and ask — \u{201C}what's my day?\u{201D} — and the answer drops into the notch. Name a connector out loud (\u{201C}what's on my work calendar\u{201D}) to narrow it; ask plainly and every calendar is merged.")
                         .font(Typography.subheadline)
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -125,14 +341,12 @@ struct ConnectorsSettingsView: View {
                 }
             }
 
-            if calendarNeedsAccess {
-                calendarAccessCard
-            }
+            if calendarNeedsAccess { calendarAccessCard }
         }
     }
 
-    /// Shown when a calendar connector is on but macOS calendar access isn't
-    /// granted yet — the one thing standing between the toggle and real data.
+    /// Shown when a calendar connector exists but macOS calendar access isn't granted
+    /// yet — the one thing standing between a connection and real data.
     private var calendarAccessCard: some View {
         SettingsCard {
             SettingsRow("Allow calendar access",
@@ -141,6 +355,11 @@ struct ConnectorsSettingsView: View {
                     Task {
                         let granted = await CalendarConnector.shared.requestAccess()
                         store.calendarAccessGranted = granted
+                        if granted {
+                            for kind in ConnectorKind.allCases {
+                                store.clearErrors(ofKind: kind, matching: .needsCalendarAccess)
+                            }
+                        }
                         refreshToday()
                     }
                 }
@@ -149,127 +368,16 @@ struct ConnectorsSettingsView: View {
         }
     }
 
-    // MARK: - Connector lists
-
-    /// Two responsive columns of connector tiles, matching the design's grid.
-    private let grid = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
-
-    private var featuredSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionLabel("Connectors")
-            LazyVGrid(columns: grid, spacing: 14) {
-                ForEach(ConnectorKind.featured, id: \.self) { connectorTile($0) }
-            }
-        }
-    }
-
-    private var popularSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionLabel("Popular connectors")
-            LazyVGrid(columns: grid, spacing: 14) {
-                ForEach(ConnectorKind.popular, id: \.self) { connectorTile($0) }
-            }
-        }
-    }
-
-    /// A single connector as a glass tile: a colored icon square, its name +
-    /// blurb, an honest status chip, and the enable toggle — the design's card
-    /// grid, driven by the same `ConnectorStore` state as the old rows.
-    private func connectorTile(_ kind: ConnectorKind) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(tileTint(kind))
-                    Image(systemName: kind.icon)
-                        .font(.system(size: 19, weight: .medium))
-                        .foregroundStyle(tileGlyph(kind))
-                }
-                .frame(width: 44, height: 44)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(kind.displayName)
-                        .font(Typography.headline).tracking(Typography.headlineTracking)
-                        .foregroundStyle(Theme.textPrimary)
-                    Text(kind.blurb)
-                        .font(Typography.subheadline)
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 0)
-            }
-
-            HStack(spacing: 8) {
-                statusChip(for: kind)
-                Spacer(minLength: 0)
-                ThemeToggle(
-                    isOn: Binding(
-                        get: { store.isEnabled(kind) },
-                        set: { toggle(kind, $0) }
-                    ),
-                    label: kind.displayName)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .glassCard(radius: 18)
-    }
-
-    /// The tile's icon-square fill: a warm accent wash for live calendar
-    /// connectors, sage for connected OAuth, neutral for the rest.
-    private func tileTint(_ kind: ConnectorKind) -> Color {
-        if kind.auth == .system { return Theme.Accent.n300.opacity(0.7) }
-        if store.isEnabled(kind), OAuthConnectorConfig.isConfigured(kind) { return Theme.Sage.n300.opacity(0.7) }
-        return Theme.Neutral.n300.opacity(0.7)
-    }
-
-    private func tileGlyph(_ kind: ConnectorKind) -> Color {
-        if kind.auth == .system { return Theme.Accent.n800 }
-        if store.isEnabled(kind), OAuthConnectorConfig.isConfigured(kind) { return Theme.Sage.n800 }
-        return Theme.Neutral.n800
-    }
-
-    /// A small status chip: "Live" for a granted calendar connector, "Needs setup"
-    /// for an OAuth connector without credentials — so the UI never implies an
-    /// unconfigured connector is actually fetching.
-    @ViewBuilder
-    private func statusChip(for kind: ConnectorKind) -> some View {
-        if store.isEnabled(kind) {
-            if kind.auth == .system {
-                Chip(store.calendarAccessGranted ? "Live" : "Allow access")
-            } else if !OAuthConnectorConfig.isConfigured(kind) {
-                Chip("Needs setup")
-            } else {
-                Chip("Connected")
-            }
-        }
-    }
-
-    // MARK: - Actions
-
-    private func toggle(_ kind: ConnectorKind, _ on: Bool) {
-        store.setEnabled(kind, on)
-        // Turning on a calendar connector is the natural moment to ask for
-        // calendar access (if we haven't yet) — otherwise the day summary would
-        // silently have nothing to read.
-        if on, kind.auth == .system, CalendarConnector.shared.isUndetermined {
-            Task {
-                let granted = await CalendarConnector.shared.requestAccess()
-                store.calendarAccessGranted = granted
-                refreshToday()
-            }
-        } else if kind.auth == .system {
-            refreshToday()
-        }
-    }
-
+    /// Never in a snapshot render: there's no TCC grant in the headless renderer, so
+    /// reading the real authorization status would stomp the seeded "granted" state and
+    /// the panel would render its setup prompt instead of the connections.
     private func refreshCalendarAccess() {
+        guard !isSnapshot else { return }
         store.calendarAccessGranted = CalendarConnector.shared.isAuthorized
     }
 
     private var calendarNeedsAccess: Bool {
-        store.anyCalendarEnabled && !store.calendarAccessGranted
+        !store.instances.filter { $0.descriptor.isSystemBacked }.isEmpty && !store.calendarAccessGranted
     }
 
     // MARK: - Day-query hotkey picker
@@ -314,7 +422,9 @@ struct ConnectorsSettingsView: View {
     }()
 
     /// Believable events for the headless snapshot renderer (no calendar access
-    /// there). Times are relative so they always look like "today".
+    /// there). Times are relative so they always look like "today", and the instance
+    /// labels match the two seeded Google Calendar instances so the merged view reads
+    /// the way it does on a real Mac.
     static var mockEvents: [DayEvent] {
         let now = Date()
         func at(_ hoursFromNow: Double, _ minutes: Double = 60) -> (Date, Date) {
@@ -324,11 +434,26 @@ struct ConnectorsSettingsView: View {
         let a = at(-1), b = at(0.5, 30), c = at(3)
         return [
             DayEvent(id: "m1", title: "Team stand-up", start: a.0, end: a.1, isAllDay: false,
-                     calendarTitle: "Work", sourceTitle: "Google"),
+                     calendarTitle: "Work", sourceTitle: "Google", instanceLabel: "Work"),
             DayEvent(id: "m2", title: "Design review — Daylight tokens", start: b.0, end: b.1, isAllDay: false,
-                     calendarTitle: "Work", sourceTitle: "Exchange"),
+                     calendarTitle: "Work", sourceTitle: "Google", instanceLabel: "Work"),
             DayEvent(id: "m3", title: "1:1 with Sam", start: c.0, end: c.1, isAllDay: false,
-                     calendarTitle: "Personal", sourceTitle: "iCloud"),
+                     calendarTitle: "Personal", sourceTitle: "Google", instanceLabel: "Personal"),
         ]
+    }
+}
+
+/// `sheet(item:)` needs an `Identifiable` binding; `ConnectorInstance` already is, so
+/// this is only here to keep the call sites readable.
+private extension View {
+    func sheet<Item: Identifiable, Content: View>(
+        item: Binding<Item?>,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        sheet(isPresented: Binding(
+            get: { item.wrappedValue != nil },
+            set: { if !$0 { item.wrappedValue = nil } })) {
+                if let value = item.wrappedValue { content(value) }
+            }
     }
 }
