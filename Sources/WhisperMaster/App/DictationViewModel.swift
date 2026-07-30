@@ -593,6 +593,11 @@ final class DictationViewModel {
     /// the on-device decision-maker, which extracts the pieces and can still veto
     /// a false positive (→ `.dictation`, returns `false`, paste as usual).
     private func routeVoiceCommandIfNeeded(_ text: String) async -> Bool {
+        // Where Notes & Reminders is unreleased (stable) this whole path stays
+        // off. Routing would swallow the transcript — suppressing the paste and
+        // filing it into a store with no openable surface — so "remind me to
+        // call mom" would silently vanish. Better to just paste the words.
+        guard FeatureFlags.connectorsAndNotesAvailable else { return false }
         guard state.voiceCommandsEnabled else { return false }
         guard let detected = CommandDetector.detect(text) else { return false }
         let intent = await classifyIntent(text, fallback: detected)

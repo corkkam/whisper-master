@@ -29,6 +29,25 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var isPrimary: Bool { SettingsSection.primary.contains(self) }
 
+    /// Whether this section can be opened, given whether the Connectors/Notes
+    /// feature set has shipped. Pure, so the gate is unit-testable for both
+    /// channels without a bundle.
+    func isAvailable(connectorsAndNotes: Bool) -> Bool {
+        switch self {
+        case .notes, .connectors: return connectorsAndNotes
+        default: return true
+        }
+    }
+
+    /// Whether this section can be opened in *this* build.
+    ///
+    /// Connectors and Notes & Reminders are not yet released on stable (see
+    /// `FeatureFlags`) — they stay listed in the sidebar but read "Coming soon"
+    /// and don't respond. Everything else is always available.
+    var isAvailable: Bool {
+        isAvailable(connectorsAndNotes: FeatureFlags.connectorsAndNotesAvailable)
+    }
+
     /// The sidebar item that should read as selected for this section (a
     /// secondary page highlights its parent, Settings).
     var sidebarParent: SettingsSection { isPrimary ? self : .settings }
@@ -49,7 +68,16 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
 
     /// Compact label for the sidebar / "More" rows.
-    var navLabel: String { title }
+    ///
+    /// Notes shortens here: the 250pt sidebar can't fit "Notes & Reminders"
+    /// alongside the "Soon" tag without truncating mid-word, and a clipped label
+    /// reads as a bug. The page itself still carries the full `title`.
+    var navLabel: String {
+        switch self {
+        case .notes: return "Notes"
+        default: return title
+        }
+    }
 
     var subtitle: String {
         switch self {
@@ -137,7 +165,14 @@ struct SettingsView: View {
         self.cancelSetup = cancelSetup
         self.signOut = signOut
         self.initialSection = initialSection
-        _selection = State(initialValue: initialSection)
+        _selection = State(initialValue: initialSection.isAvailable ? initialSection : .today)
+    }
+
+    /// Never land on a section this build hasn't released — fall back to Today.
+    /// Every external navigation request funnels through here (the notch's
+    /// "reminder set" tap, `state.requestedSettingsSection`, `initialSection`).
+    private func select(_ section: SettingsSection) {
+        selection = section.isAvailable ? section : .today
     }
 
     var body: some View {
@@ -160,13 +195,13 @@ struct SettingsView: View {
             refreshPermissions()
             autoFocusSetupIfNeeded()
             if let requested = state.requestedSettingsSection {
-                selection = requested
+                select(requested)
                 state.requestedSettingsSection = nil
             }
         }
         .onChange(of: state.requestedSettingsSection) { _, requested in
             guard let requested else { return }
-            selection = requested
+            select(requested)
             state.requestedSettingsSection = nil
         }
         // Poll so a System Settings toggle (esp. Accessibility) shows up without
@@ -217,19 +252,45 @@ struct SettingsView: View {
     }
 
     private func navRow(_ section: SettingsSection) -> some View {
-        let isSelected = selection.sidebarParent == section
+        // An unreleased section reads as a roadmap row, not a broken button: it
+        // never selects, dims to tertiary ink, and carries a "Soon" tag. The
+        // Button is still what renders it so the row's metrics don't shift.
+        let isAvailable = section.isAvailable
+        let isSelected = isAvailable && selection.sidebarParent == section
         return Button {
+            guard isAvailable else { return }
             selection = section
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: section.icon)
                     .font(.system(size: 16, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? Theme.accentText : Theme.textSecondary)
+                    .foregroundStyle(isSelected ? Theme.accentText
+                                     : isAvailable ? Theme.textSecondary : Theme.textTertiary)
                     .frame(width: 22, alignment: .center)
                 Text(section.navLabel)
                     .font(Typography.sans(14.5, isSelected ? .semibold : .medium))
-                    .foregroundStyle(isSelected ? Theme.accentText : Theme.textSecondary)
-                Spacer(minLength: 0)
+                    .foregroundStyle(isSelected ? Theme.accentText
+                                     : isAvailable ? Theme.textSecondary : Theme.textTertiary)
+                    // The "Soon" tag competes for the row's width, and without
+                    // these "Notes & Reminders" wraps to two lines and that row
+                    // grows taller than its neighbours. The label wins the space;
+                    // the tag is fixed-width and never wraps.
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Spacer(minLength: 4)
+                if !isAvailable {
+                    Text("Soon")
+                        .font(Typography.sans(10.5, .bold))
+                        .tracking(0.4)
+                        .foregroundStyle(Theme.textTertiary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule(style: .continuous).fill(Theme.textTertiary.opacity(0.12))
+                        )
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -249,7 +310,12 @@ struct SettingsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(isAvailable ? section.navLabel : "\(section.navLabel), coming soon")
+        // `.pointerCursor()` reads `\.isEnabled` itself, so it has to sit inside
+        // `.disabled(…)` — environment only flows down. Applied outside, an
+        // unreleased row would still show the hand.
         .pointerCursor()
+        .disabled(!isAvailable)
     }
 
     // MARK: - Detail
@@ -334,9 +400,20 @@ struct SettingsView: View {
         case .today:
             TodayView(viewModel: viewModel, state: state, openConnectors: { selection = .connectors })
         case .notes:
-            NotesSettingsView(state: state)
+            // Defensive: the sidebar row is disabled on stable, so this branch is
+            // unreachable there — but a stale `requestedSettingsSection` must not
+            // be able to render an unreleased panel.
+            if selection.isAvailable {
+                NotesSettingsView(state: state)
+            } else {
+                ComingSoonPanel(section: .notes)
+            }
         case .connectors:
-            ConnectorsSettingsView(viewModel: viewModel, state: state)
+            if selection.isAvailable {
+                ConnectorsSettingsView(viewModel: viewModel, state: state)
+            } else {
+                ComingSoonPanel(section: .connectors)
+            }
         case .settings:
             GeneralSettingsView(viewModel: viewModel, state: state, openSubPage: { selection = $0 })
         case .engine:

@@ -108,6 +108,27 @@ if [[ "$CHANNEL" != "stable" ]]; then
     [[ -f "$STAGE/$CH_APPCAST_NAME" ]] || { echo "error: expected $CH_APPCAST_NAME was not produced" >&2; exit 1; }
 fi
 
+# --- Assert the enclosure is actually signed ---
+# generate_appcast only *warns* ("SUPublicEDKey ... does not match key EdDSA in
+# the Keychain") and still exits 0 when the signing key doesn't match the key
+# baked into the app — it just omits sparkle:edSignature. An unsigned enclosure
+# is an update no installed app will accept, so the release "succeeds" while
+# silently breaking every updater. This bit 1.2.8-beta.5. Fail before upload.
+FEED="$STAGE/$CH_APPCAST_NAME"
+if ! grep -q 'sparkle:edSignature=' "$FEED"; then
+    echo "error: $CH_APPCAST_NAME carries no sparkle:edSignature — nothing was uploaded." >&2
+    echo "       The EdDSA private key used for signing does not match SUPublicEDKey" >&2
+    echo "       in the built app. Reconcile them before releasing:" >&2
+    echo "         app SUPublicEDKey : $(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP_PATH/Contents/Info.plist" 2>/dev/null)" >&2
+    # Name the source only — never interpolate the key itself into a log.
+    if [[ -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]]; then
+        echo "         signing source    : SPARKLE_ED_PRIVATE_KEY (env/.env)" >&2
+    else
+        echo "         signing source    : login keychain" >&2
+    fi
+    exit 1
+fi
+
 # --- Upload archive + appcast to R2 ---
 echo ">> Uploading to R2 bucket: $R2_BUCKET"
 export RCLONE_S3_PROVIDER=Cloudflare

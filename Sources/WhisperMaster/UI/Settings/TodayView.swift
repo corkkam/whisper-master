@@ -23,14 +23,61 @@ struct TodayView: View {
         VStack(alignment: .leading, spacing: 24) {
             greeting
 
-            HStack(alignment: .top, spacing: 16) {
-                agendaCard
-                remindersCard
+            // The agenda reads calendars through a *connector instance* and the
+            // reminders card reads the notes store, so both go dark wherever
+            // those features are unreleased (stable). Showing them there would
+            // mean two permanently-empty cards, one of them deep-linking a tab
+            // that won't open. The dictation stats take their place — real data
+            // the app always has.
+            if FeatureFlags.connectorsAndNotesAvailable {
+                HStack(alignment: .top, spacing: 16) {
+                    agendaCard
+                    remindersCard
+                }
+            } else {
+                dictationStatsCard
             }
 
             askRow
         }
-        .onAppear(perform: refreshCalendar)
+        .onAppear {
+            // Nothing to refresh when the agenda isn't rendered — and this keeps
+            // a stable build from touching EventKit at all.
+            if FeatureFlags.connectorsAndNotesAvailable { refreshCalendar() }
+        }
+    }
+
+    // MARK: Dictation stats (shown in place of agenda + reminders)
+
+    private var dictationStatsCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            cardHeader(icon: "waveform", title: "Your dictation")
+
+            HStack(alignment: .top, spacing: 14) {
+                StatTile(
+                    value: Self.compactCount(state.usageStore.wordsToday),
+                    label: "Words today")
+                StatTile(
+                    value: Self.compactCount(state.usageStore.totalWords),
+                    label: "Words all time")
+                StatTile(
+                    value: "\(state.usageStore.currentStreak)",
+                    label: state.usageStore.currentStreak == 1 ? "Day streak" : "Days in a row")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .glassCard()
+    }
+
+    /// 12 340 → "12.3k". Keeps a long lifetime total from widening the tile.
+    private static func compactCount(_ n: Int) -> String {
+        if n < 1_000 { return "\(n)" }
+        if n < 1_000_000 {
+            let k = Double(n) / 1_000
+            return k < 10 ? String(format: "%.1fk", k) : "\(Int(k.rounded()))k"
+        }
+        return String(format: "%.1fM", Double(n) / 1_000_000)
     }
 
     // MARK: Greeting header
