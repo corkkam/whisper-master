@@ -138,6 +138,10 @@ struct NotchOnboardingView: View {
             return model.accessibilityGranted
                 ? "I can type for you now."
                 : "This lets me type for you."
+        case .openAtLogin:
+            if model.launchAtLoginEnabled { return "I'll be here when you get back." }
+            if model.launchAtLoginNeedsApproval { return "One switch left, in System Settings." }
+            return "Should I start with your Mac?"
         case .ready:
             return "Hold \(shortcutName) and talk."
         }
@@ -153,6 +157,15 @@ struct NotchOnboardingView: View {
         case .accessibility:
             if model.accessibilityGranted { return "Your words land right at the cursor." }
             return "Skip it and I'll put the text on your clipboard instead."
+        case .openAtLogin:
+            // Enabled first: a failure the user then fixed in System Settings must not
+            // leave a stale error line sitting under a success headline.
+            if model.launchAtLoginEnabled { return "Your shortcut works straight after a restart." }
+            if let error = model.launchAtLoginError { return error }
+            if model.launchAtLoginNeedsApproval {
+                return "Turn Whisper Master on under Login Items."
+            }
+            return "Otherwise the shortcut does nothing until you open me."
         case .ready:
             return engineLine
         }
@@ -170,7 +183,7 @@ struct NotchOnboardingView: View {
         return "I'm finishing my voice engine in the background."
     }
 
-    private var shortcutName: String { state.hotkey.displayName }
+    private var shortcutName: String { state.hotkey.sentenceName }
 
     /// What the orb is depicting: thinking while an ask is outstanding, working
     /// while the system prompt is up, listening once it can hear.
@@ -181,6 +194,8 @@ struct NotchOnboardingView: View {
             return model.micGranted ? .listening : .thinking
         case .accessibility:
             return model.accessibilityGranted ? .listening : .thinking
+        case .openAtLogin:
+            return model.launchAtLoginEnabled ? .listening : .thinking
         case .ready:
             return .listening
         }
@@ -202,8 +217,29 @@ struct NotchOnboardingView: View {
                     NotchPillButton(title: "Not now", kind: .ghost, action: model.advance)
                 }
             }
+        case .openAtLogin:
+            loginActions
         case .ready:
             NotchPillButton(title: "Start dictating", action: model.finish)
+        }
+    }
+
+    /// The login-item beat. Three outcomes, not two: on, held for approval (the
+    /// state that looks on and isn't — so it gets its own ask), or not registered.
+    @ViewBuilder
+    private var loginActions: some View {
+        if model.launchAtLoginEnabled {
+            GrantedBadge()
+        } else if model.launchAtLoginNeedsApproval {
+            HStack(spacing: Theme.Space.sm) {
+                NotchPillButton(title: "Open Login Items", action: model.openLoginItemsSettings)
+                NotchPillButton(title: "Not now", kind: .ghost, action: model.advance)
+            }
+        } else {
+            HStack(spacing: Theme.Space.sm) {
+                NotchPillButton(title: "Open at login", action: model.enableLaunchAtLogin)
+                NotchPillButton(title: "Not now", kind: .ghost, action: model.advance)
+            }
         }
     }
 

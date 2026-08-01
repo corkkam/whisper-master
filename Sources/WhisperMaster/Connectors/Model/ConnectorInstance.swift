@@ -67,6 +67,11 @@ enum ConnectorError: String, Codable, Equatable, Sendable {
     case tokenExpired
     /// The provider is throttling us.
     case rateLimited
+    /// We reached the network but the call didn't come back usable — a transport
+    /// failure, or a status that isn't about the credential (a 4xx we mis-built, a
+    /// 5xx on their side). Distinct from `credentialInvalid` because "reconnect"
+    /// is the wrong advice here and re-authorising can't fix it.
+    case unreachable
 
     /// One honest line for the instance row.
     var message: String {
@@ -76,6 +81,7 @@ enum ConnectorError: String, Codable, Equatable, Sendable {
         case .credentialInvalid: return "The saved credential was rejected."
         case .tokenExpired: return "Access expired and couldn't be renewed."
         case .rateLimited: return "Rate-limited. It'll recover on its own."
+        case .unreachable: return "Couldn't read from this account just now."
         }
     }
 
@@ -86,7 +92,7 @@ enum ConnectorError: String, Codable, Equatable, Sendable {
         case .needsCalendarAccess: return "Allow"
         case .calendarMissing: return "Pick calendars"
         case .credentialInvalid, .tokenExpired: return "Reconnect"
-        case .rateLimited: return nil
+        case .rateLimited, .unreachable: return nil
         }
     }
 }
@@ -141,6 +147,23 @@ struct ConnectorInstance: Identifiable, Codable, Equatable, Sendable {
     }
 
     var descriptor: ConnectorDescriptor { ConnectorCatalog.descriptor(for: kind) }
+
+    /// How *this instance's* credential resolves — which is not always what the
+    /// kind's descriptor says.
+    ///
+    /// `googleCalendar` is one kind with two shapes: an EventKit instance holds no
+    /// credential at all (`authKind: .none`), while a signed-in API instance holds a
+    /// refreshable OAuth grant. The config already decides which provider serves the
+    /// instance, so it has to decide this too — resolving an API instance as `.none`
+    /// hands the provider an **empty token**, `ConnectorHTTP` then omits the
+    /// `Authorization` header entirely, and Google answers 403 "Method doesn't allow
+    /// unregistered callers". That reads on the row as a rejected credential, when in
+    /// fact the credential was never sent.
+    var authKind: ConnectorAuthKind {
+        config.isNetworkBacked && descriptor.authKind == .none
+            ? .refreshableGrant
+            : descriptor.authKind
+    }
 
     var capabilities: Set<ConnectorCapability> { descriptor.capabilities }
 

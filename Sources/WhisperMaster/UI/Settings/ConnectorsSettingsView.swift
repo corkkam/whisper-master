@@ -227,7 +227,7 @@ struct ConnectorsSettingsView: View {
             editingCalendars = instance
         case .credentialInvalid, .tokenExpired:
             isAddingConnector = true
-        case .rateLimited:
+        case .rateLimited, .unreachable:
             break
         }
     }
@@ -327,18 +327,17 @@ struct ConnectorsSettingsView: View {
             SectionLabel("Ask about your day")
             SettingsCard {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Hold your day-query key and ask — \u{201C}what's my day?\u{201D} — and the answer drops into the notch. Name a connector out loud (\u{201C}what's on my work calendar\u{201D}) to narrow it; ask plainly and every calendar is merged.")
+                    Text("Hold \(ModifierChord.command.compactName) and ask — \u{201C}what's my day?\u{201D} — and the answer drops into the notch instead of being typed. Name a connector out loud (\u{201C}what's on my work calendar\u{201D}) to narrow it; ask plainly and every calendar is merged.")
                         .font(Typography.subheadline)
                         .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Same chord files notes and reminders, and runs anything your connectors can do. It's the one way in to the assistant — holding your push-to-talk key on its own always just dictates.")
+                        .font(Typography.subheadline)
+                        .foregroundStyle(Theme.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 12)
-                RowDivider()
-                SettingsRow("Ask-about-your-day key",
-                            subtitle: "A separate push-to-talk key that always asks your connectors instead of typing.") {
-                    dayQueryHotkeyMenu
-                }
             }
 
             if calendarNeedsAccess { calendarAccessCard }
@@ -378,39 +377,6 @@ struct ConnectorsSettingsView: View {
 
     private var calendarNeedsAccess: Bool {
         !store.instances.filter { $0.descriptor.isSystemBacked }.isEmpty && !store.calendarAccessGranted
-    }
-
-    // MARK: - Day-query hotkey picker
-
-    @ViewBuilder
-    private var dayQueryHotkeyMenu: some View {
-        if isSnapshot {
-            HStack(spacing: 9) {
-                Text(state.dayQueryHotkey.compactName)
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Theme.textPrimary)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).fill(Theme.surface))
-            .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-        } else {
-            Picker("", selection: Binding(
-                get: { state.dayQueryHotkey },
-                set: { viewModel.updateDayQueryHotkey($0) }
-            )) {
-                ForEach(HotkeyManager.HotkeyOption.allCases) { option in
-                    Text(option.displayName).tag(option)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .tint(Theme.accent)
-            .fixedSize()
-        }
     }
 
     // MARK: - Statics

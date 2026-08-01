@@ -40,6 +40,22 @@ struct GeneralSettingsView: View {
                         label: "Open at login"
                     )
                 }
+                // Registered, but macOS is holding it until the user approves it —
+                // the one state that isn't "on" and isn't an error either. Without
+                // this the toggle sat off while the app was registered, and nothing
+                // explained why it still didn't start after a restart.
+                if LaunchAtLogin.shared.needsApproval {
+                    HStack(spacing: 8) {
+                        Text("Waiting for your approval in System Settings → General → Login Items.")
+                            .font(Typography.caption)
+                            .foregroundStyle(Theme.textSecondary)
+                        Spacer(minLength: 8)
+                        SecondaryButton(title: "Open Login Items") {
+                            LaunchAtLogin.shared.openLoginItemsSettings()
+                        }
+                    }
+                    .padding(.top, 6)
+                }
                 if let error = LaunchAtLogin.shared.lastError {
                     Text(error)
                         .font(Typography.caption)

@@ -62,7 +62,19 @@ struct DictationStatusView: View {
     /// The state in words — what the bar carries at its leading edge, and what
     /// VoiceOver announces the line as.
     private var liveStateWord: String {
-        activity.label(holdToTalk: state.holdToTalkEnabled)
+        // Armed *or* still being carried out: the chord's arm is consumed at the stop,
+        // but the assistant works on for a beat after it and the band shouldn't
+        // suddenly re-caption itself as an ordinary dictation mid-command.
+        activity.label(
+            holdToTalk: keyIsHoldingItOpen,
+            commandCapture: state.commandCaptureArmed || state.commandAgentRunning)
+    }
+
+    /// Whether the *key* is what's keeping the band open. False in toggle mode and
+    /// while a double-tap has latched the session hands-free — both cases where
+    /// the user has let go and the line needs to say why it's still listening.
+    private var keyIsHoldingItOpen: Bool {
+        state.holdToTalkEnabled && !state.handsFreeActive
     }
 
     // MARK: - Subviews
@@ -91,7 +103,7 @@ struct DictationStatusView: View {
             icon: "sparkles",
             // Signal: the rewrite is the machine's work, not yours.
             tint: activity.accent ?? Theme.Notch.success,
-            label: activity.label(holdToTalk: state.holdToTalkEnabled),
+            label: activity.label(holdToTalk: keyIsHoldingItOpen),
             accessibilityLabel: "Polished. \(text)"
         )
     }

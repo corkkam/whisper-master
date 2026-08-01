@@ -13,15 +13,28 @@ struct TailscaleEndpoint: Equatable {
 
     /// Payload encoded in the pairing QR code and parsed by the iOS scanner. Uses
     /// the app's `whispermaster` URL scheme so it's unambiguous and extensible.
-    var pairingURL: String {
+    ///
+    /// Carries the TLS pre-shared key (`k`) as well as the address: the QR *is*
+    /// the pairing act, and the key is what lets the phone authenticate to this
+    /// Mac and encrypt the audio stream (see `RemotePairing`). Treat the rendered
+    /// code as a secret — anyone who photographs it can connect, which is why it
+    /// is shown only in Settings on an unlocked Mac and why Settings offers a
+    /// rotate action to revoke it.
+    ///
+    /// Returns nil when no pairing key can be produced; the UI shows the
+    /// "couldn't prepare pairing" state rather than a QR that can't work.
+    var pairingURL: String? {
+        guard let keyToken = RemotePairing.keyToken() else { return nil }
         var components = URLComponents()
         components.scheme = "whispermaster"
         components.host = "pair"
         components.queryItems = [
             URLQueryItem(name: "host", value: host),
             URLQueryItem(name: "port", value: String(port)),
+            URLQueryItem(name: "k", value: keyToken),
+            URLQueryItem(name: "i", value: RemotePairing.identity),
         ]
-        return components.string ?? "whispermaster://pair?host=\(host)&port=\(port)"
+        return components.string
     }
 }
 

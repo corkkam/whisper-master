@@ -10,7 +10,7 @@ import Foundation
 enum ModelInstaller {
     /// Public R2 base holding `<archiveName>.zip` for each model.
     private static let mirrorBaseURL = URL(
-        string: "https://model.scoopscore.in/models"
+        string: "https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/models"
     )!
 
     /// A step of the install, surfaced to the UI.

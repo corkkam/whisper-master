@@ -45,6 +45,12 @@ struct ToolRouter {
         }
 
         switch descriptor.access {
+        case .local:
+            // Local tools never come here — `CommandToolRouter` runs them itself, and
+            // this router is only ever built over connector tools. Failing plainly
+            // beats a silent no-op if a future caller wires one in by mistake.
+            return .failure("\(call.tool) doesn't run on a connector.")
+
         case .read:
             // Unqualified reads merge; a named one narrows. This is the addressing rule
             // the whole design turns on.

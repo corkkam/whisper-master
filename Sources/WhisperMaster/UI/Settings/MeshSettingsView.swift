@@ -30,18 +30,22 @@ struct MeshSettingsView: View {
             RowDivider()
                 .padding(.vertical, 4)
 
-            // Block 2 — remote access: reach this Mac from off the network over
-            // Tailscale, plus the keep-awake switch that keeps it reachable.
-            remoteAccess
-            keepAwake
+            // Block 2 — remote access: the master switch for the listener, then
+            // reach this Mac from off the network over Tailscale, plus the
+            // keep-awake switch that keeps it reachable.
+            remoteDictation
+            if state.remoteDictationEnabled {
+                remoteAccess
+                keepAwake
+            }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.8), value: peers)
         .animation(.spring(response: 0.32, dampingFraction: 0.8), value: tailscale)
         .task {
             let resolved = await TailscaleAddress.current()
             tailscale = resolved
-            if case let .available(endpoint) = resolved {
-                qrImage = QRCode.image(from: endpoint.pairingURL)
+            if case let .available(endpoint) = resolved, let url = endpoint.pairingURL {
+                qrImage = QRCode.image(from: url)
             }
         }
     }
@@ -202,6 +206,47 @@ struct MeshSettingsView: View {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.system(size: 22, weight: .regular))
                     .foregroundStyle(Theme.accent)
+            }
+        }
+    }
+
+    // MARK: Remote dictation master switch
+
+    /// The listener is off until this is on. Off means no socket at all — the
+    /// strongest available posture for anyone who never dictates from a phone.
+    private var remoteDictation: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionLabel("Dictate from your phone")
+            SettingsCard {
+                SettingsRow("Accept dictation from a paired device",
+                            subtitle: "Lets a paired phone (or another of your Macs) stream audio here and use this Mac's models. Opens a network port on this Mac while on; connections are encrypted and only paired devices can connect.") {
+                    ThemeToggle(isOn: $state.remoteDictationEnabled)
+                }
+                if state.remoteDictationEnabled {
+                    RowDivider()
+                    SettingsRow("Pairing key",
+                                subtitle: "Devices pair by scanning the code below. Rotate the key to revoke every paired device — each one has to scan a new code afterwards.") {
+                        Button("Rotate") {
+                            RemotePairing.rotate()
+                            // The QR encodes the key, so it has to be redrawn,
+                            // and the listener has to rebind with the new key.
+                            regeneratePairing()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Re-resolve the address and redraw the QR after a key rotation.
+    private func regeneratePairing() {
+        qrImage = nil
+        Task {
+            let resolved = await TailscaleAddress.current()
+            tailscale = resolved
+            if case let .available(endpoint) = resolved, let url = endpoint.pairingURL {
+                qrImage = QRCode.image(from: url)
             }
         }
     }

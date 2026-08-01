@@ -69,6 +69,12 @@ targets:
         # default so an unset build stays analytics-dormant. bundle.sh overrides
         # it from .env / a CI secret.
         POSTHOG_API_KEY: ""
+        # GA4 pair, same mechanism ($(GA_MEASUREMENT_ID)/$(GA_API_SECRET) in
+        # Info.plist). Empty default = GA dormant. The API secret is write-only
+        # to one GA data stream but IS extractable from a shipped .app — see
+        # AnalyticsConfig.googleAPISecret before reusing it anywhere else.
+        GA_MEASUREMENT_ID: ""
+        GA_API_SECRET: ""
         INFOPLIST_FILE: Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Manual

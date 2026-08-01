@@ -11,10 +11,12 @@ final class DictationViewModel {
     private let microphoneCapture: MicrophoneCaptureService
     private let permissionsManager: PermissionsManager
     private let hotkeyUpdater: (HotkeyManager.HotkeyOption) -> Void
-    /// Applies a change to the dedicated day-query hotkey to the live monitor.
-    /// Settable by the App layer (which owns the second `HotkeyManager`); defaults
-    /// to a no-op so tests/headless construction don't need it.
-    var dayQueryHotkeyUpdater: (HotkeyManager.HotkeyOption) -> Void = { _ in }
+    /// Clears any half-finished press/tap gesture on the live monitor. Called
+    /// whenever a session ends, so a hands-free latch established by a double-tap
+    /// can never outlive the recording it was latching (a session stopped from the
+    /// tray would otherwise leave the next single tap reading as a "stop").
+    /// Settable by the App layer; no-op for headless construction.
+    var hotkeyGestureReset: () -> Void = {}
     private let transcriber: FluidAudioStreamingTranscriber
     private let textInjector: TextInjector
     private var pendingAppendTasks: [UUID: Task<Void, Never>] = [:]
@@ -23,15 +25,30 @@ final class DictationViewModel {
     /// When the current recording actually started capturing, for the analytics
     /// duration bucket. `nil` between sessions.
     private var recordingStartedAt: Date?
-    /// True when the current session was started by the dedicated "ask about my
-    /// day" hotkey — its finished transcript is answered from the connectors and
-    /// shown in the notch instead of being pasted. Consumed (and reset) at stop.
-    private var dayQueryArmed = false
+    /// True when the command chord (fn + control) armed the current session — its
+    /// finished transcript goes to the assistant instead of being typed.
+    /// Consumed (and reset) at stop, and mirrored into `state.commandCaptureArmed`
+    /// for the notch. Unlike the day-query arm this can be set *mid-session*: the
+    /// chord shares a key with the push-to-talk, so pressing fn a hair before
+    /// control has already started an ordinary recording — re-labelling it keeps
+    /// every frame of audio instead of restarting the capture.
+    private var commandArmed = false
+    /// True when the chord is what *started* the running session (nothing else was
+    /// holding it open), so breaking the chord is what should stop it. False when
+    /// the chord merely re-labelled a session the push-to-talk key owns — there,
+    /// letting go of control must not cut the recording short.
+    private var commandChordOwnsSession = false
     /// Drives gentle "you haven't used me in a while" reminders in the notch.
     private lazy var reminderScheduler = ReminderScheduler(state: state)
     /// Owns the optional on-device cleanup model: background download, progress
     /// (Settings only), and the one-shot ready banner. Dormant unless opted in.
     private lazy var cleanupModelManager = CleanupModelManager(state: state)
+    /// Reads assistant answers aloud. Created on the **first answer that wants
+    /// speaking**, never at launch — an `AVSpeechSynthesizer` should not exist for a
+    /// user who turned this off, nor under `swift test` / the headless snapshot
+    /// renderer, both of which construct an `AppState`. `reconcileSpeech` therefore
+    /// checks for nil rather than touching the property, which would defeat the point.
+    private var answerSpeaker: AnswerSpeaker?
     /// Watches pasted text for the user's fix-ups and grows the vocabulary.
     private let correctionLearner = CorrectionLearner()
     /// The in-flight background polish for the last dictation (qwen cleanup +
@@ -148,6 +165,14 @@ final class DictationViewModel {
                 headline: task.title, detail: outcome.answer,
                 events: [], gaps: [], scopedTo: nil)
             state.daySummaryAt = Date()
+            // An answer produced while nobody was looking is exactly the one that has
+            // to survive the twelve-second banner.
+            state.appendAnswer(
+                question: task.title, answer: outcome.answer, source: .automation)
+            // The headline here is the task's *title*, and the answer is in `detail` —
+            // the opposite of the spoken path, so both get read.
+            state.daySummaryWasSpoken = speakAnswer(
+                headline: task.title, detail: outcome.answer, source: .automation)
         } else {
             // Fall back to the deterministic summary rather than reporting nothing.
             let summary = await DaySummaryService.buildAsync(store: state.connectorStore)
@@ -155,16 +180,21 @@ final class DictationViewModel {
             run.answer = "\(summary.headline). \(summary.detail)"
             state.activeDaySummary = summary
             state.daySummaryAt = Date()
+            state.appendAnswer(question: task.title, answer: run.answer, source: .automation)
+            state.daySummaryWasSpoken = speakAnswer(
+                headline: summary.headline, detail: summary.detail, source: .automation)
         }
         run.finishedAt = Date()
         return run
     }
 
-    func startRecording(dayQuery: Bool = false) {
+    func startRecording(command: Bool = false) {
         guard state.canStart else { return }
-        // Every session begins as a normal dictation unless the dedicated day-query
-        // hotkey armed it — reset here so a stale arm can't leak into the next one.
-        dayQueryArmed = dayQuery
+        // Every session begins as a normal dictation unless the command chord armed
+        // it — reset here so a stale arm can't leak into the next one.
+        setCommandArmed(command)
+        // A session starts held-open by the key; a double-tap can latch it later.
+        state.handsFreeActive = false
 
         // Open a diagnostics session at the true key-press instant (this runs
         // synchronously from the hotkey handler). No-op unless a DIAGNOSTICS build.
@@ -172,6 +202,9 @@ final class DictationViewModel {
 
         // A reminder showing now would be replaced by the live indicator anyway.
         reminderScheduler.clear()
+        // Reaching for the key *is* the barge-in: an answer still being read aloud is
+        // cut off here, before the mic comes up, so we never transcribe our own voice.
+        answerSpeaker?.stop()
         // A new dictation supersedes any correction watch or pending polish on
         // the previous one.
         correctionLearner.cancel()
@@ -183,6 +216,7 @@ final class DictationViewModel {
         state.deliveredAt = nil
         state.failedAt = nil
         state.isPolishing = false
+        state.commandAgentRunning = false
         state.polishedText = nil
         state.polishedAt = nil
         failedResetTask?.cancel()
@@ -227,6 +261,16 @@ final class DictationViewModel {
                 }
                 Diagnostics.shared.mark(.engineStarted)
 
+                // If the audio route changes mid-recording and the capture graph
+                // can't be rebuilt on the new devices, end the session honestly
+                // rather than keeping a "recording" state fed by nothing.
+                microphoneCapture.onCaptureLost = { [weak self] in
+                    Task { @MainActor in
+                        guard let self, self.state.canStop else { return }
+                        await self.handleFailure(MicrophoneCaptureService.CaptureError.captureInterrupted)
+                    }
+                }
+
                 try microphoneCapture.start(
                     bufferHandler: { [weak self] buffer in
                         guard let self else { return }
@@ -263,10 +307,15 @@ final class DictationViewModel {
         // finalize work; cleared so a cancelled/failed run can't reuse it.
         let sessionDuration = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
         recordingStartedAt = nil
-        // Consume the day-query arm now (synchronously, at the user's stop) so it
+        // Consume the command arm now (synchronously, at the user's stop) so it
         // can't linger; the async finalize below reads this captured copy.
-        let queryMode = dayQueryArmed
-        dayQueryArmed = false
+        let commandMode = commandArmed
+        setCommandArmed(false)
+        commandChordOwnsSession = false
+        // However this stop arrived (key release, double-tap, tray, failure), the
+        // gesture that latched the session is finished with it.
+        state.handsFreeActive = false
+        hotkeyGestureReset()
 
         state.phase = .stopping
         state.audioLevel = 0
@@ -340,30 +389,20 @@ final class DictationViewModel {
                     state.statusMessage = "Finished local transcription."
                     return
                 }
-                // A "what's my day" question? Either the dedicated day-query hotkey
-                // was held (queryMode), or the transcript itself opens with a
-                // day-query wake phrase (only honored when the user actually has a
-                // connector on, so it can't hijack an ordinary dictation). The
-                // paste is *suppressed* — the words asked for an answer, which lands
-                // in the notch instead of the cursor.
-                let connectorsActive = state.connectorStore.hasReadableCalendar
-                if queryMode || (connectorsActive && DayQueryDetector.matches(cleaned)) {
-                    await runDayQuery(cleaned)
-                    reminderScheduler.noteUsed()
-                    Diagnostics.shared.finish(pasteOutcome: "dayQuery", finalText: cleaned)
-                    state.statusMessage = "Answered from your connectors."
-                    return
-                }
-                // A spoken command? The cheap keyword gate runs first (ordinary
-                // dictation pays nothing); only a command-looking transcript
-                // consults the on-device decision-maker, which routes it into
-                // Notes & Reminders and can still veto a false positive. When it
-                // routes, the paste is *suppressed* — the words became a note or
-                // reminder, not text to type — so we finish here.
-                if await routeVoiceCommandIfNeeded(cleaned) {
+                // Was this the assistant? Only when the user *held the chord* for
+                // this session — the words are then a question or an instruction,
+                // never text, so the paste is *suppressed* and we finish here.
+                //
+                // Nothing below the chord may re-open this branch. An unarmed
+                // dictation is never inspected for trigger phrases or question
+                // shapes: "remind me to call mom" typed into a chat window stays
+                // typed, and so does "what's my schedule for the sprint?". Inferring
+                // intent from words means eating a transcript whenever the guess is
+                // wrong, and no keyword list is good enough to earn that.
+                if commandMode, await routeCommandCapture(cleaned) {
                     reminderScheduler.noteUsed()
                     Diagnostics.shared.finish(pasteOutcome: "command", finalText: cleaned)
-                    state.statusMessage = "Saved to Notes & Reminders."
+                    state.statusMessage = "Handled by the assistant."
                     return
                 }
                 state.transcript.latestConfirmed = cleaned
@@ -523,112 +562,391 @@ final class DictationViewModel {
     /// ("what's on my work calendar") is scoped to it; an unqualified one merges every
     /// enabled calendar instance. Instances that couldn't be read are reported as gaps
     /// rather than silently reducing the answer.
-    private func runDayQuery(_ question: String) async {
-        // If a calendar connector is on but access was never requested, ask now —
-        // the user just explicitly asked about their day.
-        if state.connectorStore.hasReadableCalendar, CalendarConnector.shared.isUndetermined {
-            let granted = await CalendarConnector.shared.requestAccess()
-            state.connectorStore.calendarAccessGranted = granted
-            if granted {
-                for kind in ConnectorKind.allCases {
-                    state.connectorStore.clearErrors(ofKind: kind, matching: .needsCalendarAccess)
-                }
-            }
+    /// If a calendar connector is on but access was never requested, ask now — the
+    /// user has just held the chord, which is as explicit as an ask gets. Runs before
+    /// the agent so the tools it's about to reach for aren't refused on a permission
+    /// nobody was ever prompted for.
+    private func requestCalendarAccessIfNeeded() async {
+        guard state.connectorStore.hasReadableCalendar,
+              CalendarConnector.shared.isUndetermined else { return }
+        let granted = await CalendarConnector.shared.requestAccess()
+        state.connectorStore.calendarAccessGranted = granted
+        guard granted else { return }
+        for kind in ConnectorKind.allCases {
+            state.connectorStore.clearErrors(ofKind: kind, matching: .needsCalendarAccess)
         }
-        // Try the local tool-calling loop first when the user opted in. It falls back
-        // to the deterministic summary on any failure — a malformed call, an unknown
-        // tool, an exhausted budget — so the notch always answers with something true.
-        if state.connectorAgentEnabled, await MlxCleanupService.shared.isReady {
-            let agent = ConnectorAgentService(store: state.connectorStore, approvals: state.approvals)
-            if let outcome = await agent.answer(
-                question: question, generate: ConnectorAgentService.liveGenerator()) {
-                state.activeDaySummary = DaySummary(
-                    headline: outcome.answer,
-                    detail: outcome.instanceLabels.isEmpty
-                        ? ""
-                        : "From \(Set(outcome.instanceLabels).sorted().joined(separator: ", "))",
-                    events: [], gaps: [], scopedTo: nil)
-                state.daySummaryAt = Date()
-                Feedback.delivered(soundEnabled: state.soundEnabled)
-                return
-            }
-        }
-        let summary = await DaySummaryService.buildAsync(store: state.connectorStore, spokenQuery: question)
-        state.activeDaySummary = summary
-        state.daySummaryAt = Date()
-        Feedback.delivered(soundEnabled: state.soundEnabled)
     }
 
-    /// The dedicated "ask about my day" hotkey was pressed — start a recording
-    /// armed as a day query (its transcript is answered, not pasted).
-    func handleDayQueryHotkeyPressed() {
-        guard state.holdToTalkEnabled else { return }
+    /// Answer a day question straight from `DaySummaryService` — no model, no tool
+    /// loop. The rung under the agent, so a cold start (or a machine that has never
+    /// downloaded the 1.5 GB model) still answers "what's on my calendar" with
+    /// something true instead of filing the question as a note.
+    private func presentDaySummary(for question: String) async {
+        let summary = await DaySummaryService.buildAsync(
+            store: state.connectorStore, spokenQuery: question)
+        state.activeDaySummary = summary
+        state.daySummaryAt = Date()
+        state.appendAnswer(
+            question: question,
+            answer: [summary.headline, summary.detail].filter { !$0.isEmpty }.joined(separator: ". "))
+        Feedback.delivered(soundEnabled: state.soundEnabled)
+        // Here the detail *is* the answer's second half (the next thing on the
+        // calendar), so unlike the agent path it gets spoken.
+        state.daySummaryWasSpoken = speakAnswer(
+            headline: summary.headline, detail: summary.detail, source: .spoken)
+    }
+
+    // MARK: - Reading answers aloud
+
+    /// Read an answer out loud, if the user wants that for this kind of answer.
+    ///
+    /// Returns whether it will speak, which the caller records as
+    /// `state.daySummaryWasSpoken` — that's what tells the notch to hold the band for
+    /// the voice instead of running its silent-reading clock down behind it.
+    ///
+    /// - Parameter detail: the banner's second line. `nil` where it's provenance chrome
+    ///   worth seeing and not worth hearing; passed through where it carries the answer.
+    @discardableResult
+    private func speakAnswer(
+        headline: String,
+        detail: String?,
+        source: AnsweredQuestion.Source
+    ) -> Bool {
+        guard state.speakAnswersEnabled else { return false }
+        // A scheduled answer is a second, separate consent: nobody agrees to their Mac
+        // talking unprompted by agreeing that a question they asked can be answered.
+        if source == .automation, !state.speakAutomationAnswersEnabled { return false }
+        // An automation can fire on any tick, including mid-dictation. Never talk into
+        // a live microphone.
+        guard state.phase == .idle else { return false }
+
+        let speaker = answerSpeaker ?? makeAnswerSpeaker()
+        return speaker.speak(headline: headline, detail: detail)
+    }
+
+    private func makeAnswerSpeaker() -> AnswerSpeaker {
+        let speaker = AnswerSpeaker(preferences: { [state] in
+            AnswerSpeaker.Preferences(
+                engine: state.answerVoiceEngine,
+                systemVoiceIdentifier: state.systemVoiceIdentifier,
+                naturalVoiceID: state.naturalVoiceID)
+        })
+        // The speaker never writes `AppState` itself — it reports, and the view model
+        // (the only permitted writer) records.
+        speaker.onStateChange = { [weak self] speaking in
+            self?.state.isSpeakingAnswer = speaking
+        }
+        speaker.onNaturalReady = { [weak self] in
+            self?.state.naturalVoiceReady = true
+            self?.state.naturalVoiceFailed = false
+        }
+        speaker.onNaturalFailure = { [weak self] _ in
+            self?.state.naturalVoiceReady = false
+            self?.state.naturalVoiceFailed = true
+        }
+        answerSpeaker = speaker
+        return speaker
+    }
+
+    /// Stop talking. Barge-in from a new recording, and the app quitting.
+    func stopSpeaking() {
+        answerSpeaker?.stop()
+    }
+
+    /// Speak a sample line so the user can hear a voice before choosing it.
+    func previewVoice() {
+        (answerSpeaker ?? makeAnswerSpeaker()).preview()
+    }
+
+    /// Replay a logged answer from the Today card.
+    ///
+    /// Deliberately **not** routed through `speakAnswer`: this is a direct tap on a
+    /// speaker button, so it ignores the "read answers aloud" preference (the user just
+    /// asked for this one) and the automation switch (which governs unprompted speech,
+    /// which this isn't). It still declines while the mic is live.
+    func speakLoggedAnswer(_ entry: AnsweredQuestion) {
+        guard state.phase == .idle else { return }
+        (answerSpeaker ?? makeAnswerSpeaker()).speak(headline: entry.answer, detail: nil)
+    }
+
+    /// Kick off (or retry) the natural voice's download, then warm it.
+    func downloadNaturalVoice() {
+        guard state.naturalVoiceDownload == nil else { return }
+        state.naturalVoiceFailed = false
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await NaturalVoiceInstaller.install { progress in
+                    Task { @MainActor [weak self] in self?.state.naturalVoiceDownload = progress }
+                }
+                self.state.naturalVoiceDownload = nil
+                (self.answerSpeaker ?? self.makeAnswerSpeaker()).prewarmNaturalVoiceIfNeeded()
+            } catch {
+                Log.modelPrep.error(
+                    "Natural voice install failed: \(error.localizedDescription, privacy: .public)")
+                self.state.naturalVoiceDownload = nil
+                self.state.naturalVoiceFailed = true
+            }
+        }
+    }
+
+    /// Called from the AppDelegate's 0.5 s tick. Three cheap jobs, all no-ops most of
+    /// the time, and the first one is not optional:
+    ///
+    /// 1. **Un-stick the banner.** While `isSpeakingAnswer` is true the refresh loop
+    ///    pins `daySummaryAt` to now, so a speaking flag that never cleared — a backend
+    ///    that died, a callback that never arrived — would hold the notch open forever.
+    ///    Reconciling against the speaker's own view of whether it's running is the
+    ///    backstop for that.
+    /// 2. **Enforce a ceiling.** `SpokenAnswer` caps the text, so anything still going
+    ///    after `maxHoldSeconds` is wedged rather than long.
+    /// 3. **Honour the switches** — turning speech off, or switching away from the
+    ///    natural voice, should take effect now rather than after the current answer.
+    func reconcileSpeech() {
+        // Deliberately does not create the speaker: most users never speak an answer.
+        guard let speaker = answerSpeaker else {
+            if state.isSpeakingAnswer { state.isSpeakingAnswer = false }
+            return
+        }
+        if state.isSpeakingAnswer, !speaker.isRunning {
+            state.isSpeakingAnswer = false
+        }
+        if let startedAt = speaker.startedAt,
+           Date().timeIntervalSince(startedAt) > AnswerSpeaker.maxHoldSeconds {
+            speaker.stop()
+        }
+        if !state.speakAnswersEnabled, state.isSpeakingAnswer {
+            speaker.stop()
+        }
+        if state.naturalVoiceRetryRequested {
+            state.naturalVoiceRetryRequested = false
+            downloadNaturalVoice()
+        }
+        if state.answerVoiceEngine == .natural {
+            speaker.prewarmNaturalVoiceIfNeeded()
+            // Guarded: an unguarded write would push an @Observable change through
+            // every observer twice a second for the life of the process, which is the
+            // same per-tick cost the tray refresher is careful to avoid.
+            if state.naturalVoiceReady != speaker.naturalVoiceIsReady {
+                state.naturalVoiceReady = speaker.naturalVoiceIsReady
+            }
+        } else if state.naturalVoiceReady {
+            // Switched away — hand the models back now rather than waiting out the idle
+            // timer. Releasing promptly is the whole memory argument for this backend.
+            speaker.releaseNaturalVoice()
+            state.naturalVoiceReady = false
+        }
+    }
+
+    // MARK: - The assistant (fn + control)
+
+    /// The command chord (fn + control) became complete.
+    ///
+    /// Two cases, and the difference is whether anything is already recording:
+    /// - **nothing running** → start a session armed as a command, owned by the
+    ///   chord, so breaking the chord ends it (plain push-to-talk).
+    /// - **a session already running** → just re-label it. The chord shares the fn
+    ///   key with the default push-to-talk, so pressing fn a hair before control
+    ///   has already started an ordinary dictation; re-labelling keeps every frame
+    ///   of audio the user has spoken, where a restart would drop the first word.
+    ///   That session stays owned by the key that started it.
+    func handleCommandChordEngaged() {
+        // Where Notes & Reminders is unreleased (stable) the chord means nothing:
+        // arming a session we'd have to un-arm at the end would put "Note or
+        // reminder" in the notch and then paste the words anyway.
+        guard FeatureFlags.connectorsAndNotesAvailable else { return }
+        if state.canStop || state.phase == .preparingModels {
+            setCommandArmed(true)
+            state.statusMessage = "Listening for the assistant..."
+            return
+        }
         if state.preparingEngine != nil {
             state.statusMessage = "Voice engine is still getting ready."
             return
         }
-        if state.canStart {
-            startRecording(dayQuery: true)
-        }
+        guard state.canStart else { return }
+        commandChordOwnsSession = true
+        startRecording(command: true)
     }
 
-    func handleDayQueryHotkeyReleased() {
-        guard state.holdToTalkEnabled else { return }
+    /// The chord broke (either key came up). Only stops the session when the chord
+    /// is what opened it — otherwise the push-to-talk key is still holding it, and
+    /// letting go of control must not cut the recording short.
+    func handleCommandChordReleased() {
+        guard commandChordOwnsSession else { return }
+        commandChordOwnsSession = false
         if state.canStop {
             stopRecording()
         }
     }
 
-    func updateDayQueryHotkey(_ hotkey: HotkeyManager.HotkeyOption) {
-        state.dayQueryHotkey = hotkey
-        dayQueryHotkeyUpdater(hotkey)
+    /// Mirror the private arm into `AppState` so the notch can say which of the two
+    /// things the band is doing. One writer, so the two can't drift.
+    private func setCommandArmed(_ armed: Bool) {
+        commandArmed = armed
+        state.commandCaptureArmed = armed
     }
 
-    // MARK: - Voice commands (Notes & Reminders)
-
-    /// Route a finished transcript into Notes & Reminders when it opens like a
-    /// spoken command. Returns `true` when it handled the text (the caller then
-    /// suppresses the paste). Cheap `CommandDetector` gate first — ordinary
-    /// dictation never touches the model; a command-looking transcript consults
-    /// the on-device decision-maker, which extracts the pieces and can still veto
-    /// a false positive (→ `.dictation`, returns `false`, paste as usual).
-    private func routeVoiceCommandIfNeeded(_ text: String) async -> Bool {
+    /// Carry out an armed capture. Returns `true` when it handled the text (the
+    /// caller then suppresses the paste).
+    ///
+    /// Three tiers, in order:
+    ///
+    /// 1. **The agent** (`CommandAgentService`) — the reasoning model with tools, and
+    ///    the whole of the assistant. It can file a reminder with a time buried
+    ///    mid-sentence, read the calendar, run a connector write (which raises the
+    ///    usual approval card), or simply answer. Tried first whenever the on-device
+    ///    model is loaded.
+    /// 2. **The deterministic day summary** — for a capture that reads as a question
+    ///    about the day when the agent couldn't take it. This is the one place
+    ///    `DayQueryDetector` is still allowed to run, and it's safe here precisely
+    ///    because it is *not* deciding whether to suppress the paste: the chord
+    ///    already did that. It only picks which of two handlings an armed capture
+    ///    gets, so a false positive costs a wrong-shaped answer, not a lost
+    ///    transcript. It answers from `DaySummaryService` with no model at all, so
+    ///    "what's on my calendar" still works on a cold start.
+    /// 3. **The deterministic gate** — the original keyword path: no model loaded, an
+    ///    exhausted loop, or a model that talked when the words said to file.
+    ///
+    /// Because the user held a key that *means* "talk to the assistant", no tier
+    /// declines on content: a capture with no trigger at all is still filed — as a
+    /// note, the kind that needs nothing but words. Pasting "take a note buy milk"
+    /// into the user's editor is the one outcome the key press rules out, so the last
+    /// tier is what guarantees the words land somewhere even when the model is no
+    /// help.
+    private func routeCommandCapture(_ text: String) async -> Bool {
         // Where Notes & Reminders is unreleased (stable) this whole path stays
         // off. Routing would swallow the transcript — suppressing the paste and
         // filing it into a store with no openable surface — so "remind me to
         // call mom" would silently vanish. Better to just paste the words.
         guard FeatureFlags.connectorsAndNotesAvailable else { return false }
-        guard state.voiceCommandsEnabled else { return false }
-        guard let detected = CommandDetector.detect(text) else { return false }
-        let intent = await classifyIntent(text, fallback: detected)
-        switch intent.kind {
-        case .dictation:
-            return false
-        case .note:
-            createNote(from: intent, fallbackBody: detected.payload)
-            return true
-        case .reminder:
-            createReminder(from: intent, fallbackTitle: detected.payload)
+        await requestCalendarAccessIfNeeded()
+        if await runCommandAgent(text) { return true }
+        if state.connectorStore.hasReadableCalendar, DayQueryDetector.matches(text) {
+            await presentDaySummary(for: text)
             return true
         }
+        let fallback = ClassifiedIntent.armedCapture(of: text)
+        let refined = await classifyIntent(text, fallback: fallback)
+        let intent = refined.kind == .dictation ? fallback : refined
+        // The trigger-stripped words, used wherever the model left a piece empty.
+        let payload = CommandDetector.detect(text)?.payload ?? text
+        if intent.kind == .reminder {
+            createReminder(from: intent, fallbackTitle: payload)
+        } else {
+            createNote(from: intent, fallbackBody: payload)
+        }
+        return true
+    }
+
+    /// Run the spoken command through the agent. Returns `true` when it acted, in
+    /// which case the notch is already carrying its answer.
+    ///
+    /// Gated on the model being **already loaded** for the same reason the classifier
+    /// is: a command must never block on a cold 1.5 GB download. Connector tools join
+    /// the tool set only when the user has opted the assistant into their connectors
+    /// (`connectorAgentEnabled`); the notes and reminders tools are always there,
+    /// because filing what you just said is what the chord means.
+    private func runCommandAgent(_ text: String) async -> Bool {
+        guard await MlxCleanupService.shared.isReady else { return false }
+        let agent = CommandAgentService(
+            store: state.connectorStore,
+            notes: state.notesStore,
+            approvals: state.approvals,
+            connectorsAllowed: state.connectorAgentEnabled,
+            alertStyle: state.reminderDefaultAlertStyle,
+            soundName: state.reminderDefaultSound)
+        // The orb shows the thinking figure while the loop runs — the paste is
+        // suppressed, so without it the notch sits silent through a multi-second
+        // tool call and reads as having dropped the command. `isPolishing` is what
+        // holds the band open; `commandAgentRunning` is what stops it captioning the
+        // work as a rewrite.
+        state.isPolishing = true
+        state.commandAgentRunning = true
+        let result = await agent.perform(text, generate: ConnectorAgentService.liveGenerator())
+        state.isPolishing = false
+        state.commandAgentRunning = false
+        guard let result else { return false }
+        // The two outcomes get different surfaces, because they're different things.
+        // A creation is a checkmark to glance at — it's already durable in Notes &
+        // Reminders, and the band is a receipt. An *answer* exists only as long as
+        // the band does unless it's put somewhere, so it goes through the answer
+        // surface: `activeDaySummary` (whose clock the refresh loop pins while the
+        // voice runs, which the confirmation band's does not), `appendAnswer` so it
+        // stays readable in Today → Recent answers, and `speakAnswer`.
+        guard result.createdSomething else {
+            presentAnswer(question: text, answer: result.answer, provenance: result.detail)
+            return true
+        }
+        showCommandConfirmation(
+            Self.bandLine(result.answer),
+            icon: result.icon,
+            detail: result.detail,
+            window: AppState.commandConfirmationDuration)
+        return true
+    }
+
+    /// Put an assistant answer on every surface that outlives the band: the notch,
+    /// the answer log, and the voice. The single place answers land, whatever asked
+    /// for them.
+    private func presentAnswer(question: String, answer: String, provenance: String) {
+        state.activeDaySummary = DaySummary(
+            headline: answer, detail: provenance, events: [], gaps: [], scopedTo: nil)
+        state.daySummaryAt = Date()
+        // The band's line is truncated and gone in seconds; this is where a long
+        // answer stays readable.
+        state.appendAnswer(question: question, answer: answer, provenance: provenance)
+        Feedback.delivered(soundEnabled: state.soundEnabled)
+        // No detail: provenance ("From Work Calendar") is chrome worth seeing, not
+        // hearing.
+        state.daySummaryWasSpoken = speakAnswer(headline: answer, detail: nil, source: .spoken)
+    }
+
+    /// Clamp the assistant's line to what the band can actually show. The banner is
+    /// one line on a surface a few hundred points wide, so a long answer would be cut
+    /// mid-word by the notch's clip with nothing to say it had been; an ellipsis at a
+    /// word boundary at least admits it. The full artifact is in Notes & Reminders.
+    static func bandLine(_ text: String, limit: Int = 58) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        guard trimmed.count > limit else { return trimmed }
+        let head = trimmed.prefix(limit)
+        let cut = head.lastIndex(of: " ").map { String(head[head.startIndex..<$0]) } ?? String(head)
+        return cut.trimmingCharacters(in: .whitespaces) + "…"
     }
 
     /// Ask the on-device model to classify + extract, but only when it's already
-    /// loaded — a command must never block on a cold model download. Falls back
-    /// to the deterministic mapping of the keyword gate otherwise (so a reminder
-    /// still lands, just with no extracted time → the default-time path asks).
-    private func classifyIntent(_ text: String, fallback: DetectedCommand) async -> ClassifiedIntent {
-        guard await MlxCleanupService.shared.isReady else { return ClassifiedIntent(fallback) }
+    /// loaded — a command must never block on a cold model download. Returns the
+    /// deterministic reading otherwise (so a reminder still lands, just with no
+    /// extracted time → the default-time path asks).
+    private func classifyIntent(_ text: String, fallback: ClassifiedIntent) async -> ClassifiedIntent {
+        guard await MlxCleanupService.shared.isReady else { return fallback }
         guard let raw = await MlxCleanupService.shared.clean(text, systemPrompt: IntentPrompt.system),
               let parsed = IntentClassifier.parse(raw)
-        else { return ClassifiedIntent(fallback) }
+        else { return fallback }
         return parsed
     }
 
     private func createNote(from intent: ClassifiedIntent, fallbackBody: String) {
         let body = intent.body.isEmpty ? fallbackBody : intent.body
         state.notesStore.upsertNote(Note(title: intent.title, body: body))
-        state.commandConfirmation = "Note saved"
+        showCommandConfirmation("Note saved", icon: "note.text",
+                                window: AppState.commandConfirmationDuration)
+    }
+
+    /// Put a confirmation on the band. Every field is written on every call — they
+    /// persist between commands, so a leftover icon or a leftover 10 s window from
+    /// the previous answer would otherwise bleed into this one.
+    private func showCommandConfirmation(
+        _ message: String,
+        icon: String,
+        detail: String = "Saved to Notes & Reminders",
+        window: TimeInterval
+    ) {
+        state.commandConfirmation = message
+        state.commandConfirmationDetail = detail
+        state.commandConfirmationIcon = icon
+        state.commandConfirmationWindow = window
         state.commandConfirmationAt = Date()
         Feedback.delivered(soundEnabled: state.soundEnabled)
     }
@@ -647,11 +965,10 @@ final class DictationViewModel {
         let when = Self.reminderTimeString(due, now: now)
         // A stated time is set; an unstated one gets a default the user can adjust
         // by tapping the banner (→ Settings → Notes & Reminders).
-        state.commandConfirmation = stated != nil
-            ? "Reminder set for \(when)"
-            : "Reminder set for \(when) · tap to change"
-        state.commandConfirmationAt = now
-        Feedback.delivered(soundEnabled: state.soundEnabled)
+        showCommandConfirmation(
+            stated != nil ? "Reminder set for \(when)" : "Reminder set for \(when) · tap to change",
+            icon: "bell.badge.fill",
+            window: AppState.commandConfirmationDuration)
     }
 
     /// Default due time for a reminder whose "when?" wasn't stated (or couldn't be
@@ -718,6 +1035,9 @@ final class DictationViewModel {
 
     func cancelSession() {
         microphoneCapture.stop()
+        // A cancelled session files nothing, so its arms die with it.
+        setCommandArmed(false)
+        commandChordOwnsSession = false
         Task {
             await transcriber.cancel()
             await MainActor.run {
@@ -825,8 +1145,10 @@ final class DictationViewModel {
         state.clearHistory()
     }
 
-    func handleHotkeyPressed() {
-        guard state.holdToTalkEnabled else { return }
+    /// The push-to-talk key went down (or a tap started a session). Hold-to-talk
+    /// vs. toggle is decided upstream in `HotkeyManager`, which is what knows the
+    /// shape of the gesture; by here the intent is unambiguous.
+    func handleHotkeyStart() {
         if state.preparingEngine != nil {
             state.statusMessage = "Voice engine is still getting ready."
             return
@@ -836,10 +1158,28 @@ final class DictationViewModel {
         }
     }
 
-    func handleHotkeyReleased() {
-        guard state.holdToTalkEnabled else { return }
+    func handleHotkeyStop() {
         if state.canStop {
             stopRecording()
+        }
+    }
+
+    /// A double-tap latched the running dictation open — it keeps listening with
+    /// the key released, until the next double-tap. Only a live recording can be
+    /// latched; anything else would leave the notch claiming hands-free with
+    /// nothing running.
+    func handleHotkeyHandsFree() {
+        guard state.canStop else { return }
+        state.handsFreeActive = true
+        state.statusMessage = "Hands-free — double-tap again to stop."
+    }
+
+    /// Toggle mode (`holdToTalkEnabled` off): one tap of the key flips the state.
+    func handleHotkeyToggle() {
+        if state.canStop {
+            stopRecording()
+        } else {
+            handleHotkeyStart()
         }
     }
 
@@ -900,6 +1240,10 @@ final class DictationViewModel {
             self.state.phase = .failed(error.localizedDescription)
             self.state.audioLevel = 0
             self.levelEnvelope.reset()
+            // A session that never produced a transcript can't be a command —
+            // clear the arm so the notch doesn't keep claiming one is in flight.
+            self.setCommandArmed(false)
+            self.commandChordOwnsSession = false
             self.state.failedAt = Date()
             self.state.statusMessage = "Transcription failed: \(error.localizedDescription)"
             self.scheduleFailedReset()

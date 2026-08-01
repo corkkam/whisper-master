@@ -39,6 +39,11 @@ struct TodayView: View {
             }
 
             askRow
+
+            // Hidden until there's something in it — an empty "Recent answers" card on
+            // a Mac that has never been asked anything is noise, the same reason the
+            // assistant's other cards stay hidden until they're relevant.
+            if !state.answerLog.isEmpty { recentAnswersCard }
         }
         .onAppear {
             // Nothing to refresh when the agenda isn't rendered — and this keeps
@@ -224,6 +229,76 @@ struct TodayView: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
+    }
+
+    // MARK: Recent answers
+
+    /// Where an answer goes to be readable.
+    ///
+    /// The notch band carries one truncated line for a few seconds and a day query
+    /// deliberately skips the transcript history, so before this an answer longer than
+    /// the bezel was simply lost — and a scheduled automation's answer was lost to
+    /// anyone who wasn't watching the notch at the moment it fired.
+    private var recentAnswersCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                cardHeader(icon: "text.bubble", title: "Recent answers")
+                Spacer()
+                if !isSnapshot {
+                    Button("Clear") { state.clearAnswerLog() }
+                        .textButton()
+                }
+            }
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(Array(state.answerLog.prefix(5).enumerated()), id: \.element.id) { index, entry in
+                    if index > 0 { Divider().overlay(Theme.line) }
+                    answerRow(entry)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .glassCard()
+    }
+
+    private func answerRow(_ entry: AnsweredQuestion) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Image(systemName: entry.source == .automation ? "clock.arrow.circlepath" : "mic.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
+                // An automation's line was never spoken by the user, so it's labelled
+                // rather than presented as something they said.
+                Text(entry.question)
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(entry.askedAt, style: .time)
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textTertiary)
+                if !isSnapshot {
+                    IconButton("speaker.wave.2", label: "Read this answer aloud") {
+                        viewModel.speakLoggedAnswer(entry)
+                    }
+                    IconButton("doc.on.doc", label: "Copy this answer") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(entry.answer, forType: .string)
+                    }
+                }
+            }
+            // No line limit — this card exists precisely because the notch has one.
+            Text(entry.answer)
+                .font(Typography.sans(13.5, .regular))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !entry.provenance.isEmpty {
+                Text(entry.provenance)
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textTertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Ask row

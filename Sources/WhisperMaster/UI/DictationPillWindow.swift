@@ -15,6 +15,9 @@ final class DictationPillWindow {
     /// Copies the undelivered transcript when its banner's Copy button is tapped.
     /// Injected by `AppDelegate`, which owns the view model that does the copying.
     private let onCopyUndelivered: () -> Void
+    /// Ticks the due-reminder banner's checkbox on or off. Injected by
+    /// `AppDelegate`, which holds the pre-tick snapshot an un-tick restores.
+    private let onToggleDueReminder: () -> Void
 
     private var screenObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
@@ -22,11 +25,13 @@ final class DictationPillWindow {
     init(
         state: AppState,
         onOpenNotes: @escaping () -> Void = {},
-        onCopyUndelivered: @escaping () -> Void = {}
+        onCopyUndelivered: @escaping () -> Void = {},
+        onToggleDueReminder: @escaping () -> Void = {}
     ) {
         self.state = state
         self.onOpenNotes = onOpenNotes
         self.onCopyUndelivered = onCopyUndelivered
+        self.onToggleDueReminder = onToggleDueReminder
 
         panel = NSPanel(
             contentRect: .zero,
@@ -47,7 +52,10 @@ final class DictationPillWindow {
         panel.ignoresMouseEvents = true
 
         host = NSHostingView(rootView: DictationPillContent(
-            state: state, onOpenNotes: onOpenNotes, onCopyUndelivered: onCopyUndelivered))
+            state: state,
+            onOpenNotes: onOpenNotes,
+            onCopyUndelivered: onCopyUndelivered,
+            onToggleDueReminder: onToggleDueReminder))
         host.autoresizingMask = [.width, .height]
         panel.contentView = host
 
@@ -64,10 +72,15 @@ final class DictationPillWindow {
     }
 
     /// Let the panel receive clicks only while it shows an interactive element
-    /// (the Bluetooth-mic banner, the tappable command confirmation, the
-    /// undelivered hint's Copy button). Otherwise it stays click-through so the
+    /// (the Bluetooth-mic banner, the tappable command confirmation, a due
+    /// reminder's checkbox, the undelivered hint's Copy button). Otherwise it
+    /// stays click-through so the
     /// passive dictation indicator never intercepts the menu bar.
     func setInteractive(_ interactive: Bool) {
+        // Driven from the 0.5s refresh loop, so only write on a real change — a
+        // window property assignment is a round-trip to the window server, and the
+        // answer is the same on nearly every tick.
+        guard panel.ignoresMouseEvents == interactive else { return }
         panel.ignoresMouseEvents = !interactive
     }
 
@@ -89,7 +102,8 @@ final class DictationPillWindow {
             geometry: geometry,
             layout: layout,
             onOpenNotes: onOpenNotes,
-            onCopyUndelivered: onCopyUndelivered)
+            onCopyUndelivered: onCopyUndelivered,
+            onToggleDueReminder: onToggleDueReminder)
     }
 
     private func observeEnvironment() {

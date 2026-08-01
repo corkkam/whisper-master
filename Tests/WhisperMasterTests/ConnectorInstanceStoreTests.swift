@@ -293,6 +293,32 @@ final class ConnectorInstanceStoreTests: XCTestCase {
         XCTAssertTrue(descriptor.isSystemBacked)
     }
 
+    /// The descriptor's `.none` is right for the EventKit route and wrong for the API
+    /// one, so the *instance* has to decide. Resolving a signed-in Google instance as
+    /// `.none` hands the provider an empty token, the request goes out with no
+    /// `Authorization` header at all, and Google's 403 for an anonymous caller shows
+    /// on the row as "the saved credential was rejected" — a credential that was
+    /// never sent.
+    func testSignedInGoogleInstanceResolvesAsARefreshableGrant() {
+        let api = ConnectorInstance(
+            kind: .googleCalendar, label: "Personal", identity: "a@b.com",
+            config: .googleAPI(calendarIDs: ["a@b.com"]))
+        XCTAssertEqual(api.authKind, .refreshableGrant)
+
+        let eventKit = ConnectorInstance(
+            kind: .googleCalendar, label: "Work", identity: "Google",
+            config: .calendars(identifiers: ["x"], sourceTitle: "Google"))
+        XCTAssertEqual(eventKit.authKind, .none, "the EventKit route still needs no credential")
+    }
+
+    /// A kind that declares real auth keeps it whatever its config looks like — the
+    /// override only ever fills in for a descriptor that says `.none`.
+    func testInstanceAuthKindNeverOverridesADeclaredAuthKind() {
+        let slack = ConnectorInstance(
+            kind: .slack, label: "Team", identity: "team", config: .empty)
+        XCTAssertEqual(slack.authKind, .staticSecret)
+    }
+
     func testSearchMatchesAliasesAndNotJustTitles() {
         XCTAssertTrue(ConnectorCatalog.search("exchange").contains { $0.kind == .outlook })
         XCTAssertTrue(ConnectorCatalog.search("tickets").contains { $0.kind == .linear })

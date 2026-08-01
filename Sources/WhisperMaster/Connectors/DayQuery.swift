@@ -2,8 +2,21 @@ import Foundation
 
 /// A cheap, pure gate that answers one question of a finished transcript — *is
 /// this the user asking about their day / schedule?* — without touching any model.
-/// Conservative like `CommandDetector`: it only fires on a recognizable phrase, so
-/// ordinary dictation is never hijacked into a query.
+///
+/// **⚠️ It may only run on a capture the user armed with the assistant chord** — it
+/// is called from exactly one place, `DictationViewModel.routeCommandCapture`, and
+/// must not be called from anywhere upstream of a paste.
+///
+/// It used to also run over every ordinary push-to-talk dictation, routing one into a
+/// calendar answer whenever the words looked like a question about "my day". That
+/// path *suppresses the paste*, so every false positive silently ate the user's
+/// transcript — and no keyword list can tell "what's my schedule?" (a question for
+/// the app) from "what's my schedule for the sprint?" (words meant for the cursor).
+///
+/// Inside an armed capture the same imprecision is harmless, which is the whole
+/// distinction: the chord has *already* decided the words aren't going to the cursor,
+/// so this only picks which handling an assistant capture gets. A false positive
+/// costs a wrong-shaped answer, not a lost transcript.
 enum DayQueryDetector {
     /// Leading wake phrases (the dictation hotkey path). Sorted longest-first at
     /// match time so the fullest phrase wins.

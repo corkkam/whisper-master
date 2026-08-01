@@ -140,6 +140,12 @@ jobs:
           # Baked into Info.plist by bundle.sh so shipped builds have analytics.
           # Publishable client key, not a real secret; add it as a repo secret.
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          # GA4 Measurement Protocol pair. The measurement ID is public; the API
+          # secret ships in the bundle and is extractable, so keep it on a data
+          # stream of its own that can be revoked without touching the website's
+          # analytics. Missing secrets just leave GA off in the build.
+          GA_MEASUREMENT_ID: ${{ secrets.GA_MEASUREMENT_ID }}
+          GA_API_SECRET: ${{ secrets.GA_API_SECRET }}
         run: bash Scripts/release.sh
 
       - name: Publish shareable DMG to R2

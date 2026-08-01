@@ -47,3 +47,11 @@ tmp/
 *.certSigningRequest
 *.mobileprovision
 *.provisionprofile
+
+# Credential files — never commit (see SECURITY notes)
+*client_secret*.json
+*-credentials.json
+service-account*.json
+*.p8
+*.p12
+*.mobileprovision

@@ -23,6 +23,13 @@ struct NotesSettingsView: View {
             notesSection
             alertDefaultsSection
         }
+        // A "New note" / "New reminder" tap from the notch quick-actions band opens
+        // the editor here — that panel is a non-activating band on the bezel, so it
+        // can't host a text field of its own. One-shot: cleared as it's consumed.
+        .onAppear { consumeComposerRequest(state.requestedNotesComposer) }
+        .onChange(of: state.requestedNotesComposer) { _, request in
+            consumeComposerRequest(request)
+        }
         .sheet(item: $reminderDraft) { draft in
             ReminderEditor(
                 reminder: draft,
@@ -39,22 +46,50 @@ struct NotesSettingsView: View {
         }
     }
 
+    /// Open a fresh editor for a request that came from outside this view, then
+    /// clear it so a later navigation back here doesn't re-open the sheet.
+    private func consumeComposerRequest(_ request: NotesComposerRequest?) {
+        guard let request, !isSnapshot else { return }
+        state.requestedNotesComposer = nil
+        switch request {
+        case .note:
+            noteDraft = Note()
+        case .reminder:
+            reminderDraft = ReminderItem(
+                dueDate: Date().addingTimeInterval(3_600),
+                alertStyle: state.reminderDefaultAlertStyle,
+                soundName: state.reminderDefaultSound)
+        }
+    }
+
     // MARK: - Spoken commands
 
-    /// Route "remind me to…" / "add a note…" dictations into Notes & Reminders
-    /// instead of pasting them. A cheap keyword gate keeps ordinary dictation
-    /// untouched; when the on-device Smart cleanup model is loaded it makes the
-    /// final call and extracts the time.
+    /// How to reach the assistant by voice. **Not a toggle** — the feature is the
+    /// held chord itself, so there is nothing to switch on: hold it and the words go
+    /// to the assistant, don't and they're typed like any other dictation. This
+    /// section exists purely so the shortcut is discoverable.
     private var spokenCommandsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionLabel("Spoken commands")
+            SectionLabel("Talk to the assistant")
             SettingsCard {
-                SettingsRow("Create by voice",
-                            subtitle: "Say “remind me to call mom tomorrow” or “add a note that…” and it lands here instead of being typed. Reminders with no stated time get a default you can tap to change.") {
-                    ThemeToggle(isOn: $state.voiceCommandsEnabled, label: "Create by voice")
+                SettingsRow("Say it instead of typing it",
+                            subtitle: "Hold the keys and speak — “take a note that the wifi password is…”, “remind me to call mom tomorrow”, “what's on my calendar?”. Let go and it's handled instead of typed: notes and reminders land here, questions are answered in the notch. Reminders with no stated time get a default you can tap to change.") {
+                    keyCap(ModifierChord.command.compactName)
                 }
             }
         }
+    }
+
+    /// Static key-cap label for a fixed shortcut — the same chrome the hotkey
+    /// pickers wear, without the picker (this chord isn't user-configurable).
+    private func keyCap(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+            .foregroundStyle(Theme.textPrimary)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).fill(Theme.surface))
+            .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
+            .accessibilityLabel("Shortcut: \(ModifierChord.command.displayName)")
     }
 
     // MARK: - Reminders

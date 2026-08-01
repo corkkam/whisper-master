@@ -29,7 +29,10 @@ enum CredentialStrategy {
 
     static func resolve(for instance: ConnectorInstance) async throws -> Resolved {
         let descriptor = instance.descriptor
-        switch descriptor.authKind {
+        // The *instance's* auth kind, not the descriptor's: one kind can carry both
+        // a credential-less EventKit instance and a signed-in API one. See
+        // `ConnectorInstance.authKind`.
+        switch instance.authKind {
         case .none:
             return Resolved(token: "", updatedCredential: nil)
 

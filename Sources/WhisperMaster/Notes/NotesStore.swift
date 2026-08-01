@@ -141,6 +141,27 @@ final class NotesStore {
         persist()
     }
 
+    /// Put a reminder back the way it was before it was ticked off — the undo half
+    /// of the notch checkboxes, which let a user un-check as well as check.
+    ///
+    /// It takes the pre-tick **snapshot** rather than an id because
+    /// `completeReminder` isn't a flag flip: a repeating reminder rolls forward to
+    /// its next occurrence instead of completing, and only the caller that ticked
+    /// it still holds the occurrence that was rolled away. Restoring the snapshot
+    /// puts date, repeat state and completion back in one move.
+    ///
+    /// The one field that is *not* restored is `firedAt` on an already-due
+    /// reminder: the alert has happened (that band is what the user is un-ticking),
+    /// so it's stamped as fired to stop the poll loop announcing it a second time.
+    /// A reminder still in the future keeps its `firedAt` and alerts normally when
+    /// its time comes.
+    func restoreReminder(_ snapshot: ReminderItem) {
+        var r = snapshot
+        r.isCompleted = false
+        if r.dueDate <= Date() { r.firedAt = Date() }
+        upsertReminder(r)
+    }
+
     /// Push a reminder's due date out by `interval` and re-arm it (snooze).
     func snoozeReminder(_ id: UUID, by interval: TimeInterval) {
         guard let idx = reminders.firstIndex(where: { $0.id == id }) else { return }

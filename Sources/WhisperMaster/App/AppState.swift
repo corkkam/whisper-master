@@ -49,18 +49,29 @@ final class AppState {
     static let historyLimit = 50
     static let vocabularyDefaultsKey = "WhisperMaster.customVocabulary.v1"
     static let appearanceDefaultsKey = "WhisperMaster.appearance.v1"
+    static let hotkeyDefaultsKey = "WhisperMaster.hotkey.v1"
+    // `WhisperMaster.dayQueryHotkey.v1` was the retired second push-to-talk key.
+    // Left on disk rather than migrated away — it is never read, and deleting a key
+    // buys nothing. Don't reuse the name for something else.
+    static let holdToTalkDefaultsKey = "WhisperMaster.holdToTalk.v1"
     static let remindersEnabledDefaultsKey = "WhisperMaster.remindersEnabled.v1"
+    static let quickActionsDefaultsKey = "WhisperMaster.quickActions.v1"
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
+    static let remoteDictationEnabledDefaultsKey = "WhisperMaster.remoteDictationEnabled.v1"
     static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
     static let usageSyncEnabledDefaultsKey = "WhisperMaster.usageSyncEnabled.v1"
     static let notesSyncEnabledDefaultsKey = "WhisperMaster.notesSyncEnabled.v1"
-    static let voiceCommandsEnabledDefaultsKey = "WhisperMaster.voiceCommands.v1"
     static let reminderDefaultAlertStyleDefaultsKey = "WhisperMaster.reminderDefaultAlertStyle.v1"
     static let reminderDefaultSoundDefaultsKey = "WhisperMaster.reminderDefaultSound.v1"
     static let removeFillerWordsDefaultsKey = "WhisperMaster.removeFillerWords.v1"
     static let learnCorrectionsDefaultsKey = "WhisperMaster.learnCorrections.v1"
     static let llmCleanupDefaultsKey = "WhisperMaster.llmCleanup.v1"
     static let llmGrammarPolishDefaultsKey = "WhisperMaster.llmGrammarPolish.v1"
+    static let speakAnswersDefaultsKey = "WhisperMaster.speakAnswers.v1"
+    static let speakAutomationAnswersDefaultsKey = "WhisperMaster.speakAutomationAnswers.v1"
+    static let answerVoiceEngineDefaultsKey = "WhisperMaster.answerVoiceEngine.v1"
+    static let systemVoiceDefaultsKey = "WhisperMaster.systemVoice.v1"
+    static let naturalVoiceDefaultsKey = "WhisperMaster.naturalVoice.v1"
     /// How long the "nowhere to type that" notch hint stays down before it
     /// retracts on its own.
     static let undeliveredBannerDuration: TimeInterval = 7
@@ -75,8 +86,14 @@ final class AppState {
     /// on its own (so a failure isn't a wordless glyph that lingers forever).
     static let failedBannerDuration: TimeInterval = 6
     /// How long the "note saved / reminder set" confirmation stays in the notch
-    /// after a voice command lands in Notes & Reminders.
+    /// after a voice command lands in Notes & Reminders. The default window; a
+    /// longer assistant answer overrides it per-confirmation
+    /// (`commandConfirmationWindow`).
     static let commandConfirmationDuration: TimeInterval = 4
+    /// How long an *assistant* answer to a spoken command holds. Same reasoning as
+    /// `daySummaryDuration`: the user asked, and is reading a sentence rather than
+    /// checking a checkmark.
+    static let commandAnswerDuration: TimeInterval = 10
     /// How long the interactive "when should this reminder be?" prompt stays down
     /// awaiting a tap. Generous, but bounded — if the user walks away it retracts
     /// (and no reminder is created, since none of the times were chosen).
@@ -84,6 +101,21 @@ final class AppState {
     /// How long a "what's my day" answer stays down in the notch. Longer than the
     /// other hints — the user asked for it and is reading a few facts.
     static let daySummaryDuration: TimeInterval = 12
+    /// What's left of the day-summary window once the voice stops reading it. While
+    /// speech is running the clock is pinned (the refresh loop pushes `daySummaryAt`
+    /// forward), so this is only the tail: long enough to finish reading the line you
+    /// just heard, short enough that a thirty-second answer doesn't then leave the band
+    /// hanging for another twelve. Same paused-clock idea as `dueReminderAt`.
+    static let spokenAnswerTailHold: TimeInterval = 4
+    /// How long a due reminder stays down in the notch. Longer than the passive
+    /// hints — it's a scheduled alert the user set for themselves, and missing it
+    /// is the failure mode. The clock only runs while it's actually on screen
+    /// (see `canShowDueReminderBanner`).
+    static let dueReminderBannerDuration: TimeInterval = 8
+    /// How long a due reminder stays down *after* it's been ticked off — the undo
+    /// window for the checkbox. Short: the alert has been answered, and leaving a
+    /// struck-through line on the bezel for the full window is just noise.
+    static let dueReminderAnsweredHold: TimeInterval = 3
     /// How long the polished transcript stays in the notch after the on-device
     /// polish rewrote a dictation — long enough to read the new wording.
     static let polishedBeatDuration: TimeInterval = 4
@@ -91,12 +123,19 @@ final class AppState {
     var selectedEngine: TranscriberEngine = .slidingWindow
     var preparedEngine: TranscriberEngine?
     var preparingEngine: TranscriberEngine?
-    var hotkey: HotkeyManager.HotkeyOption = .rightOption
-    /// Push-to-talk key that always means "ask about my day" — the finished
-    /// transcript is routed to the connectors and answered in the notch instead of
-    /// being pasted. Defaults to a different key than `hotkey`.
-    var dayQueryHotkey: HotkeyManager.HotkeyOption = .rightCommand
-    var holdToTalkEnabled: Bool = true
+    /// The push-to-talk key. Defaults to the Globe/**fn** key — the one modifier
+    /// on a MacBook that isn't already spoken for by a shortcut you'd type mid
+    /// sentence. Persisted, so a change survives a relaunch.
+    var hotkey: HotkeyManager.HotkeyOption = .fn {
+        didSet { UserDefaults.standard.set(hotkey.rawValue, forKey: Self.hotkeyDefaultsKey) }
+    }
+    var holdToTalkEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(holdToTalkEnabled, forKey: Self.holdToTalkDefaultsKey) }
+    }
+    /// True while a double-tap has latched the running dictation open, so it keeps
+    /// listening with the key released. Transient (never persisted); set by the
+    /// view model, cleared whenever a recording starts or stops.
+    var handsFreeActive: Bool = false
     var autoPasteEnabled: Bool = true
     var soundEnabled: Bool = true
     var hidePillWhenIdle: Bool = true
@@ -112,6 +151,21 @@ final class AppState {
     /// The gentle-reminder line currently dropped down in the notch, or `nil`.
     /// Transient (never persisted); written only by `ReminderScheduler`.
     var activeReminder: String?
+    /// The reminder currently being announced in the notch, having come due with
+    /// the `.notification` alert style (the `.alarm` style takes its own window
+    /// instead). Transient (never persisted); set by the AppDelegate's due-reminder
+    /// poll once the notch is free to take it, cleared when the window elapses.
+    /// The reminder **exactly as it was when it fired**, captured before
+    /// `NotesStore.markFired` touches it — which is what makes the banner's
+    /// checkbox reversible: un-checking hands this snapshot back to
+    /// `NotesStore.restoreReminder`.
+    var dueReminder: ReminderItem?
+    var dueReminderAt: Date?
+    /// Whether the user has ticked the reminder off from the notch band. Held here
+    /// rather than read back off `isCompleted` because ticking a *repeating*
+    /// reminder rolls it to its next occurrence instead of completing it — the box
+    /// has to stay checked either way, or the tick reads as having done nothing.
+    var dueReminderCompleted: Bool = false
     /// A spoken reminder that named no time — surfaced as an interactive notch
     /// quick-prompt ("when?"). Transient; set by the view model when a reminder
     /// command lands without a time, cleared once the user picks or it expires.
@@ -120,18 +174,48 @@ final class AppState {
     /// A brief "note saved" / "reminder set" line shown in the notch right after a
     /// voice command routes into Notes & Reminders (the paste is suppressed, so
     /// this is the only feedback). Transient; auto-expired by the refresh loop.
+    ///
+    /// Since the chord became an agent this also carries the assistant's own report
+    /// of what it did ("Two meetings today", "Posted to #ops") — the paste is
+    /// suppressed either way, so this band is the whole of the answer.
     var commandConfirmation: String?
+    /// The line under it: where the thing went, or what answered.
+    var commandConfirmationDetail: String = "Saved to Notes & Reminders"
+    /// SF Symbol for the band, so a reminder, a note and an answer aren't all a
+    /// checkmark.
+    var commandConfirmationIcon: String = "checkmark.circle.fill"
+    /// How long this particular confirmation holds. A four-word "Note saved" is read
+    /// at a glance; a sentence the assistant came back with is not, so the caller
+    /// sets the window to match what it's asking the user to read.
+    var commandConfirmationWindow: TimeInterval = AppState.commandConfirmationDuration
     var commandConfirmationAt: Date?
     /// The answer to a "what's my day" query, dropped down in the notch. Set by the
     /// view model after aggregating the connectors; transient (never persisted),
     /// auto-expired by the refresh loop after `daySummaryDuration`.
     var activeDaySummary: DaySummary?
     var daySummaryAt: Date?
+    /// True while an answer is being read aloud. Written by the view model from
+    /// `AnswerSpeaker`'s callbacks; drives the banner's speaker glyph and pauses the
+    /// banner's expiry clock so a spoken answer can't outlive its own caption.
+    var isSpeakingAnswer: Bool = false
+    /// Whether the answer currently on the band is being (or was) spoken. Picks which
+    /// window applies — an answer nobody read aloud keeps the full silent-reading
+    /// duration, rather than snapping away after the short spoken tail.
+    var daySummaryWasSpoken: Bool = false
+    /// Answers to questions the user asked, newest first. The notch line is truncated
+    /// and gone in seconds, and a day query deliberately skips the transcript history —
+    /// without this the answer is unrecoverable. Capped; persisted.
+    var answerLog: [AnsweredQuestion] = []
     /// A one-shot request to open the Settings window on a given section — set by
     /// the tappable command-confirmation banner ("tap to change") so a spoken
     /// reminder's default time is one click from adjustable. Transient; consumed
     /// (and cleared) by `SettingsView` the moment it flips.
     var requestedSettingsSection: SettingsSection?
+    /// One-shot request to open a *fresh* note / reminder editor once the Notes &
+    /// Reminders page is on screen — set by the notch quick-actions panel, which
+    /// sits on the bezel as a non-activating panel and so can't host a text field
+    /// of its own. Transient; consumed (and cleared) by `NotesSettingsView`.
+    var requestedNotesComposer: NotesComposerRequest?
     /// When the last dictation finished with no focused text field to paste
     /// into — so it was saved to history and surfaced as a notch hint instead.
     /// Transient (never persisted); set by the view model, auto-expired by the
@@ -201,12 +285,30 @@ final class AppState {
     var remindersEnabled: Bool = false {
         didSet { UserDefaults.standard.set(remindersEnabled, forKey: Self.remindersEnabledDefaultsKey) }
     }
+    /// Whether resting the pointer on the notch opens the quick-actions panel
+    /// (reminders + notes at a glance). Persisted; **on by default** — it's an
+    /// affordance on a surface that otherwise only speaks when spoken to, and the
+    /// toggle is the way out for anyone whose pointer lives up there.
+    var quickActionsEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(quickActionsEnabled, forKey: Self.quickActionsDefaultsKey) }
+    }
     /// Keep this Mac awake so the phone can reach it for remote dictation even
     /// after it's been sitting locked and idle. Persisted; **opt-in** — off by
     /// default because it prevents idle sleep entirely (a battery cost). When off,
     /// an in-progress remote session still holds the Mac awake on its own.
     var keepAwakeForRemote: Bool = false {
         didSet { UserDefaults.standard.set(keepAwakeForRemote, forKey: Self.keepAwakeForRemoteDefaultsKey) }
+    }
+    /// Accept dictation streamed from a paired phone (or another of your Macs).
+    ///
+    /// Persisted; **opt-in** — off by default because turning it on opens a
+    /// listening socket on this Mac. It used to start unconditionally at launch
+    /// for every user, which meant every install ran a network service its owner
+    /// had never asked for. Connections are PSK-authenticated and encrypted
+    /// (see `RemotePairing`), but "no listener at all" is still the right default
+    /// for anyone who never dictates from their phone.
+    var remoteDictationEnabled: Bool = false {
+        didSet { UserDefaults.standard.set(remoteDictationEnabled, forKey: Self.remoteDictationEnabledDefaultsKey) }
     }
     /// Learn vocabulary from corrections: after a paste, if the user replaces
     /// one misheard word, add "typed: heard" to the glossary automatically.
@@ -274,15 +376,21 @@ final class AppState {
     var notesSyncEnabled: Bool = true {
         didSet { UserDefaults.standard.set(notesSyncEnabled, forKey: Self.notesSyncEnabledDefaultsKey) }
     }
-    /// Route spoken commands ("remind me to…", "add a note…") into Notes &
-    /// Reminders instead of pasting them. A cheap keyword gate means ordinary
-    /// dictation is untouched; when the on-device model is loaded it makes the
-    /// final call (and can veto a false positive). Persisted; **opt-in** — off
-    /// until the user turns it on, since it changes what happens to a phrase that
-    /// merely starts with "remind me".
-    var voiceCommandsEnabled: Bool = false {
-        didSet { UserDefaults.standard.set(voiceCommandsEnabled, forKey: Self.voiceCommandsEnabledDefaultsKey) }
-    }
+    /// True while the running session is armed as a **spoken command** — the user
+    /// held the command chord (fn + control), so the finished transcript becomes a
+    /// note or a reminder instead of being typed. Transient (never persisted); set
+    /// by the view model, cleared whenever a session ends. Read by the notch so the
+    /// band says which of the two things it's doing.
+    ///
+    /// There is no *preference* behind this: arming is the held chord itself, which
+    /// is why the old always-on "Create by voice" toggle is gone. An ordinary
+    /// dictation that merely opens with "remind me…" is now just text again.
+    var commandCaptureArmed: Bool = false
+    /// True while the assistant is carrying out a finished command — the tool-calling
+    /// loop is running. The band is already up (`isPolishing` holds it there for the
+    /// thinking orb); this is what stops it captioning the work "Polishing", which
+    /// would describe a rewrite that isn't happening.
+    var commandAgentRunning: Bool = false
     /// Default alert style new reminders inherit (per-reminder overridable).
     /// Persisted as the enum raw value. This is the "configure in settings" knob.
     var reminderDefaultAlertStyle: ReminderAlertStyle = .notification {
@@ -346,26 +454,99 @@ final class AppState {
 
     static let connectorAgentDefaultsKey = "WhisperMaster.connectorAgent.enabled.v1"
 
+    // MARK: - Reading answers aloud
+
+    /// Speak the answer when the user asks a question out loud.
+    ///
+    /// **On by default**, unlike the other assistant switches. The only things that
+    /// reach it are the dedicated day-query key and an explicit day-query wake phrase —
+    /// you asked with your voice, so an answer you can hear is the expected outcome, and
+    /// ordinary dictation can never trigger it.
+    var speakAnswersEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(speakAnswersEnabled, forKey: Self.speakAnswersDefaultsKey) }
+    }
+
+    /// Also speak answers from *scheduled* automations.
+    ///
+    /// **Off by default**, and deliberately a separate switch: a spoken answer you asked
+    /// for is expected, while a Mac that starts talking on its own during a meeting is
+    /// the failure case. Nobody can consent to that by turning on the switch above.
+    var speakAutomationAnswersEnabled: Bool = false {
+        didSet {
+            UserDefaults.standard.set(
+                speakAutomationAnswersEnabled, forKey: Self.speakAutomationAnswersDefaultsKey)
+        }
+    }
+
+    var answerVoiceEngine: AnswerVoiceEngine = .system {
+        didSet {
+            UserDefaults.standard.set(answerVoiceEngine.rawValue, forKey: Self.answerVoiceEngineDefaultsKey)
+        }
+    }
+
+    /// The chosen `AVSpeechSynthesisVoice.identifier`, or empty for "Automatic" —
+    /// which re-resolves to the best installed voice each time, so downloading a better
+    /// one upgrades the app with no setting to change.
+    var systemVoiceIdentifier: String = "" {
+        didSet { UserDefaults.standard.set(systemVoiceIdentifier, forKey: Self.systemVoiceDefaultsKey) }
+    }
+
+    /// The chosen Kokoro voice pack id.
+    var naturalVoiceID: String = NaturalVoiceCatalog.defaultVoice {
+        didSet { UserDefaults.standard.set(naturalVoiceID, forKey: Self.naturalVoiceDefaultsKey) }
+    }
+
+    /// Live progress of the natural-voice download, shown **only** in Settings — same
+    /// hard rule as `cleanupModelDownload` (never the notch, never the tray). Transient.
+    var naturalVoiceDownload: ModelInstaller.Progress?
+    /// The natural models are on disk and loaded. Transient; reconciled each tick.
+    var naturalVoiceReady: Bool = false
+    /// The download or the load failed — Settings offers a retry rather than leaving the
+    /// user wondering why the voice never changed. Transient.
+    var naturalVoiceFailed: Bool = false
+    /// One-shot: the user tapped Retry / Download. Consumed by the view model.
+    var naturalVoiceRetryRequested: Bool = false
+
     init() {
         history = Self.loadHistory()
+        answerLog = AnswerLog.load()
         customVocabulary = Self.loadVocabulary()
         // Follow the system appearance unless the user has pinned one.
         appearance = (UserDefaults.standard.string(forKey: Self.appearanceDefaultsKey))
             .flatMap(AppAppearance.init(rawValue:)) ?? .system
+        // The push-to-talk key is persisted; absent means a fresh install, which
+        // takes the fn default. There is only one key now — the assistant is the
+        // fn+control chord, not a second physical key — so no collision to break.
+        hotkey = (UserDefaults.standard.string(forKey: Self.hotkeyDefaultsKey))
+            .flatMap(HotkeyManager.HotkeyOption.init(rawValue:)) ?? .fn
+        // Opt-out: on unless the user has explicitly turned it off.
+        holdToTalkEnabled = UserDefaults.standard.object(forKey: Self.holdToTalkDefaultsKey) as? Bool ?? true
         // Opt-in: off until the user has explicitly turned it on.
         connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? false
+        // Opt-out: you asked out loud, so an answer you can hear is the default.
+        speakAnswersEnabled = UserDefaults.standard.object(forKey: Self.speakAnswersDefaultsKey) as? Bool ?? true
+        // Opt-in: a Mac that talks unprompted is nobody's default.
+        speakAutomationAnswersEnabled = UserDefaults.standard
+            .object(forKey: Self.speakAutomationAnswersDefaultsKey) as? Bool ?? false
+        answerVoiceEngine = (UserDefaults.standard.string(forKey: Self.answerVoiceEngineDefaultsKey))
+            .flatMap(AnswerVoiceEngine.init(rawValue:)) ?? .system
+        systemVoiceIdentifier = UserDefaults.standard.string(forKey: Self.systemVoiceDefaultsKey) ?? ""
+        naturalVoiceID = UserDefaults.standard.string(forKey: Self.naturalVoiceDefaultsKey)
+            ?? NaturalVoiceCatalog.defaultVoice
         // Opt-in: off until the user has explicitly turned it on.
         remindersEnabled = UserDefaults.standard.object(forKey: Self.remindersEnabledDefaultsKey) as? Bool ?? false
+        // Opt-out: on unless the user has explicitly turned it off.
+        quickActionsEnabled = UserDefaults.standard.object(forKey: Self.quickActionsDefaultsKey) as? Bool ?? true
         // Opt-in: off until the user has explicitly turned it on.
         keepAwakeForRemote = UserDefaults.standard.object(forKey: Self.keepAwakeForRemoteDefaultsKey) as? Bool ?? false
+        // Opt-in: no listening socket until the user explicitly asks for one.
+        remoteDictationEnabled = UserDefaults.standard.object(forKey: Self.remoteDictationEnabledDefaultsKey) as? Bool ?? false
         // Opt-out: on unless the user has explicitly turned it off.
         analyticsEnabled = UserDefaults.standard.object(forKey: Self.analyticsEnabledDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         usageSyncEnabled = UserDefaults.standard.object(forKey: Self.usageSyncEnabledDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         notesSyncEnabled = UserDefaults.standard.object(forKey: Self.notesSyncEnabledDefaultsKey) as? Bool ?? true
-        // Opt-in: off until the user has explicitly turned it on.
-        voiceCommandsEnabled = UserDefaults.standard.object(forKey: Self.voiceCommandsEnabledDefaultsKey) as? Bool ?? false
         reminderDefaultAlertStyle = (UserDefaults.standard.string(forKey: Self.reminderDefaultAlertStyleDefaultsKey))
             .flatMap(ReminderAlertStyle.init(rawValue:)) ?? .notification
         reminderDefaultSound = ReminderSound.resolved(
@@ -407,27 +588,75 @@ final class AppState {
             && preparingEngine == nil
     }
 
+    /// Whether the surface is free to *carry* a due reminder — the display gate
+    /// below minus its time window. Split out because the announcement's clock
+    /// only runs while it's actually visible: a dictation started mid-window hides
+    /// the band, and an alert the user never saw must not expire behind it. The
+    /// AppDelegate refresh loop reads this to hold the window open.
+    /// The three bands it defers to each either await a tap (the approval card,
+    /// the "when?" quick-prompt) or hold something the user can't get back from
+    /// anywhere else on screen (the undelivered hint's Copy button). Because the
+    /// clock pauses rather than running behind them, both alerts get their turn
+    /// instead of one eating the other. Nothing below them outranks a reminder
+    /// the user scheduled.
+    var canShowDueReminderBanner: Bool {
+        phase == .idle
+            && download == nil
+            && preparingEngine == nil
+            && approvals.pending == nil
+            && !shouldShowReminderTimePrompt
+            && !shouldShowUndeliveredBanner
+    }
+
+    /// Show a reminder that has come due. It outranks every passive hint below —
+    /// it's a scheduled alert the user set for themselves, and it replaced a
+    /// system notification, so it can't be the thing that gets buried. It still
+    /// yields to a pending write approval and the "when?" quick-prompt, both of
+    /// which are waiting on a tap.
+    var shouldShowDueReminderBanner: Bool {
+        guard let at = dueReminderAt, dueReminder != nil, canShowDueReminderBanner else { return false }
+        return Date().timeIntervalSince(at) < dueReminderWindow
+    }
+
+    /// How long the band holds from `dueReminderAt` — the full announcement, or the
+    /// shorter undo window once the user has ticked it off. The checkbox restarts
+    /// the clock, so the undo window is measured from the tick either way.
+    var dueReminderWindow: TimeInterval {
+        dueReminderCompleted ? Self.dueReminderAnsweredHold : Self.dueReminderBannerDuration
+    }
+
+    /// How long the day-summary band holds from `daySummaryAt`. A spoken answer gets the
+    /// short tail, because the refresh loop has been pinning `daySummaryAt` to *now* for
+    /// the whole utterance — so the countdown only starts when the voice stops, and what
+    /// remains is the beat to finish reading it. An answer nobody spoke keeps the full
+    /// silent-reading window.
+    var daySummaryWindow: TimeInterval {
+        daySummaryWasSpoken ? Self.spokenAnswerTailHold : Self.daySummaryDuration
+    }
+
     /// Show the brief "note saved / reminder set" confirmation. Sits just under
     /// the quick-prompt (the two never coincide for one command).
     var shouldShowCommandConfirmation: Bool {
         guard let at = commandConfirmationAt, commandConfirmation != nil else { return false }
-        return Date().timeIntervalSince(at) < Self.commandConfirmationDuration
+        return Date().timeIntervalSince(at) < commandConfirmationWindow
             && phase == .idle
             && download == nil
             && preparingEngine == nil
             && !shouldShowReminderTimePrompt
+            && !shouldShowDueReminderBanner
     }
 
     /// Show the "what's my day" answer. High priority — the user just asked for
     /// it — but yields to the quick-prompt/command confirmation which need a tap.
     var shouldShowDaySummary: Bool {
         guard let at = daySummaryAt, activeDaySummary != nil else { return false }
-        return Date().timeIntervalSince(at) < Self.daySummaryDuration
+        return Date().timeIntervalSince(at) < daySummaryWindow
             && phase == .idle
             && download == nil
             && preparingEngine == nil
             && !shouldShowReminderTimePrompt
             && !shouldShowCommandConfirmation
+            && !shouldShowDueReminderBanner
     }
 
     /// Show the Bluetooth-mic hint in the notch only when idle (never mid-
@@ -436,6 +665,7 @@ final class AppState {
         bluetoothInputActive && !bluetoothBannerDismissed && phase == .idle
             && !shouldShowReminderTimePrompt && !shouldShowCommandConfirmation
             && !shouldShowDaySummary
+            && !shouldShowDueReminderBanner
     }
 
     /// Show the "saved, nowhere to paste" hint when a recent dictation had no
@@ -459,6 +689,7 @@ final class AppState {
             && download == nil
             && preparingEngine == nil
             && !shouldShowUndeliveredBanner
+            && !shouldShowDueReminderBanner
     }
 
     /// Show a one-shot "smart cleanup is ready" confirmation right after the
@@ -473,6 +704,7 @@ final class AppState {
             && preparingEngine == nil
             && !shouldShowUndeliveredBanner
             && !shouldShowLearnedBanner
+            && !shouldShowDueReminderBanner
     }
 
     /// Show the success "delivered" checkmark briefly after a transcript lands
@@ -485,6 +717,7 @@ final class AppState {
             && download == nil
             && preparingEngine == nil
             && !shouldShowUndeliveredBanner
+            && !shouldShowDueReminderBanner
     }
 
     /// Whether the band should show the live dictation line (the state word + the
@@ -511,6 +744,7 @@ final class AppState {
             && download == nil
             && preparingEngine == nil
             && !shouldShowUndeliveredBanner
+            && !shouldShowDueReminderBanner
     }
 
     /// Show a gentle reminder in the notch only when one is queued, the app is
@@ -526,6 +760,33 @@ final class AppState {
             && !shouldShowLearnedBanner
             && !shouldShowCleanupReadyBanner
             && !shouldShowDaySummary
+            && !shouldShowDueReminderBanner
+    }
+
+    /// Whether the notch surface is carrying something of its own right now — a
+    /// dictation state, a download, a banner, or one of the brief beats.
+    ///
+    /// The hover quick-actions panel reads this to stay out of the way: it and the
+    /// dictation surface both anchor to the notch, and two panels claiming the same
+    /// physical strip would draw over each other. Deliberately generous — when in
+    /// doubt the *dictation* surface wins, because it's the one reporting something
+    /// the user is doing right now.
+    var notchIsOccupied: Bool {
+        if phase != .idle { return true }
+        if download != nil || preparingEngine != nil { return true }
+        if approvals.pending != nil { return true }
+        return shouldShowReminderTimePrompt
+            || shouldShowDueReminderBanner
+            || shouldShowCommandConfirmation
+            || shouldShowDaySummary
+            || shouldShowBluetoothBanner
+            || shouldShowUndeliveredBanner
+            || shouldShowLearnedBanner
+            || shouldShowCleanupReadyBanner
+            || shouldShowReminder
+            || shouldShowDeliveredBeat
+            || shouldShowLiveTranscript
+            || shouldShowPolishedBeat
     }
 
     func resetTranscript() {
@@ -570,6 +831,30 @@ final class AppState {
     func clearHistory() {
         history = []
         Self.persistHistory([])
+    }
+
+    /// Record an answer so it survives its banner. The only entry point — bypassing it
+    /// skips the cap and the persistence, exactly like `appendHistory`.
+    func appendAnswer(
+        question: String,
+        answer: String,
+        provenance: String = "",
+        source: AnsweredQuestion.Source = .spoken
+    ) {
+        let trimmedAnswer = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAnswer.isEmpty else { return }
+        let entry = AnsweredQuestion(
+            question: question.trimmingCharacters(in: .whitespacesAndNewlines),
+            answer: trimmedAnswer,
+            provenance: provenance,
+            source: source)
+        answerLog = AnswerLog.appending(entry, to: answerLog)
+        AnswerLog.persist(answerLog)
+    }
+
+    func clearAnswerLog() {
+        answerLog = []
+        AnswerLog.persist([])
     }
 
     func removeHistoryEntry(_ id: UUID) {
@@ -621,4 +906,5 @@ final class AppState {
     private static func persistVocabulary(_ terms: [String]) {
         UserDefaults.standard.set(terms, forKey: vocabularyDefaultsKey)
     }
+
 }

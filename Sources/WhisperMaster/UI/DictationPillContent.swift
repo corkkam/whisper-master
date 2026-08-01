@@ -10,13 +10,17 @@ struct DictationPillContent: View {
     let state: AppState
     var geometry: NotchGeometry = .none
     var layout: NotchSurfaceLayout = NotchSurfaceLayout()
-    /// Tap action for the command-confirmation banner — opens Settings → Notes &
-    /// Reminders so a spoken reminder's default time is one click from editable.
+    /// Tap action for the command-confirmation and due-reminder banners — opens
+    /// Settings → Notes & Reminders, so a spoken reminder's default time is one
+    /// click from editable and a reminder that just fired is one click from done.
     var onOpenNotes: () -> Void = {}
     /// Puts the transcript that couldn't be pasted on the clipboard — the Copy
     /// button on the undelivered hint. Injected so the view stays AppKit-free;
     /// the owner reads the current (possibly polished) text itself.
     var onCopyUndelivered: () -> Void = {}
+    /// Ticks the due reminder off — or puts it back, if it's already ticked. The
+    /// owner holds the pre-tick snapshot needed to undo, so the view just asks.
+    var onToggleDueReminder: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -26,14 +30,21 @@ struct DictationPillContent: View {
         return false
     }
 
+    /// A reminder that has come due — the app's own scheduled alert, which lands
+    /// here rather than in Notification Centre. Outranks every hint below it: the
+    /// user set it for a moment, and this band is the whole of its delivery.
+    /// (`AppState.canShowDueReminderBanner` already yields it to the approval card
+    /// and the undelivered hint, and pauses its clock while it does.)
+    private var showDueReminder: Bool { !showApproval && state.shouldShowDueReminderBanner }
+
     /// The "note saved / reminder set" confirmation after a spoken command routed
     /// into Notes & Reminders — highest priority, since the paste was suppressed
     /// and this is the user's only feedback that the words went somewhere.
-    private var showCommandConfirmation: Bool { !showApproval && state.shouldShowCommandConfirmation }
+    private var showCommandConfirmation: Bool { !showApproval && !showDueReminder && state.shouldShowCommandConfirmation }
 
     /// The "what's my day" answer — the immediate result of a connector query the
     /// user just asked for. Just under the command confirmation.
-    private var showDaySummary: Bool { !showApproval && !showCommandConfirmation && state.shouldShowDaySummary }
+    private var showDaySummary: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && state.shouldShowDaySummary }
 
     /// The "nowhere to paste" hint — the immediate consequence of a dictation
     /// that had no target field.
@@ -45,22 +56,23 @@ struct DictationPillContent: View {
     private var showUndelivered: Bool { !showApproval && !showCommandConfirmation && !showDaySummary && state.shouldShowUndeliveredBanner }
 
     /// The "learned a word" confirmation — just under the undelivered hint.
-    private var showLearned: Bool { !showApproval && !showCommandConfirmation && !showDaySummary && !showUndelivered && state.shouldShowLearnedBanner }
+    private var showLearned: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && state.shouldShowLearnedBanner }
 
     /// The one-shot "smart cleanup is ready" confirmation — just under the
     /// learned hint. (Model download *progress* never appears here.)
-    private var showCleanupReady: Bool { !showApproval && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
+    private var showCleanupReady: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
 
     /// The Bluetooth-mic hint takes precedence over the dictation indicator and
     /// uses a taller band to fit its text + button.
-    private var showBanner: Bool { !showApproval && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
+    private var showBanner: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
 
     /// A gentle reminder — lower priority than the hints above, shown only when
     /// idle (`AppState.shouldShowReminder` already gates that).
-    private var showReminder: Bool { !showApproval && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
+    private var showReminder: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
 
     private var bandThickness: CGFloat {
         if showApproval { return layout.bannerThickness }
+        if showDueReminder { return layout.dueReminderThickness }
         if showCommandConfirmation { return layout.commandConfirmationThickness }
         if showDaySummary { return layout.daySummaryThickness }
         if showUndelivered { return layout.undeliveredThickness }
@@ -106,7 +118,7 @@ struct DictationPillContent: View {
     /// them in this same order; this is the single "not the dictation indicator"
     /// test the width, thickness and glow all read from.
     private var bandIsBanner: Bool {
-        showApproval || showCommandConfirmation || showDaySummary || showUndelivered
+        showApproval || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered
             || showLearned || showCleanupReady || showBanner || showReminder
     }
 
@@ -192,7 +204,7 @@ struct DictationPillContent: View {
     private var isExpanded: Bool {
         // Hints, the delivered beat, and the polish that runs on after a paste
         // all show even when idle.
-        if showCommandConfirmation || showDaySummary || showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
+        if showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
             || state.shouldShowDeliveredBeat || state.shouldShowLiveTranscript
             || state.shouldShowPolishedBeat { return true }
         guard hasContent else { return false }
@@ -258,7 +270,7 @@ struct DictationPillContent: View {
         // button, the tappable command confirmation, and the undelivered hint's
         // Copy button); the dictation indicator stays click-through (the panel
         // toggles ignoresMouseEvents to match).
-        .allowsHitTesting(showApproval || showBanner || showCommandConfirmation || showUndelivered)
+        .allowsHitTesting(showApproval || showBanner || showCommandConfirmation || showUndelivered || showDueReminder)
         // Appear *instantly* (no animation when expanding), animate only the
         // retract. A spring on the way in read as "the notch appears late" even
         // though the state flips synchronously on key-press. Banners (below) keep
@@ -279,7 +291,9 @@ struct DictationPillContent: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showReminder)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showCommandConfirmation)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showDaySummary)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: state.isSpeakingAnswer)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showApproval)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showDueReminder)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowDeliveredBeat)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowPolishedBeat)
     }
@@ -290,12 +304,21 @@ struct DictationPillContent: View {
             NotchApprovalBanner(approval: approval) { outcome in
                 state.approvals.resolve(outcome)
             }
+        } else if showDueReminder, let reminder = state.dueReminder {
+            NotchDueReminderBanner(
+                reminder: reminder,
+                isCompleted: state.dueReminderCompleted,
+                onToggle: onToggleDueReminder,
+                onOpen: onOpenNotes)
         } else if showCommandConfirmation, let message = state.commandConfirmation {
-            NotchCommandConfirmationBanner(message: message)
+            NotchCommandConfirmationBanner(
+                message: message,
+                detail: state.commandConfirmationDetail,
+                icon: state.commandConfirmationIcon)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onOpenNotes)
         } else if showDaySummary, let summary = state.activeDaySummary {
-            NotchDaySummaryBanner(summary: summary)
+            NotchDaySummaryBanner(summary: summary, isSpeaking: state.isSpeakingAnswer)
         } else if showUndelivered {
             NotchUndeliveredBanner(text: state.undeliveredText ?? "", onCopy: onCopyUndelivered)
         } else if showLearned, let term = state.learnedTerm {

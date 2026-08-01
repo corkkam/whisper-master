@@ -21,7 +21,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.8</string>
+	<string>1.2.9-beta.1</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -36,9 +36,13 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1785418477</string>
+	<string>1785625857</string>
 	<key>ClerkPublishableKey</key>
 	<string>REPLACE_WITH_CLERK_PUBLISHABLE_KEY</string>
+	<key>GAAPISecret</key>
+	<string>$(GA_API_SECRET)</string>
+	<key>GAMeasurementID</key>
+	<string>$(GA_MEASUREMENT_ID)</string>
 	<key>GoogleOAuthClientID</key>
 	<string>140047576864-ev40jmg8f2ju19j39qj1u761vse6ddhl.apps.googleusercontent.com</string>
 	<key>LSMinimumSystemVersion</key>
@@ -66,7 +70,7 @@
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://model.scoopscore.in/appcast.xml</string>
+	<string>https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>GzJbT0hu27rHZeu6Bs8Q9BZ0Le/7te8V0zvREWkhHsk=</string>
 	<key>SUScheduledCheckInterval</key>

@@ -576,14 +576,27 @@ private struct LiveSidebarAccountRow: View {
     @Environment(Clerk.self) private var clerk
 
     var body: some View {
-        let user = clerk.user
-        AccountRowContent(
-            name: AccountIdentity.displayName(for: user),
-            subtitle: "on-device",
-            imageURL: AccountIdentity.imageURL(for: user),
-            isOpen: isOpen,
-            open: open
-        )
+        // No user means no session — say so, because the popup this row opens does.
+        // `AccountIdentity.displayName(for: nil)` answers "Signed in" (its fallback
+        // for a *signed-in* account with no name on it), so passing a nil user
+        // straight through made the row assert the opposite of the popup.
+        if let user = clerk.user {
+            AccountRowContent(
+                name: AccountIdentity.displayName(for: user),
+                subtitle: "on-device",
+                imageURL: AccountIdentity.imageURL(for: user),
+                isOpen: isOpen,
+                open: open
+            )
+        } else {
+            AccountRowContent(
+                name: "Not signed in",
+                subtitle: "Sign in to dictate",
+                imageURL: nil,
+                isOpen: isOpen,
+                open: open
+            )
+        }
     }
 }
 

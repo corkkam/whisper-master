@@ -76,9 +76,30 @@ enum SnapshotMode {
         renderOnboarding(dir, name: "onboarding-2-accessibility", state: state) {
             .snapshot(step: .accessibility, micGranted: true)
         }
-        renderOnboarding(dir, name: "onboarding-3-ready", state: state) {
-            .snapshot(step: .ready, micGranted: true, accessibilityGranted: true)
+        renderOnboarding(dir, name: "onboarding-3-open-at-login", state: state) {
+            .snapshot(step: .openAtLogin, micGranted: true, accessibilityGranted: true)
         }
+        // The state that looks enabled and isn't: registered, held by macOS until
+        // the user approves it under Login Items.
+        renderOnboarding(dir, name: "onboarding-3b-login-needs-approval", state: state) {
+            .snapshot(
+                step: .openAtLogin,
+                micGranted: true,
+                accessibilityGranted: true,
+                launchAtLoginNeedsApproval: true)
+        }
+        renderOnboarding(dir, name: "onboarding-4-ready", state: state) {
+            .snapshot(
+                step: .ready,
+                micGranted: true,
+                accessibilityGranted: true,
+                launchAtLoginEnabled: true)
+        }
+
+        // The hover quick-actions band: what the notch holds when the pointer rests
+        // on it. Both states, since the empty one is what a fresh account sees.
+        renderQuickActions(dir, name: "quick-actions", state: state)
+        renderQuickActions(dir, name: "quick-actions-empty", state: AppState())
 
         // Notch pill / moment-of-truth states. The dark surface is rendered on a
         // neutral backdrop so the black band reads. Each state uses its own fresh
@@ -89,12 +110,14 @@ enum SnapshotMode {
             s.phase = .recording
             s.audioLevel = 0.18
         }
-        // Toggle mode — "Dictating (hands-free)" is the longest state word there is,
-        // and `wideSideExtension` is sized to it. If this one ever renders truncated
-        // or runs under the camera housing, the wing is too short.
+        // Latched by a double-tap — "Dictating (hands-free)" is the longest state
+        // word there is, and `wideSideExtension` is sized to it. If this one ever
+        // renders truncated or runs under the camera housing, the wing is too short.
+        // Set via `handsFreeActive` (transient) rather than `holdToTalkEnabled`,
+        // which persists — a headless render must not rewrite the user's settings.
         renderPill(dir, name: "pill-0b-listening-hands-free") { s in
             s.phase = .recording
-            s.holdToTalkEnabled = false
+            s.handsFreeActive = true
             s.audioLevel = 0.3
         }
         // The same row *with words streaming in*, which must look identical to the
@@ -127,6 +150,41 @@ enum SnapshotMode {
         renderPill(dir, name: "pill-6-bluetooth") { s in
             s.phase = .idle
             s.bluetoothInputActive = true
+        }
+        // A reminder that has come due — this is where the app's own scheduled
+        // alerts land instead of Notification Centre.
+        renderPill(dir, name: "pill-6b-due-reminder") { s in
+            s.phase = .idle
+            s.dueReminder = ReminderItem(
+                title: "Call Migner",
+                dueDate: Date(),
+                alertStyle: .notification
+            )
+            s.dueReminderAt = Date()
+        }
+        // …and the same band after the checkbox has been ticked, which holds for a
+        // short undo window rather than vanishing on the click.
+        renderPill(dir, name: "pill-6c-due-reminder-done") { s in
+            s.phase = .idle
+            s.dueReminder = ReminderItem(
+                title: "Call Migner",
+                dueDate: Date(),
+                alertStyle: .notification
+            )
+            s.dueReminderAt = Date()
+            s.dueReminderCompleted = true
+        }
+        // An assistant answer being read aloud: the calendar glyph gives way to the
+        // speaker, and the band's expiry clock is paused for the duration.
+        renderPill(dir, name: "pill-6d-day-summary-speaking") { s in
+            s.phase = .idle
+            s.activeDaySummary = DaySummary(
+                headline: "Three meetings, first at ten.",
+                detail: "From Work calendar",
+                events: [], gaps: [], scopedTo: nil)
+            s.daySummaryAt = Date()
+            s.daySummaryWasSpoken = true
+            s.isSpeakingAnswer = true
         }
         renderPill(dir, name: "pill-7-polishing") { s in
             s.phase = .idle
@@ -192,6 +250,27 @@ enum SnapshotMode {
     )
 
     /// Render the notch pill in a single state onto a neutral backdrop.
+    /// Render the hover quick-actions band on the same stand-in bezel the pill and
+    /// onboarding snapshots use, sized exactly as the real panel so a layout change
+    /// can't silently clip it.
+    private static func renderQuickActions(_ dir: URL, name: String, state: AppState) {
+        let layout = NotchQuickActionsLayout()
+        let geometry = snapshotNotch
+        let model = NotchQuickActionsModel(state: state)
+        let panel = layout.panelSize(for: geometry, rows: model.visibleRowCount)
+        let view = ZStack(alignment: .top) {
+            Color(white: 0.28)
+            NotchQuickActionsView(
+                model: model,
+                geometry: geometry,
+                layout: layout
+            )
+            .frame(width: panel.width, height: panel.height, alignment: .top)
+        }
+        .frame(width: panel.width + 92, height: panel.height + 60)
+        render(view, to: dir.appendingPathComponent("\(name).png"))
+    }
+
     private static func renderPill(_ dir: URL, name: String, configure: (AppState) -> Void) {
         let state = AppState()
         state.hidePillWhenIdle = false
@@ -252,6 +331,21 @@ enum SnapshotMode {
             TranscriptHistoryEntry(text: "Let's ship the redesign and get feedback from the team before the demo on Friday.", createdAt: Date(timeIntervalSinceNow: -300), engineRawValue: TranscriberEngine.slidingWindow.rawValue),
             TranscriptHistoryEntry(text: "Remember to sync the FluidAudio version across Package.swift and project.yml.", createdAt: Date(timeIntervalSinceNow: -3600), engineRawValue: TranscriberEngine.slidingWindow.rawValue),
             TranscriptHistoryEntry(text: "The quick brown fox jumps over the lazy dog.", createdAt: Date(timeIntervalSinceNow: -7200), engineRawValue: TranscriberEngine.slidingWindow.rawValue),
+        ]
+        // Assigned directly rather than through `appendAnswer`, which persists — the
+        // renderer must never write into a real user's defaults (same reason `history`
+        // is set the same way above).
+        state.answerLog = [
+            AnsweredQuestion(
+                question: "what's on my calendar today",
+                answer: "You have three meetings. Standup at ten, the design review at one, and a one-to-one with Priya at four. Your afternoon is otherwise clear until then.",
+                provenance: "From Work, Personal",
+                askedAt: Date(timeIntervalSinceNow: -420)),
+            AnsweredQuestion(
+                question: "Morning briefing",
+                answer: "Two things need you today: the release notes, and Friday's demo script.",
+                askedAt: Date(timeIntervalSinceNow: -9000),
+                source: .automation),
         ]
         seedUsage(state.usageStore)
         seedNotes(state.notesStore)

@@ -4,17 +4,25 @@ import Network
 // MARK: - RemoteTranscriptionServer
 //
 // Advertises a Bonjour transcription service on the local Wi-Fi and runs a
-// `RemoteTranscriptionSession` per connecting client. Owned by `AppDelegate`;
-// started once at launch and left advertising for the app's lifetime. The
-// existing local (menu-bar) recording flow is untouched.
+// `RemoteTranscriptionSession` per connecting client. Owned by `AppDelegate`.
+// The existing local (menu-bar) recording flow is untouched.
+//
+// SECURITY POSTURE (this used to be wide open — see `RemotePairing`):
+//
+//   • Encrypted + authenticated. The listener speaks TLS with a pre-shared key
+//     (`RemotePairing`). A client that doesn't hold the key fails the handshake,
+//     so unpaired peers never reach session code, and the audio/transcripts on
+//     the wire are ciphertext rather than plaintext PCM.
+//   • Opt-in. `AppDelegate` starts this only when the user has switched remote
+//     dictation on. It used to start unconditionally for every user at launch.
+//   • Bounded. `maxConcurrentSessions` is now *enforced* in `accept()`, not just
+//     advertised: each session owns its own transcriber (hundreds of MB of
+//     models), so unlimited accepts were a trivial memory-exhaustion DoS. Frame
+//     sizes are bounded too — see `MessageChannel.maxFramePayloadBytes`.
 //
 // The advertisement uses an anonymous, generic instance name (never the owner's
 // computer name) and carries `PeerMetadata` in its TXT record (id, model family,
 // live load) so other Macs in the mesh can list this one and see how busy it is.
-//
-// Multiple concurrent sessions are tracked so `currentLoad` is meaningful (and to
-// set up later load-balancing). Each session owns its own transcriber, so several
-// at once cost real memory/CPU — fine for a handful of clients; cap if needed.
 
 @MainActor
 final class RemoteTranscriptionServer {
@@ -45,11 +53,20 @@ final class RemoteTranscriptionServer {
 
     func start() {
         guard listener == nil else { return }
+
+        // No pairing key means we cannot authenticate or encrypt. Refuse to
+        // listen rather than falling back to an open plaintext socket — an
+        // unreachable service is a far better failure than a wide-open one.
+        guard let parameters = RemotePairing.tlsParameters() else {
+            NSLog("RemoteTranscriptionServer: no pairing key available — refusing to start an unauthenticated listener")
+            return
+        }
+
         do {
             // Bind a fixed port so an off-LAN client (Tailscale) can reach us at
             // a known host:port; Bonjour still advertises the same port on the LAN.
             let port = NWEndpoint.Port(rawValue: WireProtocol.fixedPort)!
-            let listener = try NWListener(using: .tcp, on: port)
+            let listener = try NWListener(using: parameters, on: port)
             listener.service = makeService(load: 0)
             listener.stateUpdateHandler = { state in
                 switch state {
@@ -82,6 +99,17 @@ final class RemoteTranscriptionServer {
     }
 
     private func accept(_ connection: NWConnection) {
+        // Enforce the advertised capacity. Each session allocates its own
+        // transcriber, so accepting without a bound let any paired-but-hostile
+        // (or merely buggy) client exhaust memory by opening connections in a
+        // loop. Refusing here costs the client a reconnect; not refusing cost
+        // the whole app.
+        guard sessions.count < Self.maxConcurrentSessions else {
+            NSLog("RemoteTranscriptionServer: at capacity (\(Self.maxConcurrentSessions)) — rejecting connection")
+            connection.cancel()
+            return
+        }
+
         let id = UUID()
         connection.start(queue: queue)
 

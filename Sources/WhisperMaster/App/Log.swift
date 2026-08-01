@@ -33,4 +33,9 @@ enum Log {
 
     /// General app lifecycle (launch-at-login, window policy, etc.).
     static let app = Logger(subsystem: subsystem, category: "app")
+
+    /// Connector reads — credential resolution and the provider HTTP calls behind
+    /// them. A connector row can only ever say *that* it failed; this is where
+    /// *why* is recoverable after the fact.
+    static let connectors = Logger(subsystem: subsystem, category: "connectors")
 }

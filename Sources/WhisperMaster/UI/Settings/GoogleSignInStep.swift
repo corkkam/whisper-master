@@ -22,6 +22,10 @@ struct GoogleSignInStep: View {
     @State private var selected: Set<String> = []
     @State private var label = ""
     @State private var failure: String?
+    /// Why the calendar list came back empty, when it was a refusal rather than an
+    /// account with nothing on it. Separate from `failure` because it doesn't block
+    /// the connection — `primary` still works.
+    @State private var listFailure: String?
 
     /// The flow is linear but each step can fail, so it's an explicit phase rather than a
     /// pile of booleans.
@@ -113,8 +117,16 @@ struct GoogleSignInStep: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel("Which calendars?")
             if calendars.isEmpty {
-                Text("This account has no calendars we can read.")
-                    .font(Typography.subheadline).foregroundStyle(Theme.textSecondary)
+                // An empty picker used to be a dead end — nothing to tick, so the
+                // Add button could never enable. Say why, and state the fallback the
+                // save actually uses, so this stays a finishable step.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(listFailure ?? "We couldn\u{2019}t list this account\u{2019}s calendars.")
+                        .font(Typography.subheadline).foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("We\u{2019}ll read its main calendar instead.")
+                        .font(Typography.caption).foregroundStyle(Theme.textTertiary)
+                }
             } else {
                 SettingsCard {
                     ForEach(Array(calendars.enumerated()), id: \.element.id) { index, calendar in
@@ -186,8 +198,26 @@ struct GoogleSignInStep: View {
         .background(Theme.surface.opacity(0.6))
     }
 
+    /// A picker with rows must have one ticked. A picker with *no* rows isn't a
+    /// choice the user can make, so it doesn't block — `save()` falls back to
+    /// `primary`, which every Google account has.
     private var canSave: Bool {
-        !selected.isEmpty && !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        (!selected.isEmpty || calendars.isEmpty)
+            && !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Google's refusals here are nearly always the grant, so name that first.
+    static func listFailureMessage(for error: Error) -> String {
+        switch error {
+        case ConnectorHTTP.Failure.unauthorized:
+            return "Google wouldn\u{2019}t let us list this account\u{2019}s calendars \u{2014} the sign-in didn\u{2019}t include calendar access."
+        case ConnectorHTTP.Failure.rateLimited:
+            return "Google is rate-limiting this account right now."
+        case ConnectorHTTP.Failure.badStatus(let code, _):
+            return "Google answered \(code) when we asked for this account\u{2019}s calendars."
+        default:
+            return "We couldn\u{2019}t reach Google to list this account\u{2019}s calendars."
+        }
     }
 
     // MARK: - Actions
@@ -197,13 +227,13 @@ struct GoogleSignInStep: View {
         failure = nil
         Task { @MainActor in
             do {
-                // `calendar.events` (read+write) rather than readonly, because the write
-                // tools need it and a second consent screen later is worse UX than one
-                // now. Nothing can write without a standing grant regardless.
-                let tokens = try await flow.authorize(scopes: [
-                    GoogleOAuthConfig.Scope.calendarEvents,
-                    GoogleOAuthConfig.Scope.userinfoEmail,
-                ])
+                // `calendar.readonly` *and* `calendar.events`: the first is what
+                // `calendarList` needs, the second is read+write on events, asked for
+                // now because the write tools need it and a second consent screen
+                // later is worse UX than one now. Nothing can write without a
+                // standing grant regardless.
+                let tokens = try await flow.authorize(
+                    scopes: GoogleOAuthConfig.Scope.calendarConnect)
                 credential = tokens.merged(into: ConnectorCredential())
 
                 guard let provider = ProviderRegistry.googleCalendarAPI else {
@@ -231,7 +261,17 @@ struct GoogleSignInStep: View {
                 }
 
                 phase = .loadingCalendars
-                calendars = await provider.calendarList(credential: credential)
+                do {
+                    calendars = try await provider.calendarList(credential: credential)
+                    listFailure = nil
+                } catch {
+                    // Not fatal: the grant is good and `primary` is always readable,
+                    // so the connection is still worth making. Say what happened and
+                    // let the user finish rather than stranding them on a disabled
+                    // button with no explanation.
+                    calendars = []
+                    listFailure = Self.listFailureMessage(for: error)
+                }
                 selected = Set(calendars.map(\.id))
                 if label.isEmpty { label = Self.suggestedLabel(from: identity) }
                 phase = .choosing
@@ -264,11 +304,15 @@ struct GoogleSignInStep: View {
     }
 
     private func save() {
+        // `primary` is the documented alias for the account's own calendar and is
+        // what `todaysEventsAsync` already defaults to, so an unlistable account
+        // still produces a connector that reads something.
+        let ids = selected.isEmpty ? ["primary"] : Array(selected)
         let instance = ConnectorInstance(
             kind: .googleCalendar,
             label: label,
             identity: identity,
-            config: .googleAPI(calendarIDs: Array(selected)))
+            config: .googleAPI(calendarIDs: ids))
         let stored = store.add(instance)
         // Saved under the *stored* id, after the store has settled the label — a
         // uniqueness suffix must not orphan the credential.

@@ -10,6 +10,27 @@ import Foundation
 // them for mesh latency probes, and the iOS client sends them as a liveness
 // heartbeat to detect zombie connections (e.g. a dead Tailscale path that never
 // reports a failure).
+//
+// ⚠️ BREAKING TRANSPORT CHANGE — the iOS client needs a matching update.
+//
+// The frame shapes below are unchanged, but they no longer travel over bare TCP.
+// The connection is now TLS with a pre-shared key (see `RemotePairing`), because
+// the old plaintext-and-unauthenticated socket let anyone who could reach the
+// port use this Mac's models, and let anyone on the path read the audio and
+// transcripts. An old client will fail the handshake and never reach these
+// messages.
+//
+// To update iOS:
+//   1. Parse the pairing QR's new `k` (URL-safe base64 256-bit key) and `i`
+//      (identity hint) query items and store the key in the Keychain.
+//   2. Build `NWParameters` exactly as `RemotePairing.tlsParameters` does —
+//      `NWProtocolTLS.Options`, min TLS 1.2, `sec_protocol_options_add_pre_shared_key`
+//      with that key + identity, and append the
+//      `TLS_PSK_WITH_AES_128_GCM_SHA256` ciphersuite — then dial with those
+//      instead of `.tcp`.
+//   3. Mirror `MessageChannel.maxFramePayloadBytes` so both ends reject
+//      oversized frames identically.
+// Re-pair each device after a key rotation (Settings → Nearby Macs → Rotate).
 
 /// Bonjour / framing constants.
 enum WireProtocol {

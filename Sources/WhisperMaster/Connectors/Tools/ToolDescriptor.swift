@@ -5,6 +5,12 @@ import Foundation
 enum ToolAccess: String, Codable, Sendable {
     case read
     case write
+    /// Changes nothing outside this Mac: the user's own on-device notes and
+    /// reminders. Deliberately **not** `.write` — a write is a call to somebody
+    /// else's service, which is what the approval card exists to gate, and routing a
+    /// note through a consent card the user answers by holding a key would be a
+    /// prompt with one possible answer. The chord *is* the consent here.
+    case local
 }
 
 /// One parameter of a tool, in just enough schema to validate a model's call.

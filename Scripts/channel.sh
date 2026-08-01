@@ -24,7 +24,7 @@ case "$CHANNEL" in
     stable)
         CH_APP_NAME="Whisper Master"
         CH_BUNDLE_ID="app.whispermaster.mac"
-        CH_SU_FEED_URL="https://model.scoopscore.in/appcast.xml"
+        CH_SU_FEED_URL="https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast.xml"
         CH_APPCAST_NAME="appcast.xml"
         CH_DMG_STABLE_NAME="WhisperMaster.dmg"
         ;;
@@ -38,7 +38,7 @@ case "$CHANNEL" in
     dev)
         CH_APP_NAME="Whisper Master Dev"
         CH_BUNDLE_ID="app.whispermaster.mac.dev"
-        CH_SU_FEED_URL="https://model.scoopscore.in/appcast-dev.xml"
+        CH_SU_FEED_URL="https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast-dev.xml"
         CH_APPCAST_NAME="appcast-dev.xml"
         CH_DMG_STABLE_NAME="WhisperMaster-dev.dmg"
         ;;

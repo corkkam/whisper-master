@@ -4,14 +4,21 @@ import SwiftUI
 /// (headline + next-thing) via the shared `NotchBannerRow`, on the dark surface.
 struct NotchDaySummaryBanner: View {
     let summary: DaySummary
+    /// Being read aloud right now. The glyph says so — otherwise a voice comes out of
+    /// the Mac with nothing on screen indicating which of its surfaces is talking.
+    var isSpeaking: Bool = false
 
     var body: some View {
         NotchBannerRow(
-            icon: "calendar",
+            icon: isSpeaking ? "speaker.wave.2.fill" : "calendar",
             title: summary.headline,
-            accessibilityText: summary.accessibilityText,
+            accessibilityText: accessibilityText,
             subtitle: { Text(subtitleText) }
         )
+        // Crossfade rather than a hard swap, and no perpetual motion: the record dot's
+        // breathe is the system's only recurring animation, and a pulsing notch would
+        // spend that meaning twice (see the design rules in `UI/CLAUDE.md`).
+        .contentTransition(.symbolEffect(.replace))
     }
 
     /// The next-thing line, with a quiet tail when an enabled connector couldn't
@@ -28,4 +35,9 @@ struct NotchDaySummaryBanner: View {
         }
         return line
     }
+
+    /// VoiceOver never hears the "reading aloud" state, because the speaker stands down
+    /// entirely when VoiceOver is running (`AnswerSpeaker.speak`) — announcing a voice
+    /// that isn't going to talk would just be wrong.
+    private var accessibilityText: String { summary.accessibilityText }
 }

@@ -127,9 +127,22 @@ enum NotchActivity: Equatable {
     ///
     /// `holdToTalk` is needed for one case: in toggle mode the band staying open
     /// isn't explained by a key being held, so it says so.
-    func label(holdToTalk: Bool) -> String {
+    ///
+    /// `commandCapture` is the other: the command chord is held, so these words are
+    /// going to the assistant rather than to the cursor. That's the one thing about a
+    /// live session the user can't see from anywhere else — where the words went only
+    /// becomes visible after the fact, in the confirmation banner — so the band says
+    /// it while there's still time to let go. It replaces the hands-free wording
+    /// rather than stacking with it: a chord is being *held*, so "hands free" can't be
+    /// true at the same time. It stays true through the tool-calling loop too, where
+    /// the alternative caption ("Polishing") would name a rewrite that isn't running.
+    func label(holdToTalk: Bool, commandCapture: Bool = false) -> String {
         switch self {
+        // Not "Taking a command": the chord asks as well as instructs, and a user
+        // mid-question shouldn't be told the band is waiting for an order.
+        case .listening where commandCapture: "Asking the assistant"
         case .listening: holdToTalk ? "Dictating" : "Dictating (hands-free)"
+        case .polishing where commandCapture: "Working on it"
         case .polishing: "Polishing"
         case .polished: "Polished"
         case .preparing: "Getting ready"

@@ -21,6 +21,15 @@ final class NotchOnboardingModel {
     /// True while the system's microphone prompt is up.
     private(set) var requestingMic = false
     private(set) var accessibilityGranted = false
+    /// Registered *and* approved as a login item — the app will be there after a
+    /// restart. Mirrors `LaunchAtLogin.isEnabled`, re-read on every poll tick so a
+    /// change made in System Settings lands here too.
+    private(set) var launchAtLoginEnabled = false
+    /// Registered, but macOS is holding it for approval in Login Items. The one
+    /// state that looks enabled and isn't, so the beat says so out loud.
+    private(set) var launchAtLoginNeedsApproval = false
+    /// Why the registration failed, if it did.
+    private(set) var launchAtLoginError: String?
     /// Smoothed mic level. Non-zero only while the mic check is running, so the
     /// orb's wave is driven by real audio and nothing else.
     private(set) var level: Float = 0
@@ -68,9 +77,21 @@ final class NotchOnboardingModel {
         micGranted = status == .granted
         micDenied = status == .denied
         accessibilityGranted = permissions.accessibilityGranted()
+        refreshLaunchAtLogin()
         if micGrantedOnEntry == nil { micGrantedOnEntry = micGranted }
         syncMicCheck()
         scheduleAdvanceIfSatisfied()
+    }
+
+    /// Re-read the OS Login Items state. Neither registering nor approving posts a
+    /// notification, so this rides the same 0.75 s poll as the two permissions —
+    /// which is also what notices the approval the user just gave in System Settings.
+    private func refreshLaunchAtLogin() {
+        let launch = LaunchAtLogin.shared
+        launch.refresh()
+        launchAtLoginEnabled = launch.isEnabled
+        launchAtLoginNeedsApproval = launch.needsApproval
+        launchAtLoginError = launch.lastError
     }
 
     /// Release the mic. Must be called when the band goes away, or the check
@@ -106,6 +127,19 @@ final class NotchOnboardingModel {
     func grantAccessibility() {
         permissions.promptAccessibility()
         permissions.openAccessibilitySettings()
+    }
+
+    /// Register the app as a login item. When macOS holds it for approval the beat
+    /// switches to the "approve it" ask instead of claiming success.
+    func enableLaunchAtLogin() {
+        LaunchAtLogin.shared.setEnabled(true)
+        refreshLaunchAtLogin()
+        scheduleAdvanceIfSatisfied()
+    }
+
+    /// Send the user to the one pane that can approve a held registration.
+    func openLoginItemsSettings() {
+        LaunchAtLogin.shared.openLoginItemsSettings()
     }
 
     func advance() {
@@ -146,6 +180,11 @@ final class NotchOnboardingModel {
             return micGranted && (heardVoice || micGrantedOnEntry == true)
         case .accessibility:
             return accessibilityGranted
+        case .openAtLogin:
+            // Approved-and-on only. `.requiresApproval` deliberately does not
+            // satisfy the beat — that state doesn't launch at login, so moving on
+            // from it would teach the user setup was done when it wasn't.
+            return launchAtLoginEnabled
         case .ready:
             return false
         }
@@ -226,6 +265,8 @@ final class NotchOnboardingModel {
         micGranted: Bool = false,
         micDenied: Bool = false,
         accessibilityGranted: Bool = false,
+        launchAtLoginEnabled: Bool = false,
+        launchAtLoginNeedsApproval: Bool = false,
         heardVoice: Bool = false,
         level: Float = 0
     ) -> NotchOnboardingModel {
@@ -234,6 +275,8 @@ final class NotchOnboardingModel {
         model.micGranted = micGranted
         model.micDenied = micDenied
         model.accessibilityGranted = accessibilityGranted
+        model.launchAtLoginEnabled = launchAtLoginEnabled
+        model.launchAtLoginNeedsApproval = launchAtLoginNeedsApproval
         model.heardVoice = heardVoice
         model.level = level
         return model

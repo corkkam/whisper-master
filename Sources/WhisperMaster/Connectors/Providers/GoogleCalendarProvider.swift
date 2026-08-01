@@ -47,6 +47,8 @@ struct GoogleCalendarProvider: EventReadingProvider {
         do {
             resolved = try await CredentialStrategy.resolve(for: instance)
         } catch {
+            Log.connectors.error(
+                "google calendar: credential resolve failed for \(instance.displayLabel, privacy: .public): \(String(describing: error), privacy: .public)")
             return ProviderReadOutcome([], error: CredentialStrategy.connectorError(for: error))
         }
         // A refresh may have produced new tokens — persist once, here, rather than on
@@ -63,7 +65,20 @@ struct GoogleCalendarProvider: EventReadingProvider {
         }
         let formatter = ISO8601DateFormatter()
 
+        // One bad calendar must not blank the account. A Google account carries
+        // calendars the user never chose — Birthdays, Holidays, a shared calendar
+        // whose access was revoked — and any one of them can refuse while the rest
+        // read fine. Failing the whole instance on the first refusal loses every
+        // real event; so failures are collected and only *all* of them failing is
+        // reported as the instance's error.
         var events: [DayEvent] = []
+        var failure: ConnectorError?
+        var failedCount = 0
+        // What Google actually granted, as opposed to what we asked for — the user
+        // can decline individual scopes on the consent screen, and a token that
+        // lists calendars but can't read events is exactly what a partial grant
+        // looks like. Not a secret (it's a space-separated list of URLs).
+        let grantedScope = ConnectorCredentials.load(for: instance.id)?["scope"] ?? "none recorded"
         for calendarID in calendarIDs {
             var components = URLComponents(string: "\(Self.base)/calendars/\(calendarID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? calendarID)/events")!
             components.queryItems = [
@@ -77,11 +92,23 @@ struct GoogleCalendarProvider: EventReadingProvider {
             do {
                 let json = try await ConnectorHTTP.getJSON(url, token: resolved.token)
                 events += Self.parseEvents(json, instanceLabel: instance.displayLabel)
-            } catch let failure as ConnectorHTTP.Failure {
-                return ProviderReadOutcome([], error: failure.connectorError)
+            } catch let error as ConnectorHTTP.Failure {
+                failedCount += 1
+                failure = failure ?? error.connectorError
+                Log.connectors.error(
+                    "google calendar: \(instance.displayLabel, privacy: .public) calendar \(calendarID, privacy: .public) failed: \(String(describing: error), privacy: .public) [granted scope: \(grantedScope, privacy: .public)]")
             } catch {
-                return ProviderReadOutcome([], error: .credentialInvalid)
+                failedCount += 1
+                failure = failure ?? .credentialInvalid
+                Log.connectors.error(
+                    "google calendar: \(instance.displayLabel, privacy: .public) calendar \(calendarID, privacy: .public) failed: \(String(describing: error), privacy: .public) [granted scope: \(grantedScope, privacy: .public)]")
             }
+        }
+        // Every calendar refused → the account itself is the problem, so the row
+        // says so. A partial failure is logged and otherwise ignored: the events we
+        // did get are worth more than an error badge over them.
+        if failedCount == calendarIDs.count, let failure {
+            return ProviderReadOutcome([], error: failure)
         }
         return ProviderReadOutcome(events.sorted { $0.start < $1.start })
     }
@@ -96,12 +123,23 @@ struct GoogleCalendarProvider: EventReadingProvider {
 
     /// Which calendars this account exposes — the picker's data for an API-backed
     /// instance, the analogue of `CalendarConnector.availableCalendars`.
-    func calendarList(credential: ConnectorCredential) async -> [(id: String, title: String)] {
-        guard let token = credential.accessToken else { return [] }
-        guard let url = URL(string: "\(Self.base)/users/me/calendarList?maxResults=100") else { return [] }
-        guard let json = try? await ConnectorHTTP.getJSON(url, token: token),
-              let items = json["items"] as? [[String: Any]]
-        else { return [] }
+    ///
+    /// **Throws rather than returning `[]` on failure.** Swallowing the error here is
+    /// what made a missing `calendar.readonly` scope look like "this account has no
+    /// calendars": `calendarList.list` answers 403 for a grant that only carries
+    /// `calendar.events`, and an empty list is indistinguishable from a real refusal.
+    /// The caller needs the difference to say something true.
+    func calendarList(credential: ConnectorCredential) async throws -> [(id: String, title: String)] {
+        guard let token = credential.accessToken else {
+            throw ConnectorHTTP.Failure.unauthorized
+        }
+        guard let url = URL(string: "\(Self.base)/users/me/calendarList?maxResults=100") else {
+            throw ConnectorHTTP.Failure.malformedResponse
+        }
+        let json = try await ConnectorHTTP.getJSON(url, token: token)
+        guard let items = json["items"] as? [[String: Any]] else {
+            throw ConnectorHTTP.Failure.malformedResponse
+        }
         return items.compactMap { item in
             guard let id = item["id"] as? String else { return nil }
             return (id, (item["summary"] as? String) ?? id)

@@ -13,6 +13,9 @@ enum ToolRegistry {
     static func available(store: ConnectorInstanceStore,
                           includeWrites: Bool = true) -> [ToolDescriptor] {
         ToolCatalog.all.compactMap { descriptor in
+            // A local tool needs no connection and has no consent card to bind to —
+            // it's the user's own on-device data — so neither gate below applies.
+            if descriptor.access == .local { return descriptor }
             if descriptor.access == .write {
                 guard includeWrites else { return nil }
                 // A write tool with no target argument could only ever be granted

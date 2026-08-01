@@ -98,6 +98,9 @@ struct NotchSurfaceLayout {
     /// Band for the "note saved / reminder set" confirmation after a spoken
     /// command routed into Notes & Reminders — headline plus a short second line.
     var commandConfirmationThickness: CGFloat = 52
+    /// Band for a reminder that has come due — its title plus the body (or the
+    /// time it was set for). Same footprint as the other two-line hints.
+    var dueReminderThickness: CGFloat = 52
     /// Band for the "what's my day" answer — headline plus a next-thing line.
     /// Same footprint as the Bluetooth banner (the tallest), so `panelSize` fits it.
     var daySummaryThickness: CGFloat = 58

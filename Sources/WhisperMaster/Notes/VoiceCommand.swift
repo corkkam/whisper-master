@@ -16,10 +16,14 @@ struct DetectedCommand: Equatable, Sendable {
 }
 
 /// A cheap, pure keyword gate over a finished transcript. It answers one question
-/// — *does this look like a note/reminder command?* — without touching any model,
-/// so ordinary dictation pays zero latency (only command-looking text goes on to
-/// the on-device decision-maker). Deliberately conservative: it only fires on a
-/// leading trigger phrase, never mid-sentence.
+/// — *which kind of thing is this command, and what are its words?* — without
+/// touching any model, so a capture still files correctly when the on-device model
+/// isn't loaded. Deliberately conservative: it only fires on a leading trigger
+/// phrase, never mid-sentence.
+///
+/// It runs **only on a capture the user armed with the command chord** (fn +
+/// control). An ordinary dictation is never inspected for triggers, so a sentence
+/// that merely opens with "remind me to…" is typed like any other words.
 enum CommandDetector {
     // Ordered loosely; `detect` sorts each list longest-first so the fullest
     // trigger wins ("remind me to" beats "remind me", leaving no dangling "to").
@@ -116,6 +120,22 @@ struct ClassifiedIntent: Equatable, Sendable {
         case .reminder:
             self.init(kind: .reminder, title: detected.payload)
         }
+    }
+
+    /// The deterministic reading of a capture the user **explicitly armed** by
+    /// holding the command chord (fn + control).
+    ///
+    /// Since the key press already said "this is a command", this never returns
+    /// `.dictation`: a recognized trigger phrase picks the kind, and a capture with
+    /// no trigger at all becomes a **note** — the kind that needs nothing but
+    /// words, where a reminder would have to invent a time. So "take a note buy
+    /// milk" and a bare "buy milk" both land, and neither gets typed into whatever
+    /// the user happened to be looking at.
+    static func armedCapture(of text: String) -> ClassifiedIntent {
+        if let detected = CommandDetector.detect(text) {
+            return ClassifiedIntent(detected)
+        }
+        return ClassifiedIntent(kind: .note, title: "", body: text)
     }
 }
 

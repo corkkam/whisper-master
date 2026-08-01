@@ -54,7 +54,10 @@ enum ConnectorHTTP {
             switch self {
             case .unauthorized: return .credentialInvalid
             case .rateLimited: return .rateLimited
-            case .transport, .badStatus, .malformedResponse: return .credentialInvalid
+            // Not the credential's fault — a dropped connection or a status that
+            // isn't 401/403 says nothing about the token, and telling the user to
+            // reconnect over a 500 sends them through an OAuth flow that can't help.
+            case .transport, .badStatus, .malformedResponse: return .unreachable
             }
         }
     }
@@ -66,12 +69,21 @@ enum ConnectorHTTP {
                         token: String,
                         headers: [String: String] = [:],
                         timeout: TimeInterval = 20) async throws -> [String: Any] {
+        // An empty token is a resolution bug, never a legitimate anonymous call —
+        // every endpoint behind this needs a bearer. Sending the request without the
+        // header let Google answer 403 "unregistered callers", which is
+        // indistinguishable on the row from a token it actually rejected. Fail here
+        // instead, where the cause is still legible.
+        guard !token.isEmpty else {
+            Log.connectors.error(
+                "\(url.path, privacy: .public): refusing to call with an empty bearer token")
+            throw Failure.unauthorized
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = timeout
-        if !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
 
@@ -84,6 +96,14 @@ enum ConnectorHTTP {
         }
 
         guard let http = response as? HTTPURLResponse else { throw Failure.malformedResponse }
+        if !(200..<300).contains(http.statusCode) {
+            // 401 and 403 collapse into one case, and "invalid token" vs "insufficient
+            // scope" are opposite problems with opposite fixes — so the status and the
+            // provider's own words are logged here, once, for every provider.
+            // The token is never logged; the path and body are what diagnose this.
+            Log.connectors.error(
+                "\(url.path, privacy: .public) → \(http.statusCode, privacy: .public): \(String(data: data, encoding: .utf8)?.prefix(400) ?? "", privacy: .public)")
+        }
         switch http.statusCode {
         case 200..<300: break
         case 401, 403: throw Failure.unauthorized

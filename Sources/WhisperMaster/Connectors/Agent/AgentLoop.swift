@@ -42,6 +42,32 @@ enum AgentPrompt {
         - Never invent events, names or numbers. Only report what a tool returned.
         """
     }
+
+    /// The prompt for a **spoken command** — the fn + control chord.
+    ///
+    /// Different from `system` in one load-bearing way: the user held a key that
+    /// means "act on this", so answering without calling anything is a failure, not a
+    /// shortcut. The last rule is what turns an unclassifiable mumble into a saved
+    /// note instead of a lost one, and it's backed up in code — a run that called no
+    /// tool is treated as exhausted and falls back to filing the words verbatim.
+    static func command(toolList: String) -> String {
+        """
+        The user spoke a command. Carry it out by calling one tool, then report what you did.
+
+        Tools:
+        \(toolList)
+
+        Rules:
+        - Reply with ONE JSON object and nothing else. No prose, no markdown fence.
+        - To call a tool: {"tool":"<name>","args":{...}}
+        - To report the result: {"answer":"<one short sentence>"}
+        - Call exactly one tool first. Never answer before calling one.
+        - Only use arguments listed for that tool. Never call the same tool twice.
+        - For times, pass the user's own words ("tomorrow at 9"), never a date you worked out.
+        - Never invent events, names or numbers. Only report what a tool returned.
+        - If nothing else fits, call create_note with what the user said.
+        """
+    }
 }
 
 /// The local tool-calling loop.
@@ -65,17 +91,21 @@ struct AgentLoop {
     typealias Generate = (String, String) async -> String?
 
     let tools: [ToolDescriptor]
-    let router: ToolRouter
+    let router: any AgentToolRunning
     let generate: Generate
     /// Four is enough for "list, then answer" with two retries for a malformed call.
     /// Higher just gives a struggling 3B more rope.
     var maxIterations: Int = 4
     var budget: TimeInterval = 20
     var now: () -> Date = Date.init
+    /// The prompt the loop runs under. A question and a spoken command want different
+    /// instructions (see `AgentPrompt.command`), and the difference is the caller's to
+    /// make — everything below is the same machine either way.
+    var prompt: (String) -> String = AgentPrompt.system(toolList:)
 
     func run(question: String) async -> AgentOutcome {
         guard !tools.isEmpty else { return .failed }
-        let systemPrompt = AgentPrompt.system(toolList: ToolRegistry.promptDescription(for: tools))
+        let systemPrompt = prompt(ToolRegistry.promptDescription(for: tools))
         let deadline = now().addingTimeInterval(budget)
 
         var turns: [AgentTurn] = []

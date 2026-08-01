@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 @testable import WhisperMaster
@@ -96,5 +97,54 @@ final class VoiceCommandTests: XCTestCase {
         XCTAssertEqual(intent.kind, .reminder)
         XCTAssertEqual(intent.title, "go shopping")
         XCTAssertNil(intent.timePhrase, "fallback never invents a time")
+    }
+
+    // MARK: - Armed capture (the fn + control chord)
+
+    func testArmedCaptureUsesTheTriggerPhraseWhenThereIsOne() {
+        let note = ClassifiedIntent.armedCapture(of: "take a note that the wifi password is hunter2")
+        XCTAssertEqual(note.kind, .note)
+        XCTAssertEqual(note.body, "the wifi password is hunter2")
+
+        let reminder = ClassifiedIntent.armedCapture(of: "remind me to call mom")
+        XCTAssertEqual(reminder.kind, .reminder)
+        XCTAssertEqual(reminder.title, "call mom")
+    }
+
+    func testArmedCaptureWithNoTriggerPhraseStillFilesAsANote() {
+        // The key press already said "this is a command", so a capture with no
+        // trigger must never fall through to being typed.
+        let intent = ClassifiedIntent.armedCapture(of: "buy milk and eggs")
+        XCTAssertEqual(intent.kind, .note)
+        XCTAssertEqual(intent.body, "buy milk and eggs")
+        XCTAssertNil(intent.timePhrase)
+    }
+
+    func testArmedCaptureNeverReturnsDictation() {
+        for text in ["the meeting went really well today", "what time is the standup", "hello"] {
+            XCTAssertNotEqual(ClassifiedIntent.armedCapture(of: text).kind, .dictation, text)
+        }
+    }
+}
+
+/// The fixed chord behind an armed capture. Pure mask arithmetic, so it tests
+/// without an event tap.
+final class ModifierChordTests: XCTestCase {
+    func testCommandChordNeedsBothKeys() {
+        let chord = ModifierChord.command
+        XCTAssertTrue(chord.isHeld([.function, .control]))
+        XCTAssertTrue(chord.isHeld([.function, .control, .shift]), "extra modifiers don't break it")
+        XCTAssertFalse(chord.isHeld([.function]))
+        XCTAssertFalse(chord.isHeld([.control]))
+        XCTAssertFalse(chord.isHeld([]))
+    }
+
+    func testCommandChordIsSideAgnostic() {
+        // The generic `.control` flag is set whichever control key is down, so both
+        // sides of the keyboard work — unlike `HotkeyOption`'s device-specific bits.
+        let leftControl = NSEvent.ModifierFlags(rawValue: 0x0001)
+        let rightControl = NSEvent.ModifierFlags(rawValue: 0x2000)
+        XCTAssertTrue(ModifierChord.command.isHeld([.function, .control, leftControl]))
+        XCTAssertTrue(ModifierChord.command.isHeld([.function, .control, rightControl]))
     }
 }

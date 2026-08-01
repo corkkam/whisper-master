@@ -11,9 +11,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Last appearance pushed onto `NSApp`, so the 0.5s refresh loop can spot a
     /// change without reassigning (and re-rendering) every tick.
     private var appliedAppearance: AppAppearance?
+    /// What the tray currently shows, so the same 0.5s loop only rebuilds the icon /
+    /// rewrites the tooltip and menu header when the state behind them changed. The
+    /// icon is keyed by SF Symbol name, with `""` standing for the brand logo.
+    private var appliedTrayIconKey: String?
+    private var appliedTrayTooltip: String?
+    private var appliedTrayHeader: String?
     private var hotkeyManager: HotkeyManager?
-    /// The dedicated "ask about my day" push-to-talk monitor (see `setupHotkey`).
-    private var dayQueryHotkeyManager: HotkeyManager?
+    /// Watches the fn + control chord — "what I'm about to say goes to the
+    /// assistant, not the cursor" (see `setupHotkey`).
+    private var commandChordMonitor: ModifierChordMonitor?
     private let permissionsManager = PermissionsManager()
     private lazy var viewModel = DictationViewModel(
         hotkeyUpdater: { [weak self] hotkey in
@@ -41,6 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Owns the single looping-alarm alert window. Created lazily on first fire.
     private let alarmController = AlarmController()
     private var pillWindow: DictationPillWindow?
+    /// The hover quick-actions band. Watches the notch on its own slow timer and is
+    /// only on screen while open, so it never sits over the menu bar.
+    private var quickActionsWindow: NotchQuickActionsWindow?
     private var bluetoothInputMonitor: BluetoothInputMonitor?
     private var onboardingWindow: NotchOnboardingWindow?
     /// The launch sign-in gate. Nil until first shown; reused thereafter.
@@ -87,8 +97,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ClerkConfig.configureIfPossible()
 
         // Sync the Settings "Open at login" toggle with the OS Login Items state
-        // (the user may have changed it in System Settings while we were quit).
-        LaunchAtLogin.shared.refresh()
+        // (the user may have changed it in System Settings while we were quit) —
+        // and re-register if an app update replaced the bundle and the OS dropped
+        // the registration, which otherwise silently stops us opening at login.
+        LaunchAtLogin.shared.reconcileOnLaunch()
 
         applyAppearance()
 
@@ -250,6 +262,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Bring up everything that was held behind the gate, exactly once, after
     /// the first successful sign-in. Signing out later just re-shows the gate;
     /// it doesn't tear these back down.
+    /// Bring the remote transcription listener in line with the user's opt-in.
+    ///
+    /// Idempotent: `start()` returns early when already listening and `stop()`
+    /// when already stopped, so this is safe to call on every refresh tick. That
+    /// is how a Settings toggle takes effect without an app restart — and, more
+    /// importantly, how switching it *off* actually closes the socket.
+    private func reconcileRemoteServer() {
+        if viewModel.state.remoteDictationEnabled {
+            transcriptionServer.start()
+        } else {
+            transcriptionServer.stop()
+        }
+    }
+
     private func proceedAfterAuthIfNeeded() {
         guard !didProceedAfterAuth else { return }
         didProceedAfterAuth = true
@@ -259,9 +285,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // screen — model prep only needs the network, not mic/accessibility.
         viewModel.prepareDefaultEngineOnLaunch()
 
-        // Advertise the LAN transcription service so iOS clients can stream
-        // audio here and use this Mac's models.
-        transcriptionServer.start()
+        // Advertise the LAN transcription service so a paired phone can stream
+        // audio here and use this Mac's models — but only if the user asked for
+        // it. This is opt-in (default off): it opens a listening socket, and it
+        // used to start for every install unconditionally. `reconcileRemoteServer`
+        // on the refresh tick picks up later toggles.
+        reconcileRemoteServer()
         // Discover other Macs running Whisper Master on the network (the mesh).
         meshCoordinator.start()
 
@@ -336,6 +365,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window?.orderOut(nil)
         onboardingWindow?.close()
         pillWindow?.hide()
+        // Nothing of the account's data may be reachable behind the gate, and the
+        // band is made of exactly that.
+        quickActionsWindow?.stop()
     }
 
     /// Bring the passive dictation pill back after a sign-in. The Settings window
@@ -345,6 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard appSurfacesHidden else { return }
         appSurfacesHidden = false
         pillWindow?.show()
+        quickActionsWindow?.start()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -353,6 +386,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // in the background (hotkeys, pill, mesh, model downloads). Minimize /
         // Hide / close all leave the process running; only Quit ends it.
         false
+    }
+
+    /// Silence any answer still being read aloud.
+    ///
+    /// **Not optional.** Speech plays out of process (`speechsynthesisd` for the system
+    /// voice), so quitting mid-utterance can leave the Mac talking after the app is
+    /// gone — with nothing left on screen to explain it or any way to stop it.
+    func applicationWillTerminate(_ notification: Notification) {
+        viewModel.stopSpeaking()
     }
 
     /// Fire the launch-time analytics signals. No-ops entirely when the user
@@ -601,15 +643,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let state = viewModel.state
 
         let (symbol, tooltip, headerText) = trayAppearance(for: state)
-        // `nil` symbol → show the brand logo (the calm idle/ready state).
-        // Active states keep their SF Symbol so status stays glanceable.
-        if let symbol, let image = Self.statusImage(symbol: symbol) {
-            button.image = image
-        } else if symbol == nil, let logo = BrandAsset.trayTemplateImage(points: 18) {
-            button.image = logo
+        // **Only write the tray icon when it actually changes.** This runs twice a
+        // second for the life of the process; reassigning `button.image` every tick
+        // built a fresh `NSImage` each time and pushed a status-item update through
+        // the menu-bar server for a picture that is identical ~99% of ticks. Same
+        // reasoning as `appliedAppearance` above. (`nil` symbol → the brand logo, the
+        // calm idle/ready state; active states keep their SF Symbol so status stays
+        // glanceable.) The key is cached only on a successful assignment, so a failed
+        // image lookup is retried on the next tick rather than latched.
+        let iconKey = symbol ?? ""
+        if appliedTrayIconKey != iconKey {
+            if let symbol, let image = Self.statusImage(symbol: symbol) {
+                button.image = image
+                appliedTrayIconKey = iconKey
+            } else if symbol == nil, let logo = BrandAsset.trayTemplateImage(points: 18) {
+                button.image = logo
+                appliedTrayIconKey = iconKey
+            }
         }
-        button.toolTip = tooltip
-        statusHeader?.title = headerText
+        if appliedTrayTooltip != tooltip {
+            appliedTrayTooltip = tooltip
+            button.toolTip = tooltip
+        }
+        if appliedTrayHeader != headerText {
+            appliedTrayHeader = headerText
+            statusHeader?.title = headerText
+        }
 
         startItem?.isEnabled = state.canStart
         stopItem?.isEnabled = state.canStop
@@ -617,12 +676,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // The notch panel is click-through except while an interactive banner is
         // up — the Bluetooth-mic "use built-in" button, the tappable command
-        // confirmation ("reminder set · tap to change"), the undelivered hint's
-        // Copy button, or a write-approval card — where clicks matter.
+        // confirmation ("reminder set · tap to change"), a due reminder (tap to
+        // open it), the undelivered hint's Copy button, or a write-approval
+        // card — where clicks matter.
         pillWindow?.setInteractive(
             state.approvals.pending != nil
                 || state.shouldShowBluetoothBanner
                 || state.shouldShowCommandConfirmation
+                || state.shouldShowDueReminderBanner
                 || state.shouldShowUndeliveredBanner)
 
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
@@ -651,6 +712,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Fire any reminders that have come due (poll-driven — the app is a
         // persistent menu-bar process, so this is the reliable path).
         fireDueReminders()
+
+        // Retract a due reminder once its window elapses — but only count the time
+        // it was actually on screen. A dictation (or an approval card) started
+        // mid-window hides the band, and an alert the user never saw must not
+        // expire silently behind whatever took the notch: while it's suppressed
+        // the clock is pushed forward, so it restarts when the band comes back.
+        if state.dueReminder != nil {
+            if !state.canShowDueReminderBanner {
+                state.dueReminderAt = Date()
+            } else if let at = state.dueReminderAt,
+                      Date().timeIntervalSince(at) >= state.dueReminderWindow {
+                state.dueReminder = nil
+                state.dueReminderAt = nil
+                state.dueReminderCompleted = false
+            }
+        }
 
         // Retract the "nowhere to paste" hint once its display window elapses.
         if let at = state.undeliveredTranscriptAt,
@@ -682,7 +759,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Retract the "note saved / reminder set" confirmation once its window
         // elapses (nil-ing both fields drives the pill re-render + retract).
         if let at = state.commandConfirmationAt,
-           Date().timeIntervalSince(at) >= AppState.commandConfirmationDuration {
+           Date().timeIntervalSince(at) >= state.commandConfirmationWindow {
             state.commandConfirmation = nil
             state.commandConfirmationAt = nil
         }
@@ -694,16 +771,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.deliveredAt = nil
         }
 
-        // Retract the "what's my day" answer once its (longer) window elapses.
-        if let at = state.daySummaryAt,
-           Date().timeIntervalSince(at) >= AppState.daySummaryDuration {
-            state.activeDaySummary = nil
-            state.daySummaryAt = nil
+        // Retract the "what's my day" answer once its window elapses — but the clock
+        // only runs while nobody is reading it aloud. Pinning `daySummaryAt` to now for
+        // the length of the speech means the band holds for exactly as long as the voice
+        // takes, and `daySummaryWindow` then leaves a short tail to finish reading it.
+        // Same paused-clock trick as the due reminder above, for the same reason: a
+        // window the user couldn't have finished must not expire behind them.
+        if state.activeDaySummary != nil {
+            if state.isSpeakingAnswer {
+                state.daySummaryAt = Date()
+            } else if let at = state.daySummaryAt,
+                      Date().timeIntervalSince(at) >= state.daySummaryWindow {
+                state.activeDaySummary = nil
+                state.daySummaryAt = nil
+                state.daySummaryWasSpoken = false
+            }
         }
 
-        // Sync the "keep this Mac awake for phone dictation" opt-in to the server.
-        // `setKeepAwakeAlways` is transition-guarded, so calling it every tick is
-        // cheap — the timer is our bridge from @Observable state to AppKit.
+        // Backstop for the clock above: a speaking flag that never cleared would pin the
+        // band open forever. Also enforces the utterance ceiling and applies a
+        // voice/toggle change to whatever is playing right now. No-op most ticks, and it
+        // deliberately doesn't construct a speaker for a user who never speaks answers.
+        viewModel.reconcileSpeech()
+
+        // Start/stop the listener as the remote-dictation opt-in changes, then
+        // sync the "keep this Mac awake" opt-in. Both are transition-guarded, so
+        // calling them every tick is cheap — the timer is our bridge from
+        // @Observable state to AppKit.
+        reconcileRemoteServer()
         transcriptionServer.setKeepAwakeAlways(state.keepAwakeForRemote)
 
         // Keep Apple Intelligence availability fresh so the Settings hint updates
@@ -873,8 +968,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // The Copy button on the "nowhere to type that" hint — hands over
                 // the polished transcript when the on-device pass produced one.
                 self?.viewModel.copyUndeliveredTranscript()
+            },
+            onToggleDueReminder: { [weak self] in
+                // The checkbox on a reminder that just came due — ticks it off, or
+                // puts it back if the tick was a misfire.
+                self?.toggleDueReminder()
             })
         pillWindow?.show()
+
+        // Resting the pointer on the notch opens the quick-actions band (reminders
+        // + notes at a glance). It stays shut until a Clerk account is loaded (the
+        // stores are empty before that) and whenever the dictation surface has
+        // something of its own to say — see `AppState.notchIsOccupied`.
+        quickActionsWindow = NotchQuickActionsWindow(
+            state: viewModel.state,
+            onOpenNotes: { [weak self] request in
+                guard let self else { return }
+                self.viewModel.state.requestedSettingsSection = .notes
+                // A composer can't live on the bezel panel (no key window, no text
+                // field), so "New note" / "New reminder" open the real editor.
+                self.viewModel.state.requestedNotesComposer = request
+                self.showWindow()
+            },
+            onOpenSettings: { [weak self] in self?.showWindow() })
+        quickActionsWindow?.start()
+
         // Watch for a Bluetooth mic input so the notch can offer to switch to
         // the built-in mic (keeps earphones in hi-fi). Read-only detection.
         bluetoothInputMonitor = BluetoothInputMonitor(state: viewModel.state)
@@ -882,35 +1000,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupHotkey() {
-        hotkeyManager = HotkeyManager(hotkey: viewModel.state.hotkey) { [weak self] event in
+        hotkeyManager = HotkeyManager(
+            hotkey: viewModel.state.hotkey,
+            // Hold to dictate; double-tap to keep dictating hands-free.
+            latchesOnDoubleTap: true,
+            holdToTalk: { [weak self] in self?.viewModel.state.holdToTalkEnabled ?? true }
+        ) { [weak self] event in
             guard let self else { return }
             switch event {
-            case .pressed:
+            case .start:
                 // Gate dictation on sign-in AND waitlist acceptance: a press while
                 // signed out surfaces the sign-in window; while not-yet-accepted,
                 // the waitlist notice — instead of starting a recording.
                 guard self.ensureCanDictate() else { return }
-                self.viewModel.handleHotkeyPressed()
-            case .released:
-                self.viewModel.handleHotkeyReleased()
+                self.viewModel.handleHotkeyStart()
+            case .stop:
+                self.viewModel.handleHotkeyStop()
+            case .handsFree:
+                self.viewModel.handleHotkeyHandsFree()
+            case .toggle:
+                guard self.ensureCanDictate() else { return }
+                self.viewModel.handleHotkeyToggle()
             }
+        }
+        viewModel.hotkeyGestureReset = { [weak self] in
+            self?.hotkeyManager?.resetGesture()
         }
 
-        // The dedicated "ask about my day" push-to-talk: a separate key that
-        // always routes the finished transcript to the connectors (answered in the
-        // notch) instead of pasting it. Same sign-in gate as dictation.
-        dayQueryHotkeyManager = HotkeyManager(hotkey: viewModel.state.dayQueryHotkey) { [weak self] event in
+        // **The assistant chord: hold fn + control.** This is the single way in to
+        // every agent action and connector conversation — file a note or a reminder,
+        // read the calendar, run a connector write, or just ask a question — and the
+        // transcript is handled instead of typed. A chord rather than a key of its
+        // own, because with the default fn push-to-talk it reads as "dictate, plus
+        // control" — and it can therefore arm a recording that fn has *already*
+        // started (the two presses are never simultaneous), which is why the view
+        // model handles the edges rather than this closure. Same sign-in gate as
+        // dictation.
+        commandChordMonitor = ModifierChordMonitor(chord: .command) { [weak self] event in
             guard let self else { return }
             switch event {
-            case .pressed:
+            case .engaged:
                 guard self.ensureCanDictate() else { return }
-                self.viewModel.handleDayQueryHotkeyPressed()
+                self.viewModel.handleCommandChordEngaged()
             case .released:
-                self.viewModel.handleDayQueryHotkeyReleased()
+                self.viewModel.handleCommandChordReleased()
             }
-        }
-        viewModel.dayQueryHotkeyUpdater = { [weak self] hotkey in
-            self?.dayQueryHotkeyManager?.setHotkey(hotkey)
         }
     }
 
@@ -937,6 +1071,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         pillWindow?.hide()
+        // Onboarding owns the notch for the duration; the hover band must not open
+        // through it (both anchor to the same strip).
+        quickActionsWindow?.suspend()
 
         onboardingWindow = NotchOnboardingWindow(
             state: viewModel.state,
@@ -973,7 +1110,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func dismissOnboarding() {
         onboardingWindow?.close()
         onboardingWindow = nil
-        if !appSurfacesHidden { pillWindow?.show() }
+        if !appSurfacesHidden {
+            pillWindow?.show()
+            quickActionsWindow?.resume()
+        }
     }
 
     @objc
@@ -1117,16 +1257,24 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
     // MARK: - Reminders
 
     /// Alert any reminders that have come due (called each refresh tick). Marks
-    /// each fired so it alerts once; the alarm style takes over the alarm window
-    /// (one at a time — a reminder that can't take the busy surface stays due and
-    /// re-fires when it frees up).
+    /// each fired so it alerts once; each style takes over its own surface — the
+    /// notch band or the alarm window — one at a time, and a reminder that can't
+    /// have that busy surface stays due and re-fires when it frees up.
     private func fireDueReminders() {
         let store = viewModel.state.notesStore
         for reminder in store.dueReminders(asOf: Date()) {
             switch reminder.alertStyle {
             case .notification:
-                postReminderNotification(reminder)
-                store.markFired(reminder.id)
+                // The notch is where everything else this app says lands, so a
+                // reminder announces itself there too rather than in Notification
+                // Centre. Same busy rule as the alarm: only mark it fired once the
+                // band has actually taken it.
+                //
+                // Order matters: the band keeps `reminder` as the pre-`markFired`
+                // snapshot, which is what un-ticking its checkbox restores.
+                if presentReminderInNotch(reminder) {
+                    store.markFired(reminder.id)
+                }
             case .alarm:
                 // The alarm rings until the user acts: Snooze pushes it out, Done
                 // completes it (or re-arms a repeat). We deliberately DON'T
@@ -1144,24 +1292,48 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
         }
     }
 
-    private func postReminderNotification(_ reminder: ReminderItem) {
-        let content = UNMutableNotificationContent()
-        content.title = reminder.displayTitle
-        let body = reminder.body.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !body.isEmpty { content.body = body }
-        content.sound = UNNotificationSound(named: .init("\(ReminderSound.resolved(reminder.soundName)).aiff"))
-        let request = UNNotificationRequest(
-            identifier: "\(Self.reminderNotificationPrefix)\(reminder.id.uuidString)",
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request)
+    /// Drop a due reminder into the notch, with its chosen sound. Returns false
+    /// when the band can't take it right now — one announcement at a time, and it
+    /// yields to the surfaces `AppState.canShowDueReminderBanner` names — in which
+    /// case the caller leaves the reminder due so it re-fires on a later tick.
+    @discardableResult
+    private func presentReminderInNotch(_ reminder: ReminderItem) -> Bool {
+        let state = viewModel.state
+        guard state.dueReminder == nil, state.canShowDueReminderBanner else { return false }
+        state.dueReminder = reminder
+        state.dueReminderAt = Date()
+        state.dueReminderCompleted = false
+        Feedback.reminderDue(soundName: reminder.soundName)
+        return true
+    }
+
+    /// The due-reminder banner's checkbox, both ways.
+    ///
+    /// Ticking goes through `completeReminder`, so a repeating reminder rolls to
+    /// its next occurrence rather than being retired. Un-ticking hands back the
+    /// snapshot the band has been holding since it fired — the only copy of the
+    /// occurrence a repeat's roll-forward moved past.
+    private func toggleDueReminder() {
+        let state = viewModel.state
+        guard let reminder = state.dueReminder else { return }
+        if state.dueReminderCompleted {
+            state.notesStore.restoreReminder(reminder)
+            state.dueReminderCompleted = false
+        } else {
+            state.notesStore.completeReminder(reminder.id)
+            state.dueReminderCompleted = true
+        }
+        // Restart the hold from the answer, so the undo window is measured from the
+        // tick rather than from whatever was left of the announcement.
+        state.dueReminderAt = Date()
     }
 }
 
 extension AppDelegate: UNUserNotificationCenterDelegate {
+    /// Sparkle's gentle update reminder is the **only** thing this app posts to
+    /// Notification Centre. Reminders coming due are announced in the notch
+    /// (`presentReminderInNotch`) or by the alarm window.
     static let updateNotificationIdentifier = "app.whispermaster.update-available"
-    static let reminderNotificationPrefix = "app.whispermaster.reminder."
 
     /// Show the update banner even when the app is frontmost (otherwise macOS
     /// suppresses notifications for the active app).
@@ -1184,10 +1356,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
            response.actionIdentifier == UNNotificationDefaultActionIdentifier {
             NSApp.activate(ignoringOtherApps: true)
             updaterController.checkForUpdates(nil)
-        } else if identifier.hasPrefix(Self.reminderNotificationPrefix),
-                  response.actionIdentifier == UNNotificationDefaultActionIdentifier {
-            // Tapping a reminder opens the app (Notes & Reminders lives in Settings).
-            showWindow()
         }
         completionHandler()
     }

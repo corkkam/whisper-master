@@ -58,8 +58,258 @@ struct ConnectorAgentSettings: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 10)
                 }
+                RowDivider()
+                speechRows
             }
         }
+    }
+
+    // MARK: - Reading answers aloud
+
+    /// Speech sits **outside** the `connectorAgentEnabled` branch above: the
+    /// deterministic `DaySummaryService` answer is spoken too, so this works whether or
+    /// not the user let the model near their connectors.
+    @ViewBuilder
+    private var speechRows: some View {
+        SettingsRow(
+            "Read answers aloud",
+            subtitle: "Speaks the answer when you ask a question out loud. Uses a voice macOS already has — nothing extra is downloaded."
+        ) {
+            ThemeToggle(isOn: $state.speakAnswersEnabled, label: "Read answers aloud")
+                .disabled(isSnapshot)
+        }
+
+        if state.speakAnswersEnabled {
+            RowDivider()
+            SettingsRow(
+                "Also read scheduled answers",
+                subtitle: "Automations speak when they fire. Off by default — a Mac that starts talking on its own mid-meeting is a different thing from one that answers you."
+            ) {
+                ThemeToggle(isOn: $state.speakAutomationAnswersEnabled, label: "Read scheduled answers")
+                    .disabled(isSnapshot)
+            }
+            RowDivider()
+            SettingsRow("Voice", subtitle: voiceSubtitle) {
+                HStack(spacing: 8) {
+                    enginePicker
+                    if !isSnapshot {
+                        IconButton("play.circle", label: "Preview voice") {
+                            viewModel.previewVoice()
+                        }
+                    }
+                }
+            }
+            switch state.answerVoiceEngine {
+            case .system:
+                RowDivider()
+                systemVoiceRow
+            case .natural:
+                RowDivider()
+                naturalVoiceRow
+            }
+        }
+    }
+
+    private var voiceSubtitle: String {
+        switch state.answerVoiceEngine {
+        case .system:
+            return "A voice macOS already has. Instant, and it adds nothing to memory."
+        case .natural:
+            return "A small on-device voice that sounds far more human. About 310 MB, and it's unloaded again a couple of minutes after it stops talking."
+        }
+    }
+
+    @ViewBuilder
+    private var enginePicker: some View {
+        if isSnapshot {
+            staticValue(state.answerVoiceEngine.label)
+        } else {
+            Picker("", selection: $state.answerVoiceEngine) {
+                ForEach(AnswerVoiceEngine.allCases) { Text($0.label).tag($0) }
+            }
+            .labelsHidden().pickerStyle(.segmented).fixedSize()
+        }
+    }
+
+    // MARK: System voice
+
+    @ViewBuilder
+    private var systemVoiceRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Which voice")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer()
+                systemVoicePicker
+            }
+            // The stock compact voices sound robotic enough that someone who never
+            // learns the good ones are free will fairly conclude this isn't worth using.
+            if SystemVoiceCatalog.resolvedVoiceIsBasic(state.systemVoiceIdentifier) {
+                betterVoicesHint
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
+        .onAppear {
+            // Re-read once on open, and then keep watching: a voice downloaded in
+            // System Settings while this page is up should appear here without a
+            // relaunch, which is what makes the nudge below feel like it worked.
+            SystemVoiceCatalog.invalidate()
+            SystemVoiceCatalog.startObservingVoiceChanges()
+        }
+    }
+
+    @ViewBuilder
+    private var systemVoicePicker: some View {
+        if isSnapshot {
+            staticValue("Automatic")
+        } else {
+            Picker("", selection: $state.systemVoiceIdentifier) {
+                ForEach(SystemVoiceCatalog.installed(selecting: state.systemVoiceIdentifier)) {
+                    Text($0.label).tag($0.id)
+                }
+            }
+            .labelsHidden().pickerStyle(.menu).tint(Theme.accent).fixedSize()
+        }
+    }
+
+    /// There is no API to download a voice or open the voice sheet, so the honest move
+    /// is to name the exact path and open the pane. Same shape as the Globe-key conflict
+    /// hint in Recording settings.
+    private var betterVoicesHint: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.warning)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("You're on the basic built-in voice, which sounds robotic. macOS has much better ones for free — Accessibility → Spoken Content → System Voice → Manage Voices, then download an Enhanced or Premium voice. It shows up here straight away.")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !isSnapshot {
+                    Button("Open Spoken Content settings") {
+                        SystemVoiceCatalog.openSpokenContentSettings()
+                    }
+                    .textButton()
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
+                .fill(Theme.warningSoft)
+        )
+    }
+
+    // MARK: Natural voice
+
+    @ViewBuilder
+    private var naturalVoiceRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let download = state.naturalVoiceDownload {
+                downloadProgress(download)
+            } else if NaturalVoiceInstaller.isInstalled {
+                HStack {
+                    Text("Which voice")
+                        .font(Typography.subheadline)
+                        .foregroundStyle(Theme.textSecondary)
+                    Spacer()
+                    naturalVoicePicker
+                }
+                naturalStatusLine
+            } else {
+                Text("The natural voice runs on this Mac's Neural Engine, so it doesn't compete with the model that answers your questions. Until it's downloaded, answers use the system voice.")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !isSnapshot {
+                    Button("Download the natural voice (about 310 MB)") {
+                        viewModel.downloadNaturalVoice()
+                    }
+                    .outlinedButton()
+                }
+                if state.naturalVoiceFailed {
+                    Text("That download didn't finish. Answers keep using the system voice in the meantime.")
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.warning)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var naturalVoicePicker: some View {
+        if isSnapshot {
+            staticValue(NaturalVoiceCatalog.label(for: state.naturalVoiceID))
+        } else {
+            Picker("", selection: $state.naturalVoiceID) {
+                ForEach(NaturalVoiceCatalog.all) { Text($0.label).tag($0.id) }
+            }
+            .labelsHidden().pickerStyle(.menu).tint(Theme.accent).fixedSize()
+        }
+    }
+
+    /// Mirrors the shape of `SmartCleanupSettingsSection.statusRow` — a quiet status
+    /// line rather than another titled row, because it's ancillary to the picker above.
+    @ViewBuilder
+    private var naturalStatusLine: some View {
+        HStack(spacing: 8) {
+            if state.naturalVoiceFailed {
+                StatusDot(color: Theme.accent, size: 7)
+                Text("Couldn't load the voice — using the system one")
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer(minLength: 8)
+                Button("Retry") { state.naturalVoiceRetryRequested = true }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.accent)
+                    .pointerCursor()
+            } else if state.naturalVoiceReady {
+                StatusDot(color: Theme.success, size: 7)
+                Text("Voice ready")
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer(minLength: 0)
+            } else {
+                ProgressView().controlSize(.small)
+                Text("Warming the voice\u{2026} the first answer may use the system one")
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer(minLength: 0)
+            }
+        }
+        .font(Typography.caption)
+    }
+
+    private func downloadProgress(_ download: ModelInstaller.Progress) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(download.detail)
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer()
+                Text("\(Int(download.fractionCompleted * 100))%")
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            ProgressView(value: download.fractionCompleted)
+                .tint(Theme.accent)
+        }
+    }
+
+    /// `ImageRenderer` can't draw an AppKit `Menu`, so every picker above substitutes
+    /// this under `\.isSnapshot`. Same stand-in as `NotesSettingsView`.
+    private func staticValue(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Theme.textPrimary)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
+                    .fill(Theme.surface))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
+                    .strokeBorder(Theme.strokeStrong, lineWidth: 1))
     }
 
     // MARK: - Standing permissions

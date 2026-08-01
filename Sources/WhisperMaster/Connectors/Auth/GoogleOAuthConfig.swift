@@ -53,11 +53,20 @@ enum GoogleOAuthConfig {
     /// Gmail read is *restricted* and needs a CASA assessment, which is why Gmail
     /// ships behind manual token paste rather than this flow.
     enum Scope {
+        /// **Required to list the account's calendars.** `calendarList.list` accepts
+        /// only `calendar`, `calendar.readonly`, or the `calendar.calendarlist*`
+        /// scopes — `calendar.events` is *not* among them, so a grant carrying events
+        /// alone signs in fine and then 403s on the picker, which read as "this
+        /// account has no calendars we can read". Ask for both.
         static let calendarReadonly = "https://www.googleapis.com/auth/calendar.readonly"
         /// Read + write events — only requested when the user connects for writing.
         static let calendarEvents = "https://www.googleapis.com/auth/calendar.events"
         /// Identifies the account so the instance can be labelled and deduped.
         static let userinfoEmail = "https://www.googleapis.com/auth/userinfo.email"
+
+        /// What the sign-in flow asks for: list the calendars, read + write their
+        /// events, and learn the account email to label the instance.
+        static let calendarConnect = [calendarReadonly, calendarEvents, userinfoEmail]
     }
 
     private static func isPlaceholder(_ value: String) -> Bool {

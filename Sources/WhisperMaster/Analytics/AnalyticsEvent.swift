@@ -1,11 +1,16 @@
 import Foundation
 
-/// Every analytics signal the app can emit, with its wire name and parameters.
+/// Every analytics signal the app can emit, with its wire names and parameters.
 ///
-/// Pure and SDK-agnostic — `Analytics` translates these into PostHog events.
-/// **Nothing here carries user content:** only app versions, coarse buckets,
-/// and enum-like states. Numbers are bucketed so no single signal is
-/// fingerprintable back to a specific session.
+/// Pure and SDK-agnostic — `Analytics` translates these into PostHog events and
+/// Google Analytics 4 events. **Nothing here carries user content:** only app
+/// versions, coarse buckets, and enum-like states. Numbers are bucketed so no
+/// single signal is fingerprintable back to a specific session.
+///
+/// The two vendors get **different spellings of the same event** (`name` vs
+/// `googleName`) because GA4 rejects anything outside
+/// `[A-Za-z][A-Za-z0-9_]{0,39}` — no dots — while PostHog's existing dotted
+/// names are already live in dashboards and must not be renamed under them.
 enum AnalyticsEvent {
     /// The app was launched. Drives DAU/WAU/MAU, retention, and (via the SDK's
     /// automatic metadata) version / macOS / device / country breakdowns.
@@ -35,7 +40,32 @@ enum AnalyticsEvent {
         }
     }
 
+    /// The GA4 event name — snake_case, and deliberately **not** derived from
+    /// `name` by string munging, since these strings are what analysts will read
+    /// in the GA reports and a rename there orphans a saved exploration.
+    ///
+    /// None collide with GA's reserved names (`first_open`, `session_start`,
+    /// `user_engagement`, `in_app_purchase`, `app_remove`, …) or its reserved
+    /// prefixes (`ga_`, `google_`, `firebase_`), which GA drops on sight.
+    var googleName: String {
+        switch self {
+        case .appLaunched: return "app_launched"
+        case .onboardingFinished: return "onboarding_finished"
+        case .dictationCompleted: return "dictation_completed"
+        case .permissionState: return "permission_state"
+        case .updateInstalled: return "update_installed"
+        case .cleanupModelDownloaded: return "cleanup_model_downloaded"
+        }
+    }
+
     /// Content-free parameters attached to the signal.
+    ///
+    /// **One catalog for both sinks.** PostHog gets these names verbatim (they're
+    /// already live in its dashboards); GA gets them converted to its snake_case
+    /// convention by `GA4Limits.parameterName`, so `wordCountBucket` is registered
+    /// as the custom dimension `word_count_bucket`. Doing that as a deterministic
+    /// transform rather than a second hand-written dictionary is what keeps the
+    /// two vendors from drifting apart.
     var parameters: [String: String] {
         switch self {
         case .appLaunched, .onboardingFinished, .cleanupModelDownloaded:

@@ -32,6 +32,15 @@ enum Feedback {
         haptic()
     }
 
+    /// A reminder came due — its chosen sound, once. Deliberately **not** gated on
+    /// `soundEnabled`: that switch governs dictation lifecycle chrome, while this
+    /// is the audible half of an alert the user scheduled and picked a sound for
+    /// (the notch band is easy to miss if it arrives silently). No haptic — the
+    /// user isn't necessarily at the trackpad when a reminder fires.
+    static func reminderDue(soundName: String) {
+        play(ReminderSound.resolved(soundName), volume: 1.0)
+    }
+
     // MARK: - Internals
 
     private static var cache: [String: NSSound] = [:]

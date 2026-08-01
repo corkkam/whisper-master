@@ -3,7 +3,8 @@ import Foundation
 
 /// How a reminder announces itself when it comes due.
 enum ReminderAlertStyle: String, Codable, CaseIterable, Identifiable, Sendable {
-    /// A one-shot system notification banner carrying the chosen sound.
+    /// A one-shot notch band carrying the chosen sound. (It used to be a system
+    /// notification; the raw value is unchanged so stored reminders still decode.)
     case notification
     /// A looping sound plus a focused alert window that keeps ringing until the
     /// user acts (Snooze / Done).
@@ -13,7 +14,7 @@ enum ReminderAlertStyle: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var displayName: String {
         switch self {
-        case .notification: return "Notification"
+        case .notification: return "Notch banner"
         case .alarm: return "Loud alarm"
         }
     }
@@ -79,6 +80,17 @@ enum ReminderSound {
     static func label(for name: String) -> String {
         options.first(where: { $0.name == name })?.label ?? name
     }
+}
+
+/// Which editor a "new…" request wants opened. Set on `AppState` by a surface
+/// that can't compose text itself — the notch quick-actions panel is a
+/// non-activating panel on the bezel, so typing has to happen in the real window —
+/// and consumed by `NotesSettingsView`, which owns the editor sheets.
+enum NotesComposerRequest: String, Identifiable, Equatable, Sendable {
+    case note
+    case reminder
+
+    var id: String { rawValue }
 }
 
 /// A freeform note. `updatedAt` drives last-writer-wins sync; `deletedAt` is a

@@ -21,7 +21,18 @@ final class MessageChannel: @unchecked Sendable {
     enum ChannelError: Error {
         case connectionClosed
         case malformedFrame
+        case frameTooLarge
     }
+
+    /// Hard ceiling on a single frame's payload.
+    ///
+    /// The length prefix is a UInt32, so an unchecked peer can declare a 4 GiB
+    /// frame and then trickle bytes; `receiveExactly` would keep buffering until
+    /// the process died. Nothing legitimate comes close to this bound — control
+    /// frames are small JSON, and audio frames are short PCM chunks (16 kHz mono
+    /// Int16 is ~32 KB per second of speech) — so 4 MiB is generous for real
+    /// traffic and fatal for the attack.
+    static let maxFramePayloadBytes = 4 * 1024 * 1024
 
     private let connection: NWConnection
 
@@ -74,6 +85,10 @@ final class MessageChannel: @unchecked Sendable {
             | (UInt32(header[2]) << 16)
             | (UInt32(header[3]) << 8)
             | UInt32(header[4])
+        // Reject the declared size *before* allocating or buffering anything.
+        guard length <= UInt32(Self.maxFramePayloadBytes) else {
+            throw ChannelError.frameTooLarge
+        }
         let payload = length == 0 ? Data() : Data(try await receiveExactly(Int(length)))
         return (kind, payload)
     }

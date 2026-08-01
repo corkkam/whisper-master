@@ -16,8 +16,10 @@ CONFIG="${CONFIG:-Release}"        # Release | Debug
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}" # keychain identity; pass "-" for ad-hoc
 DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-7MFYAGK3VV}" # Developer ID team (manual signing requires it)
 
-# Load local config (git-ignored). Supplies POSTHOG_API_KEY for the analytics
-# key baked into Info.plist below; CI passes the same var from a secret instead.
+# Load local config (git-ignored). Supplies the analytics credentials baked into
+# Info.plist below — POSTHOG_API_KEY plus the GA4 pair GA_MEASUREMENT_ID /
+# GA_API_SECRET; CI passes the same vars from secrets instead. Any that are unset
+# bake as empty, which leaves that sink dormant rather than half-configured.
 if [[ -f .env ]]; then
     set -a; source .env; set +a
 fi
@@ -66,6 +68,8 @@ xcodebuild \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
     POSTHOG_API_KEY="${POSTHOG_API_KEY:-}" \
+    GA_MEASUREMENT_ID="${GA_MEASUREMENT_ID:-}" \
+    GA_API_SECRET="${GA_API_SECRET:-}" \
     ${SIGN_FLAGS[@]+"${SIGN_FLAGS[@]}"} \
     ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} \
     clean build 2>&1 | tee "$BUILD_LOG" | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)"
