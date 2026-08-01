@@ -75,23 +75,36 @@ actor GoogleAnalyticsClient {
         self.urlSession = URLSession(configuration: configuration)
     }
 
-    /// Send one event. Fire-and-forget: any failure is logged at debug and dropped.
-    func send(name: String, parameters: [String: String], now: Date = Date()) async {
+    /// Build the exact body that `send` posts. Split out from the network call so
+    /// the wire format — including the three-way merge precedence below — is
+    /// provable in a unit test rather than only observable in GA weeks later.
+    func payload(name: String, parameters: [String: String], now: Date) -> GA4Payload {
         let sessionID = session.touch(now: now)
+        // Precedence, weakest first: base context (app/OS version) < the event's
+        // own params < GA's required session params. The last step is what stops
+        // a future event from shadowing `session_id`/`engagement_time_msec` and
+        // silently emptying the standard reports.
         let merged = baseParameters
             .merging(parameters) { _, event in event }
             .merging(GA4Session.requiredParameters(sessionID: sessionID)) { _, required in required }
 
-        let event = GA4Event(
-            name: GA4Limits.eventName(name),
-            params: GA4Limits.parameters(merged)
-        )
-        let payload = GA4Payload(
+        return GA4Payload(
             clientID: clientID,
             timestampMicros: Int64(now.timeIntervalSince1970 * 1_000_000),
             nonPersonalizedAds: true,
-            events: [event]
+            events: [
+                GA4Event(
+                    name: GA4Limits.eventName(name),
+                    params: GA4Limits.parameters(merged)
+                )
+            ]
         )
+    }
+
+    /// Send one event. Fire-and-forget: any failure is logged at debug and dropped.
+    func send(name: String, parameters: [String: String], now: Date = Date()) async {
+        let payload = payload(name: name, parameters: parameters, now: now)
+        let event = payload.events[0]
 
         guard let body = try? JSONEncoder().encode(payload) else {
             Log.analytics.debug("GA4: could not encode \(event.name, privacy: .public)")

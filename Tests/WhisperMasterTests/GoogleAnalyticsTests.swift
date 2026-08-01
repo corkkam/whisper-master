@@ -186,6 +186,73 @@ final class GoogleAnalyticsTests: XCTestCase {
         XCTAssertEqual((events[0]["params"] as? [String: String])?["session_id"], "1")
     }
 
+    // MARK: - The body actually posted
+
+    /// Builds a client with the same shape the app does, and checks the real
+    /// bytes rather than a hand-written approximation of them.
+    private func makeClient(now: Date) -> GoogleAnalyticsClient {
+        GoogleAnalyticsClient(
+            measurementID: "G-TESTID0000",
+            apiSecret: "test-secret",
+            clientID: "11111111-2222-3333-4444-555555555555",
+            baseParameters: ["app_version": "1.2.9-beta.1", "platform": "macos"],
+            useDebugEndpoint: true,
+            now: now
+        )
+    }
+
+    func testPayloadMergesBaseEventAndRequiredParamsInThatOrder() async {
+        let now = Date(timeIntervalSince1970: 1_785_600_000)
+        let client = makeClient(now: now)
+
+        let payload = await client.payload(
+            name: AnalyticsEvent.dictationCompleted(
+                engine: "slidingWindow", duration: 42, wordCount: 30
+            ).googleName,
+            parameters: AnalyticsEvent.dictationCompleted(
+                engine: "slidingWindow", duration: 42, wordCount: 30
+            ).parameters,
+            now: now
+        )
+
+        let params = payload.events[0].params
+        XCTAssertEqual(payload.events[0].name, "dictation_completed")
+        XCTAssertEqual(payload.clientID, "11111111-2222-3333-4444-555555555555")
+        XCTAssertEqual(payload.timestampMicros, 1_785_600_000_000_000)
+        // Base context survives...
+        XCTAssertEqual(params["app_version"], "1.2.9-beta.1")
+        XCTAssertEqual(params["platform"], "macos")
+        // ...the event's own params arrive snake_cased...
+        XCTAssertEqual(params["duration_bucket"], "30-60s")
+        XCTAssertEqual(params["word_count_bucket"], "25-49")
+        // ...and GA's required pair is present.
+        XCTAssertEqual(params["session_id"], "1785600000")
+        XCTAssertEqual(params["engagement_time_msec"], "1")
+    }
+
+    func testEventParamsOverrideBaseButNeverTheRequiredSessionParams() async {
+        let now = Date(timeIntervalSince1970: 1_785_600_000)
+        let client = makeClient(now: now)
+
+        let payload = await client.payload(
+            name: "app_launched",
+            parameters: [
+                // An event trying to shadow the base context: allowed.
+                "app_version": "override-me",
+                // An event trying to shadow GA's session bookkeeping: must lose,
+                // or the standard reports quietly go empty.
+                "session_id": "hijacked",
+                "engagement_time_msec": "999999",
+            ],
+            now: now
+        )
+
+        let params = payload.events[0].params
+        XCTAssertEqual(params["app_version"], "override-me")
+        XCTAssertEqual(params["session_id"], "1785600000")
+        XCTAssertEqual(params["engagement_time_msec"], "1")
+    }
+
     // MARK: - Configuration gating
 
     func testGoogleStaysDormantWithoutBothCredentials() throws {
