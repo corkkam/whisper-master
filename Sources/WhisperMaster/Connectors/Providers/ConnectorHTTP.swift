@@ -139,4 +139,15 @@ enum ConnectorHTTP {
         if let date = withFraction.date(from: string) { return date }
         return ISO8601DateFormatter().date(from: string)
     }
+
+    /// The inverse, for a write. Emitted in the **local** time zone with its offset,
+    /// because a calendar event at "3pm" means 3pm where the user is; formatting it as
+    /// UTC `Z` would file the meeting at the right instant with the wrong wall-clock
+    /// reading in every calendar UI that shows the originating zone.
+    static func iso8601(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = .current
+        return formatter.string(from: date)
+    }
 }

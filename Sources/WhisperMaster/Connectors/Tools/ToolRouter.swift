@@ -27,6 +27,9 @@ struct ToolRouter {
     /// Raises an approval card and waits. Injected so the router is testable and so a
     /// headless run (an automation) can supply a policy instead of a UI.
     let requestApproval: (PendingApproval) async -> ApprovalOutcome
+    /// Injected so a `when` phrase ("tomorrow", "next monday") resolves against a
+    /// fixed clock in tests rather than the wall clock.
+    var now: () -> Date = Date.init
 
     func run(_ call: ToolCall) async -> ToolResult {
         guard let descriptor = ToolCatalog.descriptor(named: call.tool) else {
@@ -54,10 +57,12 @@ struct ToolRouter {
         case .read:
             // Unqualified reads merge; a named one narrows. This is the addressing rule
             // the whole design turns on.
-            let targets = named.flatMap { label in
-                ConnectorLabelMatcher.match(label, in: candidates).map { [$0] }
-            } ?? candidates
-            return await read(capability: capability, from: targets)
+            let scoped = named.flatMap { ConnectorLabelMatcher.match($0, in: candidates) }
+            let targets = scoped.map { [$0] } ?? candidates
+            return await read(capability: capability,
+                              from: targets,
+                              scopedTo: scoped?.displayLabel,
+                              call: call)
 
         case .write:
             // Unqualified writes use the kind default and say which one — never merge,
@@ -73,18 +78,35 @@ struct ToolRouter {
     // MARK: - Reads
 
     private func read(capability: ConnectorCapability,
-                      from instances: [ConnectorInstance]) async -> ToolResult {
+                      from instances: [ConnectorInstance],
+                      scopedTo: String?,
+                      call: ToolCall) async -> ToolResult {
         switch capability {
         case .events:
-            let summary = await DaySummaryService.buildAsync(store: store)
+            // The fan-out runs over exactly the instances resolved above. Passing the
+            // store alone here is what made a *named* calendar read merge every
+            // calendar while still reporting the one label the user said.
+            let day = resolveDay(call.arguments["when"])
+            let summary = await DaySummaryService.buildAsync(
+                store: store, instances: instances, scopedTo: scopedTo, now: day.date)
             let lines = summary.events.map { event in
                 let when = event.isAllDay ? "all day" : Self.time.string(from: event.start)
                 let whose = event.instanceLabel.isEmpty ? "" : " [\(event.instanceLabel)]"
                 return "\(when) — \(event.title)\(whose)"
             }
-            let text = lines.isEmpty ? "Nothing on the calendar today." : lines.joined(separator: "\n")
-            return ToolResult(ok: true, text: text,
-                              instanceLabels: instances.map(\.displayLabel))
+            // Gaps are named rather than read as an empty day: "couldn't look" and
+            // "nothing scheduled" mean opposite things.
+            let gaps = summary.gaps.map { "[\($0.instanceLabel)] couldn't be read: \($0.reason.message)" }
+            let body = (lines + gaps).joined(separator: "\n")
+            let text = body.isEmpty
+                ? "Nothing on the calendar \(day.label)."
+                : "\(day.heading):\n\(body)"
+            // Only the instances that actually contributed, so provenance can't claim
+            // an account that failed or was never asked.
+            let served = instances
+                .filter { instance in !summary.gaps.contains { $0.instanceLabel == instance.displayLabel } }
+                .map(\.displayLabel)
+            return ToolResult(ok: true, text: text, instanceLabels: served)
 
         case .messages, .tasks, .files, .mail:
             var lines: [String] = []
@@ -118,7 +140,22 @@ struct ToolRouter {
         guard let provider = ProviderRegistry.provider(for: instance) as? any WriteCapableProvider else {
             return .failure("\(instance.displayLabel) can't be written to.")
         }
+        // A tool whose target *is* the connection (a calendar event goes to a
+        // calendar, full stop) can be called without naming one — the default write
+        // target resolved it above. Bind the grant to that connection's label rather
+        // than refusing a call the user's own words never needed to qualify.
         let target = call.target(for: descriptor)
+            ?? (descriptor.targetArg == ToolDescriptor.instanceArgument ? instance.displayLabel : nil)
+
+        // Resolve a spoken `when` into concrete times **before** the approval card, so
+        // the card states the real time the user is agreeing to rather than the phrase
+        // the model echoed, and so both calendar providers receive one already-decided
+        // window instead of each parsing English.
+        let arguments: [String: String]
+        switch resolveWriteTimes(call.arguments, descriptor: descriptor) {
+        case .failure(let message): return .failure(message)
+        case .success(let resolved): arguments = resolved
+        }
 
         switch WriteAuthorizer.authorize(tool: descriptor,
                                          instanceID: instance.id,
@@ -134,7 +171,7 @@ struct ToolRouter {
                 instanceID: instance.id,
                 instanceLabel: instance.displayLabel,
                 target: target,
-                arguments: call.arguments)
+                arguments: arguments)
             switch await requestApproval(approval) {
             case .denied:
                 // Not an error — the user answered. Saying so plainly keeps the model
@@ -151,20 +188,115 @@ struct ToolRouter {
         }
 
         let result = await provider.performWrite(
-            tool: call.tool, arguments: call.arguments, instance: instance)
+            tool: call.tool, arguments: arguments, instance: instance)
         return ToolResult(ok: result.ok, text: result.summary,
                           instanceLabels: [instance.displayLabel])
     }
 
+    /// Turn a write tool's spoken `when` into concrete `start`/`end` ISO-8601 times.
+    ///
+    /// A rule rather than a per-tool special case: any write declaring a `when`
+    /// parameter gets this treatment. Providers then never parse English — they
+    /// receive one already-decided window, which is also what stops the Google and
+    /// EventKit calendars from disagreeing about what "friday morning" meant.
+    ///
+    /// An unparseable phrase **fails the call** rather than defaulting to now.
+    /// `RelativeTimeParser` returns nil precisely when the time wasn't clearly
+    /// stated, and a meeting silently filed at the wrong hour is the one outcome
+    /// worse than the model being told to try again.
+    private func resolveWriteTimes(_ arguments: [String: String],
+                                   descriptor: ToolDescriptor) -> ResolvedArguments {
+        guard descriptor.parameters.contains(where: { $0.name == "when" }) else {
+            return .success(arguments)
+        }
+        guard let phrase = arguments["when"], !phrase.isEmpty else {
+            return .failure("\(descriptor.name) needs \"when\".")
+        }
+        guard let start = RelativeTimeParser.parse(phrase, now: now()) else {
+            return .failure("Couldn't work out a time from \u{201C}\(phrase)\u{201D}. "
+                + "Say it as a clear time, like \u{201C}tomorrow at 3pm\u{201D}.")
+        }
+        let minutes = arguments["duration_minutes"].flatMap(Int.init) ?? Self.defaultEventMinutes
+        // A zero or negative duration would create an instantaneous event, which most
+        // calendars render as an all-day blob rather than rejecting.
+        let span = max(minutes, 1)
+        var resolved = arguments
+        resolved["start"] = ConnectorHTTP.iso8601(from: start)
+        resolved["end"] = ConnectorHTTP.iso8601(from: start.addingTimeInterval(TimeInterval(span * 60)))
+        return .success(resolved)
+    }
+
+    private static let defaultEventMinutes = 30
+
+    /// Normalised write arguments, or the line the model is told to correct.
+    /// A plain enum rather than `Result` because the failure is a sentence for a
+    /// language model, not a thrown error anything up the stack handles.
+    private enum ResolvedArguments {
+        case success([String: String])
+        case failure(String)
+    }
+
     /// The kind default among the candidates, so an unqualified write is deterministic.
+    ///
+    /// **Write-capable candidates come first.** A `.events` fan-out includes every
+    /// calendar instance, but only some of them can be written to; picking the kind
+    /// default blindly meant "put it in my calendar" failed with "X can't be written
+    /// to" whenever the default happened to be a read-only connection, even though a
+    /// perfectly good writable one was sitting next to it.
     private func defaultWriteTarget(from candidates: [ConnectorInstance]) -> ConnectorInstance? {
-        for kind in Set(candidates.map(\.kind)) {
-            if let hit = store.defaultInstance(of: kind), candidates.contains(where: { $0.id == hit.id }) {
+        let writable = candidates.filter { ProviderRegistry.provider(for: $0) is any WriteCapableProvider }
+        let pool = writable.isEmpty ? candidates : writable
+        for kind in Set(pool.map(\.kind)) {
+            if let hit = store.defaultInstance(of: kind), pool.contains(where: { $0.id == hit.id }) {
                 return hit
             }
         }
-        return candidates.first
+        return pool.first
     }
+
+    // MARK: - Dates
+
+    /// Resolve an optional spoken `when` phrase to the day a read covers.
+    ///
+    /// The model is asked for the user's own words ("tomorrow", "next monday") rather
+    /// than a date — the same rule `create_reminder` already follows, because a 3B
+    /// asked for a calendar date invents plausible, wrong ones. An unparseable phrase
+    /// falls back to today rather than failing the call: the user asked about their
+    /// calendar either way, and a wrong-day answer is worse than a today answer that
+    /// says which day it is.
+    private func resolveDay(_ phrase: String?) -> ResolvedDay {
+        let today = now()
+        guard let phrase, !phrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let parsed = RelativeTimeParser.parse(phrase, now: today)
+        else { return ResolvedDay(date: today, label: "today") }
+        return ResolvedDay(date: parsed, label: Self.dayLabel(for: parsed, relativeTo: today))
+    }
+
+    /// A day a read covers, with both the mid-sentence spelling ("tomorrow") and the
+    /// heading spelling ("Tomorrow") — the result text uses each in a different slot.
+    private struct ResolvedDay {
+        let date: Date
+        let label: String
+        var heading: String { label.prefix(1).uppercased() + label.dropFirst() }
+    }
+
+    /// "today" / "tomorrow" / "Monday 4 August" — so a listing always says which day
+    /// it is describing, which matters the moment `when` can move it off today.
+    private static func dayLabel(for date: Date, relativeTo reference: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDate(date, inSameDayAs: reference) { return "today" }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: reference),
+           calendar.isDate(date, inSameDayAs: tomorrow) { return "tomorrow" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: reference),
+           calendar.isDate(date, inSameDayAs: yesterday) { return "yesterday" }
+        return day.string(from: date)
+    }
+
+    private static let day: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE d MMMM"
+        return formatter
+    }()
 
     // MARK: - list_connectors
 

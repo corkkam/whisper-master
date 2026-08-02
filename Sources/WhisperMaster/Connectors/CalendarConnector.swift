@@ -226,4 +226,72 @@ final class CalendarConnector {
                     instanceLabel: instanceLabel)
             }
     }
+
+    // MARK: - Writes
+
+    /// Create an event on one of this Mac's calendars.
+    ///
+    /// The grant we already ask for is `requestFullAccessToEvents`, which covers
+    /// writing — so this needs no new permission, no OAuth and no network. That is
+    /// what makes it the right home for "put it in my calendar": the same EventKit
+    /// route that reads Google, Exchange and iCloud calendars can write back to them,
+    /// where the API-backed Google provider only ever covered accounts the user
+    /// separately signed in to.
+    ///
+    /// - Parameter calendarIdentifiers: the instance's bound calendars. The **first
+    ///   writable** one is used; an empty list (the "every calendar" binding) falls
+    ///   back to the system default. A read-only calendar — a subscribed `.ics`, a
+    ///   birthdays calendar — is skipped rather than attempted, because EventKit's
+    ///   error for it is opaque.
+    func createEvent(title: String,
+                     start: Date,
+                     end: Date,
+                     calendarIdentifiers: [String]) throws -> String {
+        guard isAuthorized else { throw CalendarWriteError.notAuthorized }
+        guard let calendar = writableCalendar(among: calendarIdentifiers) else {
+            throw CalendarWriteError.noWritableCalendar
+        }
+        let event = EKEvent(eventStore: store)
+        event.title = title
+        event.startDate = start
+        event.endDate = end
+        event.calendar = calendar
+        try store.save(event, span: .thisEvent, commit: true)
+        return calendar.title
+    }
+
+    /// The calendar a write lands on: the first bound one that allows modification,
+    /// else the store's default, else any writable calendar.
+    private func writableCalendar(among identifiers: [String]) -> EKCalendar? {
+        let all = store.calendars(for: .event)
+        if !identifiers.isEmpty {
+            let wanted = Set(identifiers)
+            if let bound = all.first(where: { wanted.contains($0.calendarIdentifier) && $0.allowsContentModifications }) {
+                return bound
+            }
+            // Every bound calendar is read-only. Widening to some other calendar here
+            // would file the event somewhere the user never named, so refuse instead.
+            if all.contains(where: { wanted.contains($0.calendarIdentifier) }) { return nil }
+        }
+        if let fallback = store.defaultCalendarForNewEvents, fallback.allowsContentModifications {
+            return fallback
+        }
+        return all.first { $0.allowsContentModifications }
+    }
+}
+
+/// Why a calendar write couldn't be attempted. Distinct cases because the repairs
+/// differ: one is a permission prompt, the other is picking different calendars.
+enum CalendarWriteError: Error {
+    case notAuthorized
+    case noWritableCalendar
+
+    var message: String {
+        switch self {
+        case .notAuthorized:
+            return "Calendar access isn't granted yet."
+        case .noWritableCalendar:
+            return "That connection's calendars are read-only, so nothing can be added to them."
+        }
+    }
 }

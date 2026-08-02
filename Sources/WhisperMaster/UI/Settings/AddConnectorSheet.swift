@@ -538,6 +538,11 @@ private struct CredentialConnectStep: View {
     @State private var validated = false
     @State private var isValidating = false
     @State private var failure: String?
+    /// Configuration the validating call discovered (Asana's workspace, Slack's team).
+    /// Saved with the instance — a credential connector used to be stored with
+    /// `.empty` unconditionally, which is what left every Asana read sending an empty
+    /// `workspace` parameter.
+    @State private var discoveredConfig: ConnectorConfig = .empty
 
     private var descriptor: ConnectorDescriptor { ConnectorCatalog.descriptor(for: kind) }
 
@@ -696,6 +701,7 @@ private struct CredentialConnectStep: View {
             isValidating = false
             if result.isValid {
                 identity = result.identity
+                discoveredConfig = result.config ?? .empty
                 validated = true
                 if label.isEmpty { label = result.identity }
             } else {
@@ -706,7 +712,7 @@ private struct CredentialConnectStep: View {
 
     private func save() {
         let instance = ConnectorInstance(
-            kind: kind, label: label, identity: identity, config: .empty)
+            kind: kind, label: label, identity: identity, config: discoveredConfig)
         let stored = store.add(instance)
         // The secret is written under the *stored* instance's id, after the store has
         // settled the label — so a uniqueness suffix can't orphan the credential.

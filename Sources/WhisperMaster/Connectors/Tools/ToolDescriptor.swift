@@ -80,11 +80,17 @@ enum ToolCatalog {
     static let all: [ToolDescriptor] = [
         ToolDescriptor(
             name: "list_calendar_events",
-            summary: "List today's calendar events. Omit connector to merge every calendar.",
+            summary: "List calendar events for a day. Omit connector to merge every calendar.",
             access: .read,
             capability: .events,
             targetArg: nil,
-            parameters: []),
+            parameters: [
+                // The user's own words, not a date. Without this argument the tool
+                // could only ever answer about today, so "what's on tomorrow" either
+                // got today's events back or fell through to the deterministic path.
+                ToolParameter("when", isRequired: false,
+                              description: "Which day, in the user's own words (\"tomorrow\", \"next monday\"). Omit for today."),
+            ]),
 
         ToolDescriptor(
             name: "list_tasks",
@@ -123,21 +129,27 @@ enum ToolCatalog {
                               description: "The message body."),
             ]),
 
+        // The target is the **connection**, not a separate calendar id. It used to ask
+        // for a raw provider calendar id, which a model has no way to know and so
+        // invented; the connector the user named is the calendar, and `ToolRegistry`
+        // fills that argument's allowed values with their real labels.
         ToolDescriptor(
             name: "create_calendar_event",
-            summary: "Create a calendar event.",
+            summary: "Add an event to a calendar.",
             access: .write,
             capability: .events,
-            targetArg: "calendar",
+            targetArg: ToolDescriptor.instanceArgument,
             parameters: [
-                ToolParameter("calendar", isRequired: true,
-                              description: "Calendar id to create the event on."),
                 ToolParameter("title", isRequired: true,
                               description: "Event title."),
-                ToolParameter("start", isRequired: true,
-                              description: "Start time, ISO-8601."),
-                ToolParameter("end", isRequired: true,
-                              description: "End time, ISO-8601."),
+                // Spoken words, not ISO-8601 — the same rule `create_reminder`
+                // already follows. A 4-bit 3B asked for a calendar date produces
+                // plausible, wrong ones, and a wrong-dated meeting is worse than
+                // no meeting.
+                ToolParameter("when", isRequired: true,
+                              description: "Start time in the user's own words (\"tomorrow at 3\", \"friday morning\")."),
+                ToolParameter("duration_minutes", type: .integer, isRequired: false,
+                              description: "How long, in minutes. Defaults to 30."),
             ]),
     ]
 

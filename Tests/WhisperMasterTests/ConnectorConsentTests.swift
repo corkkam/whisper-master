@@ -205,11 +205,57 @@ final class ConnectorConsentTests: XCTestCase {
     // MARK: - Catalog integrity
 
     /// A write tool with no target argument can't be scoped, so it must never ship.
+    ///
+    /// The second half is checked against the **expanded** descriptor — what the model
+    /// is actually shown — rather than the raw catalog entry, because `connector` is a
+    /// legitimate target and the registry is what fills in the user's real labels for
+    /// it. Checking the catalog alone would have banned targeting the connection
+    /// itself, which is exactly what a calendar event needs: the calendar *is* the
+    /// connection, and asking a 3B for a separate provider-side calendar id got
+    /// invented ids.
     func testEveryWriteToolDeclaresATargetArgument() {
+        let store = ConnectorInstanceStore(load: false)
+        store.persistenceEnabled = false
+        store.add(ConnectorInstance(
+            kind: .googleCalendar, label: "Work", identity: "sam@acme.com",
+            config: .calendars(identifiers: ["cal-1"], sourceTitle: "Google")))
+        store.add(ConnectorInstance(kind: .slack, label: "Work chat", identity: "acme"))
+        let expanded = Dictionary(
+            uniqueKeysWithValues: ToolRegistry.available(store: store).map { ($0.name, $0) })
+
         for tool in ToolCatalog.all where tool.access == .write {
             XCTAssertNotNil(tool.targetArg, "\(tool.name) is a write with no targetArg")
-            XCTAssertTrue(tool.parameters.contains { $0.name == tool.targetArg },
-                          "\(tool.name)'s targetArg isn't one of its parameters")
+            guard let published = expanded[tool.name] else {
+                XCTFail("\(tool.name) isn't published for a store that can serve it")
+                continue
+            }
+            XCTAssertTrue(published.parameters.contains { $0.name == tool.targetArg },
+                          "\(tool.name)'s targetArg isn't one of the arguments the model is shown")
         }
+    }
+
+    /// The consent card must name a real destination even when the model didn't spell
+    /// one out. `create_calendar_event` targets the connection, and with a single
+    /// calendar set up there is nothing for the model to disambiguate — so an
+    /// unqualified call has to resolve to that connection rather than refusing with
+    /// "no target to approve".
+    func testAnUnqualifiedCalendarWriteStillHasATargetToApprove() async {
+        let store = ConnectorInstanceStore(load: false)
+        store.persistenceEnabled = false
+        store.add(ConnectorInstance(
+            kind: .appleCalendar, label: "Personal", identity: "iCloud",
+            config: .calendars(identifiers: ["cal-1"], sourceTitle: "iCloud")))
+
+        var seen: PendingApproval?
+        let router = ToolRouter(
+            store: store,
+            requestApproval: { approval in seen = approval; return .denied },
+            now: { Date(timeIntervalSince1970: 1_754_000_000) })
+        _ = await router.run(ToolCall(
+            tool: "create_calendar_event",
+            arguments: ["title": "Design review", "when": "tomorrow at 3pm"]))
+
+        XCTAssertEqual(seen?.target, "Personal",
+                       "an unnamed write binds to the connection it resolved to")
     }
 }

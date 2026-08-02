@@ -177,6 +177,23 @@ final class ConnectorInstanceStore {
         persist()
     }
 
+    /// Record a fresh credential against an **existing** connection: the account the
+    /// provider reported, whatever it discovered alongside it, and a cleared failure.
+    ///
+    /// Reconnecting has to keep the instance id, because that id is the Keychain
+    /// account key, the grant key and the default pointer. Before this the only route
+    /// out of `.credentialInvalid` was delete-and-re-add, which silently threw away
+    /// the user's label, their per-kind default, and every standing write grant they
+    /// had approved.
+    func recordReconnection(_ id: UUID, identity: String, config: ConnectorConfig?) {
+        guard let index = instances.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = identity.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { instances[index].identity = trimmed }
+        if let config { instances[index].config = config }
+        instances[index].lastError = nil
+        persist()
+    }
+
     func setError(_ id: UUID, _ error: ConnectorError?) {
         guard let index = instances.firstIndex(where: { $0.id == id }) else { return }
         guard instances[index].lastError != error else { return }

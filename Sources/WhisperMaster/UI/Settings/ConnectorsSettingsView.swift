@@ -19,6 +19,11 @@ struct ConnectorsSettingsView: View {
     @State private var isAddingConnector = false
     @State private var renaming: ConnectorInstance?
     @State private var editingCalendars: ConnectorInstance?
+    @State private var reconnecting: ConnectorInstance?
+    /// The connection currently being checked, and the last result per connection —
+    /// so "Test connection" reports something rather than appearing to do nothing.
+    @State private var testing: UUID?
+    @State private var testResults: [UUID: String] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
@@ -39,6 +44,12 @@ struct ConnectorsSettingsView: View {
         }
         .sheet(item: $editingCalendars) { instance in
             CalendarSelectionSheet(instance: instance, store: store) { refreshToday() }
+        }
+        .sheet(item: $reconnecting) { instance in
+            ReconnectConnectorSheet(instance: instance, store: store) {
+                testResults[instance.id] = "Reconnected."
+                refreshToday()
+            }
         }
     }
 
@@ -131,7 +142,20 @@ struct ConnectorsSettingsView: View {
     /// a repair action when it's broken. An instance never silently reads nothing.
     @ViewBuilder
     private func statusLine(_ instance: ConnectorInstance) -> some View {
-        if let error = instance.lastError {
+        if testing == instance.id {
+            HStack(spacing: 6) {
+                StatusDot(color: Theme.Neutral.n300, size: 6)
+                Text("Checking\u{2026}").font(Typography.caption).foregroundStyle(Theme.textTertiary)
+            }
+        } else if let result = testResults[instance.id], instance.lastError == nil {
+            // The outcome of an explicit check outranks the passive scope line — the
+            // user just asked a question and deserves the answer, not the same row
+            // they were looking at before they asked.
+            HStack(spacing: 6) {
+                StatusDot(color: Theme.success, size: 6)
+                Text(result).font(Typography.caption).foregroundStyle(Theme.textTertiary)
+            }
+        } else if let error = instance.lastError {
             HStack(spacing: 6) {
                 StatusDot(color: Theme.danger, size: 6)
                 Text(error.message)
@@ -190,6 +214,13 @@ struct ConnectorsSettingsView: View {
             if instance.descriptor.isSystemBacked {
                 Button("Choose calendars\u{2026}") { editingCalendars = instance }
             }
+            // A credential-bearing connection can have its secret replaced in place.
+            // Without this the only fix for a rotated token was Remove + add again.
+            if canReconnect(instance) {
+                Button("Reconnect\u{2026}") { reconnecting = instance }
+            }
+            Button("Test connection") { testConnection(instance) }
+                .disabled(testing != nil)
             if store.instances(of: instance.kind).count > 1, !store.isDefault(instance.id) {
                 Button("Make default") { store.setDefault(instance.id) }
             }
@@ -226,9 +257,56 @@ struct ConnectorsSettingsView: View {
         case .calendarMissing:
             editingCalendars = instance
         case .credentialInvalid, .tokenExpired:
-            isAddingConnector = true
+            // Repair *this* connection rather than opening the add sheet, which built
+            // a second one and left the broken original in the list beside it.
+            if canReconnect(instance) {
+                reconnecting = instance
+            } else {
+                isAddingConnector = true
+            }
         case .rateLimited, .unreachable:
             break
+        }
+    }
+
+    /// Whether the credential can be replaced in place: the kind has fields to fill
+    /// and an implementation to check them against. A system-backed calendar has no
+    /// credential, and a signed-in Google instance is repaired by signing in again,
+    /// not by pasting anything.
+    private func canReconnect(_ instance: ConnectorInstance) -> Bool {
+        !instance.descriptor.isSystemBacked
+            && !instance.descriptor.fields.isEmpty
+            && ProviderRegistry.hasProvider(for: instance.kind)
+    }
+
+    /// Check a saved connection against the real provider, now.
+    ///
+    /// The row could only ever report the failure of whatever last happened to read
+    /// through it, so a connection that had never been used since it was added — or
+    /// one broken since the last read — looked healthy. This asks.
+    private func testConnection(_ instance: ConnectorInstance) {
+        guard let provider = ProviderRegistry.provider(for: instance) else {
+            testResults[instance.id] = "No implementation for this connector yet."
+            return
+        }
+        testing = instance.id
+        testResults[instance.id] = nil
+        Task { @MainActor in
+            let credential = ConnectorCredentials.load(for: instance.id) ?? ConnectorCredential()
+            let result = await provider.validate(credential, config: instance.config)
+            testing = nil
+            if result.isValid {
+                // A successful check is also a repair: it proves the stored credential
+                // works, so a stale failure must not keep the instance out of reads.
+                store.recordReconnection(instance.id,
+                                         identity: result.identity,
+                                         config: result.config)
+                testResults[instance.id] = "Checked just now \u{2014} working."
+            } else {
+                store.setError(instance.id, .credentialInvalid)
+                testResults[instance.id] = result.failure ?? "That connection was rejected."
+            }
+            refreshToday()
         }
     }
 

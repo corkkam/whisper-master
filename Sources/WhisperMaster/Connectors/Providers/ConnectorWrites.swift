@@ -90,6 +90,49 @@ extension SlackProvider: WriteCapableProvider {
     }
 }
 
+// MARK: - EventKit calendars
+
+/// The write half of the calendar connector every user actually has.
+///
+/// `create_calendar_event` is published whenever *any* `.events` connection exists,
+/// but only the API-backed Google provider could ever serve it — so on the common
+/// setup (a calendar added through macOS, which is the only route the add sheet
+/// offers without a Google sign-in) "put it in my calendar" reached the router,
+/// resolved to a real instance, and then failed with "X can't be written to".
+/// EventKit's full-access grant already covers writing, so the capability was there
+/// the whole time; nothing was wired to it.
+extension EventKitCalendarProvider: WriteCapableProvider {
+    func performWrite(tool: String,
+                      arguments: [String: String],
+                      instance: ConnectorInstance) async -> WriteResult {
+        guard tool == "create_calendar_event" else { return .failed("A calendar can't do \(tool).") }
+        // Times are stamped by `ToolRouter.resolveWriteTimes`, never by the model.
+        guard let title = arguments["title"],
+              let start = ConnectorHTTP.parseISO8601(arguments["start"]),
+              let end = ConnectorHTTP.parseISO8601(arguments["end"])
+        else { return .failed("Missing title or time.") }
+
+        do {
+            let calendarTitle = try CalendarConnector.shared.createEvent(
+                title: title,
+                start: start,
+                end: end,
+                calendarIdentifiers: instance.config.calendarIdentifiers ?? [])
+            return .done("Added \u{201C}\(title)\u{201D} to \(calendarTitle) at \(Self.time.string(from: start)).")
+        } catch let error as CalendarWriteError {
+            return .failed(error.message)
+        } catch {
+            return .failed("Couldn't add the event: \(error.localizedDescription)")
+        }
+    }
+
+    private static var time: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a 'on' EEEE d MMMM"
+        return formatter
+    }
+}
+
 // MARK: - Google Calendar
 
 extension GoogleCalendarProvider: WriteCapableProvider {
@@ -97,14 +140,18 @@ extension GoogleCalendarProvider: WriteCapableProvider {
                       arguments: [String: String],
                       instance: ConnectorInstance) async -> WriteResult {
         guard tool == "create_calendar_event" else { return .failed("Calendar can't do \(tool).") }
-        guard let calendarID = arguments["calendar"],
-              let title = arguments["title"],
+        // `start`/`end` are stamped by `ToolRouter.resolveWriteTimes` from the user's
+        // spoken phrase — the model never supplies a date. `calendar` likewise comes
+        // from the instance the user named, not from an id the model guessed: this
+        // used to ask a 3B for a raw Google calendar id, which it could only invent.
+        guard let title = arguments["title"],
               let start = arguments["start"],
               let end = arguments["end"]
-        else { return .failed("Missing calendar, title, start or end.") }
+        else { return .failed("Missing title or time.") }
+        let calendarID = instance.config.googleCalendarIDs?.first ?? "primary"
 
-        // Reject unparseable times here rather than letting Google 400 on them — the
-        // model is the likely source and a specific message is what lets it retry.
+        // Reject unparseable times here rather than letting Google 400 on them — a
+        // specific message is what lets the caller retry.
         guard ConnectorHTTP.parseISO8601(start) != nil, ConnectorHTTP.parseISO8601(end) != nil else {
             return .failed("Start and end must be ISO-8601 times.")
         }

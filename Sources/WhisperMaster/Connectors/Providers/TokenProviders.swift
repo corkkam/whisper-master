@@ -29,7 +29,10 @@ struct SlackProvider: ItemReadingProvider {
             try ConnectorHTTP.requireSlackOK(json)
             let team = json["team"] as? String ?? "?"
             let user = json["user"] as? String ?? "bot"
-            return .valid(identity: "\(team) / \(user)")
+            // `auth.test` already names the workspace this token belongs to, so record
+            // it rather than making every later call re-derive it.
+            let config = (json["team_id"] as? String).map { ConnectorConfig.workspace(teamID: $0) }
+            return .valid(identity: "\(team) / \(user)", config: config)
         } catch ConnectorHTTP.Failure.unauthorized {
             return .invalid("Slack rejected that token.")
         } catch {
@@ -273,12 +276,17 @@ struct AsanaProvider: ItemReadingProvider {
             return .invalid("Paste a personal access token.")
         }
         do {
-            let json = try await ConnectorHTTP.getJSON(
-                URL(string: "https://app.asana.com/api/1.0/users/me")!, token: token)
-            let data = json["data"] as? [String: Any] ?? [:]
-            let identity = (data["email"] as? String) ?? (data["name"] as? String)
-            guard let identity else { return .invalid("Asana didn't return an account.") }
-            return .valid(identity: identity)
+            let account = try await Self.me(token: token)
+            guard let identity = account.identity else {
+                return .invalid("Asana didn't return an account.")
+            }
+            // **The workspace is the point of this call, not a bonus.** Asana's task
+            // endpoint rejects a query without one, so a connection saved without a
+            // workspace validates green and then reads nothing forever.
+            guard let workspace = account.workspaceID else {
+                return .invalid("That token's account isn't in any Asana workspace.")
+            }
+            return .valid(identity: identity, config: .workspace(teamID: workspace))
         } catch ConnectorHTTP.Failure.unauthorized {
             return .invalid("Asana rejected that token.")
         } catch {
@@ -288,10 +296,23 @@ struct AsanaProvider: ItemReadingProvider {
 
     func recentItems(for instance: ConnectorInstance, limit: Int) async -> ProviderReadOutcome<[ConnectorItem]> {
         await withResolvedToken(instance) { token in
+            // Connections added before the workspace was ever recorded carry `.empty`,
+            // so re-derive it rather than sending `workspace=` and taking a 400. One
+            // extra request on a legacy instance beats a connector that is silently
+            // dead until the user thinks to delete and re-add it.
+            let workspace: String
+            if let stored = instance.config.workspaceID, !stored.isEmpty {
+                workspace = stored
+            } else if let discovered = try await Self.me(token: token).workspaceID {
+                workspace = discovered
+            } else {
+                throw ConnectorHTTP.Failure.badStatus(400, "no Asana workspace for this account")
+            }
+
             var components = URLComponents(string: "https://app.asana.com/api/1.0/tasks")!
             components.queryItems = [
                 .init(name: "assignee", value: "me"),
-                .init(name: "workspace", value: instance.config.workspaceID ?? ""),
+                .init(name: "workspace", value: workspace),
                 .init(name: "completed_since", value: "now"),
                 .init(name: "opt_fields", value: "name,due_on,permalink_url"),
                 .init(name: "limit", value: "\(min(limit, 50))"),
@@ -308,6 +329,18 @@ struct AsanaProvider: ItemReadingProvider {
                     instanceLabel: instance.displayLabel)
             }
         }
+    }
+
+    /// `/users/me`, which answers both "who is this token" and "which workspace" in
+    /// one round trip. Shared by validate and the legacy-instance repair above so the
+    /// two can't read the response differently.
+    private static func me(token: String) async throws -> (identity: String?, workspaceID: String?) {
+        let json = try await ConnectorHTTP.getJSON(
+            URL(string: "https://app.asana.com/api/1.0/users/me")!, token: token)
+        let data = json["data"] as? [String: Any] ?? [:]
+        let workspaces = data["workspaces"] as? [[String: Any]] ?? []
+        return ((data["email"] as? String) ?? (data["name"] as? String),
+                workspaces.first?["gid"] as? String)
     }
 }
 

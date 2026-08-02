@@ -12,13 +12,22 @@ struct ValidationResult: Equatable, Sendable {
     let identity: String
     /// Why it failed, shown verbatim in the add sheet.
     let failure: String?
+    /// Non-secret configuration the validating call **discovered**, for the caller to
+    /// persist on the instance.
+    ///
+    /// This exists because a token alone isn't always enough to read: Asana's task
+    /// endpoint requires a workspace id, and nothing in the app ever produced one —
+    /// the add sheet saved every credential connector with `.empty`, so every Asana
+    /// read went out with `workspace=` and came back a 400. The whoami call already
+    /// knows the answer; this is how it gets out of the provider and onto the record.
+    let config: ConnectorConfig?
 
-    static func valid(identity: String) -> ValidationResult {
-        ValidationResult(isValid: true, identity: identity, failure: nil)
+    static func valid(identity: String, config: ConnectorConfig? = nil) -> ValidationResult {
+        ValidationResult(isValid: true, identity: identity, failure: nil, config: config)
     }
 
     static func invalid(_ failure: String) -> ValidationResult {
-        ValidationResult(isValid: false, identity: "", failure: failure)
+        ValidationResult(isValid: false, identity: "", failure: failure, config: nil)
     }
 }
 

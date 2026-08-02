@@ -102,7 +102,7 @@ final class AgentLoopTests: XCTestCase {
 
     /// The classic small-model failure: it reads its own tool result, doesn't recognise
     /// it as an answer, and calls the same tool again forever.
-    func testRepeatingAToolIsBlockedAndNudgedTowardAnswering() async {
+    func testRepeatingAnIdenticalCallIsBlockedAndNudgedTowardAnswering() async {
         let store = makeStore()
         let (generate, _) = scripted([
             #"{"tool":"list_connectors","args":{}}"#,
@@ -115,6 +115,62 @@ final class AgentLoopTests: XCTestCase {
         XCTAssertEqual(outcome.turns.filter { $0.role == .tool }.count, 1,
                        "the tool must run once, not twice")
         XCTAssertTrue(outcome.turns.contains { $0.role == .system && $0.text.contains("already called") })
+    }
+
+    /// The repeat guard keys on the **arguments**, not the tool name.
+    ///
+    /// Keying on the name alone made "what's on Work and Personal" — or "today and
+    /// tomorrow" — impossible to answer: the second, genuinely different call was
+    /// refused as a repeat and the loop reported exhausted. This is the difference
+    /// between blocking a spin and blocking multi-step work.
+    func testTheSameToolRunsAgainWithDifferentArguments() async {
+        let store = makeStore()
+        store.add(ConnectorInstance(
+            kind: .appleCalendar, label: "Personal", identity: "iCloud",
+            config: .calendars(identifiers: ["cal-2"], sourceTitle: "iCloud")))
+
+        let (generate, _) = scripted([
+            #"{"tool":"list_calendar_events","args":{"connector":"Work"}}"#,
+            #"{"tool":"list_calendar_events","args":{"connector":"Personal"}}"#,
+            #"{"answer":"Nothing on either."}"#,
+        ])
+        let outcome = await makeLoop(store: store, generate: generate).run(question: "work and personal")
+
+        XCTAssertEqual(outcome.answer, "Nothing on either.")
+        XCTAssertEqual(outcome.turns.filter { $0.role == .tool }.count, 2,
+                       "two different arguments are two different questions")
+        XCTAssertFalse(outcome.turns.contains { $0.role == .system && $0.text.contains("already called") })
+    }
+
+    /// Argument order must not make an identical call look new — a dictionary has no
+    /// order, so the key has to sort.
+    func testArgumentOrderDoesNotDefeatTheRepeatGuard() async {
+        let store = makeStore()
+        store.add(ConnectorInstance(kind: .slack, label: "Work chat", identity: "acme"))
+        // `##"…"##`: a `"#` inside the payload (`"#ops"`) would close a `#"…"#` literal.
+        let (generate, _) = scripted([
+            ##"{"tool":"send_message","args":{"channel":"#ops","text":"hi"}}"##,
+            ##"{"tool":"send_message","args":{"text":"hi","channel":"#ops"}}"##,
+            ##"{"answer":"Declined."}"##,
+        ])
+        let outcome = await makeLoop(store: store, generate: generate).run(question: "post to ops")
+
+        XCTAssertEqual(outcome.turns.filter { $0.role == .tool }.count, 1)
+        XCTAssertTrue(outcome.turns.contains { $0.role == .system && $0.text.contains("already called") })
+    }
+
+    /// The transcript the model sees keeps roles apart, so its own malformed attempt
+    /// sits next to the correction rather than being indistinguishable from a tool's
+    /// output.
+    func testRenderedTranscriptLabelsEachRole() {
+        let rendered = AgentLoop.render([
+            .init(role: .user, text: "what's my day"),
+            .init(role: .assistant, text: #"{"tool":"list_calendar_events"}"#),
+            .init(role: .tool, text: "9:00 AM — Stand-up", tool: "list_calendar_events"),
+        ])
+        XCTAssertTrue(rendered.contains("Question: what's my day"))
+        XCTAssertTrue(rendered.contains("You replied:"))
+        XCTAssertTrue(rendered.contains("list_calendar_events returned:"))
     }
 
     // MARK: - Exhaustion
@@ -236,6 +292,61 @@ final class AgentLoopTests: XCTestCase {
         XCTAssertTrue(result.text.contains("Work"))
         XCTAssertTrue(result.text.contains("Personal"))
         XCTAssertEqual(Set(result.instanceLabels), ["Work", "Personal"])
+    }
+
+    /// **Naming a connector must actually narrow the read.**
+    ///
+    /// The router resolved the named instance and then called
+    /// `DaySummaryService.buildAsync(store:)` with no query, which fans out across
+    /// every calendar — so "what's on my work calendar" merged Personal in too and
+    /// then stamped the answer "Work". There is no calendar access under `swift test`,
+    /// so every consulted instance reports a gap: which instances appear in the result
+    /// is exactly the observable that proves the scoping.
+    func testANamedCalendarReadConsultsOnlyThatConnector() async {
+        let store = makeStore()
+        store.add(ConnectorInstance(
+            kind: .appleCalendar, label: "Personal", identity: "iCloud",
+            config: .calendars(identifiers: ["cal-2"], sourceTitle: "iCloud")))
+
+        let router = ToolRouter(store: store, requestApproval: { _ in .denied })
+        let result = await router.run(ToolCall(
+            tool: "list_calendar_events", arguments: ["connector": "Work"]))
+
+        XCTAssertFalse(result.text.contains("Personal"),
+                       "a read narrowed to Work must not touch Personal: \(result.text)")
+    }
+
+    func testAnUnqualifiedCalendarReadStillMergesEveryConnector() async {
+        let store = makeStore()
+        store.add(ConnectorInstance(
+            kind: .appleCalendar, label: "Personal", identity: "iCloud",
+            config: .calendars(identifiers: ["cal-2"], sourceTitle: "iCloud")))
+
+        let router = ToolRouter(store: store, requestApproval: { _ in .denied })
+        let result = await router.run(ToolCall(tool: "list_calendar_events", arguments: [:]))
+
+        XCTAssertTrue(result.text.contains("Work"))
+        XCTAssertTrue(result.text.contains("Personal"))
+    }
+
+    /// A day other than today was simply unanswerable — the tool had no date argument
+    /// at all, so "what's on tomorrow" got today's events back.
+    func testAWhenPhraseMovesTheReadOffToday() async {
+        let store = makeStore()
+        let router = ToolRouter(store: store,
+                                requestApproval: { _ in .denied },
+                                now: { Date(timeIntervalSince1970: 1_754_000_000) })
+        let result = await router.run(ToolCall(
+            tool: "list_calendar_events", arguments: ["when": "tomorrow"]))
+
+        XCTAssertTrue(result.text.lowercased().contains("tomorrow"),
+                      "the listing must say which day it describes: \(result.text)")
+    }
+
+    func testTheCalendarToolAdvertisesADayArgument() {
+        let store = makeStore()
+        let events = ToolRegistry.available(store: store).first { $0.name == "list_calendar_events" }
+        XCTAssertTrue(events?.parameters.contains { $0.name == "when" } ?? false)
     }
 
     func testRoutingAToolWithNoConnectorFails() async {

@@ -123,8 +123,29 @@ enum DaySummaryService {
                            spokenQuery: String? = nil,
                            now: Date = Date()) async -> DaySummary {
         let targets = resolveTargets(store: store, spokenQuery: spokenQuery)
+        return await buildAsync(store: store,
+                                instances: targets.instances,
+                                scopedTo: targets.scoped?.displayLabel,
+                                now: now)
+    }
+
+    /// Build from an **explicit** instance set, for a caller that has already decided
+    /// which connections answer.
+    ///
+    /// `ToolRouter` is that caller: it resolves the tool call's `connector` argument
+    /// against the same candidates and then needs the fan-out run over exactly that
+    /// result. Before this existed it resolved the targets and then threw them away,
+    /// calling `buildAsync(store:)` with no query — so "what's on my *work* calendar"
+    /// merged **every** calendar and stamped the answer with the one label the user
+    /// happened to name. Passing the label back in to be re-matched would work, but
+    /// re-deriving the same answer in two places is what let them disagree in the
+    /// first place.
+    static func buildAsync(store: ConnectorInstanceStore,
+                           instances: [ConnectorInstance],
+                           scopedTo: String?,
+                           now: Date = Date()) async -> DaySummary {
         var collector = Collector()
-        for instance in targets.instances {
+        for instance in instances {
             if instance.config.isNetworkBacked {
                 guard let provider = ProviderRegistry.googleCalendarAPI,
                       instance.kind == .googleCalendar else { continue }
@@ -135,7 +156,7 @@ enum DaySummaryService {
                                  instance: instance, store: store)
             }
         }
-        return collector.finish(now: now, scopedTo: targets.scoped?.displayLabel)
+        return collector.finish(now: now, scopedTo: scopedTo)
     }
 
     /// Which instances answer this question: the one it names, else all of them.
