@@ -65,19 +65,47 @@ struct GeneralSettingsView: View {
             }
             .onAppear { LaunchAtLogin.shared.refresh() }
 
+            // ── Regulated Mode ───────────────────────────────────────────────
+            // Shown only when active. A permanently-visible compliance section
+            // would be noise for the individual users who are most of the
+            // audience, and the people who need it have had it switched on for
+            // them.
+            if RegulatedMode.isActive {
+                SectionLabel("Compliance")
+                SettingsCard {
+                    SettingsRow("Regulated Mode is on",
+                                subtitle: "\(RegulatedMode.source.rawValue). Analytics, stats backup, notes sync and Nearby Macs are disabled by policy — not by the switches below. Dictation is unaffected.") {
+                        EmptyView()
+                    }
+                }
+            }
+
             SectionLabel("Backup")
             SettingsCard {
                 SettingsRow("Back up my stats",
-                            subtitle: "Sync your Insights (words, speed, streaks) to your account so they're safe and follow you across Macs. Never your transcripts.") {
-                    ThemeToggle(isOn: $state.usageSyncEnabled, label: "Back up my stats")
+                            subtitle: RegulatedMode.allowsUsageSync
+                                ? "Sync your Insights (words, speed, streaks) to your account so they're safe and follow you across Macs. Never your transcripts."
+                                : "Disabled by Regulated Mode. Your Insights are still tracked locally — they just aren't sent anywhere.") {
+                    // Bound to a constant when policy forbids it, rather than
+                    // merely `.disabled()`. A greyed-out switch still stuck in
+                    // the "on" position tells the user the opposite of what the
+                    // software is doing, which is exactly the impression a
+                    // compliance review must not be left with.
+                    ThemeToggle(isOn: RegulatedMode.allowsUsageSync ? $state.usageSyncEnabled : .constant(false),
+                                label: "Back up my stats")
+                        .disabled(!RegulatedMode.allowsUsageSync)
                 }
             }
 
             SectionLabel("Analytics")
             SettingsCard {
                 SettingsRow("Share anonymous usage",
-                            subtitle: "App version, macOS, and feature counts, never your transcripts. Helps improve the app.") {
-                    ThemeToggle(isOn: $state.analyticsEnabled, label: "Share anonymous usage")
+                            subtitle: RegulatedMode.allowsTelemetry
+                                ? "App version, macOS, and feature counts, never your transcripts. Helps improve the app."
+                                : "Disabled by Regulated Mode. Nothing is sent to us, including anonymous counts.") {
+                    ThemeToggle(isOn: RegulatedMode.allowsTelemetry ? $state.analyticsEnabled : .constant(false),
+                                label: "Share anonymous usage")
+                        .disabled(!RegulatedMode.allowsTelemetry)
                 }
             }
 

@@ -701,13 +701,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Mirror any changed usage rollups to the cloud (debounced + single-
         // flight inside; no-ops when the toggle is off, offline, or nothing
         // changed). The local store already has the data — this is just backup.
-        usageSync.syncIfNeeded(enabled: state.usageSyncEnabled)
+        //
+        // Both sync calls are additionally gated on Regulated Mode. `&&` rather
+        // than relying on the preference alone: a Mac that had sync on before an
+        // MDM profile arrived would otherwise keep pushing until the user
+        // happened to open Settings. Notes sync matters most of the three
+        // egresses — a note is dictated text, so this is the one that would
+        // actually carry client content off the machine.
+        usageSync.syncIfNeeded(enabled: state.usageSyncEnabled && RegulatedMode.allowsUsageSync)
 
         // Notes & reminders: pull the account's items once per activation (so a
         // second Mac catches up), then mirror local changes up. Both are debounced
         // + single-flight inside; no-ops when the toggle is off or nothing changed.
-        notesSync.pullIfNeeded(enabled: state.notesSyncEnabled)
-        notesSync.syncIfNeeded(enabled: state.notesSyncEnabled)
+        let notesSyncAllowed = state.notesSyncEnabled && RegulatedMode.allowsNotesSync
+        notesSync.pullIfNeeded(enabled: notesSyncAllowed)
+        notesSync.syncIfNeeded(enabled: notesSyncAllowed)
 
         // Fire any reminders that have come due (poll-driven — the app is a
         // persistent menu-bar process, so this is the reliable path).
