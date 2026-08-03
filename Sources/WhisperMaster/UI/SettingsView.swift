@@ -464,7 +464,7 @@ struct SettingsView: View {
 
 // MARK: - Sidebar mic card
 
-/// The sidebar's push-to-talk affordance: idle shows the ⌥ hint, recording
+/// The sidebar's push-to-talk affordance: idle names the bound key, recording
 /// shows a pulsing "Listening…" state. Tapping toggles recording (the global
 /// hotkey remains the primary trigger).
 private struct SidebarMicCard: View {
@@ -474,6 +474,15 @@ private struct SidebarMicCard: View {
     @State private var pulse = false
 
     private var isRecording: Bool { state.phase == .recording }
+
+    /// Names the key that is actually bound, not a hardcoded one — the picker in
+    /// Recording settings can point this anywhere, and a card claiming ⌥ while the
+    /// bound key is 🌐 teaches the wrong gesture. Toggle mode says "Tap", since
+    /// holding is not what starts a recording there.
+    private var idleTitle: String {
+        let verb = state.holdToTalkEnabled ? "Hold" : "Tap"
+        return "\(verb) \(state.hotkey.capName) to dictate"
+    }
 
     var body: some View {
         Button(action: toggle) {
@@ -496,7 +505,7 @@ private struct SidebarMicCard: View {
                 }
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(isRecording ? "Listening…" : "Hold ⌥ to dictate")
+                    Text(isRecording ? "Listening…" : idleTitle)
                         .font(Typography.heading(13.5, relativeTo: .callout))
                         .foregroundStyle(isRecording ? Theme.accentOn : Theme.textPrimary)
                     Text(isRecording ? "Tap to stop" : "or tap to start")
