@@ -17,7 +17,7 @@ final class DownloadResumeStoreTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    private let url = URL(string: "https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/models/Qwen2.5-3B-Instruct-4bit.zip")!
+    private let url = URL(string: "https://dl.corkkam.com/models/Qwen2.5-3B-Instruct-4bit.zip")!
 
     func testNoteAndReadDestination() {
         let store = DownloadResumeStore(root: root)

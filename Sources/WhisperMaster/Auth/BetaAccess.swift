@@ -22,9 +22,9 @@ enum UpdateChannel: String {
     /// in lock-step with CH_SU_FEED_URL in Scripts/channel.sh.
     var feedURLString: String {
         switch self {
-        case .stable: return "https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast.xml"
-        case .beta: return "https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast-beta.xml"
-        case .dev: return "https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast-dev.xml"
+        case .stable: return "https://dl.corkkam.com/appcast.xml"
+        case .beta: return "https://dl.corkkam.com/appcast-beta.xml"
+        case .dev: return "https://dl.corkkam.com/appcast-dev.xml"
         }
     }
 }
