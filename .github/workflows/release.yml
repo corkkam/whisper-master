@@ -61,7 +61,15 @@ jobs:
   release:
     needs: gate
     if: ${{ needs.gate.outputs.release == 'true' && !contains(github.event.head_commit.message, '[skip release]') }}
-    runs-on: macos-15
+    # macos-26 (arm64), whose default Xcode is 26.6 — the same toolchain the app
+    # is developed against. NOT macos-15: its Xcode is 16.4, which cannot resolve
+    # this project's package graph at all, so every release job died in
+    # `xcodebuild -resolvePackageDependencies` with a bare "Could not resolve
+    # package dependencies:" and no reason (bundle.sh keeps the detail in
+    # build/xcodebuild-Release.log, which the runner never uploads). That is why
+    # 1.2.9 and 1.2.10 both had to be cut by hand from a local checkout. Keep
+    # this image at the major Xcode the project actually builds with.
+    runs-on: macos-26
     permissions:
       contents: write   # push the v<version> release tag
     steps:
