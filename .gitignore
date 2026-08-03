@@ -55,3 +55,5 @@ service-account*.json
 *.p8
 *.p12
 *.mobileprovision
+.env.bak*
+.env.*.bak
