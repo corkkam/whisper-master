@@ -21,7 +21,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.9-beta.2</string>
+	<string>1.2.9</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -36,7 +36,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1785684317</string>
+	<string>1785789510</string>
 	<key>ClerkPublishableKey</key>
 	<string>REPLACE_WITH_CLERK_PUBLISHABLE_KEY</string>
 	<key>GAAPISecret</key>
@@ -72,7 +72,7 @@
 	<key>SUFeedURL</key>
 	<string>https://dl.corkkam.com/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>GzJbT0hu27rHZeu6Bs8Q9BZ0Le/7te8V0zvREWkhHsk=</string>
+	<string>MNSycgAfQ8X2YX/xQJ22uuqoM/oH5mwjYcVo204vB8Y=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>3600</integer>
 </dict>
