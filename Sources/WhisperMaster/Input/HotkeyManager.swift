@@ -49,6 +49,22 @@ final class HotkeyManager {
             }
         }
 
+        /// The bare key, for a one-line hint on a narrow surface ("Hold 🌐 to
+        /// dictate"). `sentenceName`'s "the 🌐 key" wording is too long there and
+        /// `compactName`'s "🌐 FN" reads as two keys.
+        var capName: String {
+            switch self {
+            case .fn:
+                return "🌐"
+            case .rightOption:
+                return "right ⌥"
+            case .leftOption:
+                return "left ⌥"
+            case .rightCommand:
+                return "right ⌘"
+            }
+        }
+
         /// Reads inside a sentence ("Hold the 🌐 key and talk"), where the menu's
         /// `displayName` would land as a parenthetical.
         var sentenceName: String {
