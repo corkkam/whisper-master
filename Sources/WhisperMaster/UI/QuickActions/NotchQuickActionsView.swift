@@ -250,13 +250,29 @@ enum NotchQuickActionsFormat {
     static func due(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         if date <= now { return "Overdue" }
         let time = timeFormatter.string(from: date)
-        if calendar.isDateInToday(date) { return time }
-        if calendar.isDateInTomorrow(date) { return "Tomorrow \(time)" }
+        // ⚠️ Today/tomorrow must be judged against `now`, not the ambient clock.
+        // `Calendar.isDateInToday` / `isDateInTomorrow` resolve against `Date()`
+        // internally and ignore an injected `now` entirely, so this function used
+        // to mix two different "nows" — these two branches read the system clock
+        // while the `days` branch below read `now`. In production the two agree
+        // (`now` defaults to `Date()`), which is why the bug never surfaced to
+        // users; what it did do was make `testTomorrowIsNamed` pass only on the
+        // one day it was written and fail every day afterwards.
+        if calendar.isDate(date, inSameDayAs: now) { return time }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
+           calendar.isDate(date, inSameDayAs: tomorrow) {
+            return "Tomorrow \(time)"
+        }
         let days = calendar.dateComponents([.day], from: now, to: date).day ?? 0
         if days < 7 { return "\(weekdayFormatter.string(from: date)) \(time)" }
         return dayFormatter.string(from: date)
     }
 
+    // These render in the *current* time zone regardless of the `calendar` passed
+    // to `due` — deliberate, and not the bug fixed above. Production always passes
+    // `.current`, so the two agree; a test injecting a UTC calendar gets UTC day
+    // boundaries with locally-formatted clock times, which is why assertions here
+    // should check the branch taken ("Tomorrow …") rather than an exact time string.
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.timeStyle = .short

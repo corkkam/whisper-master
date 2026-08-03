@@ -4,7 +4,7 @@ set -euo pipefail
 # Cuts a Sparkle release: builds + signs the .app, zips it, signs the zip and
 # (re)generates appcast.xml with the EdDSA key from the keychain, then uploads
 # the archive + appcast to the Cloudflare R2 bucket. Testers' apps then
-# auto-update from the public r2.dev feed.
+# auto-update from the dl.corkkam.com feed.
 #
 # Bump CFBundleShortVersionString / CFBundleVersion in Resources/Info.plist
 # before running, or Sparkle won't see it as a newer version.
@@ -80,8 +80,14 @@ ditto -c -k --keepParent "$APP_PATH" "$ZIP"
 
 # --- Sign + generate appcast ---
 echo ">> Generating appcast"
-if [[ -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]]; then
-    # CI: sign with the exported EdDSA key (no keychain on the runner).
+# ⚠️ This MUST stay gated on $CI. Line ~26 does `set -a; source .env; set +a`, so
+# a SPARKLE_ED_PRIVATE_KEY sitting in .env is exported on *local* runs too — and
+# without the $CI test this branch won here, making the keychain path below dead
+# code and signing every local release from a plaintext file on disk. The key is
+# supposed to live in the login keychain locally and in a GitHub Actions secret
+# on CI, and nowhere else. Do not put it back in .env.
+if [[ -n "${CI:-}" && -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]]; then
+    # CI only: sign with the exported EdDSA key (no keychain on the runner).
     ED_KEY_FILE="build/.sparkle_ed_key"
     printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$ED_KEY_FILE"
     trap 'rm -f "$ED_KEY_FILE"' EXIT
@@ -121,8 +127,8 @@ if ! grep -q 'sparkle:edSignature=' "$FEED"; then
     echo "       in the built app. Reconcile them before releasing:" >&2
     echo "         app SUPublicEDKey : $(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP_PATH/Contents/Info.plist" 2>/dev/null)" >&2
     # Name the source only — never interpolate the key itself into a log.
-    if [[ -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]]; then
-        echo "         signing source    : SPARKLE_ED_PRIVATE_KEY (env/.env)" >&2
+    if [[ -n "${CI:-}" && -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]]; then
+        echo "         signing source    : SPARKLE_ED_PRIVATE_KEY (CI secret)" >&2
     else
         echo "         signing source    : login keychain" >&2
     fi

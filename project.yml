@@ -15,7 +15,7 @@ settings:
     # $(MARKETING_VERSION)). Kept in step with the plist anyway so nobody reads
     # 0.1.0 here and believes it, and so this stays harmless if a future target
     # ever does interpolate it.
-    MARKETING_VERSION: "1.2.9-beta.2"
+    MARKETING_VERSION: "1.2.10"
     CURRENT_PROJECT_VERSION: "1"
     # arm64-only (Apple Silicon). Matches the vendored arm64 ITN xcframework and
     # how Scripts/bundle.sh already builds (-destination arch=arm64).
