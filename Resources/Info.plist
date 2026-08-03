@@ -21,7 +21,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.9</string>
+	<string>1.2.10</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -36,7 +36,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1785789510</string>
+	<string>1785796388</string>
 	<key>ClerkPublishableKey</key>
 	<string>REPLACE_WITH_CLERK_PUBLISHABLE_KEY</string>
 	<key>GAAPISecret</key>
