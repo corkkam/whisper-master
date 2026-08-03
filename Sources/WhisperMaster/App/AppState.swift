@@ -281,8 +281,10 @@ final class AppState {
     }
 
     /// Whether gentle "you haven't used me in a while" reminders are enabled.
-    /// Persisted; **opt-in** — off until the user turns it on in Settings.
-    var remindersEnabled: Bool = false {
+    /// Persisted; **on by default** — the app lives in the notch with no window to
+    /// come back to, so an install nobody is reminded of is an install nobody uses.
+    /// The cadence is conservative and the Settings toggle is a hard off-switch.
+    var remindersEnabled: Bool = true {
         didSet { UserDefaults.standard.set(remindersEnabled, forKey: Self.remindersEnabledDefaultsKey) }
     }
     /// Whether resting the pointer on the notch opens the quick-actions panel
@@ -533,8 +535,8 @@ final class AppState {
         systemVoiceIdentifier = UserDefaults.standard.string(forKey: Self.systemVoiceDefaultsKey) ?? ""
         naturalVoiceID = UserDefaults.standard.string(forKey: Self.naturalVoiceDefaultsKey)
             ?? NaturalVoiceCatalog.defaultVoice
-        // Opt-in: off until the user has explicitly turned it on.
-        remindersEnabled = UserDefaults.standard.object(forKey: Self.remindersEnabledDefaultsKey) as? Bool ?? false
+        // Opt-out: on unless the user has explicitly turned it off.
+        remindersEnabled = UserDefaults.standard.object(forKey: Self.remindersEnabledDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         quickActionsEnabled = UserDefaults.standard.object(forKey: Self.quickActionsDefaultsKey) as? Bool ?? true
         // Opt-in: off until the user has explicitly turned it on.
