@@ -149,6 +149,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Anonymous, opt-in usage analytics (off unless the user enabled it in
         // Settings). Configure from the persisted flag, then record this launch.
         Analytics.shared.configure(enabled: viewModel.state.analyticsEnabled)
+
+        // Did the *previous* run crash? Reads the sentinel written below, then
+        // scans for the OS's own crash report off-main. Must come after
+        // `configure`, since it may send an event.
+        CrashReporter.reportPreviousCrashIfNeeded()
+        CrashReporter.markLaunch()
         reportLaunchAnalytics()
 
         // Put up the sign-in gate. At cold launch there's never a live session
@@ -395,6 +401,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// gone — with nothing left on screen to explain it or any way to stop it.
     func applicationWillTerminate(_ notification: Notification) {
         viewModel.stopSpeaking()
+        // The other half of crash detection. macOS calls this for ⌘Q, the tray
+        // Quit item, and logout — but never for a crash, which is precisely the
+        // discrimination `CrashReporter` relies on. A Force Quit skips it too and
+        // is therefore reported as an unclean exit with `hasReport=false`.
+        CrashReporter.markCleanExit()
     }
 
     /// Fire the launch-time analytics signals. No-ops entirely when the user

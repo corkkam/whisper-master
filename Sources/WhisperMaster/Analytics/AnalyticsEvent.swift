@@ -27,6 +27,10 @@ enum AnalyticsEvent {
     /// loaded for the first time — i.e. a user actually pulled the ~1.5 GB model.
     /// This is the "how many adopted the LLM" counter.
     case cleanupModelDownloaded
+    /// The previous run ended without reaching `applicationWillTerminate`,
+    /// reported on the next launch by `CrashReporter`. A `nil` report means the
+    /// exit was unclean but no matching `.ips` was readable — see `hasReport`.
+    case appCrashed(CrashReport?)
 
     /// The PostHog event name (namespaced, dot-separated by convention).
     var name: String {
@@ -37,6 +41,7 @@ enum AnalyticsEvent {
         case .permissionState: return "Permission.state"
         case .updateInstalled: return "Update.installed"
         case .cleanupModelDownloaded: return "Cleanup.modelDownloaded"
+        case .appCrashed: return "App.crashed"
         }
     }
 
@@ -55,6 +60,7 @@ enum AnalyticsEvent {
         case .permissionState: return "permission_state"
         case .updateInstalled: return "update_installed"
         case .cleanupModelDownloaded: return "cleanup_model_downloaded"
+        case .appCrashed: return "app_crashed"
         }
     }
 
@@ -83,6 +89,31 @@ enum AnalyticsEvent {
             ]
         case let .updateInstalled(from, to):
             return ["fromVersion": from, "toVersion": to]
+        case let .appCrashed(report):
+            // `hasReport` is the honesty flag. An unclean exit is also what a
+            // Force Quit, a kernel panic, and a power cut look like, so the two
+            // cases must stay separable in the reports: `hasReport=true` is a
+            // confirmed crash with a stack, `false` is "ended abruptly, cause
+            // unknown". Collapsing them would inflate the crash rate with every
+            // user who ever force-quit the app.
+            guard let report else {
+                return [
+                    "hasReport": "false",
+                    "exceptionType": "unknown",
+                    "crashSignature": "unknown",
+                ]
+            }
+            return [
+                "hasReport": "true",
+                "exceptionType": report.exceptionType,
+                "crashSignal": report.signal,
+                "crashSignature": report.signature,
+                "crashBinary": report.binary,
+                // The version that *crashed*, which is not necessarily the one
+                // reporting it — the report is read on the next launch, which may
+                // already be a Sparkle update later.
+                "crashedVersion": report.crashedVersion,
+            ]
         }
     }
 
