@@ -15,7 +15,7 @@ import Foundation
 enum CredentialStrategy {
     /// A resolved token plus whether the stored credential changed (so the caller
     /// persists it once, rather than every read re-writing the Keychain).
-    struct Resolved {
+    struct Resolved: Sendable {
         let token: String
         let updatedCredential: ConnectorCredential?
     }
@@ -46,22 +46,7 @@ enum CredentialStrategy {
             guard let credential = ConnectorCredentials.load(for: instance.id) else {
                 throw ResolveError.noCredential
             }
-            guard credential.isExpired() else {
-                guard let token = credential.accessToken else { throw ResolveError.noCredential }
-                return Resolved(token: token, updatedCredential: nil)
-            }
-            guard let refreshToken = credential.refreshToken else {
-                // Expired with nothing to refresh from — the user must reconnect. This
-                // is `.tokenExpired` on the instance row, not a silent empty read.
-                throw ResolveError.notRefreshable
-            }
-            do {
-                let response = try await OAuthPKCEFlow.refresh(refreshToken: refreshToken)
-                let updated = response.merged(into: credential)
-                return Resolved(token: response.accessToken, updatedCredential: updated)
-            } catch {
-                throw ResolveError.refreshFailed(String(describing: error))
-            }
+            return try await refreshedIfNeeded(credential, instanceID: instance.id)
 
         case .mintedToken:
             guard let credential = ConnectorCredentials.load(for: instance.id) else {
@@ -71,6 +56,75 @@ enum CredentialStrategy {
             // Deliberately not persisted: a 1-hour token on disk is a liability with no
             // upside, since minting is one cheap request.
             return Resolved(token: token, updatedCredential: nil)
+        }
+    }
+
+    /// Resolve, and write back whatever the resolve refreshed, in one step.
+    ///
+    /// Persisting is owed by *every* resolving caller — a rotated refresh token dropped
+    /// on the floor is a reconnect the user gets asked for later — and leaving it to
+    /// each call site is exactly how the Slack write came to redo the same refresh on
+    /// every message it posted. A provider that just needs a usable token should reach
+    /// for this rather than `resolve(for:)`; `resolve` stays public for the callers that
+    /// report their own read outcome.
+    static func resolveAndPersist(for instance: ConnectorInstance) async throws -> String {
+        let resolved = try await resolve(for: instance)
+        persist(resolved, for: instance.id)
+        return resolved.token
+    }
+
+    /// Write back a credential a resolve refreshed. A no-op when nothing changed, so
+    /// an ordinary read never touches the Keychain.
+    private static func persist(_ resolved: Resolved, for instanceID: UUID) {
+        guard let updated = resolved.updatedCredential else { return }
+        _ = ConnectorCredentials.save(updated, for: instanceID)
+    }
+
+    /// Refresh a grant that's at (or near) expiry, else hand back what's stored.
+    ///
+    /// Split out from `resolve` so a credential that has no instance behind it yet —
+    /// the bytes a `validate` is handed at connect time — can still be refreshed rather
+    /// than judged expired. `instanceID` keys the in-flight cache below; nil skips only
+    /// the coalescing, since there is nothing for a second caller to collide with.
+    static func refreshedIfNeeded(_ credential: ConnectorCredential,
+                                  instanceID: UUID? = nil) async throws -> Resolved {
+        guard credential.isExpired() else {
+            guard let token = credential.accessToken else { throw ResolveError.noCredential }
+            return Resolved(token: token, updatedCredential: nil)
+        }
+        guard let refreshToken = credential.refreshToken else {
+            // Expired with nothing to refresh from — the user must reconnect. This
+            // is `.tokenExpired` on the instance row, not a silent empty read.
+            throw ResolveError.notRefreshable
+        }
+        guard let instanceID else {
+            return try await performRefresh(refreshToken, into: credential)
+        }
+        // One refresh per instance at a time. A scheduled automation firing on the
+        // 0.5 s tick and an interactive chord can reach the same instance at once, and
+        // with a provider that rotates refresh tokens the second refresh invalidates
+        // the first — last writer wins, and the loser's token is already on disk.
+        if let inFlight = refreshTasks[instanceID] { return try await inFlight.value }
+        let task = Task { try await performRefresh(refreshToken, into: credential) }
+        refreshTasks[instanceID] = task
+        // Cleared on failure too: one network blip must not poison the instance for
+        // the life of the process.
+        defer { refreshTasks[instanceID] = nil }
+        return try await task.value
+    }
+
+    /// Refreshes running right now, keyed by instance. `@MainActor` isolation is what
+    /// makes the check-then-insert above atomic — no lock needed.
+    private static var refreshTasks: [UUID: Task<Resolved, Error>] = [:]
+
+    private static func performRefresh(_ refreshToken: String,
+                                       into credential: ConnectorCredential) async throws -> Resolved {
+        do {
+            let response = try await OAuthPKCEFlow.refresh(refreshToken: refreshToken)
+            return Resolved(token: response.accessToken,
+                            updatedCredential: response.merged(into: credential))
+        } catch {
+            throw ResolveError.refreshFailed(String(describing: error))
         }
     }
 

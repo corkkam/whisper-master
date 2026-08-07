@@ -69,14 +69,17 @@ extension SlackProvider: WriteCapableProvider {
         guard let channel = arguments["channel"], let text = arguments["text"] else {
             return .failed("Missing channel or text.")
         }
-        let resolved: CredentialStrategy.Resolved
-        do { resolved = try await CredentialStrategy.resolve(for: instance) } catch {
+        // `resolveAndPersist`, never a bare `resolve`: a refresh this write paid for
+        // has to be written back, or every message re-does it and a rotated refresh
+        // token is lost.
+        let token: String
+        do { token = try await CredentialStrategy.resolveAndPersist(for: instance) } catch {
             return .failed("Slack credential unusable.")
         }
         do {
             let json = try await ConnectorHTTP.postJSON(
                 URL(string: "https://slack.com/api/chat.postMessage")!,
-                token: resolved.token,
+                token: token,
                 body: ["channel": channel, "text": text])
             try ConnectorHTTP.requireSlackOK(json)
             return .done("Posted to \(channel) on \(instance.displayLabel).")
@@ -156,12 +159,9 @@ extension GoogleCalendarProvider: WriteCapableProvider {
             return .failed("Start and end must be ISO-8601 times.")
         }
 
-        let resolved: CredentialStrategy.Resolved
-        do { resolved = try await CredentialStrategy.resolve(for: instance) } catch {
+        let token: String
+        do { token = try await CredentialStrategy.resolveAndPersist(for: instance) } catch {
             return .failed("Google credential unusable.")
-        }
-        if let updated = resolved.updatedCredential {
-            _ = ConnectorCredentials.save(updated, for: instance.id)
         }
 
         let encoded = calendarID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? calendarID
@@ -169,7 +169,7 @@ extension GoogleCalendarProvider: WriteCapableProvider {
             return .failed("Bad calendar id.")
         }
         do {
-            _ = try await ConnectorHTTP.postJSON(url, token: resolved.token, body: [
+            _ = try await ConnectorHTTP.postJSON(url, token: token, body: [
                 "summary": title,
                 "start": ["dateTime": start],
                 "end": ["dateTime": end],
