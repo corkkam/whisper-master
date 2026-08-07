@@ -76,12 +76,28 @@ final class UsageSyncClient {
                 Log.usage.error("usage sync rejected (HTTP \(code, privacy: .public)) — leaving \(days.count) day(s) dirty")
                 return
             }
-            store.clearDirty(days)
+            store.clearDirty(daysStillMatching(rollups, of: days))
             Log.usage.notice("usage sync pushed \(rollups.count, privacy: .public) day(s)")
         } catch {
             // Offline / transient — keep the days dirty and retry on a later tick.
             Log.usage.error("usage sync failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// The subset of `days` whose rollup is still byte-for-byte what we POSTed, so
+    /// only those get their dirty flag cleared.
+    ///
+    /// `UsageStore` is `@MainActor` and the finalize in `stopRecording` interleaves
+    /// on that same actor, so a dictation can land *during* the request: it folds
+    /// into the day and re-dirties it, and clearing the flag on the stale
+    /// pre-request day set then threw that increment away — never uploaded, never
+    /// retried. A day that moved stays dirty and goes up on the next tick. A day in
+    /// `days` with no rollup at all (nil then and now) is still cleared, so a stray
+    /// key can't pin the dirty set open forever.
+    func daysStillMatching(_ sent: [DailyRollup], of days: Set<String>) -> Set<String> {
+        let posted = Dictionary(sent.map { ($0.day, $0) }, uniquingKeysWith: { a, _ in a })
+        let current = Dictionary(store.rollups(for: days).map { ($0.day, $0) }, uniquingKeysWith: { a, _ in a })
+        return days.filter { posted[$0] == current[$0] }
     }
 
     // MARK: - Wire payload (matches the dashboard's /api/usage schema)

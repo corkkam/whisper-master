@@ -257,6 +257,12 @@ final class DictationViewModel {
         // finalize work; cleared so a cancelled/failed run can't reuse it.
         let sessionDuration = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
         recordingStartedAt = nil
+        // Which account these words belong to, captured *here* rather than at the
+        // end of the finalize below: usage is per-account and the loaded account is
+        // repointed by the 0.5 s auth reconcile, so a sign-in/out during the
+        // finalize would otherwise file this session under whoever happens to be
+        // signed in when it finishes.
+        let sessionOwner = state.usageStore.currentUserID
         // Consume the command arm now (synchronously, at the user's stop) so it
         // can't linger; the async finalize below reads this captured copy.
         let commandMode = commandArmed
@@ -338,10 +344,22 @@ final class DictationViewModel {
                 // we'd waited, but the user never did.
                 state.phase = .idle
                 state.transcript.finalText = cleaned
+                // Every exit below folds the session into the durable usage stats
+                // (Insights dashboard) with the kind it turned out to be: a capture
+                // the assistant took and one that produced nothing are both real
+                // minutes of speaking, and omitting them makes the WPM gauge,
+                // lifetime words and the streak read low. `kind` is what keeps them
+                // from being *counted as* text typed at the cursor.
+                let fixes = FixCounts(
+                    wordsCorrected: selfCorrectionFixes + fillerFixes,
+                    dictionary: dictionaryFixes)
                 guard !cleaned.isEmpty else {
                     // Nothing to paste (only "hmm" / a silence hallucination).
                     // Still record the session — an empty result is itself a
                     // "miss" worth inspecting, and the audio is captured.
+                    recordUsage(
+                        kind: .empty, transcript: "", duration: sessionDuration,
+                        fixes: fixes, owner: sessionOwner)
                     Diagnostics.shared.finish(pasteOutcome: "empty", finalText: "")
                     state.statusMessage = "Finished local transcription."
                     return
@@ -358,6 +376,9 @@ final class DictationViewModel {
                 // wrong, and no keyword list is good enough to earn that.
                 if commandMode, await routeCommandCapture(cleaned) {
                     reminderScheduler.noteUsed()
+                    recordUsage(
+                        kind: .assistant, transcript: cleaned, duration: sessionDuration,
+                        fixes: fixes, owner: sessionOwner)
                     Diagnostics.shared.finish(pasteOutcome: "command", finalText: cleaned)
                     state.statusMessage = "Handled by the assistant."
                     return
@@ -378,19 +399,9 @@ final class DictationViewModel {
                 Diagnostics.shared.noteFrontApp(
                     name: front?.localizedName ?? "unknown",
                     bundleID: front?.bundleIdentifier ?? "")
-                // Fold this dictation into the durable usage stats (Insights
-                // dashboard). Same front-app snapshot the diagnostics use — the
-                // app about to receive the paste — now always-on, not DIAGNOSTICS.
-                state.usageStore.record(DictationRecord(
-                    timestamp: Date(),
-                    wordCount: wordCount,
-                    durationSeconds: sessionDuration,
-                    appName: front?.localizedName ?? "",
-                    appBundleID: front?.bundleIdentifier ?? "",
-                    engineRawValue: state.selectedEngine.rawValue,
-                    fixes: FixCounts(
-                        wordsCorrected: selfCorrectionFixes + fillerFixes,
-                        dictionary: dictionaryFixes)))
+                recordUsage(
+                    kind: .dictation, transcript: cleaned, duration: sessionDuration,
+                    fixes: fixes, owner: sessionOwner)
                 // What AX sees at the moment we choose the paste route — the
                 // evidence for building the "nowhere to type" classifier.
                 Diagnostics.shared.noteFocus(FocusedElementInspector.focusDiagnostic())
@@ -422,6 +433,56 @@ final class DictationViewModel {
                 await handleFailure(error)
             }
         }
+    }
+
+    /// Fold one finished session into the durable usage stats, from whichever exit
+    /// of the finalize it reached. `kind` records what it turned out to be — the
+    /// Insights dashboard and analytics can then tell assistant captures and empty
+    /// results apart from text typed at the cursor instead of missing them entirely.
+    private func recordUsage(
+        kind: DictationRecord.SessionKind,
+        transcript: String,
+        duration: TimeInterval,
+        fixes: FixCounts,
+        owner: String?
+    ) {
+        // The frontmost app is the one about to receive the paste — or, for an
+        // assistant capture, the one the user was speaking from. We never steal
+        // focus, so it's still their app. Same snapshot the diagnostics take.
+        let front = NSWorkspace.shared.frontmostApplication
+        state.usageStore.record(
+            Self.usageRecord(
+                kind: kind,
+                transcript: transcript,
+                duration: duration,
+                appName: front?.localizedName ?? "",
+                appBundleID: front?.bundleIdentifier ?? "",
+                engineRawValue: state.selectedEngine.rawValue,
+                fixes: fixes),
+            owner: owner)
+    }
+
+    /// The record for one finished session. Pure, so what each exit of the finalize
+    /// contributes to usage is testable without a microphone.
+    static func usageRecord(
+        kind: DictationRecord.SessionKind,
+        transcript: String,
+        duration: TimeInterval,
+        appName: String,
+        appBundleID: String,
+        engineRawValue: String,
+        fixes: FixCounts,
+        now: Date = Date()
+    ) -> DictationRecord {
+        DictationRecord(
+            timestamp: now,
+            wordCount: WordCount.count(transcript),
+            durationSeconds: duration,
+            appName: appName,
+            appBundleID: appBundleID,
+            engineRawValue: engineRawValue,
+            fixes: fixes,
+            kind: kind)
     }
 
     /// Kick the optional on-device qwen polish in the background and, when it
