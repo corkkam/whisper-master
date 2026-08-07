@@ -594,17 +594,20 @@ private struct CredentialConnectStep: View {
                             Text("optional").font(Typography.caption).foregroundStyle(Theme.textTertiary)
                         }
                     }
-                    // A secret goes in a SecureField so it isn't shoulder-readable or
-                    // captured in a screen recording while being pasted.
+                    // A secret is masked so it isn't shoulder-readable or captured in a
+                    // screen recording while being pasted. `SecretField` rather than
+                    // SwiftUI's `SecureField` because the latter opts into AutoFill, whose
+                    // out-of-process completion list crashes the app the next time a
+                    // popover opens in this window — see `SecretField` for the full chain.
                     Group {
                         if field.isSecret {
-                            SecureField(field.placeholder, text: binding(field.key))
+                            SecretField(placeholder: field.placeholder, text: binding(field.key))
                         } else {
                             TextField(field.placeholder, text: binding(field.key))
+                                .textFieldStyle(.plain)
+                                .font(Typography.sans(13))
                         }
                     }
-                    .textFieldStyle(.plain)
-                    .font(Typography.sans(13))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
                     .background(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).fill(Theme.surface))
