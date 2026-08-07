@@ -31,11 +31,7 @@ final class CommandAgentTests: XCTestCase {
     }
 
     private func scripted(_ replies: [String]) -> AgentLoop.Generate {
-        var index = 0
-        return { _, _ in
-            defer { index += 1 }
-            return index < replies.count ? replies[index] : nil
-        }
+        ScriptedModel(replies).generate
     }
 
     private func service(notes: NotesStore,
@@ -214,6 +210,60 @@ final class CommandAgentTests: XCTestCase {
         XCTAssertFalse(result?.createdSomething ?? true, "reading created nothing")
         XCTAssertEqual(result?.detail, "On-device assistant",
                        "the user's own notes are not a connector to credit")
+    }
+
+    // MARK: - What counts as having acted
+
+    /// **A connector write is something happening.** The tally was derived from the
+    /// local runner's effects alone, so a Slack message that genuinely went out left
+    /// `didCreateSomething` false — and an exhausted loop then told the user nothing
+    /// had happened about a message that had already been sent.
+    ///
+    /// The router is stubbed because no provider can complete a real write under
+    /// `swift test`.
+    func testAConnectorWriteCountsAsHavingActed() async {
+        let connectors = StubConnectorRouter(
+            ToolResult(ok: true, text: "Sent to #ops.", instanceLabels: ["Work chat"]))
+        let router = CommandToolRouter(local: LocalToolRunner(notes: notesStore()),
+                                       connectors: connectors)
+
+        let result = await router.run(ToolCall(
+            tool: "send_message", arguments: ["channel": "#ops", "text": "hi"]))
+
+        XCTAssertTrue(result.ok)
+        XCTAssertTrue(router.didCreateSomething, "the message went out")
+        XCTAssertEqual(router.lastResult, "Sent to #ops.",
+                       "so an exhausted loop has the tool's own report to fall back on")
+        XCTAssertEqual(router.effects,
+                       [.connectorWrite(tool: "send_message", instanceLabels: ["Work chat"])])
+    }
+
+    /// A write the user declined, or one the provider refused, reached the connector
+    /// and changed nothing — the deterministic fallback must still get the words.
+    func testAFailedConnectorWriteDoesNotCount() async {
+        let connectors = StubConnectorRouter(.failure("The user declined that."))
+        let router = CommandToolRouter(local: LocalToolRunner(notes: notesStore()),
+                                       connectors: connectors)
+
+        _ = await router.run(ToolCall(
+            tool: "send_message", arguments: ["channel": "#ops", "text": "hi"]))
+
+        XCTAssertFalse(router.didCreateSomething)
+        XCTAssertTrue(router.effects.isEmpty)
+    }
+
+    /// Reading still doesn't count: the answer is the whole of its result.
+    func testAConnectorReadDoesNotCount() async {
+        let connectors = StubConnectorRouter(
+            ToolResult(ok: true, text: "Nothing on the calendar today.",
+                       instanceLabels: ["Work"]))
+        let router = CommandToolRouter(local: LocalToolRunner(notes: notesStore()),
+                                       connectors: connectors)
+
+        _ = await router.run(ToolCall(tool: "list_calendar_events", arguments: [:]))
+
+        XCTAssertFalse(router.didCreateSomething)
+        XCTAssertTrue(router.effects.isEmpty)
     }
 
     /// A local tool has no consent card to bind a grant to, so it must never be
