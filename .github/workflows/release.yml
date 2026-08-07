@@ -173,6 +173,34 @@ jobs:
           NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
         run: bash Scripts/publish-dmg.sh
 
+      - name: Publish What's New manifest to R2
+        # The release notes + demo video the app shows after a Sparkle update
+        # relaunches it on a newer version. Validates whats-new.json, then
+        # uploads it to <bucket>/whats-new.json.
+        #
+        # ONE MANIFEST FOR ALL THREE CHANNELS — unlike the appcasts, this is not
+        # per-channel: a beta and a stable build at the same version show the
+        # same note. So it runs on every channel and uploads to the same key.
+        #
+        # Runs AFTER the DMG so a validation failure here can never cost the
+        # release itself: by this point the archive, appcast and DMG are already
+        # published and users can update. Deliberately NOT continue-on-error —
+        # a malformed manifest is invisible in the field (the app degrades to
+        # showing nothing), so CI is the only place it can be caught, and a red
+        # job is the whole point.
+        #
+        # Media (video/poster) is uploaded out of band by hand via
+        # Scripts/upload-whats-new-media.sh — CI has no video to publish.
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          # NOTE: R2_PUBLIC_BASE_URL is deliberately NOT passed. That secret is
+          # stale (it still names a retired r2.dev host) while the app hardcodes
+          # dl.corkkam.com; nothing here may build a user-visible URL from it.
+        run: bash Scripts/publish-whats-new.sh
+
       - name: Announce release on Telegram
         # Only after a successful upload, and only for STABLE (main-branch)
         # releases — dev-channel builds are internal and must not post to the

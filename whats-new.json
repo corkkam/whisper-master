@@ -1,0 +1,59 @@
+{
+  "_README": [
+    "The release notes the app shows after a Sparkle update installs.",
+    "",
+    "This file IS the published manifest — it is uploaded verbatim to",
+    "https://dl.corkkam.com/whats-new.json. Edit it here, in a PR, like code.",
+    "",
+    "TO ADD A RELEASE:",
+    "  1. Add an entry to `releases` below. `version` must match the",
+    "     CFBundleShortVersionString in Resources/Info.plist for that release.",
+    "  2. Record a demo video, then upload it out of band:",
+    "       bash Scripts/upload-whats-new-media.sh 1.1.0 demo.mp4 poster.jpg",
+    "     That prints the two URLs — paste them into videoURL / posterURL.",
+    "  3. Validate before pushing:  bash Scripts/publish-whats-new.sh --check",
+    "",
+    "RULES THE VALIDATOR ENFORCES (see Scripts/whats-new-validate.py):",
+    "  - `version` and `headline` are required on every release.",
+    "  - versions are well-formed semver and unique.",
+    "  - `releases` is sorted NEWEST FIRST.",
+    "  - videoURL / posterURL must be https (the app rejects anything else).",
+    "",
+    "NOTES:",
+    "  - videoURL, posterURL and highlights are all optional. A release with no",
+    "    video is a perfectly good note — the highlights carry it.",
+    "  - The video is STREAMED, never bundled in the app, so you can publish or",
+    "    replace one without cutting a release.",
+    "  - One manifest serves all three channels (stable / beta / dev).",
+    "  - `systemImage` is any SF Symbol name.",
+    "  - A first install never sees this — only a genuine upgrade does.",
+    "  - Keys the app doesn't know (like this one) are ignored, by design."
+  ],
+
+  "schemaVersion": 1,
+
+  "releases": [
+    {
+      "version": "1.0.0",
+      "headline": "The first launch",
+      "publishedAt": "2026-08-01T00:00:00Z",
+      "highlights": [
+        {
+          "title": "Dictate anywhere",
+          "body": "Hold the Globe key and talk. Your words land in whatever app you're in — all transcribed on-device.",
+          "systemImage": "mic.fill"
+        },
+        {
+          "title": "Ask your assistant",
+          "body": "Hold fn + control to file a note, set a reminder, or ask what's on your calendar.",
+          "systemImage": "sparkles"
+        },
+        {
+          "title": "Nothing leaves your Mac",
+          "body": "Transcription runs entirely on-device. No audio is ever uploaded.",
+          "systemImage": "lock.fill"
+        }
+      ]
+    }
+  ]
+}
