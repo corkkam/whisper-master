@@ -129,15 +129,17 @@ final class UsageStore {
     /// to the account that spoke them: folded straight into that account's file
     /// when it is no longer the loaded one, and never into whoever is loaded now.
     func record(_ r: DictationRecord, owner: String?) {
-        if owner == currentUserID {
-            record(r)
+        // Ownerless first, *before* the match: with no account loaded either,
+        // `owner == currentUserID` would be nil == nil and the record would land in
+        // the legacy device-wide file this store never adopts. Nobody was signed in
+        // when the session started, so there is no account to credit — drop it
+        // loudly rather than misattribute it.
+        guard let owner else {
+            Log.usage.error("usage record dropped: session started with no signed-in account")
             return
         }
-        guard let owner else {
-            // Nobody was signed in when the session started, so there is no
-            // account to credit — and the legacy device-wide file is deliberately
-            // never adopted. Drop it loudly rather than misattribute it.
-            Log.usage.error("usage record dropped: session started with no signed-in account")
+        if owner == currentUserID {
+            record(r)
             return
         }
         recordIntoFile(r, userID: owner)

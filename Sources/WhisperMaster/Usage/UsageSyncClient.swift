@@ -51,9 +51,23 @@ final class UsageSyncClient {
         Task { await self.push(days: days) }
     }
 
-    private func push(days: Set<String>) async {
+    /// The actual push. Driven by `syncIfNeeded`; not private so the tests can
+    /// exercise it directly, like `daysStillMatching`.
+    func push(days: Set<String>) async {
         defer { inFlight = false; lastSyncAt = Date() }
         guard let endpoint, let id = await identity() else { return }
+        // `identity()` awaits a fresh session token, and the store is repointed in
+        // place by `activate(userID:)` off the 0.5 s auth reconcile — so another
+        // account can sign in *across* that await (the org flow lets several people
+        // share one Mac). The rollups read below would then be theirs while the id
+        // is the previous user's, and `GET /api/usage/<userId>` is public on the
+        // dashboard, so that publishes one account's numbers under another's
+        // identity. Send nothing instead: the days stay dirty and go up on a later
+        // tick, under whichever account owns them.
+        guard id.userId == store.currentUserID else {
+            Log.usage.notice("usage sync skipped: the signed-in account changed mid-push")
+            return
+        }
         let rollups = store.rollups(for: days)
         guard !rollups.isEmpty else { store.clearDirty(days); return }
 
@@ -70,7 +84,17 @@ final class UsageSyncClient {
             }
             request.httpBody = try JSONEncoder().encode(payload)
 
+            // Re-checked on the line before the send: nothing between the guard
+            // above and here awaits today, and this is what keeps that true — an
+            // await added into the payload/header work later must not be able to
+            // reopen the window between the id and the body it labels.
+            guard id.userId == store.currentUserID else { return }
             let (_, response) = try await session.data(for: request)
+            // And once more on the way out. Clearing the dirty flags now would clear
+            // them on whoever's store is loaded *now*, dropping days of theirs that
+            // were never uploaded; the account that owns these days re-reads them
+            // from its own file when it comes back.
+            guard id.userId == store.currentUserID else { return }
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 let code = (response as? HTTPURLResponse)?.statusCode ?? -1
                 Log.usage.error("usage sync rejected (HTTP \(code, privacy: .public)) — leaving \(days.count) day(s) dirty")
