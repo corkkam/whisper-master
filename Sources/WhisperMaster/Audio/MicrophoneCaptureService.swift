@@ -64,6 +64,11 @@ final class MicrophoneCaptureService {
     var onCaptureLost: (() -> Void)?
 
     private var rewarmWork: DispatchWorkItem?
+    /// Coalesces the burst of `AVAudioEngineConfigurationChange` notifications a
+    /// single route change emits into one deferred rebuild, and — the load-bearing
+    /// part — moves the engine *drop* off the notification callout (see
+    /// `handleConfigurationChange`).
+    private var configChangeWork: DispatchWorkItem?
     private var deviceListenerBlock: AudioObjectPropertyListenerBlock?
     private var configObserver: NSObjectProtocol?
     /// True for the duration of a warm-up start/stop.
@@ -78,6 +83,16 @@ final class MicrophoneCaptureService {
     /// Short, because the cost of swallowing a real one is only that an idle graph
     /// stays stale — and `start()` rebuilds and retries anyway.
     private static let prewarmQuietWindow: TimeInterval = 0.5
+    /// How long to wait after a configuration change before acting on it. Two jobs:
+    /// coalesce the burst of notifications a single route change (AirPods/Bluetooth
+    /// connect, external speaker) emits into one rebuild, and — the reason this
+    /// exists — get the engine *drop* out of the synchronous notification callout.
+    /// Releasing the old `AVAudioEngine` from inside the callout tears down its IO
+    /// unit while AVFAudio is still mid-reconfiguring that same unit for the change
+    /// the notification announced, so its internal HAL property listener fires
+    /// against a half-freed unit — the `AVAudioIOUnit` use-after-free crash. Kept
+    /// below `prewarmQuietWindow` so a self-inflicted change is still recognised.
+    private static let configChangeSettleDelay: TimeInterval = 0.15
     /// Bounded budget for mid-recording graph rebuilds. A route that keeps flapping
     /// ends the session honestly instead of being rebuilt on every notification for as
     /// long as it lasts (pure + tested — see `CaptureRecoveryBudget`).
@@ -161,6 +176,8 @@ final class MicrophoneCaptureService {
     }
 
     deinit {
+        rewarmWork?.cancel()
+        configChangeWork?.cancel()
         if let block = deviceListenerBlock {
             AudioObjectRemovePropertyListenerBlock(
                 AudioObjectID(kAudioObjectSystemObject), &Self.deviceListAddress, DispatchQueue.main, block)
@@ -181,6 +198,10 @@ final class MicrophoneCaptureService {
         levelHandler: @escaping LevelHandler
     ) throws {
         guard !isCapturing else { return }
+
+        // A rebuild deferred from a route change before this session must not land
+        // underneath the fresh capture we're about to arm.
+        configChangeWork?.cancel()
 
         // Each session gets its own recovery budget — a flap during the last one
         // must not spend this one's.
@@ -211,6 +232,7 @@ final class MicrophoneCaptureService {
 
     func stop() {
         guard isCapturing else { return }
+        configChangeWork?.cancel()
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         clearHandlers()
@@ -297,6 +319,7 @@ final class MicrophoneCaptureService {
     /// which the owner's failure path will also call, and which must stay a no-op by
     /// then rather than a second teardown.
     private func abandonCapture() {
+        configChangeWork?.cancel()
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         clearHandlers()
@@ -323,7 +346,29 @@ final class MicrophoneCaptureService {
     ///
     /// Delivered on the main queue (the observer's queue), which is also where
     /// `start`/`stop` are called from, so this can't interleave with them.
+    ///
+    /// **We do not rebuild here — we schedule it.** Releasing the old
+    /// `AVAudioEngine` synchronously in this callout drops its IO unit while
+    /// AVFAudio is still reconfiguring that same unit for the change this
+    /// notification announced; the unit's internal HAL property listener then fires
+    /// against a half-freed object, which is the `AVAudioIOUnit` use-after-free
+    /// crash (a `sampleRate` message to a freed default-device aggregate). Deferring
+    /// by `configChangeSettleDelay` gets the drop off the callout so AVFAudio
+    /// finishes its own reconfiguration first, and coalesces the burst of
+    /// notifications a single connect/disconnect emits into one rebuild instead of
+    /// dropping an engine per notification while the route is still in motion.
     private func handleConfigurationChange() {
+        configChangeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.performConfigurationChange()
+        }
+        configChangeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.configChangeSettleDelay, execute: work)
+    }
+
+    /// The deferred body of `handleConfigurationChange`, run on the main queue once
+    /// the route has settled and AVFAudio's own reconfiguration is done.
+    private func performConfigurationChange() {
         // Our own warm-up can provoke one of these, synchronously or a beat later;
         // acting on it would rebuild the graph we just warmed, warm again, and loop.
         guard !isPrewarming, !isWithinPrewarmQuietWindow else { return }
