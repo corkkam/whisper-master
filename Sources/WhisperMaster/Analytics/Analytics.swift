@@ -107,10 +107,24 @@ final class Analytics {
         config.captureApplicationLifecycleEvents = false
         config.captureScreenViews = false
         PostHogSDK.shared.setup(config)
+        // Which build this is, on every event *and* on the person.
+        //
+        // Both are needed and they answer different questions. The super
+        // property splits **events** by channel ("crashes on beta this week");
+        // the person property splits **users** ("how many people are on beta"),
+        // which an event property cannot do — PostHog's unique-user and
+        // retention maths runs off the person profile, so a channel that only
+        // exists on events can't be a cohort. `register` must follow `setup`:
+        // it no-ops while the SDK is unconfigured.
+        let channel = ReleaseChannel.current.rawValue
+        PostHogSDK.shared.register(["channel": channel])
         // Use our own anonymous, stable identifier as the distinct id so
         // unique-user / retention counts work without anything identifying
         // (a random UUID, same role as before).
-        PostHogSDK.shared.identify(AnalyticsIdentity.installID)
+        PostHogSDK.shared.identify(
+            AnalyticsIdentity.installID,
+            userProperties: ["channel": channel]
+        )
         didInitializeSDK = true
         Log.analytics.notice("Analytics enabled (PostHog initialized).")
     }
