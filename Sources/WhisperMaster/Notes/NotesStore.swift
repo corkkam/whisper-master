@@ -108,6 +108,7 @@ final class NotesStore {
         notes[idx].isPinned = false
         dirtyIDs.insert(id)
         persist()
+        Analytics.shared.send(.noteDeleted)
     }
 
     /// Pin or unpin a note. Pinned notes lead the canvas and are the ones the notch
@@ -118,6 +119,12 @@ final class NotesStore {
         notes[idx].updatedAt = Date()
         dirtyIDs.insert(id)
         persist()
+        // Instrumented here rather than at the call sites: pinning is reachable
+        // from the canvas, the quick-actions column and the notch, and a signal
+        // wired per surface would quietly miss whichever one gets added next.
+        // The guard above means this only fires on a real change, never on a
+        // redundant set.
+        Analytics.shared.send(.notePinned(pinned: pinned))
     }
 
     // MARK: - Reminder mutators
@@ -167,6 +174,12 @@ final class NotesStore {
         reminders[idx] = r
         dirtyIDs.insert(id)
         persist()
+        // A repeat rolled forward and a one-off archived are different outcomes of
+        // the same tap, and the copy promises the difference up front — so they
+        // stay separable in the reports too. `isCompleted` is false on the repeat
+        // branch precisely because it was re-armed, which is what distinguishes
+        // them here.
+        Analytics.shared.send(.reminderCompleted(repeating: !r.isCompleted))
     }
 
     /// Put a reminder back the way it was before it was ticked off — the undo half
@@ -189,6 +202,10 @@ final class NotesStore {
         r.completedAt = nil
         if r.dueDate <= Date() { r.firedAt = Date() }
         upsertReminder(r)
+        // An un-tick is the strongest available evidence that a checkbox is in the
+        // wrong place or too easy to hit by accident, so it is worth counting
+        // against the completions above rather than being invisible.
+        Analytics.shared.send(.reminderRestored)
     }
 
     /// Empty the archive: soft-delete every completed reminder in one move.
@@ -206,7 +223,10 @@ final class NotesStore {
             dirtyIDs.insert(reminders[idx].id)
             cleared += 1
         }
-        if cleared > 0 { persist() }
+        if cleared > 0 {
+            persist()
+            Analytics.shared.send(.reminderArchiveCleared)
+        }
         return cleared
     }
 

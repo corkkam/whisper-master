@@ -264,6 +264,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.state.usageStore.activate(userID: user.id)
             viewModel.state.notesStore.activate(userID: user.id)
             viewModel.state.connectorStore.activate(userID: user.id)
+            // Attach the account to analytics on the same reconcile that scopes the
+            // stores, so the two can never disagree about who is signed in.
+            // `identify` is idempotent, which it has to be — this runs twice a
+            // second for the life of the session.
+            Analytics.shared.identify(
+                AnalyticsAccount(
+                    id: user.id,
+                    email: user.primaryEmailAddress?.emailAddress,
+                    // Clerk leaves both name halves optional, and a first name with
+                    // no last name is common; join what exists rather than
+                    // rendering "Jane nil".
+                    name: [user.firstName, user.lastName]
+                        .compactMap { $0 }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " ")
+                )
+            )
         } else if Clerk.shared.isLoaded {
             presentAuthGate()
             // Signed out — hide the app and drop the loaded account so neither the
@@ -272,6 +289,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.state.usageStore.deactivate()
             viewModel.state.notesStore.deactivate()
             viewModel.state.connectorStore.deactivate()
+            // Drop the person too, or the next user of this Mac inherits the last
+            // one's profile.
+            Analytics.shared.resetIdentity()
         }
         // Still loading a persisted session: leave the launch-time gate (which
         // shows a spinner) as-is until `isLoaded` resolves.
@@ -1033,6 +1053,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard hotkey == .fn else { return }
         if FnKeyBehavior.claimFnKeyForPushToTalk() {
             Log.app.info("claimed the Globe key for push-to-talk (was: system behavior)")
+            // Counted against the `restored: true` side, which is emitted from the
+            // Settings hand-back button. A claim rate that is healthy and a restore
+            // rate that is high together mean the claim is unwelcome — which is the
+            // one thing that would say this feature should ask first.
+            Analytics.shared.send(.fnKeyClaim(restored: false))
         }
     }
 

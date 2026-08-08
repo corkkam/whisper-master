@@ -131,12 +131,17 @@ struct LocalToolRunner {
         }
         let title = (call.arguments["title"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let id = UUID()
+        let audio = voice?.takeAudio(id)
         notes.upsertNote(Note(
             id: id,
             title: title,
             body: body,
             transcript: voice?.transcript,
-            audio: voice?.takeAudio(id)))
+            audio: audio))
+        // The agent path is the common one whenever the 3B is loaded, so counting
+        // it apart from the deterministic gate is what shows how much of the
+        // notes feature actually depends on the model being resident.
+        Analytics.shared.send(.noteCreated(source: .agent, hasAudio: audio != nil))
         return (ToolResult(ok: true, text: "Saved the note.", instanceLabels: []), .noteCreated)
     }
 
@@ -158,6 +163,7 @@ struct LocalToolRunner {
             dueDate: due,
             alertStyle: alertStyle,
             soundName: soundName))
+        Analytics.shared.send(.reminderCreated(source: .agent, repeating: false))
         let text = "Reminder set for \(Self.stamp.string(from: due))."
         return (ToolResult(ok: true, text: text, instanceLabels: []),
                 .reminderCreated(due: due, wasTimeStated: stated != nil))

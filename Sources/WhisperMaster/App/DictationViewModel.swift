@@ -413,6 +413,21 @@ final class DictationViewModel {
                 Diagnostics.shared.noteFrontApp(
                     name: front?.localizedName ?? "unknown",
                     bundleID: front?.bundleIdentifier ?? "")
+                // Roll the durable totals onto the analytics *person*. Read after
+                // `SessionAccounting.account` above has already folded this session
+                // in, so the totals include it — this reports the store, it does not
+                // record anything itself.
+                //
+                // This is what makes "which accounts are heavy users" a filter
+                // rather than an aggregation across every event that account ever
+                // sent: PostHog can cohort on a person property directly. On the
+                // `.dictation` path only, so the profile reflects delivered work
+                // rather than every session that was opened.
+                Analytics.shared.updatePersonProperties([
+                    "lifetimeDictations": String(state.usageStore.totalDictations),
+                    "lifetimeWords": String(state.usageStore.totalWords),
+                    "engine": state.selectedEngine.rawValue,
+                ])
                 // What AX sees at the moment we choose the paste route — the
                 // evidence for building the "nowhere to type" classifier.
                 Diagnostics.shared.noteFocus(FocusedElementInspector.focusDiagnostic())
@@ -863,10 +878,17 @@ final class DictationViewModel {
         // filing it into a store with no openable surface — so "remind me to
         // call mom" would silently vanish. Better to just paste the words.
         guard FeatureFlags.connectorsAndNotesAvailable else { return false }
+        // The denominator for every assistant number below: how often the chord
+        // was actually used, before any tier has had a chance to take it.
+        Analytics.shared.send(.assistantInvoked)
         await requestCalendarAccessIfNeeded()
-        if await runCommandAgent(text) { return true }
+        if await runCommandAgent(text) {
+            Analytics.shared.send(.assistantRouted(route: .agent))
+            return true
+        }
         if state.connectorStore.hasReadableCalendar, DayQueryDetector.matches(text) {
             await presentDaySummary(for: text)
+            Analytics.shared.send(.assistantRouted(route: .daySummary))
             return true
         }
         let fallback = ClassifiedIntent.armedCapture(of: text)
@@ -874,6 +896,7 @@ final class DictationViewModel {
         let intent = refined.kind == .dictation ? fallback : refined
         // The trigger-stripped words, used wherever the model left a piece empty.
         let payload = CommandDetector.detect(text)?.payload ?? text
+        Analytics.shared.send(.assistantRouted(route: .deterministic))
         if intent.kind == .reminder {
             createReminder(from: intent, fallbackTitle: payload)
         } else {
@@ -989,12 +1012,16 @@ final class DictationViewModel {
     private func createNote(from intent: ClassifiedIntent, fallbackBody: String, transcript: String) {
         let body = intent.body.isEmpty ? fallbackBody : intent.body
         let id = UUID()
+        let audio = takeNoteAudio(for: id)
         state.notesStore.upsertNote(Note(
             id: id,
             title: intent.title,
             body: body,
             transcript: transcript,
-            audio: takeNoteAudio(for: id)))
+            audio: audio))
+        // `hasAudio` is the adoption signal for the whole audio tee — a note made
+        // from a session too short to record looks the same otherwise.
+        Analytics.shared.send(.noteCreated(source: .deterministic, hasAudio: audio != nil))
         showCommandConfirmation("Note saved", icon: "note.text",
                                 window: AppState.commandConfirmationDuration)
     }
@@ -1043,6 +1070,7 @@ final class DictationViewModel {
             dueDate: due,
             alertStyle: state.reminderDefaultAlertStyle,
             soundName: state.reminderDefaultSound))
+        Analytics.shared.send(.reminderCreated(source: .deterministic, repeating: false))
         let when = Self.reminderTimeString(due, now: now)
         // A stated time is set; an unstated one gets a default the user can adjust
         // by tapping the banner (→ Settings → Notes & Reminders).

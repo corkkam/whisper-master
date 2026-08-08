@@ -166,6 +166,7 @@ final class GoogleAnalyticsTests: XCTestCase {
     func testPayloadEncodesTheKeysGoogleExpects() throws {
         let payload = GA4Payload(
             clientID: "abc-123",
+            userID: nil,
             timestampMicros: 1_700_000_000_000_000,
             nonPersonalizedAds: true,
             events: [GA4Event(name: "app_launched", params: ["session_id": "1"])]
@@ -184,6 +185,44 @@ final class GoogleAnalyticsTests: XCTestCase {
         XCTAssertEqual(events.count, 1)
         XCTAssertEqual(events[0]["name"] as? String, "app_launched")
         XCTAssertEqual((events[0]["params"] as? [String: String])?["session_id"], "1")
+    }
+
+    /// GA drops the **whole hit** when `user_id` is present but null or empty, so
+    /// "signed out" has to mean the key is absent rather than blank. Synthesized
+    /// `Encodable` gives us `encodeIfPresent` for the optional; this pins that it
+    /// stays that way.
+    func testSignedOutPayloadOmitsUserIDEntirely() throws {
+        let payload = GA4Payload(
+            clientID: "abc-123",
+            userID: nil,
+            timestampMicros: 1_700_000_000_000_000,
+            nonPersonalizedAds: true,
+            events: [GA4Event(name: "app_launched", params: [:])]
+        )
+
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try JSONEncoder().encode(payload)) as? [String: Any]
+        )
+        XCTAssertFalse(json.keys.contains("user_id"))
+    }
+
+    /// Signed in, the Clerk id rides beside `client_id` rather than replacing it —
+    /// GA models the two as person and device, and overwriting the device key
+    /// mid-stream forks that Mac's session history.
+    func testSignedInPayloadCarriesUserIDBesideClientID() throws {
+        let payload = GA4Payload(
+            clientID: "abc-123",
+            userID: "user_2abcDEF",
+            timestampMicros: 1_700_000_000_000_000,
+            nonPersonalizedAds: true,
+            events: [GA4Event(name: "app_launched", params: [:])]
+        )
+
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try JSONEncoder().encode(payload)) as? [String: Any]
+        )
+        XCTAssertEqual(json["user_id"] as? String, "user_2abcDEF")
+        XCTAssertEqual(json["client_id"] as? String, "abc-123")
     }
 
     // MARK: - The body actually posted

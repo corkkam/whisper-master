@@ -3,7 +3,7 @@ import SwiftUI
 /// The single "Settings" tab — every tunable preference in one place, grouped.
 /// Consolidates what used to be the separate Recording and Transcript tabs, plus
 /// the stray toggles that were embedded in content pages: "Back up my stats"
-/// (previously on the Insights dashboard) and "Share anonymous usage"
+/// (previously on the Insights dashboard) and "Share usage data"
 /// (previously on the About page). Each group carries its own `SectionLabel` so
 /// the long page still reads as discrete settings groups.
 struct GeneralSettingsView: View {
@@ -97,12 +97,12 @@ struct GeneralSettingsView: View {
 
             SectionLabel("Analytics")
             SettingsCard {
-                SettingsRow("Share anonymous usage",
+                SettingsRow("Share usage data",
                             subtitle: RegulatedMode.allowsTelemetry
-                                ? "App version, macOS, and feature counts, never your transcripts. Helps improve the app."
-                                : "Disabled by Regulated Mode. Nothing is sent to us, including anonymous counts.") {
+                                ? "Which features you use, your app version, and macOS — linked to your account, never your transcripts or recordings."
+                                : "Disabled by Regulated Mode. Nothing is sent to us, including feature counts.") {
                     ThemeToggle(isOn: RegulatedMode.allowsTelemetry ? $state.analyticsEnabled : .constant(false),
-                                label: "Share anonymous usage")
+                                label: "Share usage data")
                         .disabled(!RegulatedMode.allowsTelemetry)
                 }
             }

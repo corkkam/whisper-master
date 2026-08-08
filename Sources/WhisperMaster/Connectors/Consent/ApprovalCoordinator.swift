@@ -35,18 +35,47 @@ final class ApprovalCoordinator {
                 guard !Task.isCancelled else { return }
                 // Timing out is a *denial*, never an allow — silence can't authorise a
                 // write.
-                self?.resolve(.denied)
+                self?.resolve(.denied, timedOut: true)
             }
         }
     }
 
     /// The user answered on the card.
     func resolve(_ outcome: ApprovalOutcome) {
+        resolve(outcome, timedOut: false)
+    }
+
+    /// The one place a card ends, so every outcome is counted exactly once.
+    ///
+    /// `timedOut` exists because the timeout resolves as `.denied` — correctly, since
+    /// silence must not authorise a write — which would otherwise make an unanswered
+    /// card indistinguishable from a deliberate "No". They mean opposite things for
+    /// the design: a card nobody answers is a card in the wrong place, while a "No"
+    /// is the consent model working.
+    private func resolve(_ outcome: ApprovalOutcome, timedOut: Bool) {
         timeoutTask?.cancel()
         timeoutTask = nil
+        // Read before `pending` is cleared. The tool name is a fixed catalog string,
+        // never an argument — the same rule the notch caption follows, and for the
+        // same reason: the arguments are the user's dictated content.
+        let tool = pending?.tool
         pending = nil
         continuation?.resume(returning: outcome)
         continuation = nil
+
+        if let tool {
+            let decision: AnalyticsEvent.ApprovalDecision
+            if timedOut {
+                decision = .timedOut
+            } else {
+                switch outcome {
+                case .allowedOnce: decision = .once
+                case .allowedAlways: decision = .always
+                case .denied: decision = .denied
+                }
+            }
+            Analytics.shared.send(.approvalDecided(tool: tool, decision: decision))
+        }
     }
 
     #if DEBUG

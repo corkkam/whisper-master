@@ -154,7 +154,7 @@ enum RegulatedMode {
         [
             ("Speech audio", false, "Never transmitted. Processed in memory on this Mac."),
             ("Transcribed text", false, "Never transmitted. Pasted locally."),
-            ("Product analytics", allowsTelemetry, "PostHog and Google Analytics — anonymous counts, no content."),
+            ("Product analytics", allowsTelemetry, "PostHog and Google Analytics — feature counts linked to your account, no content."),
             ("Usage statistics", allowsUsageSync, "Per-day totals attributed to your account."),
             ("Notes & reminders sync", allowsNotesSync, "Your dictated note text, to your account."),
             ("Nearby Macs mesh", allowsNearbyMesh, "LAN-local audio to a paired Mac."),

@@ -217,6 +217,10 @@ struct AgentLoop {
                 madeCalls.insert(key)
                 onStep(.running(call))
                 let result = await router.run(call)
+                // Only `call.tool` — the catalog's own fixed name — reaches analytics.
+                // The arguments are the user's dictated content and never leave, the
+                // same rule the notch caption and the consent card follow.
+                Analytics.shared.send(.assistantToolRun(tool: call.tool, succeeded: result.ok))
                 labels.append(contentsOf: result.instanceLabels)
                 turns.append(AgentTurn(role: .tool, text: result.text))
                 messages.append(.init(role: .tool, text: result.text, tool: call.tool))
@@ -233,6 +237,11 @@ struct AgentLoop {
         // Out of iterations or time with no answer. A partial tool result is *not*
         // turned into an answer here — summarising it ourselves would be inventing the
         // model's conclusion. The caller falls back to the deterministic path.
+        //
+        // Counted, because this is the interesting failure: the loop spent its whole
+        // budget and the user still got the deterministic fallback. Against
+        // `Assistant.invoked` it says how often the agent is worth its 30 seconds.
+        Analytics.shared.send(.assistantFailed(reason: .budgetExhausted))
         return AgentOutcome(answer: "", instanceLabels: labels, turns: turns, exhausted: true)
     }
 
