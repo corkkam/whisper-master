@@ -9,8 +9,9 @@ struct CommandAgentResult: Equatable, Sendable {
     /// SF Symbol for the band, picked from what actually happened rather than from
     /// what the model said it did.
     let icon: String
-    /// True when a note or reminder was created, so the confirmation can be tapped
-    /// through to Notes & Reminders (and so the caller knows the words landed).
+    /// True when the command left an artifact — a note or reminder filed, or a
+    /// connector write that went through — so the band is a receipt rather than an
+    /// answer (and so the caller knows the words landed).
     let createdSomething: Bool
 }
 
@@ -90,10 +91,11 @@ struct CommandAgentService {
 
         guard !router.executed.isEmpty else { return nil }
         // An exhausted loop that already *created* something is not a failure to hand
-        // back to the caller — the reminder exists. Falling through to the
-        // deterministic path there would file the same words a second time and caption
-        // it "Note saved", which is two lies about one command. So the tool's own
-        // report stands in for the summary the model ran out of budget to write.
+        // back to the caller — the reminder exists, or the message went out. Falling
+        // through to the deterministic path there would file the same words a second
+        // time and caption it "Note saved", which is two lies about one command. So
+        // the tool's own report stands in for the summary the model ran out of budget
+        // to write.
         let answer: String
         if outcome.exhausted {
             guard router.didCreateSomething, let reported = router.lastResult else { return nil }
@@ -114,8 +116,22 @@ struct CommandAgentService {
     /// The second line: where it went, or who answered. Local writes name the app's
     /// own surface; anything a connector served names the connections, the same
     /// provenance rule the day-summary band follows.
+    ///
+    /// A connector write names **the connection it wrote to**, not Notes & Reminders:
+    /// captioning a sent message "Saved to Notes & Reminders" is a plain lie about
+    /// where the words went, and the one thing a receipt has to get right is the
+    /// destination.
     private func detailLine(for router: CommandToolRouter, outcome: AgentOutcome) -> String {
-        if router.didCreateSomething { return "Saved to Notes & Reminders" }
+        for effect in router.effects {
+            switch effect {
+            case .local(.noteCreated), .local(.reminderCreated):
+                return "Saved to Notes & Reminders"
+            case .connectorWrite(let tool, let written) where !written.isEmpty:
+                return Self.writeDestination(tool: tool, written: written)
+            case .local(.read), .connectorWrite:
+                continue
+            }
+        }
         let labels = Set(outcome.instanceLabels).sorted()
         if !labels.isEmpty { return "From \(labels.joined(separator: ", "))" }
         return "On-device assistant"
@@ -124,11 +140,31 @@ struct CommandAgentService {
     private func icon(for router: CommandToolRouter) -> String {
         for effect in router.effects {
             switch effect {
-            case .reminderCreated: return "bell.badge.fill"
-            case .noteCreated: return "note.text"
-            case .read: continue
+            case .local(.reminderCreated): return "bell.badge.fill"
+            case .local(.noteCreated): return "note.text"
+            case .local(.read): continue
+            case .connectorWrite(let tool, _): return Self.writeIcon(tool: tool)
             }
         }
         return "sparkles"
+    }
+
+    /// A write's destination line and symbol are read off the **capability** the tool
+    /// touched rather than its name, so a write tool added later reads sensibly
+    /// without a second switch to remember.
+    private static func writeDestination(tool: String, written: [String]) -> String {
+        let destination = written.joined(separator: ", ")
+        switch ToolCatalog.descriptor(named: tool)?.capability {
+        case .events: return "Added to \(destination)"
+        default: return "Sent to \(destination)"
+        }
+    }
+
+    private static func writeIcon(tool: String) -> String {
+        switch ToolCatalog.descriptor(named: tool)?.capability {
+        case .events: return "calendar.badge.plus"
+        case .messages: return "paperplane.fill"
+        default: return "checkmark.circle.fill"
+        }
     }
 }

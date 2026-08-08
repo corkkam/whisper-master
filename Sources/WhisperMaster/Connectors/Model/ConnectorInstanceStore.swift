@@ -46,6 +46,16 @@ final class ConnectorInstanceStore {
     /// nil until a Clerk user resolves; no file is read or written before that.
     private var userID: String?
 
+    /// Whether this account's file has been read yet. Tracked rather than inferred from
+    /// `instances` being non-empty, which is the state of every user who hasn't added a
+    /// connector: the guard in `activate` never fired for them, so a re-read plus the
+    /// legacy migration ran on every 0.5 s refresh tick, forever.
+    private var hasLoaded = false
+
+    /// Disk reads so far. The only reader is the idempotency test — an empty list can't
+    /// otherwise tell "not loaded" from "loaded, and there's nothing in it".
+    private(set) var diskLoadCount = 0
+
     init(load: Bool = true) {
         if load { activate(userID: nil) }
     }
@@ -59,8 +69,9 @@ final class ConnectorInstanceStore {
     func activate(userID: String?) {
         let normalized = userID?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolved = (normalized?.isEmpty ?? true) ? nil : normalized
-        if self.userID == resolved, !instances.isEmpty { return }
+        if self.userID == resolved, hasLoaded { return }
         self.userID = resolved
+        hasLoaded = true
         loadFromDisk()
         migrateLegacyEnabledSetIfNeeded()
     }
@@ -68,6 +79,7 @@ final class ConnectorInstanceStore {
     /// Signed out: drop everything in memory. The file stays for the next sign-in.
     func deactivate() {
         userID = nil
+        hasLoaded = false
         instances = []
         defaultsByKind = [:]
         grants = []
@@ -300,6 +312,7 @@ final class ConnectorInstanceStore {
     private var fileURL: URL { Self.fileURL(forUserID: userID) }
 
     private func loadFromDisk() {
+        diskLoadCount += 1
         instances = []
         defaultsByKind = [:]
         grants = []

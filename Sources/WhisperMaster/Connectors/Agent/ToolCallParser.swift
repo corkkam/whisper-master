@@ -151,12 +151,25 @@ enum ToolCallParser {
             if let number = value as? NSNumber { return number.stringValue }
             return nil
         case .integer:
-            guard let number = value as? NSNumber, Double(number.intValue) == number.doubleValue else { return nil }
+            guard let number = value as? NSNumber, !isJSONBoolean(number),
+                  Double(number.intValue) == number.doubleValue else { return nil }
             return String(number.intValue)
         case .boolean:
             guard let bool = value as? Bool else { return nil }
             return bool ? "true" : "false"
         }
+    }
+
+    /// Whether this is a JSON `true`/`false` rather than a number.
+    ///
+    /// `JSONSerialization` hands back a `CFBoolean`-backed `NSNumber` for a boolean,
+    /// whose `intValue` is a perfectly integral 1 or 0 — so without this
+    /// `{"duration_minutes": true}` was accepted as a 30-minute meeting's worth of
+    /// "1". The check has to be on the underlying CF type: `value is Bool` can't tell
+    /// the two apart either, because Swift bridges `NSNumber(1) as? Bool` successfully
+    /// and that would reject a genuine `1`.
+    private static func isJSONBoolean(_ number: NSNumber) -> Bool {
+        CFGetTypeID(number) == CFBooleanGetTypeID()
     }
 
     // MARK: - JSON extraction

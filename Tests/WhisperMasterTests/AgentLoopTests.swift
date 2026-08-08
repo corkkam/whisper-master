@@ -21,12 +21,8 @@ final class AgentLoopTests: XCTestCase {
 
     /// Returns the scripted replies in order, then nil (a dead model).
     private func scripted(_ replies: [String]) -> (AgentLoop.Generate, () -> Int) {
-        var index = 0
-        let generate: AgentLoop.Generate = { _, _ in
-            defer { index += 1 }
-            return index < replies.count ? replies[index] : nil
-        }
-        return (generate, { index })
+        let model = ScriptedModel(replies)
+        return (model.generate, { model.calls })
     }
 
     private func makeLoop(store: ConnectorInstanceStore,
@@ -266,19 +262,42 @@ final class AgentLoopTests: XCTestCase {
     /// hold the notch open past it.
     func testBudgetExhaustionStopsTheLoop() async {
         let store = makeStore()
-        var clock = Date(timeIntervalSince1970: 0)
+        let clock = TestClock(Date(timeIntervalSince1970: 0))
         let (generate, calls) = scripted(Array(repeating: "not json", count: 10))
 
         var loop = makeLoop(store: store, generate: { text, prompt in
-            clock.addTimeInterval(30)      // each generation "takes" 30s
+            clock.advance(30)              // each generation "takes" 30s
             return await generate(text, prompt)
         })
         loop.budget = 20
-        loop.now = { clock }
+        loop.now = { clock.now }
 
         let outcome = await loop.run(question: "what's my day")
         XCTAssertTrue(outcome.exhausted)
         XCTAssertEqual(calls(), 1, "the second iteration is past the budget")
+    }
+
+    /// …and the budget also has to survive a generation that never comes back.
+    ///
+    /// It used to be checked only *between* iterations, with a bare `await` on the
+    /// model in between, so a wedged MLX call held the loop — and the notch's "Working
+    /// on it" — open for as long as it liked. The stalled generation is abandoned and
+    /// reads as a dead one: exhausted, and the caller falls back.
+    func testAStalledGenerationIsAbandonedAtTheBudget() async {
+        let store = makeStore()
+        var loop = makeLoop(store: store, generate: { _, _ in
+            try? await Task.sleep(nanoseconds: 5 * NSEC_PER_SEC)
+            return #"{"answer":"too late to matter"}"#
+        })
+        loop.budget = 0.2
+
+        let started = Date()
+        let outcome = await loop.run(question: "what's my day")
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertTrue(outcome.exhausted)
+        XCTAssertTrue(outcome.answer.isEmpty, "the abandoned reply must not land late")
+        XCTAssertLessThan(elapsed, 3, "the loop waited on the stalled model: \(elapsed)s")
     }
 
     /// No connections means no tools, and a loop with no tools has nothing to offer —
