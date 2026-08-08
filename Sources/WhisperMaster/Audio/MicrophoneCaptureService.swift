@@ -323,8 +323,7 @@ final class MicrophoneCaptureService {
     /// formats. The tap handlers are left alone; the caller decides whether to
     /// re-arm them.
     private func rebuildEngine() {
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        quiesceGraph()
         engine = AVAudioEngine()
         // The notification is per-engine, so it has to follow the new object.
         observeConfigurationChanges()
@@ -342,8 +341,7 @@ final class MicrophoneCaptureService {
     /// then rather than a second teardown.
     private func abandonCapture() {
         configChangeWork?.cancel()
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        quiesceGraph()
         clearHandlers()
         isCapturing = false
         onCaptureLost?()
