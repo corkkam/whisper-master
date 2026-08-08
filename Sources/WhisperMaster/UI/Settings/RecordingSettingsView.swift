@@ -87,6 +87,7 @@ struct RecordingSettingsView: View {
                     Button("Give it back to macOS") {
                         FnKeyBehavior.restoreSystemFnBehavior()
                         fnConflictToken += 1
+                        Analytics.shared.send(.fnKeyClaim(restored: true))
                     }
                     .textButton()
                 }

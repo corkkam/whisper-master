@@ -365,10 +365,20 @@ final class AppState {
             }
         }
     }
-    /// Share anonymous usage analytics (PostHog). **On by default —
-    /// opt-out.** Safe to default on because the data carries no PII: never
-    /// transcripts, only app version, OS, and coarse feature counts. Users can
-    /// switch it off in Settings → About. Toggling starts/stops the SDK live.
+    /// Share usage analytics (PostHog + GA4). **On by default — opt-out.**
+    ///
+    /// ⚠️ **This is no longer anonymous.** It was, when the only identifier was a
+    /// random per-install UUID; since `Analytics.identify` the person profile
+    /// carries the **Clerk user id and email**, because "which customer uses which
+    /// feature" cannot be answered by a per-install id. The *events* are still
+    /// content-free — never a transcript, a note, or a recording, only app version,
+    /// OS, and coarse bucketed feature counts — but they are attributable to a
+    /// named account.
+    ///
+    /// The on-by-default posture predates that change and is worth revisiting: an
+    /// opt-out default is a much easier argument for anonymous counts than for
+    /// account-linked ones. `RegulatedMode` still overrides it outright, and the
+    /// Settings copy no longer claims anonymity. Toggling starts/stops the SDK live.
     var analyticsEnabled: Bool = true {
         didSet {
             UserDefaults.standard.set(analyticsEnabled, forKey: Self.analyticsEnabledDefaultsKey)

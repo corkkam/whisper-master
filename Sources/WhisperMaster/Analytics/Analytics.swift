@@ -31,6 +31,12 @@ final class Analytics {
     /// Built on first enable, when GA credentials are present. `nil` means GA is
     /// unconfigured for this build and every GA send is skipped.
     private var google: GoogleAnalyticsClient?
+    /// The signed-in account, held so a sink initialized *after* sign-in still
+    /// gets it. Both orders happen for real: analytics can be enabled before Clerk
+    /// resolves (launch) or after (a user who opts in from Settings mid-session),
+    /// and without this the second case would leave the person profile anonymous
+    /// until the next launch.
+    private var account: AnalyticsAccount?
 
     private init() {}
 
@@ -60,6 +66,9 @@ final class Analytics {
             initializeSDKIfNeeded()
             initializeGoogleIfNeeded()
             if didInitializeSDK { PostHogSDK.shared.optIn() }
+            // Opting in from Settings *after* signing in: the sinks were built
+            // just now, so the account they missed is applied here.
+            if let account { applyAccountToSinks(account) }
         } else if didInitializeSDK {
             PostHogSDK.shared.optOut()
         }
@@ -67,6 +76,62 @@ final class Analytics {
         // client holds nothing to purge — its URLSession is ephemeral (no
         // cookies, no cache) and the only persisted value is the install UUID,
         // which predates GA and is shared with PostHog.
+    }
+
+    /// Attach the signed-in Clerk account to everything sent from here on.
+    ///
+    /// Called when Clerk resolves a session — at launch for a restored one, on
+    /// first sign-in otherwise. Idempotent: re-identifying the same account is a
+    /// no-op, which matters because the caller is the 0.5s reconcile tick.
+    ///
+    /// **PostHog's `distinct_id` becomes the Clerk user id**, and `alias` joins the
+    /// pre-sign-in install id to it so the events from before the gate (launch,
+    /// permission state, onboarding) stay on the same person rather than stranding
+    /// a ghost user per install. **GA keeps `client_id` = install id** and gains
+    /// `user_id`: GA models those as device and person respectively, and
+    /// overwriting `client_id` mid-stream would fork the device's session history.
+    func identify(_ account: AnalyticsAccount) {
+        guard RegulatedMode.allowsTelemetry else { return }
+        guard self.account != account else { return }
+        self.account = account
+
+        guard isEnabled else { return }
+        applyAccountToSinks(account)
+    }
+
+    /// Drop the account on sign-out, so a second user on the same Mac does not
+    /// inherit the first one's person profile.
+    ///
+    /// `reset()` also regenerates PostHog's own anonymous id, so the install id is
+    /// re-asserted immediately after — otherwise the next signed-out session would
+    /// report under an id that matches neither GA's `client_id` nor anything the
+    /// dashboards have seen.
+    func resetIdentity() {
+        guard account != nil else { return }
+        account = nil
+        if didInitializeSDK {
+            PostHogSDK.shared.reset()
+            PostHogSDK.shared.identify(AnalyticsIdentity.installID)
+            PostHogSDK.shared.register(Self.superProperties)
+        }
+        if let google {
+            Task { await google.setUserID(nil) }
+        }
+        Log.analytics.notice("Analytics identity reset (signed out).")
+    }
+
+    /// Update the person profile with rolled-up usage — lifetime totals and the
+    /// feature posture, not a per-event stream.
+    ///
+    /// This is what makes "which user is using what" answerable **without** a
+    /// query over every event that person ever sent: PostHog can cohort and filter
+    /// on a person property directly, where a per-user feature tally otherwise
+    /// means an aggregation across the full event history. Person-scoped only —
+    /// GA4 has no equivalent that the Measurement Protocol can write.
+    func updatePersonProperties(_ properties: [String: String]) {
+        guard RegulatedMode.allowsTelemetry, isEnabled, didInitializeSDK else { return }
+        guard !properties.isEmpty else { return }
+        PostHogSDK.shared.capture("$set", properties: ["$set": properties])
     }
 
     /// Emit an event to every enabled, configured sink. No-op unless the user has
@@ -149,17 +214,51 @@ final class Analytics {
         // retention maths runs off the person profile, so a channel that only
         // exists on events can't be a cohort. `register` must follow `setup`:
         // it no-ops while the SDK is unconfigured.
-        let channel = ReleaseChannel.current.rawValue
-        PostHogSDK.shared.register(["channel": channel])
-        // Use our own anonymous, stable identifier as the distinct id so
-        // unique-user / retention counts work without anything identifying
-        // (a random UUID, same role as before).
+        //
+        // `appVersion` rides along for the same reason and with the same split:
+        // the SDK's own `$app_version` is attached to events, so "crashes on
+        // 1.1.0-beta.1" already works, but a *person* cannot be cohorted by it.
+        // Registering it here means "everyone still on 1.0.1" is a cohort, and
+        // channel × version together are what separate a beta tester's numbers
+        // from a stable user's on the same build lineage.
+        PostHogSDK.shared.register(Self.superProperties)
+        // Pre-sign-in identity. Replaced by the Clerk user id the moment
+        // `identify(_:)` is called — see `AnalyticsAccount`.
         PostHogSDK.shared.identify(
             AnalyticsIdentity.installID,
-            userProperties: ["channel": channel]
+            userProperties: Self.superProperties
         )
         didInitializeSDK = true
         Log.analytics.notice("Analytics enabled (PostHog initialized).")
+    }
+
+    /// Attached to every event *and* every person profile.
+    ///
+    /// Kept in one place so the event stream and the person profile can never
+    /// disagree about which build produced a signal.
+    private static var superProperties: [String: String] {
+        [
+            "channel": ReleaseChannel.current.rawValue,
+            "appVersion": AnalyticsIdentity.currentVersion,
+        ]
+    }
+
+    /// Push an account onto whichever sinks are live. Split out because it runs
+    /// from two orders — identify-then-enable and enable-then-identify.
+    private func applyAccountToSinks(_ account: AnalyticsAccount) {
+        if didInitializeSDK {
+            PostHogSDK.shared.identify(account.id, userProperties: account.personProperties)
+            // Join the pre-sign-in install id to this person. Without it the
+            // launch/permission/onboarding events that fired before the gate stay
+            // on a separate anonymous user and the activation funnel breaks at
+            // exactly the step it exists to measure.
+            PostHogSDK.shared.alias(AnalyticsIdentity.installID)
+        }
+        if let google {
+            let id = account.id
+            Task { await google.setUserID(id) }
+        }
+        Log.analytics.notice("Analytics identity set to the signed-in account.")
     }
 
     private func initializeGoogleIfNeeded() {

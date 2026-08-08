@@ -12,9 +12,12 @@ import Foundation
 /// same events in the same GA4 property for the cost of one `URLRequest`.
 ///
 /// **Three things the protocol makes us do by hand**, which an SDK would hide:
-/// - **`client_id`** is GA's unique-user key. We pass `AnalyticsIdentity.installID`
-///   (the random persisted UUID already used as PostHog's `distinct_id`), so GA's
-///   user counts work without anything reversible to a person.
+/// - **`client_id`** is GA's device key. We pass `AnalyticsIdentity.installID`
+///   (the random persisted UUID), and once Clerk resolves a session the account
+///   rides beside it in **`user_id`** — GA treats the two as device and person, so
+///   one customer on two Macs is one user in the reports while each Mac keeps its
+///   own session history. Set `user_id` as the reporting identity in Admin →
+///   Reporting identity ("Blended" or "Observed") or GA keeps counting devices.
 /// - **`session_id` + `engagement_time_msec` on every event.** Without them GA
 ///   files each hit under a zero-second session and the standard reports
 ///   (Engagement, Retention, most of the Reports tab) stay empty — only Realtime
@@ -39,6 +42,12 @@ actor GoogleAnalyticsClient {
     private let urlSession: URLSession
 
     private var session: GA4Session
+    /// The Clerk user id, once signed in. Separate from `clientID` on purpose:
+    /// GA models `client_id` as the **device** and `user_id` as the **person**, so
+    /// sending both is what lets one account be recognised across two Macs while
+    /// each Mac keeps its own unbroken session history. `nil` until sign-in and
+    /// again after sign-out.
+    private var userID: String?
 
     init(
         measurementID: String,
@@ -75,6 +84,12 @@ actor GoogleAnalyticsClient {
         self.urlSession = URLSession(configuration: configuration)
     }
 
+    /// Set or clear the signed-in person. Actor-isolated, so `Analytics` reaches it
+    /// through a `Task` rather than mutating it directly.
+    func setUserID(_ id: String?) {
+        userID = id
+    }
+
     /// Build the exact body that `send` posts. Split out from the network call so
     /// the wire format — including the three-way merge precedence below — is
     /// provable in a unit test rather than only observable in GA weeks later.
@@ -90,6 +105,7 @@ actor GoogleAnalyticsClient {
 
         return GA4Payload(
             clientID: clientID,
+            userID: userID,
             timestampMicros: Int64(now.timeIntervalSince1970 * 1_000_000),
             nonPersonalizedAds: true,
             events: [
@@ -149,6 +165,12 @@ actor GoogleAnalyticsClient {
 /// are launch, onboarding, and one per dictation.
 struct GA4Payload: Encodable, Equatable {
     let clientID: String
+    /// The signed-in Clerk user id, omitted entirely while signed out.
+    ///
+    /// Encoded through `encodeIfPresent`, which matters: GA rejects a `user_id` of
+    /// `null` or `""` and drops the whole hit, so "no user" has to mean "no key"
+    /// rather than an empty one.
+    let userID: String?
     /// GA rejects hits older than 72 hours; stamping each one keeps ordering
     /// correct when several land in the same second.
     let timestampMicros: Int64
@@ -157,6 +179,7 @@ struct GA4Payload: Encodable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case clientID = "client_id"
+        case userID = "user_id"
         case timestampMicros = "timestamp_micros"
         case nonPersonalizedAds = "non_personalized_ads"
         case events
