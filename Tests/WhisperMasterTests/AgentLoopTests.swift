@@ -67,6 +67,71 @@ final class AgentLoopTests: XCTestCase {
                       "the tool result must carry the connector's name")
     }
 
+    // MARK: - Progress reporting
+
+    /// The notch's caption comes from these. Two rules matter: a step is reported
+    /// **before** the call, not after — reporting on completion would caption a
+    /// connector the loop has already finished waiting on, which is the exact
+    /// opposite of what a slow connector needs — and each call gets its own, so a
+    /// run spanning two connections names both in turn.
+    func testEachToolCallIsReportedBeforeItRuns() async {
+        let store = makeStore()
+        let (generate, _) = scripted([
+            #"{"tool":"list_connectors","args":{}}"#,
+            #"{"tool":"list_calendar_events","args":{"connector":"Work"}}"#,
+            #"{"answer":"Two meetings on Work."}"#,
+        ])
+        var loop = makeLoop(store: store, generate: generate)
+        var steps: [AgentActivity] = []
+        loop.onStep = { steps.append($0) }
+
+        _ = await loop.run(question: "what's my day")
+
+        XCTAssertEqual(steps, [
+            .thinking,
+            .running(tool: "list_connectors", target: nil),
+            .running(tool: "list_calendar_events", target: "Work"),
+        ])
+    }
+
+    /// `.thinking` is reported once, not before every generation. After a call
+    /// returns, the model is reasoning about *that connector's* result, so holding
+    /// its caption is both truthful and calmer than flipping back to the generic
+    /// line between every step.
+    func testTheGenericLineIsReportedOnceRatherThanBetweenEveryStep() async {
+        let store = makeStore()
+        let (generate, _) = scripted([
+            #"{"tool":"list_connectors","args":{}}"#,
+            #"{"answer":"One calendar."}"#,
+        ])
+        var loop = makeLoop(store: store, generate: generate)
+        var steps: [AgentActivity] = []
+        loop.onStep = { steps.append($0) }
+
+        _ = await loop.run(question: "what's connected")
+
+        XCTAssertEqual(steps.filter { $0 == .thinking }.count, 1)
+    }
+
+    /// A repeat the loop refuses never reached a connector, so captioning it would
+    /// name work that isn't happening.
+    func testARefusedRepeatIsNotReported() async {
+        let store = makeStore()
+        let (generate, _) = scripted([
+            #"{"tool":"list_connectors","args":{}}"#,
+            #"{"tool":"list_connectors","args":{}}"#,
+            #"{"answer":"One calendar."}"#,
+        ])
+        var loop = makeLoop(store: store, generate: generate)
+        var steps: [AgentActivity] = []
+        loop.onStep = { steps.append($0) }
+
+        _ = await loop.run(question: "what's connected")
+
+        XCTAssertEqual(steps.filter { $0 != .thinking }.count, 1,
+                       "the second identical call is refused, so it isn't announced")
+    }
+
     // MARK: - Recovery
 
     /// A malformed call costs one iteration and gets specific feedback, rather than

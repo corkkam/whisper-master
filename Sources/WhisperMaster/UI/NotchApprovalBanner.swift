@@ -20,7 +20,12 @@ struct NotchApprovalBanner: View {
             icon: "hand.raised",
             title: approval.headline,
             accessibilityText: accessibilityText,
-            subtitle: { Text(payloadLine) },
+            // The payload is user-authored and unbounded (a dictated message body
+            // has no length limit), so it gives way to the three buttons rather
+            // than pushing them off the band — an approval card whose answers are
+            // off-screen can only be answered by walking away from it.
+            textGivesWayToTrailing: true,
+            subtitle: { Text(approval.detail) },
             trailing: {
                 HStack(spacing: 6) {
                     choice("Once", .allowedOnce)
@@ -30,21 +35,10 @@ struct NotchApprovalBanner: View {
             })
     }
 
-    /// The payload, abbreviated to one line. The notch is one row, so a long message body
-    /// is truncated — but the *target* is already in the headline, which is the part that
-    /// decides whether this is the right thing to approve.
-    private var payloadLine: String {
-        let parts = approval.detailLines.map { "\($0.0): \($0.1)" }
-        return parts.isEmpty ? "Approve this action?" : parts.joined(separator: "  ·  ")
-    }
-
     /// VoiceOver gets the full payload untruncated — a screen-reader user must not be
     /// asked to consent to something the visual layout abbreviated away.
     private var accessibilityText: String {
-        var parts = [approval.headline]
-        parts += approval.detailLines.map { "\($0.0): \($0.1)" }
-        parts.append("Choose once, always, or no.")
-        return parts.joined(separator: ". ")
+        "\(approval.headline). \(approval.detail). Choose once, always, or no."
     }
 
     private func choice(_ title: String,

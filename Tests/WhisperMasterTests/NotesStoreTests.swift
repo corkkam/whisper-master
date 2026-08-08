@@ -115,6 +115,88 @@ final class NotesStoreTests: XCTestCase {
         XCTAssertFalse(w.isCompleted)                      // repeats re-arm, not complete
     }
 
+    // MARK: - Active list vs archive
+
+    func testCompletingMovesAReminderOutOfTheActiveListAndIntoTheArchive() {
+        let store = NotesStore(fileURL: tempURL(), load: false)
+        let r = ReminderItem(title: "post the form", dueDate: Date())
+        store.upsertReminder(r)
+        XCTAssertEqual(store.activeReminders.map(\.title), ["post the form"])
+        XCTAssertTrue(store.completedReminders.isEmpty)
+
+        store.completeReminder(r.id)
+        XCTAssertTrue(store.activeReminders.isEmpty)
+        XCTAssertEqual(store.completedReminders.map(\.title), ["post the form"])
+        XCTAssertNotNil(store.completedReminders.first?.completedAt)
+    }
+
+    func testTheArchiveIsOrderedByWhenThingsWereFinishedNotWhenTheyWereDue() {
+        let store = NotesStore(fileURL: tempURL(), load: false)
+        // `early` is due long before `late`, so a due-date sort would put it first —
+        // but it's finished *second*, and the archive answers "what did I just do".
+        let early = ReminderItem(title: "early", dueDate: Date(timeIntervalSinceNow: -86_400))
+        let late = ReminderItem(title: "late", dueDate: Date(timeIntervalSinceNow: -60))
+        store.upsertReminder(early)
+        store.upsertReminder(late)
+
+        store.completeReminder(late.id)
+        store.completeReminder(early.id)
+        XCTAssertEqual(store.completedReminders.map(\.title), ["early", "late"])
+    }
+
+    func testARepeatingReminderRollsForwardInsteadOfBeingArchived() {
+        let store = NotesStore(fileURL: tempURL(), load: false)
+        let daily = ReminderItem(title: "stand-up", dueDate: Date(), repeatRule: .daily)
+        store.upsertReminder(daily)
+
+        store.completeReminder(daily.id)
+        XCTAssertEqual(store.activeReminders.map(\.title), ["stand-up"])
+        XCTAssertTrue(store.completedReminders.isEmpty)
+        // The next occurrence carries no completion stamp — it hasn't been done.
+        XCTAssertNil(store.activeReminders.first?.completedAt)
+    }
+
+    func testRestoringAnArchivedReminderPutsItBackInTheActiveList() {
+        let store = NotesStore(fileURL: tempURL(), load: false)
+        let r = ReminderItem(title: "mis-clicked", dueDate: Date(timeIntervalSinceNow: 3_600))
+        store.upsertReminder(r)
+        store.completeReminder(r.id)
+
+        let archived = store.completedReminders.first!
+        store.restoreReminder(archived)
+        XCTAssertEqual(store.activeReminders.map(\.title), ["mis-clicked"])
+        XCTAssertTrue(store.completedReminders.isEmpty)
+        XCTAssertNil(store.activeReminders.first?.completedAt)
+    }
+
+    func testClearingCompletedTombstonesThemAndLeavesTheActiveListAlone() {
+        let store = NotesStore(fileURL: tempURL(), load: false)
+        let done = ReminderItem(title: "done", dueDate: Date())
+        let todo = ReminderItem(title: "todo", dueDate: Date(timeIntervalSinceNow: 600))
+        store.upsertReminder(done)
+        store.upsertReminder(todo)
+        store.completeReminder(done.id)
+
+        XCTAssertEqual(store.clearCompletedReminders(), 1)
+        XCTAssertTrue(store.completedReminders.isEmpty)
+        XCTAssertEqual(store.activeReminders.map(\.title), ["todo"])
+        // A tombstone, not a dropped row, so the clear survives a pull-merge.
+        XCTAssertNotNil(store.reminders.first { $0.id == done.id }?.deletedAt)
+        XCTAssertTrue(store.dirtyIDs.contains(done.id))
+        // Idempotent: nothing left to clear.
+        XCTAssertEqual(store.clearCompletedReminders(), 0)
+    }
+
+    func testSnoozingAnArchivedReminderClearsItsCompletion() {
+        let store = NotesStore(fileURL: tempURL(), load: false)
+        let r = ReminderItem(title: "later", dueDate: Date())
+        store.upsertReminder(r)
+        store.completeReminder(r.id)
+        store.snoozeReminder(r.id, by: 300)
+        XCTAssertTrue(store.completedReminders.isEmpty)
+        XCTAssertNil(store.activeReminders.first?.completedAt)
+    }
+
     func testSnoozePushesDueDateOut() {
         let store = NotesStore(fileURL: tempURL(), load: false)
         let r = ReminderItem(title: "snooze me", dueDate: Date().addingTimeInterval(-60))

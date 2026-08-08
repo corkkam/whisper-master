@@ -85,28 +85,14 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
 
     /// One line for the notch: "Post to #general on Work".
     var headline: String {
-        "\(ApprovalCopy.verb(for: tool)) \(target) on \(instanceLabel)"
+        ApprovalCopy.headline(tool: tool, target: target, instanceLabel: instanceLabel)
     }
 
-    /// The payload the user is actually approving, target excluded (it's in the
-    /// headline). Sorted so the card is stable between renders.
-    var detailLines: [(String, String)] {
-        arguments
-            .filter { $0.key != ToolDescriptor.instanceArgument }
-            .sorted { $0.key < $1.key }
-            .map { ($0.key, $0.value) }
-    }
-}
-
-enum ApprovalCopy {
-    /// Human verb for a tool name, so the card reads as a sentence rather than an
-    /// identifier.
-    static func verb(for tool: String) -> String {
-        switch tool {
-        case "send_message": return "Post to"
-        case "create_calendar_event": return "Add an event to"
-        default: return "Run \(tool) on"
-        }
+    /// The payload the user is actually approving, in readable form and with the
+    /// target left out (it's in the headline). See `ApprovalCopy.detail` for why
+    /// this is a rendering of every argument rather than a selection of some.
+    var detail: String {
+        ApprovalCopy.detail(tool: tool, arguments: arguments)
     }
 }
 

@@ -145,15 +145,23 @@ final class ConnectorConsentTests: XCTestCase {
         XCTAssertEqual(approval.headline, "Post to #ops on Work")
     }
 
-    /// The card must show the payload, and must not spend a line on the connector
-    /// argument that's already in the headline.
-    func testApprovalDetailLinesExcludeTheConnectorArgument() {
+    /// `create_calendar_event` scopes its grant to the connection itself, so target
+    /// and label are the same string — and saying it twice read as a bug.
+    func testApprovalHeadlineDoesNotRepeatTheConnectionAsItsOwnTarget() {
+        let approval = PendingApproval(
+            tool: "create_calendar_event", instanceID: personalID, instanceLabel: "Personal",
+            target: "Personal", arguments: ["title": "Work"])
+        XCTAssertEqual(approval.headline, "Add an event to Personal")
+    }
+
+    /// The card must show the payload, and must not spend its one line on the
+    /// connector argument that's already in the headline.
+    func testApprovalDetailShowsTheMessageAndNotTheRouting() {
         let approval = PendingApproval(
             tool: "send_message", instanceID: workID, instanceLabel: "Work",
             target: "#ops",
             arguments: ["channel": "#ops", "text": "ship it", ToolDescriptor.instanceArgument: "Work"])
-        let keys = approval.detailLines.map(\.0)
-        XCTAssertEqual(keys, ["channel", "text"])
+        XCTAssertEqual(approval.detail, "\u{201C}ship it\u{201D}")
     }
 
     // MARK: - Coordinator
@@ -192,14 +200,6 @@ final class ConnectorConsentTests: XCTestCase {
         coordinator.resolve(.allowedOnce)
         let firstOutcome = await firstTask.value
         XCTAssertEqual(firstOutcome, .allowedOnce)
-    }
-
-    /// Silence is never consent.
-    func testUnattendedPolicyDeniesEverything() async {
-        let approval = PendingApproval(tool: "send_message", instanceID: workID,
-                                       instanceLabel: "Work", target: "#ops", arguments: [:])
-        let outcome = await ApprovalCoordinator.denyUnattended(approval)
-        XCTAssertEqual(outcome, .denied)
     }
 
     // MARK: - Catalog integrity

@@ -50,14 +50,37 @@ final class NotchQuickActionsModel {
             .map { $0 }
     }
 
-    /// Most recently touched notes.
+    /// What the notes column holds: **pinned notes first**, then the most recently
+    /// touched, capped at the column limit.
+    ///
+    /// Pinning is the user's own claim that a note is worth keeping in reach, and
+    /// this band is the surface that's always in reach — so a pinned note appears
+    /// here rather than only in the window. `NotesStore.visibleNotes` already orders
+    /// pinned-then-recent, so the prefix picks them up without a second sort; the
+    /// column label changes to say so when any of them are pinned, because a pinned
+    /// note under a "recent" heading reads as a coincidence.
     var recentNotes: [Note] {
         notes.visibleNotes.prefix(Self.columnLimit).map { $0 }
+    }
+
+    /// Whether the notes column is showing anything pinned — drives its label.
+    var showsPinned: Bool {
+        recentNotes.contains(where: \.isPinned)
     }
 
     /// Rows in the longer of the two columns — what the band's depth is sized to.
     var visibleRowCount: Int {
         max(reminders.count, recentNotes.count)
+    }
+
+    /// Unpin a note straight from the band.
+    ///
+    /// The only note mutation the panel offers, and it's here for the same reason the
+    /// reminder checkbox is: it needs no keyboard, and "get this off my notch" is the
+    /// one thing a user wants to do to a pinned note *from* the notch. Pinning in the
+    /// first place still happens in the window, where the note is in front of them.
+    func unpin(_ note: Note) {
+        notes.setPinned(note.id, false)
     }
 
     /// Whether there's an account loaded at all. Signed out, the stores are empty by

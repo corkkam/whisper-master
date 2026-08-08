@@ -15,28 +15,6 @@ extension Color {
         )
     }
 
-    /// A token that resolves against the *view's* appearance at render time.
-    ///
-    /// This is the mechanism the whole dual-mode system rests on: tokens stay
-    /// plain `static let Color`, so every call site (`Theme.textPrimary`, …)
-    /// keeps working untouched and simply renders the right value for whichever
-    /// appearance the window is in.
-    static func dynamic(light: UInt32, dark: UInt32, alpha: Double = 1) -> Color {
-        dynamic(light: light, lightAlpha: alpha, dark: dark, darkAlpha: alpha)
-    }
-
-    /// As `dynamic(light:dark:)`, but with a different alpha per mode — needed
-    /// for the hairlines and glass tints, which are *black*-alpha over paper and
-    /// *white*-alpha over ink, at different strengths.
-    static func dynamic(light: UInt32, lightAlpha: Double, dark: UInt32, darkAlpha: Double) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            return NSColor(
-                hex: isDark ? dark : light,
-                alpha: CGFloat(isDark ? darkAlpha : lightAlpha)
-            )
-        })
-    }
 }
 
 extension NSColor {
@@ -48,59 +26,21 @@ extension NSColor {
             alpha: alpha
         )
     }
-
-    /// AppKit twin of `Color.dynamic` for window/titlebar backgrounds.
-    static func dynamic(light: UInt32, dark: UInt32) -> NSColor {
-        NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            return NSColor(hex: isDark ? dark : light)
-        }
-    }
 }
 
-// MARK: - Appearance preference
-
-/// How the app picks its appearance. `system` follows the macOS setting; the
-/// other two pin it. Applied once, app-wide, by setting `NSApp.appearance`.
-enum AppAppearance: String, CaseIterable, Identifiable, Sendable {
-    case system, light, dark
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .system: "System"
-        case .light: "Light"
-        case .dark: "Dark"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .system: "circle.lefthalf.filled"
-        case .light: "sun.max"
-        case .dark: "moon.stars"
-        }
-    }
-
-    /// `nil` means "inherit the system appearance".
-    var nsAppearance: NSAppearance? {
-        switch self {
-        case .system: nil
-        case .light: NSAppearance(named: .aqua)
-        case .dark: NSAppearance(named: .darkAqua)
-        }
-    }
-}
-
-/// The Whisper Master design system — **"Recording room at night"**, in two
-/// moods.
+/// The Whisper Master design system — **"Recording room, lights on"**.
 ///
 /// Warm human speech going into a cool private machine: that contrast is the
-/// product argument, and it is what the palette encodes. Dark mode is the
-/// canonical form (ink ground, bone text); light mode is the same room with the
-/// lights on (cool paper ground, slate ink) — *not* a different brand. Both run
-/// the same two accents, the same geometry, the same glass.
+/// product argument, and it is what the palette encodes. The app is
+/// **light-only** — a cool paper ground under slate ink. There is no dark mode
+/// and no appearance preference: `NSApp.appearance` is pinned to `.aqua` at
+/// launch (`AppDelegate.applicationDidFinishLaunching`) so a Mac running in dark
+/// mode can't leak system-dark chrome into our windows.
+///
+/// The one always-ink surface is the notch band, and it is **not** a dark mode:
+/// it draws on the physical black bezel, so it has its own fixed sub-palette
+/// (`Theme.Notch`, reached through `.onDarkSurface()`). Nothing else in the app
+/// varies by appearance, so every token below is a plain constant.
 ///
 /// The accent meanings are load-bearing and never swap:
 ///   - **ember** → the user. Voice, live state, anything in progress.
@@ -108,47 +48,37 @@ enum AppAppearance: String, CaseIterable, Identifiable, Sendable {
 ///
 /// Each accent has two forms, because the vivid hues are unreadable on a light
 /// ground (`ember` is 2.6:1 on paper): `accent`/`accent2` are the *ground-safe*
-/// text-and-icon colours that deepen in light mode, while `accentFill`/
-/// `accent2Fill` are the vivid brand hues used as fills, paired with their own
-/// near-black on-colours. See `docs/07-design-system.md`.
+/// text-and-icon colours, while `accentFill`/`accent2Fill` are the vivid brand
+/// hues used as fills, paired with their own near-black on-colours. See
+/// `docs/07-design-system.md`.
 enum Theme {
-    // MARK: Ground ramp — ink (dark) / paper (light)
-
-    static let ink = Color(hex: 0x07090e)
-    static let ink800 = Color(hex: 0x0b0f17)
-    static let ink700 = Color(hex: 0x101623)
-    static let ink600 = Color(hex: 0x18202f)
+    // MARK: Ground ramp — paper
 
     static let paper = Color(hex: 0xe9edf4)
     static let paper200 = Color(hex: 0xe1e6ef)
     static let paper300 = Color(hex: 0xd7dde8)
 
-    /// The window ground. Light mode sits a step *below* white on purpose —
-    /// the glass cards are near-white, so the ground has to be darker than they
-    /// are or nothing lifts off it.
-    static let canvas = Color.dynamic(light: 0xe9edf4, dark: 0x07090e)
-    static let canvasTop = Color.dynamic(light: 0xf0f3f8, dark: 0x0b0f17)
+    /// The window ground. It sits a step *below* white on purpose — the glass
+    /// cards are near-white, so the ground has to be darker than they are or
+    /// nothing lifts off it.
+    static let canvas = Color(hex: 0xe9edf4)
+    static let canvasTop = Color(hex: 0xf0f3f8)
     /// Raised, opaque-ish tiles.
-    static let surface = Color.dynamic(light: 0xf4f6fa, dark: 0x101623)
-    static let surfaceSunken = Color.dynamic(light: 0xdfe4ee, dark: 0x0b0f17)
+    static let surface = Color(hex: 0xf4f6fa)
+    static let surfaceSunken = Color(hex: 0xdfe4ee)
     /// The translucent band behind the selected sidebar item.
-    static let selection = Color.dynamic(light: 0xffffff, lightAlpha: 0.75, dark: 0xffffff, darkAlpha: 0.08)
+    static let selection = Color(hex: 0xffffff, alpha: 0.75)
 
-    // MARK: Ink (text). Never pure white, never pure black — both are tinted.
+    // MARK: Ink (text). Never pure black — it's tinted.
 
-    /// Dark 17.4:1 · light 16.8:1.
-    static let textPrimary = Color.dynamic(light: 0x10141c, dark: 0xf2efe9)
-    /// Dark 10.1:1 · light 11.3:1 — secondary body copy.
-    static let textSecondary = Color.dynamic(light: 0x2c3444, dark: 0xaab3c4)
-    /// Dark 6.5:1 · light 6.8:1 — tertiary, labels. The floor for real copy.
-    static let textTertiary = Color.dynamic(light: 0x4d5566, dark: 0x8a94a8)
-    /// 3.4:1 in both modes. **Decoration and non-text only** — never body copy.
-    static let textFaint = Color.dynamic(light: 0x7c8595, dark: 0x5c6577)
-
-    static let bone = Color(hex: 0xf2efe9)
-    static let hazeBright = Color(hex: 0xaab3c4)
-    static let haze = Color(hex: 0x8a94a8)
-    static let hazeDim = Color(hex: 0x5c6577)
+    /// 16.8:1 on the paper ground.
+    static let textPrimary = Color(hex: 0x10141c)
+    /// 11.3:1 — secondary body copy.
+    static let textSecondary = Color(hex: 0x2c3444)
+    /// 6.8:1 — tertiary, labels. The floor for real copy.
+    static let textTertiary = Color(hex: 0x4d5566)
+    /// 3.4:1. **Decoration and non-text only** — never body copy.
+    static let textFaint = Color(hex: 0x7c8595)
 
     // MARK: Accents
 
@@ -158,11 +88,11 @@ enum Theme {
         static let base = Color(hex: 0xff6a3d)
         static let bright = Color(hex: 0xff8b64)
         static let deep = Color(hex: 0xd94a20)
-        /// 5.1:1 on paper — the light-mode text/icon cut.
+        /// 5.1:1 on paper — the text/icon cut.
         static let ink = Color(hex: 0xb53812)
         /// Text placed *on* an ember fill: a near-black tint of the hue, 6.8:1.
         static let on = Color(hex: 0x1a0a04)
-        static let soft = Color.dynamic(light: 0xff6a3d, lightAlpha: 0.14, dark: 0xff6a3d, darkAlpha: 0.12)
+        static let soft = Color(hex: 0xff6a3d, alpha: 0.14)
     }
 
     /// Signal — the machine accent.
@@ -170,15 +100,16 @@ enum Theme {
         static let base = Color(hex: 0x6ee7df)
         static let bright = Color(hex: 0x9df3ed)
         static let deep = Color(hex: 0x3bbdb4)
-        /// 6.3:1 on paper — the light-mode text/icon cut.
+        /// 6.3:1 on paper — the text/icon cut.
         static let ink = Color(hex: 0x136059)
         /// Text placed *on* a signal fill, 11.4:1.
         static let on = Color(hex: 0x04211f)
-        static let soft = Color.dynamic(light: 0x17756d, lightAlpha: 0.13, dark: 0x6ee7df, darkAlpha: 0.14)
+        static let soft = Color(hex: 0x17756d, alpha: 0.13)
     }
 
-    /// Ground-safe ember: text, icons, strokes. Deepens in light mode.
-    static let accent = Color.dynamic(light: 0xb53812, dark: 0xff6a3d)
+    /// Ground-safe ember: text, icons, strokes — the deepened cut that stays
+    /// readable on paper.
+    static let accent = Color(hex: 0xb53812)
     /// The vivid ember hue, for fills that carry their own on-colour.
     static let accentFill = Ember.base
     /// Text/glyphs drawn *on* `accentFill`.
@@ -188,7 +119,7 @@ enum Theme {
     static let accentText = accent
 
     /// Ground-safe signal.
-    static let accent2 = Color.dynamic(light: 0x136059, dark: 0x6ee7df)
+    static let accent2 = Color(hex: 0x136059)
     static let accent2Fill = Signal.base
     static let accent2On = Signal.on
     static let accent2Soft = Signal.soft
@@ -197,22 +128,22 @@ enum Theme {
 
     static let success = accent2
     static let successSoft = Signal.soft
-    static let danger = Color.dynamic(light: 0xb3261e, dark: 0xff5f52)
-    static let dangerSoft = Color.dynamic(light: 0xb3261e, lightAlpha: 0.12, dark: 0xff5f52, darkAlpha: 0.16)
-    static let warning = Color.dynamic(light: 0x8a5a00, dark: 0xffc25c)
-    static let warningSoft = Color.dynamic(light: 0x8a5a00, lightAlpha: 0.13, dark: 0xffc25c, darkAlpha: 0.16)
+    static let danger = Color(hex: 0xb3261e)
+    static let dangerSoft = Color(hex: 0xb3261e, alpha: 0.12)
+    static let warning = Color(hex: 0x8a5a00)
+    static let warningSoft = Color(hex: 0x8a5a00, alpha: 0.13)
 
     // MARK: Lines + surfaces — translucent, never an opaque grey slab.
 
-    static let line = Color.dynamic(light: 0x000000, lightAlpha: 0.10, dark: 0xffffff, darkAlpha: 0.09)
-    static let lineSoft = Color.dynamic(light: 0x000000, lightAlpha: 0.06, dark: 0xffffff, darkAlpha: 0.055)
-    static let surfaceGlass = Color.dynamic(light: 0xffffff, lightAlpha: 0.62, dark: 0xffffff, darkAlpha: 0.035)
-    static let surfaceGlass2 = Color.dynamic(light: 0xffffff, lightAlpha: 0.85, dark: 0xffffff, darkAlpha: 0.06)
+    static let line = Color(hex: 0x000000, alpha: 0.10)
+    static let lineSoft = Color(hex: 0x000000, alpha: 0.06)
+    static let surfaceGlass = Color(hex: 0xffffff, alpha: 0.62)
+    static let surfaceGlass2 = Color(hex: 0xffffff, alpha: 0.85)
     /// The 1px inset top highlight that makes a card read as a solid object.
-    static let topHighlight = Color.dynamic(light: 0xffffff, lightAlpha: 0.85, dark: 0xffffff, darkAlpha: 0.07)
+    static let topHighlight = Color(hex: 0xffffff, alpha: 0.85)
 
     static let stroke = line
-    static let strokeStrong = Color.dynamic(light: 0x000000, lightAlpha: 0.16, dark: 0xffffff, darkAlpha: 0.16)
+    static let strokeStrong = Color(hex: 0x000000, alpha: 0.16)
 
     /// The tint laid over the blur in a glass card.
     static let glassFill = surfaceGlass
@@ -249,8 +180,8 @@ enum Theme {
     /// strengths, so a hovered row in Settings and a hovered button in the
     /// onboarding band respond by the same amount.
     ///
-    /// The tint is ink over paper and bone over ink, so a single overlay works in
-    /// both moods without a per-mode branch at the call site.
+    /// The tint is ink over paper. The notch band, being always ink, overrides it
+    /// with `Theme.Notch.stateLayerTint` via `.onDarkSurface()`.
     enum StateLayer {
         /// A whisper — "this responds".
         static let hover: Double = 0.08
@@ -262,9 +193,9 @@ enum Theme {
 
         /// Disabled containers and content, following Material Design 3's split:
         /// the container barely registers, the label stays just readable enough
-        /// to identify. Content at 38% of `textPrimary` clears 3:1 in both modes —
-        /// above the non-text floor, deliberately below the body-copy floor,
-        /// because disabled text is not copy the user has to read.
+        /// to identify. Content at 38% of `textPrimary` clears 3:1 — above the
+        /// non-text floor, deliberately below the body-copy floor, because
+        /// disabled text is not copy the user has to read.
         static let disabledContainer: Double = 0.12
         static let disabledContent: Double = 0.38
 
@@ -273,7 +204,7 @@ enum Theme {
         static let lift: CGFloat = -2
 
         /// The overlay colour every state layer is drawn in.
-        static let tint = Color.dynamic(light: 0x10141c, dark: 0xf2efe9)
+        static let tint = Color(hex: 0x10141c)
     }
 
     // MARK: Elevation — deep, soft, wide.
@@ -286,15 +217,15 @@ enum Theme {
     }
 
     static let shadowCard = Shadow(
-        color: .dynamic(light: 0x1a2233, lightAlpha: 0.13, dark: 0x000000, darkAlpha: 0.72),
+        color: Color(hex: 0x1a2233, alpha: 0.13),
         radius: 30, x: 0, y: 16
     )
     static let shadowRaised = Shadow(
-        color: .dynamic(light: 0x1a2233, lightAlpha: 0.14, dark: 0x000000, darkAlpha: 0.6),
+        color: Color(hex: 0x1a2233, alpha: 0.14),
         radius: 10, x: 0, y: 4
     )
     static let shadowPanel = Shadow(
-        color: .dynamic(light: 0x1a2233, lightAlpha: 0.20, dark: 0x000000, darkAlpha: 0.85),
+        color: Color(hex: 0x1a2233, alpha: 0.20),
         radius: 60, x: 0, y: 30
     )
 
@@ -325,10 +256,56 @@ enum Theme {
         }
     }
 
-    // MARK: The notch (always-dark) sub-palette
-    /// The pill sits on the physical black bezel, so it ignores the light/dark
-    /// setting entirely and is always ink. This is also the surface where the
-    /// old and new systems already agreed.
+    // MARK: Sticky notes
+
+    /// The sticky-note tints for the notes canvas.
+    ///
+    /// Deliberately **desaturated paper**, not the highlighter yellows a real
+    /// sticky pad uses: the ground is already paper, the two accents are spoken for
+    /// (§1 — ember is the user, signal is the machine), and five saturated squares
+    /// would shout down every other surface in the app. Each tint is a wash the
+    /// primary ink still clears 4.5:1 on, so a note is readable at any size without
+    /// a per-tint text colour.
+    ///
+    /// Index order is load-bearing: `Note.colorIndex` is **stored**, so reordering
+    /// this array silently recolours every existing note. Append, don't reshuffle —
+    /// and keep the count at `Note.paletteSize`.
+    enum Sticky {
+        static let fills: [Color] = [
+            Color(hex: 0xfdf0e6), // warm sand — ember's neighbour, no ember
+            Color(hex: 0xe8f4f2), // pale signal
+            Color(hex: 0xf0eef8), // cool lilac
+            Color(hex: 0xfaf3dc), // faint straw
+            Color(hex: 0xecf1f7), // paper blue
+        ]
+
+        /// The hairline that rings a sticky, per tint — the fill darkened rather
+        /// than a shared grey, so the edge belongs to the paper it's on.
+        static let strokes: [Color] = [
+            Color(hex: 0xe0c9b4),
+            Color(hex: 0xbfd8d4),
+            Color(hex: 0xd0cbe4),
+            Color(hex: 0xdfd3a8),
+            Color(hex: 0xc9d6e6),
+        ]
+
+        /// Clamped lookup — a note carrying an index from a future, larger palette
+        /// (pulled in by a sync from a newer build) renders in a real colour rather
+        /// than crashing on an out-of-bounds read.
+        static func fill(_ index: Int) -> Color {
+            fills[((index % fills.count) + fills.count) % fills.count]
+        }
+
+        static func stroke(_ index: Int) -> Color {
+            strokes[((index % strokes.count) + strokes.count) % strokes.count]
+        }
+    }
+
+    // MARK: The notch (always-ink) sub-palette
+    /// The pill sits on the physical black bezel, so it is always ink while the
+    /// rest of the app is paper. **This is not a dark mode** — it's one surface
+    /// matched to the hardware behind it, which is why it survives the app being
+    /// light-only. Reached through `.onDarkSurface()`; see `UI/CLAUDE.md`.
     enum Notch {
         static let surface = Color(hex: 0x07090e)
         static let text = Color(hex: 0xf2efe9)
@@ -342,8 +319,9 @@ enum Theme {
         static let glassBorder = Color.white.opacity(0.09)
 
         /// Control fills for buttons living on the band. The app-wide
-        /// `surfaceGlass` tokens are mode-dependent, and this surface has no
-        /// modes — it is always ink, because it sits on the physical bezel.
+        /// `surfaceGlass` tokens are tuned for the paper ground, which would be
+        /// invisible here — this surface is always ink, because it sits on the
+        /// physical bezel.
         static let controlFill = Color.white.opacity(0.06)
         static let controlFillPressed = Color.white.opacity(0.10)
         /// The band's state-layer tint: bone, since the ground is always dark.
@@ -406,7 +384,7 @@ enum Theme {
         endPoint: .bottomTrailing
     )
     /// AppKit ground colour for window backgrounds / titlebars.
-    static let canvasNSColor = NSColor.dynamic(light: 0xf2f4f8, dark: 0x07090e)
+    static let canvasNSColor = NSColor(hex: 0xf2f4f8)
 }
 
 // MARK: - Fonts
@@ -535,11 +513,9 @@ extension View {
 /// "blooms" — ember and signal, the only two hues in the system. Static, for a
 /// calm ground rather than an animated one. Drop it behind the window shell.
 struct AuroraBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    /// Light mode keeps the blooms very faint — at dark-mode strength they read
-    /// as a tie-dyed wash rather than a calm ground.
-    private var bloomOpacity: Double { colorScheme == .dark ? 0.30 : 0.09 }
+    /// The blooms stay very faint on the paper ground — any stronger and they
+    /// read as a tie-dyed wash rather than a calm ground.
+    private let bloomOpacity: Double = 0.09
 
     var body: some View {
         ZStack {
@@ -557,8 +533,8 @@ struct AuroraBackground: View {
                 }
             }
             // Stops large flat fields banding on wide-gamut displays — a real
-            // problem on this app's target hardware, worst in dark mode.
-            GrainOverlay(opacity: colorScheme == .dark ? 0.35 : 0.12)
+            // problem on this app's target hardware.
+            GrainOverlay(opacity: 0.12)
         }
         .ignoresSafeArea()
     }
@@ -672,8 +648,8 @@ struct RecordDot: View {
 // MARK: - Surface chrome (one place, applied everywhere)
 
 extension View {
-    /// The canonical **glass** card: a material blur tinted per mode, ringed by
-    /// a hairline, with a 1px inset top highlight and a deep soft shadow.
+    /// The canonical **glass** card: a tinted material blur, ringed by a
+    /// hairline, with a 1px inset top highlight and a deep soft shadow.
     ///
     /// Three things make it read as a physical object — the vertical gradient,
     /// the top light-catch, and the wide soft shadow. Drop any one and it
@@ -713,7 +689,6 @@ private struct GlassSurface: ViewModifier {
     let highlight: Bool
     var heavy: Bool = false
 
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var shape: RoundedRectangle {
@@ -723,21 +698,17 @@ private struct GlassSurface: ViewModifier {
     /// The vertical gradient: lighter at the top, so the surface catches light
     /// like a real object.
     private var tint: LinearGradient {
-        let isDark = colorScheme == .dark
-        let top = isDark ? Color(hex: 0x101623) : Color.white
-        let bottom = isDark ? Color(hex: 0x0b0f17) : Color.white
-        let topAlpha = (isDark ? 0.72 : 0.86) * tintScale
-        let bottomAlpha = (isDark ? 0.60 : 0.66) * tintScale
-        return LinearGradient(
-            colors: [top.opacity(min(topAlpha, 1)), bottom.opacity(min(bottomAlpha, 1))],
+        LinearGradient(
+            colors: [
+                Color.white.opacity(min(0.86 * tintScale, 1)),
+                Color.white.opacity(min(0.66 * tintScale, 1)),
+            ],
             startPoint: .top, endPoint: .bottom
         )
     }
 
     /// Reduce Transparency gets a genuinely opaque surface, not a thinner blur.
-    private var opaqueFallback: Color {
-        colorScheme == .dark ? Color(hex: 0x101623) : Color(hex: 0xeef1f6)
-    }
+    private let opaqueFallback = Color(hex: 0xeef1f6)
 
     func body(content: Content) -> some View {
         content

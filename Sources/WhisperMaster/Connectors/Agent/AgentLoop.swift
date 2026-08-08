@@ -93,6 +93,24 @@ struct AgentLoop {
     /// `MlxCleanupService.clean(_:systemPrompt:)`, which is the production generator.
     typealias Generate = (String, String) async -> String?
 
+    /// The production generator: the already-loaded qwen.
+    ///
+    /// **Note the cost.** `MlxCleanupService` keeps a persistent KV cache primed on
+    /// the *cleanup* system prompt; passing a different system prompt re-prefills it.
+    /// So an agent call re-primes, and the next dictation cleanup re-primes back.
+    /// That's acceptable — neither is in the sub-second dictation hot path — but it's
+    /// the reason the loop isn't run speculatively or on every transcript.
+    ///
+    /// It lived on `ConnectorAgentService`, which existed to assemble the agent for a
+    /// scheduled automation and for the retired day-query key. With automations gone
+    /// the chord (`CommandAgentService`) is the only caller left, so the wrapper went
+    /// with them and the one piece worth keeping moved here.
+    static func liveGenerator() -> Generate {
+        { text, systemPrompt in
+            await MlxCleanupService.shared.clean(text, systemPrompt: systemPrompt)
+        }
+    }
+
     let tools: [ToolDescriptor]
     let router: any AgentToolRunning
     let generate: Generate
@@ -115,6 +133,10 @@ struct AgentLoop {
     /// instructions (see `AgentPrompt.command`), and the difference is the caller's to
     /// make — everything below is the same machine either way.
     var prompt: (String) -> String = AgentPrompt.system(toolList:)
+    /// Reports what the loop is about to do, so the notch can name the connector it's
+    /// waiting on instead of saying "Working on it" for thirty seconds. No-op by
+    /// default, so a caller with nothing to caption (a test) can ignore it.
+    var onStep: (AgentActivity) -> Void = { _ in }
 
     func run(question: String) async -> AgentOutcome {
         guard !tools.isEmpty else { return .failed }
@@ -133,6 +155,12 @@ struct AgentLoop {
         /// *identical* call again — which is what this key catches.
         var madeCalls = Set<String>()
         var messages: [AgentMessage] = [.init(role: .user, text: question)]
+
+        // Reported once, not before every generate. After a call returns, the model
+        // is reasoning *about that connector's result*, so holding its caption is
+        // both truthful and calmer than flipping back to the generic line between
+        // every step — which on a three-call chain would be six caption changes.
+        onStep(.thinking)
 
         for _ in 0..<maxIterations {
             guard now() < deadline else { break }
@@ -160,6 +188,7 @@ struct AgentLoop {
                     continue
                 }
                 madeCalls.insert(key)
+                onStep(.running(call))
                 let result = await router.run(call)
                 labels.append(contentsOf: result.instanceLabels)
                 turns.append(AgentTurn(role: .tool, text: result.text))

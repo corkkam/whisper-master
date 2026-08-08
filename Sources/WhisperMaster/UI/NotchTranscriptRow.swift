@@ -65,6 +65,11 @@ struct NotchTranscriptRow: View {
     /// just drawn in the menu bar instead of under it.
     var orbSize: CGFloat?
     var verticalInset: CGFloat?
+    /// Ceiling on `label`, for the row form. The `HStack` alone only bounds it by
+    /// the whole surface, and in the row the middle of that surface is behind the
+    /// camera housing — so without this a long caption doesn't truncate, it runs
+    /// into the hardware and its tail is invisible. `nil` in the band form.
+    var labelMaxWidth: CGFloat?
 
     private var resolvedOrbSize: CGFloat { orbSize ?? Self.orbDiameter }
     private var resolvedVerticalInset: CGFloat { verticalInset ?? Self.verticalPadding }
@@ -105,6 +110,10 @@ struct NotchTranscriptRow: View {
                 .font(Typography.notchLabel)
                 .foregroundStyle(Theme.Notch.text)
                 .lineLimit(1)
+                .truncationMode(.tail)
+                // `nil` is the unconstrained default, i.e. the band form is
+                // untouched — only the row needs the wing as a ceiling.
+                .frame(maxWidth: labelMaxWidth, alignment: .leading)
         } else {
             transcript
         }

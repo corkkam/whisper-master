@@ -71,12 +71,37 @@ enum LocalToolCatalog {
 /// they don't have.
 @MainActor
 struct LocalToolRunner {
+    /// What the user actually said, and how it sounded — carried so a note the agent
+    /// files keeps its provenance.
+    ///
+    /// The model's `body` argument is a *rewrite* of the capture ("in the user's own
+    /// words" is an instruction a 3B follows loosely), so without this a spoken note
+    /// would be stored as the model's paraphrase with no record of the original. The
+    /// audio closure is `takeAudio`-shaped rather than a value because the recording
+    /// is consumed on first use: one capture yields one recording, attached to
+    /// whichever note it produced.
+    struct VoiceContext {
+        /// The verbatim transcript of the capture.
+        var transcript: String
+        /// Hand over this capture's recording for `noteID`, or nil if there isn't
+        /// one. Called at most once.
+        var takeAudio: (UUID) -> NoteAudio?
+
+        init(transcript: String, takeAudio: @escaping (UUID) -> NoteAudio?) {
+            self.transcript = transcript
+            self.takeAudio = takeAudio
+        }
+    }
+
     let notes: NotesStore
     /// Alert style and sound a spoken reminder inherits — the user's defaults, the
     /// same ones the manual "Add reminder" uses.
     var alertStyle: ReminderAlertStyle = .notification
     var soundName: String = ReminderSound.defaultName
     var now: () -> Date = Date.init
+    /// Nil when the runner isn't serving a voice capture (tests, and any future
+    /// non-spoken caller) — the note is then filed with no transcript or audio.
+    var voice: VoiceContext?
 
     /// What a call actually did, for the confirmation the notch shows afterwards.
     /// The answer text comes from the model; this is the app's own record of the
@@ -105,7 +130,13 @@ struct LocalToolRunner {
             return (.failure("create_note needs a non-empty body."), nil)
         }
         let title = (call.arguments["title"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        notes.upsertNote(Note(title: title, body: body))
+        let id = UUID()
+        notes.upsertNote(Note(
+            id: id,
+            title: title,
+            body: body,
+            transcript: voice?.transcript,
+            audio: voice?.takeAudio(id)))
         return (ToolResult(ok: true, text: "Saved the note.", instanceLabels: []), .noteCreated)
     }
 
@@ -135,8 +166,7 @@ struct LocalToolRunner {
     // MARK: - Reads
 
     private func listReminders() -> ToolResult {
-        let rows = notes.visibleReminders
-            .filter { !$0.isCompleted }
+        let rows = notes.activeReminders
             .prefix(10)
             .map { "\($0.displayTitle) — \(Self.stamp.string(from: $0.dueDate))" }
         let text = rows.isEmpty ? "No reminders are set." : rows.joined(separator: "\n")

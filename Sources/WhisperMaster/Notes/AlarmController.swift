@@ -51,7 +51,8 @@ final class AlarmController {
         win.level = .floating
         win.hidesOnDeactivate = false
         win.isMovableByWindowBackground = true
-        // Inherits the app-wide appearance (`AppDelegate.applyAppearance`).
+        // Inherits the app-wide light appearance pinned in
+        // `AppDelegate.applicationDidFinishLaunching`.
         win.backgroundColor = Theme.canvasNSColor
         window = win
 

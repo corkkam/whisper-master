@@ -53,9 +53,16 @@ struct CommandAgentService {
     var alertStyle: ReminderAlertStyle = .notification
     var soundName: String = ReminderSound.defaultName
     var now: () -> Date = Date.init
+    /// Hand this capture's recording to a note the agent files, or nil to file
+    /// without one. Consumed at most once per capture.
+    var takeNoteAudio: (UUID) -> NoteAudio? = { _ in nil }
 
+    /// - Parameter onStep: called as the loop moves, so the band can name the
+    ///   connector it's waiting on. The caller owns the `AppState` write, per the
+    ///   "view model is the only writer" rule.
     func perform(_ spoken: String,
-                 generate: @escaping AgentLoop.Generate) async -> CommandAgentResult? {
+                 generate: @escaping AgentLoop.Generate,
+                 onStep: @escaping (AgentActivity) -> Void = { _ in }) async -> CommandAgentResult? {
         let connectorTools = connectorsAllowed
             ? ToolRegistry.available(store: store, includeWrites: true)
             : []
@@ -68,13 +75,17 @@ struct CommandAgentService {
             : ToolRouter(store: store,
                          requestApproval: { [approvals] approval in await approvals.request(approval) })
         let router = CommandToolRouter(
-            local: LocalToolRunner(notes: notes, alertStyle: alertStyle,
-                                   soundName: soundName, now: now),
+            local: LocalToolRunner(
+                notes: notes, alertStyle: alertStyle, soundName: soundName, now: now,
+                // The capture's own words and audio, so a note the agent files keeps
+                // what was actually said next to the model's rewrite of it.
+                voice: .init(transcript: spoken, takeAudio: takeNoteAudio)),
             connectors: connectorRouter)
 
         var loop = AgentLoop(tools: tools, router: router, generate: generate)
         loop.prompt = AgentPrompt.command(toolList:)
         loop.now = now
+        loop.onStep = onStep
         let outcome = await loop.run(question: spoken)
 
         guard !router.executed.isEmpty else { return nil }

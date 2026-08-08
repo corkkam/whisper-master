@@ -16,8 +16,8 @@ final class ApprovalCoordinator {
     /// Resolves the suspended `requestApproval` call.
     private var continuation: CheckedContinuation<ApprovalOutcome, Never>?
 
-    /// How long a card waits before denying itself. A write must never sit indefinitely
-    /// holding an automation open, and silence is not consent.
+    /// How long a card waits before denying itself. A write must never sit
+    /// indefinitely holding the agent loop open, and silence is not consent.
     var timeout: TimeInterval = 60
     private var timeoutTask: Task<Void, Never>?
 
@@ -49,11 +49,12 @@ final class ApprovalCoordinator {
         continuation = nil
     }
 
-    /// A headless policy for automations, which have no one to ask.
-    ///
-    /// Denies anything without a standing grant: a scheduled task must never be the path
-    /// by which an unapproved write happens, because there's nobody watching when it
-    /// fires. The user grants "always allow" interactively first, and only then can an
-    /// automation use it.
-    static let denyUnattended: (PendingApproval) async -> ApprovalOutcome = { _ in .denied }
+    #if DEBUG
+    /// Puts a card up with nobody suspended behind it — the headless snapshot
+    /// renderer's only way in, since `request` suspends until the card is answered
+    /// and `ImageRenderer` draws synchronously right after. Never call this from the
+    /// running app: a card seeded this way answers no tool call, so resolving it
+    /// silently does nothing.
+    func seedPendingForSnapshot(_ approval: PendingApproval) { pending = approval }
+    #endif
 }

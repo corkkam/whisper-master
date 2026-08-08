@@ -38,12 +38,33 @@ enum SnapshotMode {
             )
         }
 
+        // Notes gets its own full-window render, wider than the rest: it's the only
+        // section with an expandable sidebar group, and the only way to check that the
+        // group's sub-rows read as subordinate to their parent is to see them beside
+        // the other four nav items. 900pt would also squeeze the canvas into one
+        // column and hide the layout being checked.
+        render(
+            SettingsView(viewModel: viewModel, state: state, initialSection: .notes)
+                .frame(width: 1320, height: 820),
+            to: dir.appendingPathComponent("window-notes.png")
+        )
+
         // Each section's panel on its own (ImageRenderer collapses flexible
         // ScrollViews, so we render the fixed detail container instead).
         for section in SettingsSection.allCases {
             render(
                 detailContainer(section: section, viewModel: viewModel, state: state),
                 to: dir.appendingPathComponent("panel-\(section.rawValue).png")
+            )
+        }
+
+        // Notes & Reminders is three surfaces behind one section — the split
+        // overview, the sticky canvas, and the reminders list — so the one
+        // `panel-notes` render above only covers a third of it.
+        for tab in NotesTab.allCases {
+            render(
+                detailContainer(section: .notes, viewModel: viewModel, state: state, notesTab: tab),
+                to: dir.appendingPathComponent("panel-notes-\(tab.rawValue).png")
             )
         }
 
@@ -186,6 +207,81 @@ enum SnapshotMode {
             s.daySummaryWasSpoken = true
             s.isSpeakingAnswer = true
         }
+        // The assistant working, captioned by the connector it's waiting on rather
+        // than by one static "Working on it" for the whole 30-second budget. The
+        // chord suppresses the paste, so this row is the only thing saying the words
+        // went anywhere.
+        renderPill(dir, name: "pill-7b-agent-reading-calendar") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.commandAgentRunning = true
+            s.agentActivity = .running(tool: "list_calendar_events", target: "Personal")
+        }
+        // An unqualified read merges every calendar, so it says so rather than
+        // naming one of them.
+        renderPill(dir, name: "pill-7c-agent-all-calendars") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.commandAgentRunning = true
+            s.agentActivity = .running(tool: "list_calendar_events", target: nil)
+        }
+        // A second connector in the same run — the caption follows the work across.
+        renderPill(dir, name: "pill-7d-agent-posting-to-slack") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.commandAgentRunning = true
+            s.agentActivity = .running(tool: "send_message", target: "#eng-standup")
+        }
+        // The regression check on the wing: a long connection name must widen the
+        // bar, not slide under the camera housing. If the caption here is clipped or
+        // runs into the housing, `maxStateLabelWing` is too small.
+        renderPill(dir, name: "pill-7e-agent-long-connector-name") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.commandAgentRunning = true
+            s.agentActivity = .running(
+                tool: "list_calendar_events", target: "Personal Google Calendar")
+        }
+        // The consent card for a connector write — the one banner that carries three
+        // buttons beside its two lines, so it takes the *wide* surface. These two
+        // renders are the regression check on the card that shipped unreadable: raw
+        // arguments ("start: 2026-08-08T09:00:00+05:30 · title: Work · when: …")
+        // under "Add an event to Personal on Personal", laid out at banner width
+        // with `fixedSize`, which ran the words off both edges and pushed Once /
+        // Always / No out past the band's clip where they couldn't be clicked.
+        renderPill(dir, name: "pill-9-approval-calendar") { s in
+            s.phase = .idle
+            let start = Date()
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "create_calendar_event",
+                instanceID: UUID(),
+                instanceLabel: "Personal",
+                target: "Personal",
+                arguments: [
+                    "title": "Work",
+                    "when": "tomorrow at nine",
+                    "start": ConnectorHTTP.iso8601(from: start),
+                    "end": ConnectorHTTP.iso8601(from: start.addingTimeInterval(30 * 60)),
+                    ToolDescriptor.instanceArgument: "Personal",
+                ]))
+        }
+        // A dictated message body has no length limit, so this is the case that
+        // decides whether the payload gives way or the answers do. The three buttons
+        // must be whole and on-band; the quoted text truncates at the tail.
+        renderPill(dir, name: "pill-9b-approval-long-message") { s in
+            s.phase = .idle
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "send_message",
+                instanceID: UUID(),
+                instanceLabel: "Work",
+                target: "#eng-standup",
+                arguments: [
+                    "channel": "#eng-standup",
+                    "text": "Running about ten minutes late this morning, please start "
+                        + "without me and I'll catch up on the thread afterwards.",
+                    ToolDescriptor.instanceArgument: "Work",
+                ]))
+        }
         renderPill(dir, name: "pill-7-polishing") { s in
             s.phase = .idle
             s.isPolishing = true
@@ -291,12 +387,17 @@ enum SnapshotMode {
     }
 
     @ViewBuilder
-    private static func sectionView(_ section: SettingsSection, viewModel: DictationViewModel, state: AppState) -> some View {
+    private static func sectionView(
+        _ section: SettingsSection,
+        viewModel: DictationViewModel,
+        state: AppState,
+        notesTab: NotesTab = .overview
+    ) -> some View {
         switch section {
         case .today: TodayView(viewModel: viewModel, state: state)
         case .insights: InsightsSettingsView(viewModel: viewModel, state: state)
-        case .notes: NotesSettingsView(state: state)
-        case .connectors: ConnectorsSettingsView(viewModel: viewModel, state: state)
+        case .notes: NotesSettingsView(state: state, tab: .constant(notesTab))
+        case .connectors: ConnectorsSettingsView(state: state)
         case .settings: GeneralSettingsView(viewModel: viewModel, state: state)
         case .engine: EngineSettingsView(viewModel: viewModel, state: state)
         case .mesh: MeshSettingsView(viewModel: viewModel, state: state)
@@ -307,19 +408,28 @@ enum SnapshotMode {
         }
     }
 
-    private static func detailContainer(section: SettingsSection, viewModel: DictationViewModel, state: AppState) -> some View {
-        VStack(alignment: .leading, spacing: 26) {
+    private static func detailContainer(
+        section: SettingsSection,
+        viewModel: DictationViewModel,
+        state: AppState,
+        notesTab: NotesTab = .overview
+    ) -> some View {
+        // The notes canvas is laid out against the wider measure the real window
+        // gives it (`SettingsView.contentMaxWidth`), so rendering it at the 680pt
+        // reading measure would snapshot a layout the app never shows.
+        let width: CGFloat = section == .notes ? 1080 : 680
+        return VStack(alignment: .leading, spacing: 26) {
             VStack(alignment: .leading, spacing: 7) {
                 KickerLabel(section.kicker)
                 Text(section.title).font(Typography.largeTitle).tracking(Typography.largeTitleTracking).foregroundStyle(Theme.textPrimary)
                 Text(section.subtitle).font(Typography.body).foregroundStyle(Theme.textSecondary)
             }
-            sectionView(section, viewModel: viewModel, state: state)
+            sectionView(section, viewModel: viewModel, state: state, notesTab: notesTab)
         }
-        .frame(width: 680, alignment: .leading)
+        .frame(width: width, alignment: .leading)
         .padding(.horizontal, 44)
         .padding(.vertical, 40)
-        .frame(width: 768, alignment: .topLeading)
+        .frame(width: width + 88, alignment: .topLeading)
         .background(WarmBackground())
     }
 
@@ -342,10 +452,9 @@ enum SnapshotMode {
                 provenance: "From Work, Personal",
                 askedAt: Date(timeIntervalSinceNow: -420)),
             AnsweredQuestion(
-                question: "Morning briefing",
+                question: "what needs me today",
                 answer: "Two things need you today: the release notes, and Friday's demo script.",
-                askedAt: Date(timeIntervalSinceNow: -9000),
-                source: .automation),
+                askedAt: Date(timeIntervalSinceNow: -9000)),
         ]
         seedUsage(state.usageStore)
         seedNotes(state.notesStore)
@@ -366,31 +475,56 @@ enum SnapshotMode {
             kind: .appleCalendar, label: "iCloud", identity: "iCloud",
             config: .calendars(identifiers: ["mock-icloud"], sourceTitle: "iCloud")))
         state.connectorStore.calendarAccessGranted = true
-        // The assistant, one standing permission and one automation, so the whole
-        // Connectors page renders headlessly rather than only its top half.
+        // The assistant on plus one standing permission, so the Connectors page's
+        // grant list and the Settings page's assistant sections both render
+        // headlessly rather than only their empty states.
         state.connectorAgentEnabled = true
         state.cleanupModelReady = true
         let mockSlack = state.connectorStore.add(ConnectorInstance(
             kind: .slack, label: "Work chat", identity: "Acme / whisper"))
         state.connectorStore.addGrant(
             Grant(tool: "send_message", instanceID: mockSlack.id, target: "#standup"))
-        state.automationStore.persistenceEnabled = false
-        state.automationStore.add(ScheduledTask(
-            title: "Morning briefing",
-            instructions: "what's on my work calendar today",
-            schedule: .daily(hour: 8, minute: 30)))
     }
 
     /// A couple of believable notes + reminders so the Notes & Reminders panel
     /// renders with real-looking content (never touches a real per-account file).
     private static func seedNotes(_ store: NotesStore) {
         store.persistenceEnabled = false
+        // A spread that exercises the canvas rather than just filling it: a pinned
+        // note (leads the grid, shows the notch band), spoken notes carrying a
+        // transcript distinct from the body, and typed notes with neither. The
+        // `colorIndex` is set explicitly so the PNGs are stable — the default is
+        // derived from a random UUID, which would reshuffle the palette every run
+        // and make every snapshot diff look like a redesign.
+        //
+        // `audio` names files that don't exist, which is the point: the card must
+        // render the recording affordance and still refuse to promise playback for a
+        // file this Mac doesn't have (the synced-note case).
+        store.upsertNote(Note(
+            title: "Wifi password",
+            body: "The guest network password is basalt-harbour-19.",
+            isPinned: true,
+            transcript: "take a note that the guest network password is basalt harbour nineteen",
+            audio: NoteAudio(fileName: "mock-wifi.wav", durationMs: 7_400),
+            colorIndex: 0))
         store.upsertNote(Note(
             title: "Demo script",
-            body: "Open with the notch pill, then dictate into Slack to show live paste."))
+            body: "Open with the notch pill, then dictate into Slack to show live paste.",
+            colorIndex: 1))
+        store.upsertNote(Note(
+            title: "Parakeet window",
+            body: "Preview track is 1.5s; accurate track stays at 11s — don't lower it.",
+            transcript: "note that the preview track is one point five seconds and the accurate track stays at eleven seconds, don't lower it",
+            audio: NoteAudio(fileName: "mock-parakeet.wav", durationMs: 12_900),
+            colorIndex: 2))
         store.upsertNote(Note(
             title: "Follow-ups",
-            body: "Ping design about the Daylight tokens; sync FluidAudio version."))
+            body: "Ping design about the Daylight tokens; sync FluidAudio version.",
+            colorIndex: 3))
+        store.upsertNote(Note(
+            title: "",
+            body: "Ask Priya whether the compliance deck needs the on-device diagram.",
+            colorIndex: 4))
         store.upsertReminder(ReminderItem(
             title: "Stand-up",
             body: "Daily team sync",
@@ -403,6 +537,20 @@ enum SnapshotMode {
             dueDate: Date(timeIntervalSinceNow: 7_200),
             alertStyle: .alarm,
             soundName: "Sosumi"))
+        // Overdue and completed: the two states the row renders differently from a
+        // plain future reminder, so both are in the PNGs rather than only in prose.
+        store.upsertReminder(ReminderItem(
+            title: "Send the compliance deck",
+            dueDate: Date(timeIntervalSinceNow: -5_400),
+            alertStyle: .notification,
+            soundName: "Glass"))
+        store.upsertReminder(ReminderItem(
+            title: "Renew the developer certificate",
+            dueDate: Date(timeIntervalSinceNow: -90_000),
+            alertStyle: .notification,
+            soundName: "Glass",
+            isCompleted: true,
+            completedAt: Date(timeIntervalSinceNow: -3_000)))
     }
 
     /// Feed the Insights dashboard believable history: several dictations a day
@@ -449,46 +597,33 @@ enum SnapshotMode {
         }
     }
 
-    /// Renders each surface **twice**, once per appearance, as `<name>-light.png`
-    /// and `<name>-dark.png`. Since the theme became dual-mode, a single-mode
-    /// snapshot only covers half the regression surface.
+    /// Renders one surface to `<name>.png`.
     ///
-    /// Two things have to agree for the tokens to resolve correctly: SwiftUI's
-    /// `colorScheme` environment (read by the glass recipes) and AppKit's
-    /// current drawing appearance (read by the dynamic `NSColor` providers
-    /// behind every token). Setting only one of them silently renders a mixed
-    /// palette.
+    /// The app is light-only, so there's a single appearance to cover — this used
+    /// to render every surface twice (`-light`/`-dark`) back when the theme was
+    /// dual-mode. The drawing appearance is still set explicitly rather than
+    /// inherited: `performAsCurrentDrawingAppearance` is what any AppKit-backed
+    /// colour resolves against, and the headless renderer has no window to take
+    /// it from.
     private static func render<V: View>(_ view: V, to url: URL) {
-        for scheme in [ColorScheme.light, .dark] {
-            let suffix = scheme == .dark ? "dark" : "light"
-            let name = url.deletingPathExtension().lastPathComponent
-            let target = url
-                .deletingLastPathComponent()
-                .appendingPathComponent("\(name)-\(suffix).png")
+        guard let appearance = NSAppearance(named: .aqua) else { return }
 
-            guard let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua) else { continue }
-
-            var image: NSImage?
-            appearance.performAsCurrentDrawingAppearance {
-                let renderer = ImageRenderer(
-                    content: view
-                        .environment(\.isSnapshot, true)
-                        .environment(\.colorScheme, scheme)
-                )
-                renderer.scale = 2
-                image = renderer.nsImage
-            }
-
-            guard let image,
-                  let tiff = image.tiffRepresentation,
-                  let rep = NSBitmapImageRep(data: tiff),
-                  let png = rep.representation(using: .png, properties: [:]) else {
-                print("Failed to render \(target.lastPathComponent)")
-                continue
-            }
-            try? png.write(to: target)
-            print("Wrote \(target.lastPathComponent)")
+        var image: NSImage?
+        appearance.performAsCurrentDrawingAppearance {
+            let renderer = ImageRenderer(content: view.environment(\.isSnapshot, true))
+            renderer.scale = 2
+            image = renderer.nsImage
         }
+
+        guard let image,
+              let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else {
+            print("Failed to render \(url.lastPathComponent)")
+            return
+        }
+        try? png.write(to: url)
+        print("Wrote \(url.lastPathComponent)")
     }
 }
 #endif

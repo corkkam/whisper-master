@@ -48,7 +48,10 @@ final class AppState {
     static let historyDefaultsKey = "WhisperMaster.transcriptHistory.v1"
     static let historyLimit = 50
     static let vocabularyDefaultsKey = "WhisperMaster.customVocabulary.v1"
-    static let appearanceDefaultsKey = "WhisperMaster.appearance.v1"
+    // `WhisperMaster.appearance.v1` held the retired light/dark/system preference.
+    // The app is light-only now (`NSApp.appearance` is pinned to `.aqua` at
+    // launch), so the key is left on disk and never read — same reasoning as the
+    // retired hotkey key below. Don't reuse the name.
     static let hotkeyDefaultsKey = "WhisperMaster.hotkey.v1"
     // `WhisperMaster.dayQueryHotkey.v1` was the retired second push-to-talk key.
     // Left on disk rather than migrated away — it is never read, and deleting a key
@@ -83,7 +86,10 @@ final class AppState {
     static let llmCleanupDefaultsKey = "WhisperMaster.llmCleanup.v1"
     static let llmGrammarPolishDefaultsKey = "WhisperMaster.llmGrammarPolish.v1"
     static let speakAnswersDefaultsKey = "WhisperMaster.speakAnswers.v1"
-    static let speakAutomationAnswersDefaultsKey = "WhisperMaster.speakAutomationAnswers.v1"
+    // `WhisperMaster.speakAutomationAnswers.v1` governed whether scheduled
+    // automations spoke when they fired. Automations are gone, so it is left on disk
+    // and never read — same posture as the retired hotkey and appearance keys above.
+    // Don't reuse the name.
     static let answerVoiceEngineDefaultsKey = "WhisperMaster.answerVoiceEngine.v1"
     static let systemVoiceDefaultsKey = "WhisperMaster.systemVoice.v1"
     static let naturalVoiceDefaultsKey = "WhisperMaster.naturalVoice.v1"
@@ -284,17 +290,6 @@ final class AppState {
     /// One-shot flag the Settings "Retry" button sets; drained by the manager on
     /// the next refresh tick to re-attempt a failed load.
     var cleanupRetryRequested: Bool = false
-    /// Light / dark / follow-the-system. Persisted; applied app-wide by
-    /// `AppDelegate.applyAppearance()`, which sets `NSApp.appearance` — the one
-    /// lever that cascades to every window. The dictation pill deliberately
-    /// opts out and stays ink, since it draws on the physical bezel.
-    var appearance: AppAppearance = .system {
-        didSet {
-            guard appearance != oldValue else { return }
-            UserDefaults.standard.set(appearance.rawValue, forKey: Self.appearanceDefaultsKey)
-        }
-    }
-
     /// Whether gentle "you haven't used me in a while" reminders are enabled.
     /// Persisted; **on by default** — the app lives in the notch with no window to
     /// come back to, so an install nobody is reminded of is an install nobody uses.
@@ -408,6 +403,11 @@ final class AppState {
     /// thinking orb); this is what stops it captioning the work "Polishing", which
     /// would describe a rewrite that isn't happening.
     var commandAgentRunning: Bool = false
+    /// What that loop is doing right now, so the band can name the connector it's
+    /// waiting on ("Checking Personal") instead of saying "Working on it" for the
+    /// whole run. Nil outside a run, and while the loop is between steps the last
+    /// one stands — see `AgentLoop.onStep`.
+    var agentActivity: AgentActivity?
     /// Default alert style new reminders inherit (per-reminder overridable).
     /// Persisted as the enum raw value. This is the "configure in settings" knob.
     var reminderDefaultAlertStyle: ReminderAlertStyle = .notification {
@@ -450,14 +450,16 @@ final class AppState {
     /// `AppDelegate` (`notesStore.activate`) once auth resolves.
     let notesStore = NotesStore(load: false)
 
+    /// Playback for the recordings behind spoken notes. One per app, so starting a
+    /// second note's audio stops the first. Playback only — it never touches the
+    /// capture graph (see `NoteAudioPlayer`).
+    let noteAudioPlayer = NoteAudioPlayer()
+
     /// The user's connector **instances** behind the Connectors tab — many named
     /// connections per kind ("Google Calendar Work"). Like `usageStore` and
     /// `notesStore`: starts empty and is scoped to the signed-in account by
     /// `AppDelegate` (`connectorStore.activate(userID:)`) once auth resolves.
     let connectorStore = ConnectorInstanceStore(load: false)
-
-    /// Saved automations + their run history. Per-account like the others.
-    let automationStore = AutomationStore(load: false)
 
     /// The one write awaiting the user's consent, surfaced as a notch card.
     let approvals = ApprovalCoordinator()
@@ -481,18 +483,6 @@ final class AppState {
     /// ordinary dictation can never trigger it.
     var speakAnswersEnabled: Bool = true {
         didSet { UserDefaults.standard.set(speakAnswersEnabled, forKey: Self.speakAnswersDefaultsKey) }
-    }
-
-    /// Also speak answers from *scheduled* automations.
-    ///
-    /// **Off by default**, and deliberately a separate switch: a spoken answer you asked
-    /// for is expected, while a Mac that starts talking on its own during a meeting is
-    /// the failure case. Nobody can consent to that by turning on the switch above.
-    var speakAutomationAnswersEnabled: Bool = false {
-        didSet {
-            UserDefaults.standard.set(
-                speakAutomationAnswersEnabled, forKey: Self.speakAutomationAnswersDefaultsKey)
-        }
     }
 
     var answerVoiceEngine: AnswerVoiceEngine = .system {
@@ -528,9 +518,6 @@ final class AppState {
         history = Self.loadHistory()
         answerLog = AnswerLog.load()
         customVocabulary = Self.loadVocabulary()
-        // Follow the system appearance unless the user has pinned one.
-        appearance = (UserDefaults.standard.string(forKey: Self.appearanceDefaultsKey))
-            .flatMap(AppAppearance.init(rawValue:)) ?? .system
         // The push-to-talk key is persisted; absent means a fresh install, which
         // takes the fn default. There is only one key now — the assistant is the
         // fn+control chord, not a second physical key — so no collision to break.
@@ -542,9 +529,6 @@ final class AppState {
         connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? false
         // Opt-out: you asked out loud, so an answer you can hear is the default.
         speakAnswersEnabled = UserDefaults.standard.object(forKey: Self.speakAnswersDefaultsKey) as? Bool ?? true
-        // Opt-in: a Mac that talks unprompted is nobody's default.
-        speakAutomationAnswersEnabled = UserDefaults.standard
-            .object(forKey: Self.speakAutomationAnswersDefaultsKey) as? Bool ?? false
         answerVoiceEngine = (UserDefaults.standard.string(forKey: Self.answerVoiceEngineDefaultsKey))
             .flatMap(AnswerVoiceEngine.init(rawValue:)) ?? .system
         systemVoiceIdentifier = UserDefaults.standard.string(forKey: Self.systemVoiceDefaultsKey) ?? ""

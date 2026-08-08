@@ -3,23 +3,32 @@ import Foundation
 /// One answered question, kept so the answer outlives its banner.
 ///
 /// The notch band shows a single truncated line for a few seconds and then it's gone —
-/// which is fine for "you have three meetings" and useless for anything longer, and
-/// worse than useless for a scheduled automation that answered while nobody was looking.
+/// which is fine for "you have three meetings" and useless for anything longer.
 /// Nothing else in the app records these: an assistant capture deliberately skips the
 /// transcript history (`routeCommandCapture` returns before `appendHistory`), so without
 /// this the answer genuinely is unrecoverable. That's also what makes a tool-less answer
 /// a legitimate outcome for the chord — `CommandAgentService` may return words rather
 /// than an artifact precisely because the words become an artifact here.
 struct AnsweredQuestion: Identifiable, Codable, Hashable {
-    /// Where the question came from — the Today card labels an automation so a line the
-    /// user never spoke isn't mistaken for one they did.
+    /// Where the question came from. Only one origin left now that scheduled
+    /// automations are gone — every answer is one the user asked for out loud — but
+    /// the field stays because it is **already on disk**.
     enum Source: String, Codable {
         case spoken
-        case automation
+
+        /// Rows written before automations were removed carry `source: "automation"`,
+        /// and `AnswerLog.load` decodes the whole array under a single `try?` — so a
+        /// strict decode of the retired case wouldn't drop that one row, it would
+        /// silently empty the user's entire answer log. Anything unrecognised reads
+        /// as `.spoken`. Same hazard the hand-written `Note` conformance exists for.
+        init(from decoder: any Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Source(rawValue: raw) ?? .spoken
+        }
     }
 
     let id: UUID
-    /// The question as asked. For an automation this is the task's title.
+    /// The question as asked.
     let question: String
     let answer: String
     /// "From Work Calendar", or empty. Kept separate so it can be styled as the aside

@@ -20,13 +20,11 @@ struct GeneralSettingsView: View {
             // Delivery, Formatting, Smart cleanup.
             TranscriptSettingsView(state: state)
 
-            SectionLabel("Appearance")
-            SettingsCard {
-                SettingsRow("Theme",
-                            subtitle: "Follow your Mac's appearance, or pin Whisper Master to light or dark. The dictation pill always stays dark — it sits on the notch.") {
-                    AppearancePicker(selection: $state.appearance)
-                }
-            }
+            // Assistant + Spoken answers, straight after Smart cleanup — they run on
+            // the same on-device model, and they were previously stranded at the
+            // bottom of the Connectors page, which is about accounts rather than
+            // preferences.
+            AssistantSettingsView(viewModel: viewModel, state: state)
 
             SectionLabel("Startup")
             SettingsCard {

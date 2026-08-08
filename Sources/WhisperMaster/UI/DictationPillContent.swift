@@ -179,7 +179,12 @@ struct DictationPillContent: View {
     /// Which of the three widths the current band wants. Dictation is the bar,
     /// sized to the state word it carries; the delivered checkmark stays a bare
     /// badge; every hint is written against the banner width.
+    ///
+    /// The approval card is the one *banner* that takes the bar: it carries three
+    /// buttons alongside its two lines, and at banner width the words and the
+    /// answers were competing for the same ~200pt.
     private var surfaceKind: NotchSurfaceWidth {
+        if showApproval { return .wide }
         guard bandIsDictation else { return .banner }
         return isDeliveredBadge ? .glyph : .wide
     }
@@ -196,15 +201,43 @@ struct DictationPillContent: View {
 
     /// Width of the black surface. The panel itself is always sized for the widest
     /// state, so the surface is framed inside it and centered on the notch.
+    ///
+    /// The bar's width follows its state word, because the assistant's captions
+    /// carry a user-chosen connector name and the leading label lives in the wing:
+    /// a caption longer than `wideSideExtension` would otherwise run under the
+    /// camera housing rather than widening the band.
     private var surfaceWidth: CGFloat {
-        layout.surfaceWidth(for: geometry, surfaceKind)
+        layout.surfaceWidth(for: geometry, surfaceKind, stateLabel: stateLabel)
+    }
+
+    /// The state word the bar is carrying, or "" for every surface that isn't the
+    /// bar. Resolved here because it decides the width as well as the content.
+    private var stateLabel: String {
+        guard surfaceKind == .wide, transcriptModel.isEmpty else { return "" }
+        return activity.label(
+            holdToTalk: state.holdToTalkEnabled && !state.handsFreeActive,
+            commandCapture: state.commandCaptureArmed || state.commandAgentRunning,
+            agentActivity: state.agentActivity)
+    }
+
+    /// Ceiling on the leading label in the row form, so a caption past the wing cap
+    /// truncates at the housing's edge instead of disappearing behind it.
+    private var rowLabelMaxWidth: CGFloat {
+        layout.rowLabelMaxWidth(
+            for: geometry, wing: layout.wideWing(forStateLabel: stateLabel))
     }
 
     /// Whether the surface should be dropped down and visible.
     private var isExpanded: Bool {
         // Hints, the delivered beat, and the polish that runs on after a paste
-        // all show even when idle.
-        if showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
+        // all show even when idle. The approval card leads that list because it is
+        // the one band with a *caller suspended behind it*: it was only ever on
+        // screen because `isPolishing` happened to be holding the band open for the
+        // agent loop around it, so anything that raised a card outside that window
+        // would have left a write waiting on a question nobody was shown, until it
+        // timed out and denied itself.
+        if showApproval
+            || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
             || state.shouldShowDeliveredBeat || state.shouldShowLiveTranscript
             || state.shouldShowPolishedBeat { return true }
         guard hasContent else { return false }
@@ -335,7 +368,8 @@ struct DictationPillContent: View {
                 transcript: transcriptModel,
                 activity: activity,
                 rowOrbSize: isNotchRow ? layout.rowOrbDiameter(for: geometry) : nil,
-                rowVerticalInset: isNotchRow ? layout.rowVerticalPadding : nil
+                rowVerticalInset: isNotchRow ? layout.rowVerticalPadding : nil,
+                rowLabelMaxWidth: isNotchRow ? rowLabelMaxWidth : nil
             )
         }
     }

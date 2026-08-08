@@ -25,7 +25,8 @@ struct ToolResult: Equatable, Sendable {
 struct ToolRouter {
     let store: ConnectorInstanceStore
     /// Raises an approval card and waits. Injected so the router is testable and so a
-    /// headless run (an automation) can supply a policy instead of a UI.
+    /// caller without a notch (a test, the snapshot renderer) can supply a policy
+    /// instead of a UI.
     let requestApproval: (PendingApproval) async -> ApprovalOutcome
     /// Injected so a `when` phrase ("tomorrow", "next monday") resolves against a
     /// fixed clock in tests rather than the wall clock.

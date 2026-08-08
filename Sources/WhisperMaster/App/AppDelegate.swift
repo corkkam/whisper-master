@@ -8,9 +8,6 @@ import UserNotifications
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var window: NSWindow?
-    /// Last appearance pushed onto `NSApp`, so the 0.5s refresh loop can spot a
-    /// change without reassigning (and re-rendering) every tick.
-    private var appliedAppearance: AppAppearance?
     /// What the tray currently shows, so the same 0.5s loop only rebuilds the icon /
     /// rewrites the tooltip and menu header when the state behind them changed. The
     /// icon is keyed by SF Symbol name, with `""` standing for the brand logo.
@@ -25,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var viewModel = DictationViewModel(
         hotkeyUpdater: { [weak self] hotkey in
             self?.hotkeyManager?.setHotkey(hotkey)
+            self?.claimFnKeyIfChosen(hotkey)
         }
     )
     private let transcriptionServer = RemoteTranscriptionServer()
@@ -117,7 +115,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the registration, which otherwise silently stops us opening at login.
         LaunchAtLogin.shared.reconcileOnLaunch()
 
-        applyAppearance()
+        // The app is light-only — there is no dark mode and no appearance
+        // preference. This has to be *pinned* rather than left alone: with a nil
+        // appearance the windows inherit the Mac's setting, so a user in system
+        // dark mode would get dark AppKit chrome (menus, text fields, scrollers,
+        // focus rings) around our paper-ground tokens. Setting it on `NSApp`
+        // cascades to every window we create, and the notch bands opt back out by
+        // pinning `.darkAqua` on their own panels — they sit on the physical
+        // bezel, which is a hardware fact rather than a mode.
+        NSApp.appearance = NSAppearance(named: .aqua)
 
         setupMainMenu()
         setupStatusItem()
@@ -242,7 +248,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.state.usageStore.activate(userID: "dev-local")
             viewModel.state.notesStore.activate(userID: "dev-local")
             viewModel.state.connectorStore.activate(userID: "dev-local")
-            viewModel.state.automationStore.activate(userID: "dev-local")
             return
         }
         // No key configured, or a definitively signed-out session → stay gated.
@@ -259,7 +264,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.state.usageStore.activate(userID: user.id)
             viewModel.state.notesStore.activate(userID: user.id)
             viewModel.state.connectorStore.activate(userID: user.id)
-            viewModel.state.automationStore.activate(userID: user.id)
         } else if Clerk.shared.isLoaded {
             presentAuthGate()
             // Signed out — hide the app and drop the loaded account so neither the
@@ -268,8 +272,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.state.usageStore.deactivate()
             viewModel.state.notesStore.deactivate()
             viewModel.state.connectorStore.deactivate()
-        viewModel.state.automationStore.deactivate()
-            viewModel.state.automationStore.deactivate()
         }
         // Still loading a persisted session: leave the launch-time gate (which
         // shows a spinner) as-is until `isLoaded` resolves.
@@ -295,6 +297,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func proceedAfterAuthIfNeeded() {
         guard !didProceedAfterAuth else { return }
         didProceedAfterAuth = true
+
+        // Take the Globe key off macOS if that's the push-to-talk key. Here rather
+        // than in `setupHotkey` deliberately: this writes a system-wide preference,
+        // and doing that to someone who has only ever seen the sign-in gate would be
+        // changing their Mac before they'd decided to use the app.
+        claimFnKeyIfChosen(viewModel.state.hotkey)
 
         // Voice engine: download only if the model isn't already on disk, else
         // just load it. Runs in parallel with the single-step permissions
@@ -358,7 +366,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.state.usageStore.deactivate()
         viewModel.state.notesStore.deactivate()
         viewModel.state.connectorStore.deactivate()
-        viewModel.state.automationStore.deactivate()
         Task {
             do {
                 try await Clerk.shared.auth.signOut()
@@ -640,25 +647,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshStatusItem()
     }
 
-    /// Push the user's light/dark choice onto the whole app. Setting
-    /// `NSApp.appearance` cascades to every window, so this is the only place
-    /// appearance is decided; `nil` hands control back to the system setting.
-    /// Idempotent — the refresh loop calls it every tick.
-    private func applyAppearance() {
-        let wanted = viewModel.state.appearance
-        guard wanted != appliedAppearance else { return }
-        appliedAppearance = wanted
-        NSApp.appearance = wanted.nsAppearance
-        // The window background is an AppKit colour, so nudge it to re-resolve.
-        window?.backgroundColor = Theme.canvasNSColor
-    }
-
     private func refreshStatusItem() {
         // Flip the sign-in gate in step with the Clerk session — this timer is
         // our bridge from Clerk's @Observable state to AppKit, same as for
         // AppState below.
         reconcileAuthGate()
-        applyAppearance()
 
         guard let item = statusItem, let button = item.button else { return }
         let state = viewModel.state
@@ -668,7 +661,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // second for the life of the process; reassigning `button.image` every tick
         // built a fresh `NSImage` each time and pushed a status-item update through
         // the menu-bar server for a picture that is identical ~99% of ticks. Same
-        // reasoning as `appliedAppearance` above. (`nil` symbol → the brand logo, the
+        // reasoning as the other `applied…` caches above. (`nil` symbol → the brand logo, the
         // calm idle/ready state; active states keep their SF Symbol so status stays
         // glanceable.) The key is cached only on a successful assignment, so a failed
         // image lookup is retried on the next tick rather than latched.
@@ -709,11 +702,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
-
-        // Fire any due automation off the same tick. openworker runs this in an
-        // always-on server; a menu-bar app reuses the poll it already has. Cheap when
-        // nothing is due, which is nearly always.
-        viewModel.tickAutomations()
 
         // Reconcile the optional cleanup model with its toggle (edge-triggered
         // inside, so this is a no-op unless the user just flipped it).
@@ -961,8 +949,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
-        // Appearance is app-wide (`applyAppearance`), so the window inherits it
-        // rather than pinning light — `canvasNSColor` resolves per mode.
+        // Appearance is pinned app-wide to `.aqua` in
+        // `applicationDidFinishLaunching`, so the window inherits light without
+        // pinning it here.
         window.backgroundColor = Theme.canvasNSColor
         window.contentViewController = host
         window.isReleasedWhenClosed = false
@@ -1026,6 +1015,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the built-in mic (keeps earphones in hi-fi). Read-only detection.
         bluetoothInputMonitor = BluetoothInputMonitor(state: viewModel.state)
         bluetoothInputMonitor?.start()
+    }
+
+    /// Take the Globe key off macOS when it's the push-to-talk key.
+    ///
+    /// The collision this removes is worst on the **hands-free double-tap**: with the
+    /// stock "Press 🌐 key to: Show Emoji", latching hands-free popped the emoji
+    /// picker open and shut, which steals focus from the very app the dictation is
+    /// aimed at. Our monitors observe `flagsChanged` without consuming it — swallowing
+    /// the key would take a HID-level tap that also breaks fn+F-key and fn+arrow — so
+    /// the system preference is the only lever there is.
+    ///
+    /// Once, and only for fn: `FnKeyBehavior.claimFnKeyForPushToTalk` records the
+    /// claim and the prior value, so a user who puts the emoji picker back keeps it,
+    /// and Recording settings offers a one-click hand-back.
+    private func claimFnKeyIfChosen(_ hotkey: HotkeyManager.HotkeyOption) {
+        guard hotkey == .fn else { return }
+        if FnKeyBehavior.claimFnKeyForPushToTalk() {
+            Log.app.info("claimed the Globe key for push-to-talk (was: system behavior)")
+        }
     }
 
     private func setupHotkey() {

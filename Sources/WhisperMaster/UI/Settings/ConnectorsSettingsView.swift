@@ -7,10 +7,30 @@ import SwiftUI
 /// them was implemented. The page now shows only connections that exist and can
 /// actually be read, and everything else lives behind "Add connector", where a kind
 /// without an implementation is honestly marked rather than offering a dead button.
+///
+/// Three things about the *layout* are deliberate, and each fixes a way the first
+/// pass of this page was hard to use:
+///
+/// - **Connections come first.** The teaching copy that used to open the page was a
+///   five-line card above the only content anyone came here for. It's now a single
+///   line with the chord as a keycap, and the prose is one click away — the same
+///   trade `NotesSettingsView.assistantHint` makes, for the same reason: the keycap
+///   is the part that teaches, the paragraph is the part nobody re-reads.
+/// - **A row's actions are visible.** Every action (rename, re-pick calendars, test,
+///   reconnect, remove) used to live behind a 26pt `⋯` with no hover affordance, so
+///   the page looked like it could only toggle things on and off. They're now in a
+///   drawer the row itself opens, which also means they *render* — `ImageRenderer`
+///   can't draw an AppKit `Menu`, so the snapshot path needed a fake glyph before.
+/// - **A row says what it reads.** "Reading 2 calendars" never named the two. The
+///   drawer does, which is the only way to check a connector is bound to what you
+///   think it is without walking through the re-pick sheet.
 struct ConnectorsSettingsView: View {
-    let viewModel: DictationViewModel
+    // No `viewModel`: the only thing on this page that needed one was the
+    // assistant/speech block, which moved to Settings. The page is now purely a
+    // view over `state.connectorStore`.
     @Bindable var state: AppState
     @Environment(\.isSnapshot) private var isSnapshot
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var store: ConnectorInstanceStore { state.connectorStore }
 
@@ -24,13 +44,23 @@ struct ConnectorsSettingsView: View {
     /// so "Test connection" reports something rather than appearing to do nothing.
     @State private var testing: UUID?
     @State private var testResults: [UUID: String] = [:]
+    /// The one row whose drawer is open. One at a time: two open drawers push the
+    /// rest of the page off screen and neither is easier to read for it.
+    @State private var openRow: UUID?
+    /// Calendar titles for an expanded row, resolved from EventKit when the drawer
+    /// opens rather than on every render — `availableCalendars` walks the store.
+    @State private var calendarTitles: [UUID: String] = [:]
+    @State private var showsAskHelp = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
-            askSection
+            askBar
             connectedSection
             if showTodaySection { todaySection }
-            ConnectorAgentSettings(viewModel: viewModel, state: state)
+            // What's left of the old agent block. The assistant switch and the
+            // spoken-answer preferences moved to Settings — they're preferences, and
+            // this page is about accounts; a grant list isn't, so it stays.
+            ConnectorPermissionsSection(state: state)
         }
         .onAppear {
             refreshCalendarAccess()
@@ -43,7 +73,10 @@ struct ConnectorsSettingsView: View {
             RenameConnectorSheet(instance: instance, store: store)
         }
         .sheet(item: $editingCalendars) { instance in
-            CalendarSelectionSheet(instance: instance, store: store) { refreshToday() }
+            CalendarSelectionSheet(instance: instance, store: store) {
+                calendarTitles[instance.id] = nil
+                refreshToday()
+            }
         }
         .sheet(item: $reconnecting) { instance in
             ReconnectConnectorSheet(instance: instance, store: store) {
@@ -53,16 +86,93 @@ struct ConnectorsSettingsView: View {
         }
     }
 
+    // MARK: - Ask about your day
+
+    /// One line, with the chord as a keycap and the rest folded away.
+    ///
+    /// The chord is the *only* way to reach any of this, so it can't be dropped —
+    /// but it doesn't earn a five-line card above the connections either. The keycap
+    /// stays visible forever; the detail expands in place for whoever wants it.
+    private var askBar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick)) {
+                    showsAskHelp.toggle()
+                }
+            } label: {
+                HStack(spacing: 11) {
+                    // No leading glyph: `compactName` already opens with the Globe
+                    // character for fn, so an `Image(systemName: "globe")` in front of
+                    // it draws the same key twice.
+                    Text(ModifierChord.command.compactName)
+                        .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Theme.textPrimary)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Capsule(style: .continuous).fill(Theme.surface))
+                        .overlay(Capsule(style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
+                    Text("Hold and ask \u{201C}what's my day?\u{201D} \u{2014} the answer lands in the notch")
+                        .font(Typography.subheadline)
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Text(showsAskHelp ? "Less" : "How it works")
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.accentText)
+                        .fixedSize()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Theme.accentText)
+                        .rotationEffect(.degrees(showsAskHelp ? 180 : 0))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .accessibilityLabel(
+                "Talk to the assistant with \(ModifierChord.command.displayName). \(showsAskHelp ? "Hide" : "Show") details.")
+
+            if showsAskHelp {
+                VStack(alignment: .leading, spacing: 8) {
+                    RowDivider()
+                    Text("Name a connector out loud \u{2014} \u{201C}what's on my work calendar\u{201D} \u{2014} to narrow it; ask plainly and every calendar is merged.")
+                        .font(Typography.subheadline)
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 10)
+                    Text("The same chord files notes and reminders, and runs anything your connectors can do. It's the one way in to the assistant \u{2014} holding your push-to-talk key on its own always just dictates.")
+                        .font(Typography.subheadline)
+                        .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 14)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassTile(radius: 14)
+    }
+
     // MARK: - Connected instances
 
     private var connectedSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(spacing: 10) {
                 SectionLabel("Your connections")
+                if !store.instances.isEmpty {
+                    Chip("\(store.instances.count)")
+                }
                 Spacer()
-                SecondaryButton(title: "Add connector", icon: "plus") { isAddingConnector = true }
-                    .disabled(isSnapshot)
+                if !store.instances.isEmpty {
+                    SecondaryButton(title: "Add connector", icon: "plus") { isAddingConnector = true }
+                        .disabled(isSnapshot)
+                }
             }
+
+            if calendarNeedsAccess { calendarAccessCard }
 
             if store.instances.isEmpty {
                 emptyState
@@ -77,168 +187,310 @@ struct ConnectorsSettingsView: View {
         }
     }
 
+    /// An empty page's one job is to get the first connection made, so the call to
+    /// action is a real button here rather than the secondary one in the header —
+    /// which is hidden while the list is empty so there's only ever one of them.
     private var emptyState: some View {
         SettingsCard {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("No connectors yet")
-                    .font(Typography.headline).tracking(Typography.headlineTracking)
-                    .foregroundStyle(Theme.textPrimary)
-                Text("Add a calendar and name it — \u{201C}Work\u{201D}, \u{201C}Personal\u{201D} — then ask about your day and the answer says which one it came from.")
-                    .font(Typography.subheadline)
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 12) {
+                ZStack {
+                    Circle().fill(Theme.Accent.n300.opacity(0.5))
+                    Image(systemName: "calendar.badge.plus")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(Theme.Accent.n800)
+                }
+                .frame(width: 48, height: 48)
+
+                VStack(spacing: 5) {
+                    Text("No connectors yet")
+                        .font(Typography.headline).tracking(Typography.headlineTracking)
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("Add a calendar and name it \u{2014} \u{201C}Work\u{201D}, \u{201C}Personal\u{201D} \u{2014} then ask about your day and the answer says which one it came from.")
+                        .font(Typography.subheadline)
+                        .foregroundStyle(Theme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 400)
+                }
+
+                PrimaryButton(title: "Add your first connector", icon: "plus") {
+                    isAddingConnector = true
+                }
+                .disabled(isSnapshot)
+                .padding(.top, 2)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 26)
         }
     }
 
     /// One connection: icon, the **user's name for it**, the account identity under
-    /// it, a default badge, an honest status line, and a ⋯ menu.
+    /// it, a state pill, a switch, and a drawer holding everything else.
     private func instanceRow(_ instance: ConnectorInstance) -> some View {
-        HStack(alignment: .top, spacing: 13) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(tileTint(instance))
-                Image(systemName: instance.kind.icon)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(tileGlyph(instance))
-            }
-            .frame(width: 38, height: 38)
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 7) {
-                    Text(instance.displayLabel)
-                        .font(Typography.headline).tracking(Typography.headlineTracking)
-                        .foregroundStyle(Theme.textPrimary)
-                    if store.isDefault(instance.id), store.instances(of: instance.kind).count > 1 {
-                        Chip("Default")
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 13) {
+                // The whole identity block opens the drawer, so the target is a row
+                // rather than a 30pt glyph — but it stops short of the switch, which
+                // has its own meaning and must not be a click away from a surprise.
+                Button {
+                    toggleDrawer(instance)
+                } label: {
+                    HStack(spacing: 13) {
+                        tile(instance)
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 7) {
+                                Text(instance.displayLabel)
+                                    .font(Typography.headline).tracking(Typography.headlineTracking)
+                                    .foregroundStyle(Theme.textPrimary)
+                                if store.isDefault(instance.id), store.instances(of: instance.kind).count > 1 {
+                                    Chip("Default")
+                                }
+                            }
+                            // The identity stays visible even after a rename, so "Work"
+                            // is still traceable to the account it reads.
+                            Text(subtitle(instance))
+                                .font(Typography.subheadline)
+                                .foregroundStyle(Theme.textSecondary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 8)
                     }
+                    .contentShape(Rectangle())
                 }
-                // The identity stays visible even after a rename, so "Work" is still
-                // traceable to the account it reads.
-                Text("\(instance.kind.displayName) · \(instance.identity)")
-                    .font(Typography.subheadline)
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-                statusLine(instance)
-            }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .accessibilityLabel("\(instance.displayLabel), \(statusText(instance)). \(openRow == instance.id ? "Hide" : "Show") details.")
 
-            Spacer(minLength: 8)
+                StatusPill(text: statusText(instance), tone: statusTone(instance))
 
-            VStack(alignment: .trailing, spacing: 8) {
                 ThemeToggle(
                     isOn: Binding(
                         get: { instance.isEnabled },
                         set: { store.setEnabled(instance.id, $0); refreshToday() }),
                     label: instance.displayLabel)
-                menu(for: instance)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.textTertiary)
+                    .rotationEffect(.degrees(openRow == instance.id ? 180 : 0))
+                    .frame(width: 20)
+                    .accessibilityHidden(true)
             }
+            .padding(.vertical, 14)
+
+            // A failure needs a sentence and a repair button, which is more than a
+            // pill can hold — so it gets its own strip, always visible, never behind
+            // the drawer. An instance never silently reads nothing.
+            if let error = instance.lastError { errorStrip(instance, error) }
+
+            if openRow == instance.id { drawer(instance) }
         }
-        .padding(.vertical, 12)
     }
 
-    /// The one line that says what's actually true about this connection — including
-    /// a repair action when it's broken. An instance never silently reads nothing.
-    @ViewBuilder
-    private func statusLine(_ instance: ConnectorInstance) -> some View {
-        if testing == instance.id {
-            HStack(spacing: 6) {
-                StatusDot(color: Theme.Neutral.n300, size: 6)
-                Text("Checking\u{2026}").font(Typography.caption).foregroundStyle(Theme.textTertiary)
+    private func tile(_ instance: ConnectorInstance) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(tileTint(instance))
+            Image(systemName: instance.kind.icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(tileGlyph(instance))
+        }
+        .frame(width: 38, height: 38)
+    }
+
+    /// "iCal · Other, Subscribed Calendars" under a row already titled "iCal" spent a
+    /// line saying the word twice — so the kind is dropped whenever the user's name
+    /// for the connection already is it.
+    private func subtitle(_ instance: ConnectorInstance) -> String {
+        let identity = instance.identity.trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = instance.kind.displayName
+        if identity.isEmpty { return kind }
+        if instance.displayLabel.caseInsensitiveCompare(kind) == .orderedSame { return identity }
+        return "\(kind) \u{00B7} \(identity)"
+    }
+
+    // MARK: Row state
+
+    private func statusText(_ instance: ConnectorInstance) -> String {
+        if testing == instance.id { return "Checking\u{2026}" }
+        if instance.lastError != nil { return "Needs attention" }
+        if !instance.isEnabled { return "Paused" }
+        guard let identifiers = instance.config.calendarIdentifiers else { return "Connected" }
+        if identifiers.isEmpty { return "All calendars" }
+        return "\(identifiers.count) calendar\(identifiers.count == 1 ? "" : "s")"
+    }
+
+    private func statusTone(_ instance: ConnectorInstance) -> StatusPill.Tone {
+        if testing == instance.id { return .neutral }
+        if instance.lastError != nil { return .danger }
+        return instance.isEnabled ? .positive : .neutral
+    }
+
+    private func errorStrip(_ instance: ConnectorInstance, _ error: ConnectorError) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(Theme.danger)
+            Text(error.message)
+                .font(Typography.subheadline)
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 10)
+            if let repair = error.repairTitle {
+                Button(repair) { repairAction(instance, error) }
+                    .textButton()
+                    .disabled(isSnapshot)
             }
-        } else if let result = testResults[instance.id], instance.lastError == nil {
-            // The outcome of an explicit check outranks the passive scope line — the
-            // user just asked a question and deserves the answer, not the same row
-            // they were looking at before they asked.
-            HStack(spacing: 6) {
-                StatusDot(color: Theme.success, size: 6)
-                Text(result).font(Typography.caption).foregroundStyle(Theme.textTertiary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
+                .fill(Theme.dangerSoft))
+        .padding(.bottom, 14)
+    }
+
+    // MARK: Row drawer
+
+    /// What this connection is bound to, and everything you can do to it.
+    ///
+    /// These were all `Menu` items before. A menu is fine for a power user who knows
+    /// it's there; it is invisible to everyone else, and it left the row looking like
+    /// a switch with a decoration beside it.
+    private func drawer(_ instance: ConnectorInstance) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            RowDivider()
+
+            VStack(alignment: .leading, spacing: 7) {
+                detail("Reads", reads(instance))
+                if !instance.identity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    detail("Account", instance.identity)
+                }
+                detail("Added", Self.dayFormatter.string(from: instance.connectedAt))
             }
-        } else if let error = instance.lastError {
-            HStack(spacing: 6) {
-                StatusDot(color: Theme.danger, size: 6)
-                Text(error.message)
-                    .font(Typography.caption)
-                    .foregroundStyle(Theme.textSecondary)
-                if let repair = error.repairTitle {
-                    Button(repair) { repairAction(instance, error) }
-                        .buttonStyle(.plain)
-                        .font(Typography.caption)
-                        .foregroundStyle(Theme.accentText)
-                        .pointerCursor()
+
+            HStack(spacing: 4) {
+                Button("Test connection") { testConnection(instance) }
+                    .textButton()
+                    .disabled(isSnapshot || testing != nil)
+                if instance.descriptor.isSystemBacked {
+                    Button("Choose calendars\u{2026}") { editingCalendars = instance }
+                        .textButton()
                         .disabled(isSnapshot)
                 }
+                // A credential-bearing connection can have its secret replaced in
+                // place. Without this the only fix for a rotated token was Remove +
+                // add again.
+                if canReconnect(instance) {
+                    Button("Reconnect\u{2026}") { reconnecting = instance }
+                        .textButton()
+                        .disabled(isSnapshot)
+                }
+                Button("Rename\u{2026}") { renaming = instance }
+                    .textButton()
+                    .disabled(isSnapshot)
+                if store.instances(of: instance.kind).count > 1, !store.isDefault(instance.id) {
+                    Button("Make default") { store.setDefault(instance.id) }
+                        .textButton()
+                        .disabled(isSnapshot)
+                }
+                Spacer(minLength: 10)
+                DestructiveButton(title: "Remove", icon: "trash") {
+                    if openRow == instance.id { openRow = nil }
+                    store.remove(instance.id)
+                    refreshToday()
+                }
+                .disabled(isSnapshot)
             }
-        } else if !instance.isEnabled {
-            HStack(spacing: 6) {
-                StatusDot(color: Theme.Neutral.n300, size: 6)
-                Text("Paused").font(Typography.caption).foregroundStyle(Theme.textTertiary)
-            }
-        } else {
-            HStack(spacing: 6) {
-                StatusDot(color: Theme.success, size: 6)
-                Text(calendarScopeDescription(instance))
-                    .font(Typography.caption)
-                    .foregroundStyle(Theme.textTertiary)
+
+            // The result of an explicit check belongs next to the button that ran it,
+            // which is the whole reason the check exists: the row could only ever
+            // report the failure of whatever last happened to read through it, so a
+            // connection never used since it was added looked healthy.
+            if testing == instance.id {
+                checkLine("Checking with the provider\u{2026}", tone: .neutral)
+            } else if let result = testResults[instance.id] {
+                checkLine(result, tone: instance.lastError == nil ? .positive : .danger)
             }
         }
+        .padding(.bottom, 16)
     }
 
-    /// What this instance is bound to — the thing the old UI couldn't say, because
-    /// every calendar connector read every calendar.
-    private func calendarScopeDescription(_ instance: ConnectorInstance) -> String {
-        guard let identifiers = instance.config.calendarIdentifiers else { return "Connected" }
-        if identifiers.isEmpty { return "Reading every calendar on this Mac" }
-        return "Reading \(identifiers.count) calendar\(identifiers.count == 1 ? "" : "s")"
-    }
-
-    /// `ImageRenderer` can't draw AppKit-backed controls, and `Menu` is one — it comes
-    /// out as a placeholder glyph. Substitute a static stand-in during a snapshot
-    /// render, same as `VocabularyEditor` and the hotkey picker do.
-    @ViewBuilder
-    private func menu(for instance: ConnectorInstance) -> some View {
-        if isSnapshot {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .semibold))
+    private func detail(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(label)
+                .font(Typography.caption)
+                .foregroundStyle(Theme.textTertiary)
+                .frame(width: 66, alignment: .leading)
+            Text(value)
+                .font(Typography.subheadline)
                 .foregroundStyle(Theme.textSecondary)
-                .frame(width: 26, height: 20)
-        } else {
-            liveMenu(for: instance)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
     }
 
-    private func liveMenu(for instance: ConnectorInstance) -> some View {
-        Menu {
-            Button("Rename\u{2026}") { renaming = instance }
-            if instance.descriptor.isSystemBacked {
-                Button("Choose calendars\u{2026}") { editingCalendars = instance }
-            }
-            // A credential-bearing connection can have its secret replaced in place.
-            // Without this the only fix for a rotated token was Remove + add again.
-            if canReconnect(instance) {
-                Button("Reconnect\u{2026}") { reconnecting = instance }
-            }
-            Button("Test connection") { testConnection(instance) }
-                .disabled(testing != nil)
-            if store.instances(of: instance.kind).count > 1, !store.isDefault(instance.id) {
-                Button("Make default") { store.setDefault(instance.id) }
-            }
-            Divider()
-            Button("Remove", role: .destructive) {
-                store.remove(instance.id)
-                refreshToday()
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .semibold))
+    private func checkLine(_ text: String, tone: StatusPill.Tone) -> some View {
+        HStack(spacing: 7) {
+            StatusDot(color: tone.dot, size: 6)
+            Text(text)
+                .font(Typography.caption)
                 .foregroundStyle(Theme.textSecondary)
-                .frame(width: 26, height: 20)
-                .contentShape(Rectangle())
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+    }
+
+    /// The calendars by **name**, which is the answer to "is this bound to what I
+    /// think it is" — a count never was.
+    private func reads(_ instance: ConnectorInstance) -> String {
+        guard let identifiers = instance.config.calendarIdentifiers else {
+            return capabilityWords(instance)
+        }
+        if identifiers.isEmpty { return "Every calendar on this Mac" }
+        if let titles = calendarTitles[instance.id] { return titles }
+        return "\(identifiers.count) calendar\(identifiers.count == 1 ? "" : "s")"
+    }
+
+    /// What a non-calendar connection is good for, in the user's words. Read off the
+    /// descriptor's capabilities rather than hard-coded per kind, so a new catalog
+    /// entry needs no change here.
+    private func capabilityWords(_ instance: ConnectorInstance) -> String {
+        let words = ConnectorCapability.allCases
+            .filter { instance.provides($0) }
+            .map { capability -> String in
+                switch capability {
+                case .events: return "Calendar events"
+                case .mail: return "Mail"
+                case .messages: return "Messages"
+                case .tasks: return "Tasks"
+                case .files: return "Files"
+                }
+            }
+        return words.isEmpty ? "Nothing yet" : words.joined(separator: " \u{00B7} ")
+    }
+
+    private func toggleDrawer(_ instance: ConnectorInstance) {
+        withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick)) {
+            openRow = openRow == instance.id ? nil : instance.id
+        }
+        guard openRow == instance.id else { return }
+        loadCalendarTitles(instance)
+    }
+
+    /// Resolved once per open rather than per render: `availableCalendars` walks
+    /// EventKit's store, and there's no reason to do that on every layout pass.
+    private func loadCalendarTitles(_ instance: ConnectorInstance) {
+        guard !isSnapshot,
+              calendarTitles[instance.id] == nil,
+              let identifiers = instance.config.calendarIdentifiers,
+              !identifiers.isEmpty else { return }
+        let wanted = Set(identifiers)
+        let titles = CalendarConnector.shared.availableCalendars(for: instance.kind)
+            .filter { wanted.contains($0.identifier) }
+            .map(\.title)
+        guard !titles.isEmpty else { return }
+        calendarTitles[instance.id] = titles.joined(separator: ", ")
     }
 
     private func repairAction(_ instance: ConnectorInstance, _ error: ConnectorError) {
@@ -280,10 +532,6 @@ struct ConnectorsSettingsView: View {
     }
 
     /// Check a saved connection against the real provider, now.
-    ///
-    /// The row could only ever report the failure of whatever last happened to read
-    /// through it, so a connection that had never been used since it was added — or
-    /// one broken since the last read — looked healthy. This asks.
     private func testConnection(_ instance: ConnectorInstance) {
         guard let provider = ProviderRegistry.provider(for: instance) else {
             testResults[instance.id] = "No implementation for this connector yet."
@@ -348,14 +596,20 @@ struct ConnectorsSettingsView: View {
             let events = displayEvents
             if events.isEmpty {
                 SettingsCard {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Nothing on your calendar today")
-                            .font(Typography.headline).tracking(Typography.headlineTracking).foregroundStyle(Theme.textPrimary)
-                        Text("You're clear. Ask \u{201C}what's my day\u{201D} anytime.")
-                            .font(Typography.subheadline).foregroundStyle(Theme.textSecondary)
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(Theme.success)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Nothing on your calendar today")
+                                .font(Typography.headline).tracking(Typography.headlineTracking)
+                                .foregroundStyle(Theme.textPrimary)
+                            Text("You're clear. Ask \u{201C}what's my day\u{201D} anytime.")
+                                .font(Typography.subheadline).foregroundStyle(Theme.textSecondary)
+                        }
+                        Spacer(minLength: 0)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, 14)
                 }
             } else {
                 SettingsCard {
@@ -398,32 +652,12 @@ struct ConnectorsSettingsView: View {
         todayEvents = DaySummaryService.build(store: store).events
     }
 
-    // MARK: - Ask about your day
-
-    private var askSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionLabel("Ask about your day")
-            SettingsCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Hold \(ModifierChord.command.compactName) and ask — \u{201C}what's my day?\u{201D} — and the answer drops into the notch instead of being typed. Name a connector out loud (\u{201C}what's on my work calendar\u{201D}) to narrow it; ask plainly and every calendar is merged.")
-                        .font(Typography.subheadline)
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("Same chord files notes and reminders, and runs anything your connectors can do. It's the one way in to the assistant — holding your push-to-talk key on its own always just dictates.")
-                        .font(Typography.subheadline)
-                        .foregroundStyle(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 12)
-            }
-
-            if calendarNeedsAccess { calendarAccessCard }
-        }
-    }
+    // MARK: - Calendar access
 
     /// Shown when a calendar connector exists but macOS calendar access isn't granted
-    /// yet — the one thing standing between a connection and real data.
+    /// yet — the one thing standing between a connection and real data. It sits above
+    /// the list rather than at the top of the page: it's about those connections, and
+    /// a page with no connectors can never need it.
     private var calendarAccessCard: some View {
         SettingsCard {
             SettingsRow("Allow calendar access",
@@ -462,6 +696,13 @@ struct ConnectorsSettingsView: View {
     static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "h:mm a"
+        return f
+    }()
+
+    static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
         return f
     }()
 

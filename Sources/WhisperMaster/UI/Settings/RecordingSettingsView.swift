@@ -15,7 +15,11 @@ struct RecordingSettingsView: View {
                                 + "Double-tap to keep dictating hands-free; double-tap again to stop.") {
                     hotkeyMenu
                 }
-                if showsFnConflictHint { fnConflictHint }
+                if showsFnConflictHint {
+                    fnConflictHint
+                } else if showsFnClaimedNote {
+                    fnClaimedNote
+                }
                 RowDivider()
                 SettingsRow("Hold-to-talk",
                             subtitle: "Hold the key while you speak. Off makes it a toggle.") {
@@ -56,6 +60,43 @@ struct RecordingSettingsView: View {
         // token is what re-evaluates this after our own write.
         _ = fnConflictToken
         return state.hotkey == .fn && FnKeyBehavior.conflictsWithPushToTalk
+    }
+
+    /// Shown once the app has taken the Globe key and the setting actually reads back
+    /// as ours. **Changing a system-wide preference silently would be the wrong kind
+    /// of helpful** — the note is how the user finds out it happened, and the button
+    /// beside it is how they undo it.
+    private var showsFnClaimedNote: Bool {
+        _ = fnConflictToken
+        return state.hotkey == .fn && FnKeyBehavior.claimedPreviousBehavior != nil
+    }
+
+    private var fnClaimedNote: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.success)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("The Globe key is yours alone — Whisper Master turned off "
+                    + "\(FnKeyBehavior.claimDescription) so it can't fire on the "
+                    + "double-tap that latches hands-free.")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !isSnapshot {
+                    Button("Give it back to macOS") {
+                        FnKeyBehavior.restoreSystemFnBehavior()
+                        fnConflictToken += 1
+                    }
+                    .textButton()
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
+                .fill(Theme.successSoft)
+        )
     }
 
     /// Bumped after we write the system pref so `showsFnConflictHint` — which reads

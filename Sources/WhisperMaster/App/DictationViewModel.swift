@@ -21,6 +21,22 @@ final class DictationViewModel {
     private let textInjector: TextInjector
     private var pendingAppendTasks: [UUID: Task<Void, Never>] = [:]
     private var preparationTask: Task<Void, Never>?
+    /// This session's audio, kept in memory in case the capture turns into a spoken
+    /// note — a note the user made by voice keeps the recording, so they can hear
+    /// what they actually said rather than trusting the transcript alone.
+    ///
+    /// It runs for **every** session rather than only for chord-armed ones, and that
+    /// is deliberate: the chord can arm a session that is already in flight (fn
+    /// pressed a hair before control — see the chord notes in `CLAUDE.md`), so
+    /// starting the writer at arm time would clip the opening word off exactly the
+    /// notes people dictate fastest. The cost is a mono int16 downmix per buffer,
+    /// which is nothing beside Parakeet, and the samples are dropped at the end of
+    /// any session that didn't become a note.
+    private var noteAudioWriter: SessionAudioWriter?
+    /// Ceiling on collected note audio (5 min at capture rate ≈ 10 MB). A latched
+    /// hands-free session has no natural end, so this is what stops an idle latch
+    /// from growing the heap all afternoon.
+    private static let noteAudioMaxMs = 5 * 60 * 1000
     private let releaseTailNanoseconds: UInt64 = 80_000_000
     /// When the current recording actually started capturing, for the analytics
     /// duration bucket. `nil` between sessions.
@@ -119,75 +135,6 @@ final class DictationViewModel {
         reminderScheduler.tick()
     }
 
-    /// Fires due automations. Driven from the same 0.5 s refresh tick — see
-    /// `AutomationScheduler` for the catch-up and overlap policies.
-    func tickAutomations() {
-        guard state.connectorAgentEnabled else { return }
-        automationScheduler.tick()
-    }
-
-    /// Run one automation now, from the Settings list.
-    func runAutomationNow(_ task: ScheduledTask) {
-        automationScheduler.runNow(task)
-    }
-
-    /// Drives scheduled automations. Lazy so nothing is constructed for a user who
-    /// never opts in.
-    private lazy var automationScheduler = AutomationScheduler(
-        store: state.automationStore,
-        runner: { [weak self] task, trigger in
-            await self?.runAutomation(task, trigger: trigger)
-                ?? TaskRun(taskID: task.id, status: .failed, answer: "Cancelled.", trigger: trigger)
-        })
-
-    /// One automation firing: ask its question through the same agent a spoken query
-    /// uses, `unattended` so an unapproved write is denied rather than raising a card
-    /// nobody is there to read.
-    private func runAutomation(_ task: ScheduledTask, trigger: String) async -> TaskRun {
-        var run = TaskRun(taskID: task.id, trigger: trigger)
-        guard await MlxCleanupService.shared.isReady else {
-            run.status = .failed
-            run.answer = "The on-device model wasn't ready."
-            run.finishedAt = Date()
-            return run
-        }
-        let agent = ConnectorAgentService(store: state.connectorStore, approvals: state.approvals)
-        let outcome = await agent.answer(
-            question: task.instructions,
-            unattended: true,
-            generate: ConnectorAgentService.liveGenerator())
-        if let outcome {
-            run.status = .ok
-            run.answer = outcome.answer
-            // Surface it where the user already looks. A scheduled answer nobody sees
-            // is a scheduled answer that didn't happen.
-            state.activeDaySummary = DaySummary(
-                headline: task.title, detail: outcome.answer,
-                events: [], gaps: [], scopedTo: nil)
-            state.daySummaryAt = Date()
-            // An answer produced while nobody was looking is exactly the one that has
-            // to survive the twelve-second banner.
-            state.appendAnswer(
-                question: task.title, answer: outcome.answer, source: .automation)
-            // The headline here is the task's *title*, and the answer is in `detail` —
-            // the opposite of the spoken path, so both get read.
-            state.daySummaryWasSpoken = speakAnswer(
-                headline: task.title, detail: outcome.answer, source: .automation)
-        } else {
-            // Fall back to the deterministic summary rather than reporting nothing.
-            let summary = await DaySummaryService.buildAsync(store: state.connectorStore)
-            run.status = .ok
-            run.answer = "\(summary.headline). \(summary.detail)"
-            state.activeDaySummary = summary
-            state.daySummaryAt = Date()
-            state.appendAnswer(question: task.title, answer: run.answer, source: .automation)
-            state.daySummaryWasSpoken = speakAnswer(
-                headline: summary.headline, detail: summary.detail, source: .automation)
-        }
-        run.finishedAt = Date()
-        return run
-    }
-
     func startRecording(command: Bool = false) {
         guard state.canStart else { return }
         // Every session begins as a normal dictation unless the command chord armed
@@ -221,6 +168,9 @@ final class DictationViewModel {
         state.polishedAt = nil
         failedResetTask?.cancel()
         levelEnvelope.reset()
+        // Start collecting this session's audio, in case it turns into a spoken note
+        // (see `noteAudioWriter`).
+        noteAudioWriter = SessionAudioWriter()
 
         // If the Apple Intelligence pass is opted in, warm it while the user talks
         // so the post-dictation formatting is hot instead of a cold start. The
@@ -325,6 +275,13 @@ final class DictationViewModel {
         Diagnostics.shared.mark(.stopRequested)
 
         Task {
+            // Whatever this session turned out to be, its audio is dead weight once
+            // the finalize is done: a note that wanted it has already consumed the
+            // writer (`takeNoteAudio` nils it out), so anything still here belongs to
+            // a dictation that was typed, answered, or failed. `defer` rather than a
+            // line per exit — the block below returns from four different places, and
+            // the one that got missed would hold ~10 MB until the next dictation.
+            defer { noteAudioWriter = nil }
             do {
                 try? await Task.sleep(nanoseconds: releaseTailNanoseconds)
                 microphoneCapture.stop()
@@ -593,7 +550,7 @@ final class DictationViewModel {
         // Here the detail *is* the answer's second half (the next thing on the
         // calendar), so unlike the agent path it gets spoken.
         state.daySummaryWasSpoken = speakAnswer(
-            headline: summary.headline, detail: summary.detail, source: .spoken)
+            headline: summary.headline, detail: summary.detail)
     }
 
     // MARK: - Reading answers aloud
@@ -607,17 +564,14 @@ final class DictationViewModel {
     /// - Parameter detail: the banner's second line. `nil` where it's provenance chrome
     ///   worth seeing and not worth hearing; passed through where it carries the answer.
     @discardableResult
-    private func speakAnswer(
-        headline: String,
-        detail: String?,
-        source: AnsweredQuestion.Source
-    ) -> Bool {
+    private func speakAnswer(headline: String, detail: String?) -> Bool {
         guard state.speakAnswersEnabled else { return false }
-        // A scheduled answer is a second, separate consent: nobody agrees to their Mac
-        // talking unprompted by agreeing that a question they asked can be answered.
-        if source == .automation, !state.speakAutomationAnswersEnabled { return false }
-        // An automation can fire on any tick, including mid-dictation. Never talk into
-        // a live microphone.
+        // Every answer now comes from a question the user just asked out loud, so
+        // there is no second, unprompted-speech consent to check — scheduled
+        // automations, the only thing that could talk without being asked, are gone.
+        // The mic guard stays: an answer can still land while a new dictation has
+        // already started, and talking into a live microphone puts the app's own
+        // voice in the transcript.
         guard state.phase == .idle else { return false }
 
         let speaker = answerSpeaker ?? makeAnswerSpeaker()
@@ -661,9 +615,8 @@ final class DictationViewModel {
     /// Replay a logged answer from the Today card.
     ///
     /// Deliberately **not** routed through `speakAnswer`: this is a direct tap on a
-    /// speaker button, so it ignores the "read answers aloud" preference (the user just
-    /// asked for this one) and the automation switch (which governs unprompted speech,
-    /// which this isn't). It still declines while the mic is live.
+    /// speaker button, so it ignores the "read answers aloud" preference — the user
+    /// just asked for this one. It still declines while the mic is live.
     func speakLoggedAnswer(_ entry: AnsweredQuestion) {
         guard state.phase == .idle else { return }
         (answerSpeaker ?? makeAnswerSpeaker()).speak(headline: entry.answer, detail: nil)
@@ -834,7 +787,7 @@ final class DictationViewModel {
         if intent.kind == .reminder {
             createReminder(from: intent, fallbackTitle: payload)
         } else {
-            createNote(from: intent, fallbackBody: payload)
+            createNote(from: intent, fallbackBody: payload, transcript: text)
         }
         return true
     }
@@ -855,7 +808,8 @@ final class DictationViewModel {
             approvals: state.approvals,
             connectorsAllowed: state.connectorAgentEnabled,
             alertStyle: state.reminderDefaultAlertStyle,
-            soundName: state.reminderDefaultSound)
+            soundName: state.reminderDefaultSound,
+            takeNoteAudio: { [weak self] id in self?.takeNoteAudio(for: id) })
         // The orb shows the thinking figure while the loop runs — the paste is
         // suppressed, so without it the notch sits silent through a multi-second
         // tool call and reads as having dropped the command. `isPolishing` is what
@@ -863,9 +817,16 @@ final class DictationViewModel {
         // work as a rewrite.
         state.isPolishing = true
         state.commandAgentRunning = true
-        let result = await agent.perform(text, generate: ConnectorAgentService.liveGenerator())
+        state.agentActivity = .thinking
+        let result = await agent.perform(
+            text,
+            generate: AgentLoop.liveGenerator(),
+            // The loop reports; the view model is what writes `AppState`, so the
+            // "one writer" rule survives the callback.
+            onStep: { [weak self] step in self?.state.agentActivity = step })
         state.isPolishing = false
         state.commandAgentRunning = false
+        state.agentActivity = nil
         guard let result else { return false }
         // The two outcomes get different surfaces, because they're different things.
         // A creation is a checkmark to glance at — it's already durable in Notes &
@@ -899,7 +860,7 @@ final class DictationViewModel {
         Feedback.delivered(soundEnabled: state.soundEnabled)
         // No detail: provenance ("From Work Calendar") is chrome worth seeing, not
         // hearing.
-        state.daySummaryWasSpoken = speakAnswer(headline: answer, detail: nil, source: .spoken)
+        state.daySummaryWasSpoken = speakAnswer(headline: answer, detail: nil)
     }
 
     /// Clamp the assistant's line to what the band can actually show. The banner is
@@ -927,11 +888,41 @@ final class DictationViewModel {
         return parsed
     }
 
-    private func createNote(from intent: ClassifiedIntent, fallbackBody: String) {
+    /// File a spoken note, keeping **what was said** and **how it sounded** beside
+    /// the assistant's tidied version.
+    ///
+    /// `intent.title`/`intent.body` are the model's rewrite of the capture; the
+    /// transcript is the verbatim words. Both are stored because the rewrite is the
+    /// useful form and the transcript is the only record of the original — and for a
+    /// note filed by voice, "did it hear me right?" is the first question the user
+    /// has. The recording answers it without them having to trust either string.
+    private func createNote(from intent: ClassifiedIntent, fallbackBody: String, transcript: String) {
         let body = intent.body.isEmpty ? fallbackBody : intent.body
-        state.notesStore.upsertNote(Note(title: intent.title, body: body))
+        let id = UUID()
+        state.notesStore.upsertNote(Note(
+            id: id,
+            title: intent.title,
+            body: body,
+            transcript: transcript,
+            audio: takeNoteAudio(for: id)))
         showCommandConfirmation("Note saved", icon: "note.text",
                                 window: AppState.commandConfirmationDuration)
+    }
+
+    /// Hand this session's collected audio to a note, and stop collecting.
+    ///
+    /// Consuming the writer here is what keeps a single recording from being
+    /// attached to two notes if one capture somehow files twice, and it frees the
+    /// samples the moment they've been written to disk.
+    private func takeNoteAudio(for noteID: UUID) -> NoteAudio? {
+        guard let writer = noteAudioWriter else { return nil }
+        noteAudioWriter = nil
+        // A capture with no real audio (a failed session, or a mic that delivered
+        // nothing) gets no recording rather than a zero-length file that renders a
+        // dead play button.
+        guard writer.durationMs > 200 else { return nil }
+        return NoteAudioStore.save(
+            wav: writer.wavData(), durationMs: writer.durationMs, for: noteID)
     }
 
     /// Put a confirmation on the band. Every field is written on every call — they
@@ -1074,6 +1065,14 @@ final class DictationViewModel {
 
     private func enqueueAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         Diagnostics.shared.noteAudioBuffer(buffer)
+        // Tee the mic into the note recorder. This is *collection*, not a second
+        // capture — one tap, and the buffer is already in hand, so nothing here goes
+        // near a device or the engine (see the device-juggling prohibitions in
+        // `CLAUDE.md`). Bounded so a latched hands-free session can't grow without
+        // limit; past the cap the note simply keeps the audio it already has.
+        if let writer = noteAudioWriter, writer.durationMs < Self.noteAudioMaxMs {
+            writer.append(buffer)
+        }
         let id = UUID()
         let task = Task { [transcriber] in
             try? await transcriber.append(buffer)

@@ -70,12 +70,15 @@ struct NotchQuickActionsView: View {
                     }
                 }
                 column(
-                    title: "Recent notes",
+                    title: model.showsPinned ? "Pinned & recent" : "Recent notes",
                     isEmpty: model.recentNotes.isEmpty,
                     emptyLine: "No notes yet."
                 ) {
                     ForEach(model.recentNotes) { note in
-                        NoteQuickRow(note: note) { onOpenNotes(nil) }
+                        NoteQuickRow(
+                            note: note,
+                            onOpen: { onOpenNotes(nil) },
+                            onUnpin: { model.unpin(note) })
                     }
                 }
             }
@@ -195,27 +198,57 @@ private struct ReminderQuickRow: View {
 
 /// A note at a glance. Tapping it opens the real editor — the band has no business
 /// holding a text field.
+///
+/// A **pinned** note wears the pin glyph in ember and carries an unpin affordance, so
+/// the surface that shows a pin also offers the way to take it off. A note is pinned
+/// *to* the notch, so being unable to unpin it from the notch would mean walking to
+/// the window to undo something the notch is the whole point of.
 private struct NoteQuickRow: View {
     let note: Note
     let onOpen: () -> Void
+    var onUnpin: () -> Void = {}
+
+    @State private var isHovering = false
 
     var body: some View {
-        Button(action: onOpen) {
-            HStack(spacing: 7) {
-                Image(systemName: "text.alignleft")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Theme.Notch.textTertiary)
-                Text(note.displayTitle)
-                    .font(Typography.notchBody)
-                    .foregroundStyle(Theme.Notch.text)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
+        HStack(spacing: 7) {
+            Button(action: onOpen) {
+                HStack(spacing: 7) {
+                    Image(systemName: note.isPinned ? "pin.fill" : "text.alignleft")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(note.isPinned ? Theme.Notch.accent : Theme.Notch.textTertiary)
+                    Text(note.displayTitle)
+                        .font(Typography.notchBody)
+                        .foregroundStyle(Theme.Notch.text)
+                        .lineLimit(1)
+                    // A spoken note says so — the recording is the thing that makes
+                    // it verifiable, and the glyph is how you know there is one
+                    // before you open the window.
+                    if note.hasAudio {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Theme.Notch.textTertiary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .accessibilityLabel(note.isPinned
+                ? "Open pinned note “\(note.displayTitle)”"
+                : "Open note “\(note.displayTitle)”")
+
+            if note.isPinned, isHovering {
+                Button(action: onUnpin) {
+                    Image(systemName: "pin.slash")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .iconButton(size: 18, tooltip: "Unpin from the notch")
+                .accessibilityLabel("Unpin “\(note.displayTitle)” from the notch")
+            }
         }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .accessibilityLabel("Open note “\(note.displayTitle)”")
+        .onHover { isHovering = $0 }
     }
 }
 

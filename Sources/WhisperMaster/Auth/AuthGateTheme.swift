@@ -6,14 +6,13 @@ import SwiftUI
 /// `AuthView` renders the sign-in card itself, so without this it arrives in
 /// Clerk's stock palette (violet primary, system font, 6pt radii) sitting in the
 /// middle of our window — the one surface in the app that looked like someone
-/// else's product. Every value here is a `Theme` token, so the card follows the
-/// light/dark setting and the accent semantics with the rest of the app:
-/// **ember for the primary action** (the thing you do) and **signal for focus**
-/// (the machine answering), never the reverse.
+/// else's product. Every value here is a `Theme` token, so the card carries the
+/// app's accent semantics: **ember for the primary action** (the thing you do)
+/// and **signal for focus** (the machine answering), never the reverse.
 ///
 /// Only the tokens Clerk exposes are set — it derives borders, pressed states and
-/// state tints from these (`ClerkTheme.Colors.init`), so passing our *dynamic*
-/// colours matters: the derived shades stay appearance-aware too.
+/// state tints from these (`ClerkTheme.Colors.init`), so these have to be the
+/// ground-safe cuts: everything is measured against the app's one paper ground.
 @MainActor
 enum ClerkAppearance {
     static let theme = ClerkTheme(
@@ -42,9 +41,9 @@ enum ClerkAppearance {
             mutedForeground: Theme.textTertiary,
             primaryForeground: Theme.Ember.on,
             inputForeground: Theme.textPrimary,
-            // Clerk generates its neutral shades from this, and asks for a light
-            // value on dark grounds and a dark one on light — which is exactly
-            // what the state-layer tint already is.
+            // Clerk generates its neutral shades from this, and asks for a dark
+            // value on a light ground — which is exactly what the state-layer
+            // tint already is.
             neutral: Theme.StateLayer.tint,
             // Focus is the machine acknowledging you, so it's signal. Clerk draws
             // it at 28% opacity, so this has to be the ground-safe cut rather
@@ -53,7 +52,7 @@ enum ClerkAppearance {
             muted: Theme.surfaceSunken,
             secondaryButtonBackground: Theme.surfaceGlass2,
             secondaryButtonForeground: Theme.textPrimary,
-            shadow: Color.dynamic(light: 0x1a2233, dark: 0x000000),
+            shadow: Color(hex: 0x1a2233),
             border: Theme.StateLayer.tint
         )
     }

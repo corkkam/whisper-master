@@ -140,11 +140,19 @@ struct SettingsView: View {
     var initialSection: SettingsSection = .today
 
     @State private var selection: SettingsSection
+    /// Which half of Notes & Reminders is showing. Held here, above both the sidebar
+    /// sub-rows and the page's tab bar, so the two are one selection.
+    @State private var notesTab: NotesTab = .overview
+    /// Whether the sidebar's Notes group is expanded. Starts open — a collapsed
+    /// group on first run hides the feature's two halves behind a chevron nobody
+    /// knows to click.
+    @State private var notesExpanded = true
     @State private var hasAutoFocusedSetup = false
     @State private var micGranted = false
     @State private var micDenied = false
     @State private var accessibilityGranted = false
     @Environment(\.isSnapshot) private var isSnapshot
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let permissions = PermissionsManager()
 
     init(
@@ -233,6 +241,15 @@ struct SettingsView: View {
             VStack(spacing: 3) {
                 ForEach(SettingsSection.primary) { section in
                     navRow(section)
+                    // Notes & Reminders is the one primary that holds two distinct
+                    // things, so it's the one that expands. The sub-rows select the
+                    // same `notesTab` the page's own tab bar drives, so the sidebar
+                    // and the content can never disagree about which half is up.
+                    if section == .notes, section.isAvailable, notesExpanded {
+                        ForEach(NotesTab.allCases) { candidate in
+                            notesSubRow(candidate)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 12)
@@ -259,6 +276,12 @@ struct SettingsView: View {
         let isSelected = isAvailable && selection.sidebarParent == section
         return Button {
             guard isAvailable else { return }
+            // Tapping the Notes group both opens the page and expands the group.
+            // Re-tapping it while already there collapses — a group header that can
+            // only ever open is a one-way door.
+            if section == .notes {
+                notesExpanded = selection == .notes ? !notesExpanded : true
+            }
             selection = section
         } label: {
             HStack(spacing: 12) {
@@ -290,6 +313,19 @@ struct SettingsView: View {
                         .background(
                             Capsule(style: .continuous).fill(Theme.textTertiary.opacity(0.12))
                         )
+                } else if section == .notes {
+                    // A chevron rather than a second button: the row's own tap goes
+                    // to the page, and this rotates to say the group underneath it
+                    // is open. It's inside the row's label, so it can't steal the
+                    // row's hit area — the tap below toggles the group *and*
+                    // navigates, which is what a group header should do.
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .rotationEffect(.degrees(notesExpanded ? 90 : 0))
+                        .animation(
+                            Theme.Motion.respecting(reduceMotion, Theme.Motion.quick),
+                            value: notesExpanded)
                 }
             }
             .padding(.horizontal, 12)
@@ -316,6 +352,50 @@ struct SettingsView: View {
         // unreleased row would still show the hand.
         .pointerCursor()
         .disabled(!isAvailable)
+    }
+
+    /// A child row under the Notes group: Overview / Notes / Reminders.
+    ///
+    /// Visually subordinate on purpose — indented, smaller type, and a *rule* down
+    /// the left rather than the parent's pill-and-glow. Giving a child the same
+    /// selected treatment as a top-level item would make the sidebar read as seven
+    /// peers instead of four sections, one of which is open.
+    private func notesSubRow(_ candidate: NotesTab) -> some View {
+        let isSelected = selection == .notes && notesTab == candidate
+        return Button {
+            notesTab = candidate
+            selection = .notes
+        } label: {
+            HStack(spacing: 9) {
+                // The indent rule, lit for the selected child.
+                Rectangle()
+                    .fill(isSelected ? Theme.accent : Theme.line)
+                    .frame(width: 2, height: 16)
+                Image(systemName: candidate.icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(isSelected ? Theme.accentText : Theme.textTertiary)
+                    .frame(width: 14, alignment: .center)
+                Text(candidate.title)
+                    .font(Typography.sans(13, isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? Theme.accentText : Theme.textTertiary)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+            }
+            .padding(.leading, 22)
+            .padding(.trailing, 12)
+            .padding(.vertical, 6)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: Theme.pillRadius, style: .continuous)
+                        .fill(Theme.accentSoft.opacity(0.7))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .accessibilityLabel("Notes and reminders: \(candidate.title)")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
     // MARK: - Detail
@@ -347,9 +427,20 @@ struct SettingsView: View {
             .padding(.horizontal, 40)
             .padding(.top, 34)
             .padding(.bottom, 48)
-            .frame(maxWidth: 780)
+            .frame(maxWidth: contentMaxWidth)
             .frame(maxWidth: .infinity, alignment: .center)
         }
+    }
+
+    /// How wide the content column is allowed to get.
+    ///
+    /// 780 is a reading measure — right for pages that are prose and settings rows,
+    /// and wrong for the notes canvas, which is a *grid of cards beside a reminders
+    /// column*. At 780 that bifurcation collapses to one sticky per row with the
+    /// reminders squeezed beside it, so the notes page gets a wider measure. The
+    /// window is 80% of the screen (`applyDefaultWindowFrame`), so the room exists.
+    private var contentMaxWidth: CGFloat {
+        selection == .notes ? 1180 : 780
     }
 
     private func header(_ section: SettingsSection) -> some View {
@@ -404,13 +495,13 @@ struct SettingsView: View {
             // unreachable there — but a stale `requestedSettingsSection` must not
             // be able to render an unreleased panel.
             if selection.isAvailable {
-                NotesSettingsView(state: state)
+                NotesSettingsView(state: state, tab: $notesTab)
             } else {
                 ComingSoonPanel(section: .notes)
             }
         case .connectors:
             if selection.isAvailable {
-                ConnectorsSettingsView(viewModel: viewModel, state: state)
+                ConnectorsSettingsView(state: state)
             } else {
                 ComingSoonPanel(section: .connectors)
             }

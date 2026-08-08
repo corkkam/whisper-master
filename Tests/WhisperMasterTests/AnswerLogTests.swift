@@ -37,8 +37,7 @@ final class AnswerLogTests: XCTestCase {
         let original = AnsweredQuestion(
             question: "what's on my calendar",
             answer: "Three meetings.",
-            provenance: "From Work",
-            source: .automation)
+            provenance: "From Work")
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let decoder = JSONDecoder()
@@ -54,5 +53,24 @@ final class AnswerLogTests: XCTestCase {
             decoded.askedAt.timeIntervalSince1970,
             original.askedAt.timeIntervalSince1970,
             accuracy: 1)
+    }
+
+    /// **The retired `automation` source must not cost the user their log.**
+    /// `AnswerLog.load` decodes the whole array under one `try?`, so a strict decode
+    /// of a raw value that no longer exists wouldn't drop the one stale row — it
+    /// would return `nil` for the array and silently empty the entire answer log.
+    func testARowWrittenBeforeAutomationsWereRemovedStillDecodes() throws {
+        let legacy = Data(#"""
+        [{"id":"6E1A9C4E-2F3B-4A5D-8C7E-1B2A3C4D5E6F","question":"Morning briefing",
+          "answer":"Two things need you today.","provenance":"",
+          "askedAt":"2026-08-01T09:00:00Z","source":"automation"}]
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode([AnsweredQuestion].self, from: legacy)
+
+        XCTAssertEqual(decoded.count, 1, "the row survives rather than taking the log with it")
+        XCTAssertEqual(decoded.first?.source, .spoken, "an unknown origin reads as spoken")
+        XCTAssertEqual(decoded.first?.answer, "Two things need you today.")
     }
 }

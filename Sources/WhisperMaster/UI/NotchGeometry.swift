@@ -142,14 +142,74 @@ struct NotchSurfaceLayout {
         geometry.hasNotch ? geometry.notchWidth : fallbackBodyWidth
     }
 
+    /// Wing wide enough for `label` at the bar's leading edge.
+    ///
+    /// `wideSideExtension` is sized to the longest *fixed* state word, and while
+    /// those were the only captions a constant was enough. The assistant's captions
+    /// carry a **user-chosen connector name** ("Checking Personal Google Calendar"),
+    /// which has no bound — and in the notch-row form the leading label lives
+    /// entirely in the left wing, so anything longer doesn't truncate, it slides
+    /// under the camera housing and is simply not there. So the wing grows to the
+    /// label instead. `surfaceWidth` still clamps the result to the screen.
+    ///
+    /// Measured with `NotchTextMetrics`, whose font is a half-step lighter than
+    /// `Typography.notchLabel` (medium vs bold at the same 13pt) — hence
+    /// `stateLabelSlack`, which covers the weight difference and keeps the last
+    /// character off the housing rather than flush against it.
+    func wideWing(forStateLabel label: String) -> CGFloat {
+        guard !label.isEmpty else { return wideSideExtension }
+        let needed = NotchTextMetrics.width(label)
+            + NotchTranscriptRow.horizontalPadding
+            + stateLabelSlack
+        return min(maxStateLabelWing, max(wideSideExtension, ceil(needed)))
+    }
+
+    /// Headroom on a measured state label: the bold/medium weight difference plus a
+    /// little air, so a caption sized exactly to its wing doesn't read as jammed
+    /// against the camera housing.
+    var stateLabelSlack: CGFloat = 16
+
+    /// Ceiling on the grown wing, and therefore on the whole bar.
+    ///
+    /// Two things need this bound rather than letting the label decide. `panelSize`
+    /// has to be computed before any caption exists, and a band wider than its panel
+    /// is clipped by the window; and the panel takes clicks while a banner is up, so
+    /// a bar that grew toward screen-wide would start swallowing menu-bar clicks
+    /// either side of the notch.
+    ///
+    /// 300pt is measured, not guessed: the longest caption a real connection
+    /// produces is around "Checking Personal Google Calendar" (223pt), which needs
+    /// `horizontalPadding` + `stateLabelSlack` on top. Past this the label truncates
+    /// against `rowLabelMaxWidth` — legibly, with an ellipsis — instead of sliding
+    /// under the camera housing.
+    var maxStateLabelWing: CGFloat = 300
+
+    /// Width the leading state label may occupy in the **notch-row** form, where the
+    /// content sits in the wings either side of the camera housing. Without this the
+    /// label is only bounded by the whole surface, so an over-long caption doesn't
+    /// truncate — it runs into the region the housing physically covers and the tail
+    /// of it simply isn't there.
+    func rowLabelMaxWidth(for geometry: NotchGeometry, wing: CGFloat) -> CGFloat {
+        max(40, wing - NotchTranscriptRow.horizontalPadding)
+    }
+
     /// Full width of the black surface — the notch body plus its wings. Narrower
     /// surfaces are centered on the notch inside the panel, which is always sized
     /// for the widest one.
-    func surfaceWidth(for geometry: NotchGeometry, _ width: NotchSurfaceWidth) -> CGFloat {
+    ///
+    /// `stateLabel` only affects `.wide`, and only upward: pass the caption the bar
+    /// is carrying so a long one widens the band rather than running under the
+    /// camera housing. Omit it (the default) for a call that is asking about the
+    /// bar's *base* width — `panelSize` and the transcript wrap both do, because the
+    /// panel must be sized for a state that hasn't happened yet and the wrap must
+    /// not re-flow every time the caption changes.
+    func surfaceWidth(for geometry: NotchGeometry,
+                      _ width: NotchSurfaceWidth,
+                      stateLabel: String = "") -> CGFloat {
         let wing: CGFloat = switch width {
         case .glyph: glyphSideExtension
         case .banner: sideExtension
-        case .wide: wideSideExtension
+        case .wide: wideWing(forStateLabel: stateLabel)
         }
         let full = bodyWidth(for: geometry) + wing * 2
         // The bar is the only surface long enough to run off a small display, so
@@ -181,14 +241,24 @@ struct NotchSurfaceLayout {
     }
 
     /// Full size of the floating panel for a given geometry. Width fits the widest
-    /// surface (the dictation bar) and height the tallest band, so the panel never
+    /// surface the bar can ever reach and height the tallest band, so the panel never
     /// clips whichever state the notch is in.
+    ///
+    /// The width is computed from `maxStateLabelWing`, not from `wideSideExtension`:
+    /// the panel is sized once, at window creation, and the bar grows past the base
+    /// wing whenever the assistant names a connector. Sizing it to the base would
+    /// clip exactly the captions this exists to show.
     func panelSize(for geometry: NotchGeometry) -> CGSize {
         CGSize(
-            width: surfaceWidth(for: geometry, .wide),
+            width: surfaceWidth(for: geometry, .wide, stateLabel: Self.widestLabelProbe),
             height: geometry.notchHeight + maxBandThickness
         )
     }
+
+    /// A string guaranteed to measure past `maxStateLabelWing`, so `surfaceWidth`
+    /// returns the capped maximum. Cheaper and harder to get wrong than a second
+    /// code path through the same clamping.
+    private static let widestLabelProbe = String(repeating: "M", count: 64)
 
     /// Top-center origin (AppKit bottom-left coordinates) on a screen.
     func panelOrigin(for geometry: NotchGeometry, on screen: NSScreen) -> CGPoint {

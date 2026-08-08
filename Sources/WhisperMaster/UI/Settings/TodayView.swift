@@ -236,9 +236,8 @@ struct TodayView: View {
     /// Where an answer goes to be readable.
     ///
     /// The notch band carries one truncated line for a few seconds and a day query
-    /// deliberately skips the transcript history, so before this an answer longer than
-    /// the bezel was simply lost — and a scheduled automation's answer was lost to
-    /// anyone who wasn't watching the notch at the moment it fired.
+    /// deliberately skips the transcript history, so without this an answer longer
+    /// than the bezel is simply lost.
     private var recentAnswersCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -264,11 +263,9 @@ struct TodayView: View {
     private func answerRow(_ entry: AnsweredQuestion) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Image(systemName: entry.source == .automation ? "clock.arrow.circlepath" : "mic.fill")
+                Image(systemName: "mic.fill")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Theme.textTertiary)
-                // An automation's line was never spoken by the user, so it's labelled
-                // rather than presented as something they said.
                 Text(entry.question)
                     .font(Typography.caption)
                     .foregroundStyle(Theme.textSecondary)
@@ -374,9 +371,8 @@ struct TodayView: View {
         let endOfDay = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date())) ?? Date()
         // Incomplete due today or overdue, then the rest of today's incomplete,
         // sorted by due date. Keep it to what's actionable now.
-        return state.notesStore.visibleReminders
-            .filter { !$0.isCompleted && $0.dueDate < endOfDay }
-            .sorted { $0.dueDate < $1.dueDate }
+        return state.notesStore.activeReminders
+            .filter { $0.dueDate < endOfDay }
     }
 
     /// Whether any calendar connector instance exists to read from at all.
