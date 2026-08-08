@@ -89,6 +89,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Analytics first, because it installs the crash handler.
+        //
+        // The rest of this method is the launch work most likely to crash — the
+        // engine graph, Metal warm-up, the MLX model — and a handler installed
+        // after it would miss exactly the crashes worth catching. Read straight
+        // from `UserDefaults` rather than `viewModel.state`, which would force
+        // the lazy view model up here and reorder launch. No-op, and no handler,
+        // when the user has analytics off.
+        Analytics.shared.configure(enabled: AppState.persistedAnalyticsEnabled)
+
+        // Did the *previous* run crash? Consumes the sentinel, then scans for the
+        // OS's own report off-main. Must run before `markLaunch` overwrites it.
+        CrashReporter.reportPreviousCrashIfNeeded()
+        CrashReporter.markLaunch()
+
         // Configure Clerk before anything reads `Clerk.shared`. Sign-in gates
         // the whole app: the LAN transcription server, the mesh, onboarding, and
         // the settings window are all deferred until the user authenticates
@@ -146,15 +161,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await EvalRunner.runIfRequested() }
         }
 
-        // Anonymous, opt-in usage analytics (off unless the user enabled it in
-        // Settings). Configure from the persisted flag, then record this launch.
-        Analytics.shared.configure(enabled: viewModel.state.analyticsEnabled)
-
-        // Did the *previous* run crash? Reads the sentinel written below, then
-        // scans for the OS's own crash report off-main. Must come after
-        // `configure`, since it may send an event.
-        CrashReporter.reportPreviousCrashIfNeeded()
-        CrashReporter.markLaunch()
+        // The launch signals themselves. `Analytics.shared.configure` already ran
+        // at the top of this method (it installs the crash handler); this only
+        // records the launch, which needs `permissionsManager` and so belongs
+        // after setup.
         reportLaunchAnalytics()
 
         // Put up the sign-in gate. At cold launch there's never a live session

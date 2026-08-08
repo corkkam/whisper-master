@@ -106,6 +106,39 @@ final class Analytics {
         // stream to just our explicit, content-free events.
         config.captureApplicationLifecycleEvents = false
         config.captureScreenViews = false
+
+        // Native crash capture — PLCrashReporter, vendored inside this SDK, so
+        // this costs no new dependency and no new vendor.
+        //
+        // It installs Mach exception, POSIX signal, and uncaught-`NSException`
+        // handlers, which is what it takes to see the crashes this app actually
+        // has: an Objective-C exception out of `AVAudioEngine` is an `abort()`,
+        // and the field crash on stable 1.0.1 was an `EXC_BAD_ACCESS` inside the
+        // Metal driver with MLX frames below it. Both kill the process somewhere
+        // no Swift `catch` and no `NSSetUncaughtExceptionHandler` can reach.
+        // Crashes are written to disk and sent as `$exception` on the next
+        // launch, carrying the `channel` super property registered below — which
+        // is what makes beta and stable crash rates separable.
+        //
+        // **This does not replace `CrashReporter`.** That reads the OS's own
+        // `.ips` and feeds the GA counter that sits beside the acquisition
+        // funnel; this one carries the stack for debugging. Different questions.
+        //
+        // Two things about the lifecycle are load-bearing and easy to get wrong:
+        // the handlers install during `setup`, which only ever runs from here —
+        // i.e. never for a user who has analytics off — and `optOut()`
+        // *uninstalls* them (`optIn()` reinstalls), so the Settings toggle tears
+        // the handler down rather than merely muting it.
+        config.errorTrackingConfig.autoCapture = true
+        // Mark our own frames in-app so a stack opens on our code rather than on
+        // the driver frame at the top. `PRODUCT_NAME` is `WhisperMaster`, and the
+        // prefix also catches the debug build's `WhisperMaster.debug.dylib`.
+        // The SDK infers this from the bundle id and executable name anyway; it's
+        // stated explicitly because the app is *renamed* per channel ("Whisper
+        // Master Beta.app"), and a wrong inference here is invisible until a
+        // stack arrives unhelpfully grouped.
+        config.errorTrackingConfig.inAppIncludes = ["WhisperMaster"]
+
         PostHogSDK.shared.setup(config)
         // Which build this is, on every event *and* on the person.
         //

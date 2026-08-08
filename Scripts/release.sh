@@ -67,6 +67,57 @@ if [[ "$CHANNEL" != "stable" && "$VERSION" != *-${CHANNEL}* ]]; then
     exit 1
 fi
 
+# --- Upload debug symbols for crash symbolication ---
+# Without this every native crash from this build arrives in PostHog as hex
+# addresses, forever — the dSYM only exists on the machine that compiled it, and
+# once this build directory is gone the stacks can never be recovered. Runs
+# before notarization so a failure here costs a rebuild, not a republished
+# version (see the "never republish a version number" rule in CLAUDE.md).
+#
+# PostHog ships the uploader inside the SDK checkout, so the CLI flags stay in
+# step with the SDK rather than being hand-rolled here. It reads Xcode build
+# settings from the environment; we set them explicitly because the ones baked
+# into the project are wrong for this purpose: MARKETING_VERSION /
+# CURRENT_PROJECT_VERSION in project.yml are inert (Info.plist is the authority),
+# and PRODUCT_BUNDLE_IDENTIFIER is always the *stable* id because bundle.sh
+# re-badges beta/dev on the staged copy after the build. Passing the staged
+# app's real values is what keeps a beta's symbols attached to the beta release
+# instead of silently overwriting stable's.
+UPLOAD_SYMBOLS=""
+for root in "build/DerivedData" "$HOME/Library/Developer/Xcode/DerivedData"; do
+    [[ -d "$root" ]] || continue
+    found=$(find "$root" -path '*posthog-ios/build-tools/upload-symbols.sh' 2>/dev/null | head -1 || true)
+    [[ -n "$found" ]] && { UPLOAD_SYMBOLS="$found"; break; }
+done
+
+# Scoped to the configuration bundle.sh actually built (it honours $CONFIG too),
+# so a stale Debug dSYM left in DerivedData can never be uploaded and tagged as
+# this release — its symbols wouldn't match the shipped binary, which is worse
+# than having none at all.
+DSYM=$(find "build/DerivedData/Build/Products/${CONFIG:-Release}" -name '*.app.dSYM' -type d 2>/dev/null | head -1 || true)
+
+if [[ -z "${POSTHOG_CLI_API_KEY:-}" ]]; then
+    echo ">> WARNING: POSTHOG_CLI_API_KEY unset — skipping dSYM upload."
+    echo "   Native crashes from $VERSION will be UNSYMBOLICATED and cannot be"
+    echo "   symbolicated later. See .env.example → POSTHOG_CLI_API_KEY."
+elif [[ -z "$UPLOAD_SYMBOLS" || -z "$DSYM" ]]; then
+    echo ">> WARNING: skipping dSYM upload (uploader or dSYM not found)."
+    [[ -n "$UPLOAD_SYMBOLS" ]] || echo "   no posthog-ios/build-tools/upload-symbols.sh under DerivedData"
+    [[ -n "$DSYM" ]] || echo "   no *.app.dSYM under build/DerivedData/Build/Products (is DEBUG_INFORMATION_FORMAT dwarf-with-dsym?)"
+else
+    echo ">> Uploading dSYM to PostHog ($CH_BUNDLE_ID $VERSION build $BUILD)"
+    # A configured upload that *fails* is a real error and stops the release —
+    # nothing has been published yet, so re-running costs only a rebuild.
+    # `CONFIGURATION` is deliberately left unset: the script skips non-Release
+    # builds, and treats "unset" as an explicit CI/manual invocation.
+    DWARF_DSYM_FOLDER_PATH="$(dirname "$DSYM")" \
+    DWARF_DSYM_FILE_NAME="$(basename "$DSYM")" \
+    PRODUCT_BUNDLE_IDENTIFIER="$CH_BUNDLE_ID" \
+    MARKETING_VERSION="$VERSION" \
+    CURRENT_PROJECT_VERSION="$BUILD" \
+    bash "$UPLOAD_SYMBOLS"
+fi
+
 # --- Notarize + staple the app before zipping ---
 # Stapling embeds the ticket inside the .app, so it travels in the Sparkle zip
 # and the update installs without any Gatekeeper prompt. No-op if NOTARY_* unset.

@@ -20,6 +20,18 @@ settings:
     # arm64-only (Apple Silicon). Matches the vendored arm64 ITN xcframework and
     # how Scripts/bundle.sh already builds (-destination arch=arm64).
     ARCHS: arm64
+  configs:
+    # Emit a dSYM for release builds so PostHog can symbolicate crash reports
+    # server-side (Scripts/release.sh uploads it). Xcode's Release default is
+    # already dwarf-with-dsym, but this is stated explicitly because it is
+    # invisible when wrong: the build succeeds, the release ships, and every
+    # crash arrives months later as unsymbolicated hex with nothing to read.
+    # Debug stays `dwarf` — no dSYM, faster builds, and crash capture is off
+    # under a debugger anyway.
+    Release:
+      DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+    Debug:
+      DEBUG_INFORMATION_FORMAT: dwarf
 
 packages:
   # Pinned exactly: 0.15.x changed sliding-window finish()/splicing behavior and

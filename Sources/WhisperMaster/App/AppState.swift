@@ -59,6 +59,21 @@ final class AppState {
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
     static let remoteDictationEnabledDefaultsKey = "WhisperMaster.remoteDictationEnabled.v1"
     static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
+
+    /// The persisted analytics opt-in, readable **without building an `AppState`**.
+    ///
+    /// `AppDelegate` needs this at the very top of `applicationDidFinishLaunching`
+    /// so the crash handler is installed before the launch work that is most
+    /// likely to crash (model load, Metal warm-up). Reading it off `viewModel`
+    /// there would force the lazy `DictationViewModel` — and the whole engine
+    /// graph behind it — to initialize earlier than it does today, which is a
+    /// launch-order change nobody asked for. `init` below uses the same property,
+    /// so the default can never drift between the two readers.
+    /// `nonisolated` because it reads `UserDefaults` and no actor state — the
+    /// point is to answer without an `AppState` existing at all.
+    nonisolated static var persistedAnalyticsEnabled: Bool {
+        UserDefaults.standard.object(forKey: analyticsEnabledDefaultsKey) as? Bool ?? true
+    }
     static let usageSyncEnabledDefaultsKey = "WhisperMaster.usageSyncEnabled.v1"
     static let notesSyncEnabledDefaultsKey = "WhisperMaster.notesSyncEnabled.v1"
     static let reminderDefaultAlertStyleDefaultsKey = "WhisperMaster.reminderDefaultAlertStyle.v1"
@@ -544,7 +559,7 @@ final class AppState {
         // Opt-in: no listening socket until the user explicitly asks for one.
         remoteDictationEnabled = UserDefaults.standard.object(forKey: Self.remoteDictationEnabledDefaultsKey) as? Bool ?? false
         // Opt-out: on unless the user has explicitly turned it off.
-        analyticsEnabled = UserDefaults.standard.object(forKey: Self.analyticsEnabledDefaultsKey) as? Bool ?? true
+        analyticsEnabled = Self.persistedAnalyticsEnabled
         // Opt-out: on unless the user has explicitly turned it off.
         usageSyncEnabled = UserDefaults.standard.object(forKey: Self.usageSyncEnabledDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.

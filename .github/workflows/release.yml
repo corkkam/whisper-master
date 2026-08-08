@@ -135,6 +135,22 @@ jobs:
           echo "$NOTARY_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary_key.p8"
           echo "NOTARY_KEY_P8=$RUNNER_TEMP/notary_key.p8" >> "$GITHUB_ENV"
 
+      - name: Install PostHog CLI (dSYM symbolication)
+        # release.sh's upload step shells out to the uploader vendored in the
+        # posthog-ios checkout, which requires this binary on PATH. Guarded on
+        # the secret rather than `if:` so a fork or an unconfigured repo skips it
+        # with an explanation instead of failing the release.
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${POSTHOG_CLI_API_KEY:-}" ]]; then
+            npm install -g @posthog/cli@latest
+            posthog-cli --version
+          else
+            echo "POSTHOG_CLI_API_KEY unset — skipping CLI install; dSYMs will not be uploaded."
+          fi
+
       - name: Build, sign, notarize, generate appcast, upload to R2
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -154,6 +170,13 @@ jobs:
           # analytics. Missing secrets just leave GA off in the build.
           GA_MEASUREMENT_ID: ${{ secrets.GA_MEASUREMENT_ID }}
           GA_API_SECRET: ${{ secrets.GA_API_SECRET }}
+          # dSYM upload for native crash symbolication. NOT shipped in the app
+          # and NOT publishable — a personal API key, scoped to
+          # `error_tracking:write` only. Missing secrets skip the upload with a
+          # loud warning; the release still ships, but its crashes are
+          # permanently unsymbolicated (the dSYM dies with the runner).
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ secrets.POSTHOG_CLI_PROJECT_ID }}
         run: bash Scripts/release.sh
 
       - name: Publish shareable DMG to R2
