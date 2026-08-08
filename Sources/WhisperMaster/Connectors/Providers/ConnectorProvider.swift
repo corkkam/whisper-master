@@ -49,6 +49,25 @@ protocol ConnectorProvider: Sendable {
                   config: ConnectorConfig) async -> ValidationResult
 }
 
+extension ConnectorProvider {
+    /// Check the credential **already stored** for an instance.
+    ///
+    /// `validate(_:config:)` judges the bytes it is handed, which is what a freshly
+    /// pasted secret or a just-completed sign-in needs. A stored credential needs this
+    /// form instead: only the instance id can reach the Keychain, so it's the only one
+    /// that can refresh an expired grant *and* keep what the refresh returned. Checking
+    /// a saved connection through the credential form works but re-refreshes every time.
+    func validate(instance: ConnectorInstance) async -> ValidationResult {
+        do {
+            _ = try await CredentialStrategy.resolveAndPersist(for: instance)
+        } catch {
+            return .invalid("This connection needs signing in again.")
+        }
+        let credential = ConnectorCredentials.load(for: instance.id) ?? ConnectorCredential()
+        return await validate(credential, config: instance.config)
+    }
+}
+
 /// What a read produced, plus the failure state to record on the instance.
 ///
 /// The error is returned rather than thrown so a fan-out can partially succeed: one

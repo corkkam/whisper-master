@@ -257,6 +257,12 @@ final class DictationViewModel {
         // finalize work; cleared so a cancelled/failed run can't reuse it.
         let sessionDuration = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
         recordingStartedAt = nil
+        // Which account these words belong to, captured *here* rather than at the
+        // end of the finalize below: usage is per-account and the loaded account is
+        // repointed by the 0.5 s auth reconcile, so a sign-in/out during the
+        // finalize would otherwise file this session under whoever happens to be
+        // signed in when it finishes.
+        let sessionOwner = state.usageStore.currentUserID
         // Consume the command arm now (synchronously, at the user's stop) so it
         // can't linger; the async finalize below reads this captured copy.
         let commandMode = commandArmed
@@ -338,17 +344,12 @@ final class DictationViewModel {
                 // we'd waited, but the user never did.
                 state.phase = .idle
                 state.transcript.finalText = cleaned
-                guard !cleaned.isEmpty else {
-                    // Nothing to paste (only "hmm" / a silence hallucination).
-                    // Still record the session — an empty result is itself a
-                    // "miss" worth inspecting, and the audio is captured.
-                    Diagnostics.shared.finish(pasteOutcome: "empty", finalText: "")
-                    state.statusMessage = "Finished local transcription."
-                    return
-                }
+                let fixes = FixCounts(
+                    wordsCorrected: selfCorrectionFixes + fillerFixes,
+                    dictionary: dictionaryFixes)
                 // Was this the assistant? Only when the user *held the chord* for
                 // this session — the words are then a question or an instruction,
-                // never text, so the paste is *suppressed* and we finish here.
+                // never text, so the paste is *suppressed* below.
                 //
                 // Nothing below the chord may re-open this branch. An unarmed
                 // dictation is never inspected for trigger phrases or question
@@ -356,11 +357,48 @@ final class DictationViewModel {
                 // typed, and so does "what's my schedule for the sprint?". Inferring
                 // intent from words means eating a transcript whenever the guess is
                 // wrong, and no keyword list is good enough to earn that.
-                if commandMode, await routeCommandCapture(cleaned) {
+                var assistantHandled = false
+                if commandMode, !cleaned.isEmpty {
+                    assistantHandled = await routeCommandCapture(cleaned)
+                }
+                // The frontmost app is the one about to receive the paste — or, for
+                // an assistant capture, the one the user was speaking from. We don't
+                // steal focus, so it's still the user's target app. Taken once here
+                // and shared, so the usage record and the trace below describe the
+                // same instant instead of two re-queries.
+                let front = NSWorkspace.shared.frontmostApplication
+                // One call chooses this session's exit *and* folds it into the
+                // durable usage stats, because they are one decision: a capture the
+                // assistant took and one that produced nothing are both real minutes
+                // of speaking, and omitting them makes the WPM gauge, lifetime words
+                // and the streak read low. The kind that was recorded is the branch
+                // taken below, so no exit can be reached without being accounted for
+                // — a line per exit is exactly what was missed before.
+                let kind = SessionAccounting(
+                    store: state.usageStore,
+                    appName: front?.localizedName ?? "",
+                    appBundleID: front?.bundleIdentifier ?? "",
+                    engineRawValue: state.selectedEngine.rawValue
+                ).account(
+                    transcript: cleaned,
+                    assistantHandled: assistantHandled,
+                    duration: sessionDuration,
+                    fixes: fixes,
+                    owner: sessionOwner)
+                switch kind {
+                case .empty:
+                    // Nothing to paste (only "hmm" / a silence hallucination) — the
+                    // session still counted above, since a miss is worth inspecting.
+                    Diagnostics.shared.finish(pasteOutcome: "empty", finalText: "")
+                    state.statusMessage = "Finished local transcription."
+                    return
+                case .assistant:
                     reminderScheduler.noteUsed()
                     Diagnostics.shared.finish(pasteOutcome: "command", finalText: cleaned)
                     state.statusMessage = "Handled by the assistant."
                     return
+                case .dictation:
+                    break
                 }
                 state.transcript.latestConfirmed = cleaned
                 state.transcript.latestPartial = ""
@@ -372,31 +410,19 @@ final class DictationViewModel {
                     duration: sessionDuration,
                     wordCount: wordCount
                 ))
-                // The frontmost app is the one about to receive the paste — we
-                // don't steal focus, so it's still the user's target app.
-                let front = NSWorkspace.shared.frontmostApplication
                 Diagnostics.shared.noteFrontApp(
                     name: front?.localizedName ?? "unknown",
                     bundleID: front?.bundleIdentifier ?? "")
-                // Fold this dictation into the durable usage stats (Insights
-                // dashboard). Same front-app snapshot the diagnostics use — the
-                // app about to receive the paste — now always-on, not DIAGNOSTICS.
-                state.usageStore.record(DictationRecord(
-                    timestamp: Date(),
-                    wordCount: wordCount,
-                    durationSeconds: sessionDuration,
-                    appName: front?.localizedName ?? "",
-                    appBundleID: front?.bundleIdentifier ?? "",
-                    engineRawValue: state.selectedEngine.rawValue,
-                    fixes: FixCounts(
-                        wordsCorrected: selfCorrectionFixes + fillerFixes,
-                        dictionary: dictionaryFixes)))
-                // Roll the durable totals onto the analytics *person*, right where
-                // they were just updated. This is what makes "which accounts are
-                // heavy users" a filter rather than an aggregation across every
-                // event that account ever sent — PostHog can cohort on a person
-                // property directly. Sent on the completion path only, so the
-                // profile reflects delivered work rather than attempts.
+                // Roll the durable totals onto the analytics *person*. Read after
+                // `SessionAccounting.account` above has already folded this session
+                // in, so the totals include it — this reports the store, it does not
+                // record anything itself.
+                //
+                // This is what makes "which accounts are heavy users" a filter
+                // rather than an aggregation across every event that account ever
+                // sent: PostHog can cohort on a person property directly. On the
+                // `.dictation` path only, so the profile reflects delivered work
+                // rather than every session that was opened.
                 Analytics.shared.updatePersonProperties([
                     "lifetimeDictations": String(state.usageStore.totalDictations),
                     "lifetimeWords": String(state.usageStore.totalWords),
@@ -433,6 +459,74 @@ final class DictationViewModel {
                 await handleFailure(error)
             }
         }
+    }
+
+    /// Which exit the finalize takes, and the usage record it owes — one decision,
+    /// made in one place.
+    ///
+    /// The defect this shape exists to prevent was a *missing call*: the assistant
+    /// and empty exits of `stopRecording` returned before recording anything, so
+    /// chord-armed captures and misses never reached the Insights dashboard at all.
+    /// A line per exit is precisely the thing that gets forgotten, so `account`
+    /// returns the kind it just recorded and the caller branches on that — an exit
+    /// cannot be taken without being accounted for. `stopRecording` needs a
+    /// microphone and a loaded engine; this doesn't, so it is what the tests pin.
+    @MainActor
+    struct SessionAccounting {
+        let store: UsageStore
+        /// The app the session belongs to, snapshotted once by the caller.
+        let appName: String
+        let appBundleID: String
+        let engineRawValue: String
+
+        /// Classify the finished session and fold it into the durable usage stats.
+        /// Returns what it recorded, which is also the exit to take: `.empty` and
+        /// `.assistant` finish there, `.dictation` goes on to the paste.
+        @discardableResult
+        func account(
+            transcript: String,
+            assistantHandled: Bool,
+            duration: TimeInterval,
+            fixes: FixCounts,
+            owner: String?
+        ) -> DictationRecord.SessionKind {
+            let kind: DictationRecord.SessionKind =
+                transcript.isEmpty ? .empty : (assistantHandled ? .assistant : .dictation)
+            store.record(
+                DictationViewModel.usageRecord(
+                    kind: kind,
+                    transcript: transcript,
+                    duration: duration,
+                    appName: appName,
+                    appBundleID: appBundleID,
+                    engineRawValue: engineRawValue,
+                    fixes: fixes),
+                owner: owner)
+            return kind
+        }
+    }
+
+    /// The record for one finished session. Pure, so what each exit of the finalize
+    /// contributes to usage is testable without a microphone.
+    static func usageRecord(
+        kind: DictationRecord.SessionKind,
+        transcript: String,
+        duration: TimeInterval,
+        appName: String,
+        appBundleID: String,
+        engineRawValue: String,
+        fixes: FixCounts,
+        now: Date = Date()
+    ) -> DictationRecord {
+        DictationRecord(
+            timestamp: now,
+            wordCount: WordCount.count(transcript),
+            durationSeconds: duration,
+            appName: appName,
+            appBundleID: appBundleID,
+            engineRawValue: engineRawValue,
+            fixes: fixes,
+            kind: kind)
     }
 
     /// Kick the optional on-device qwen polish in the background and, when it

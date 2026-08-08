@@ -73,6 +73,25 @@ enum AgentPrompt {
     }
 }
 
+/// One-shot winner flag for the generation race in `AgentLoop`.
+///
+/// Locked rather than actor-isolated so whichever racer finishes first can settle it
+/// wherever it happens to be running: a hop would leave a window in which both of them
+/// resume the same continuation, which traps.
+private final class FirstPastThePost: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    /// True for the first caller and nobody else.
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if claimed { return false }
+        claimed = true
+        return true
+    }
+}
+
 /// The local tool-calling loop.
 ///
 /// Runs on the **already-installed** `qwen2.5-3B-Instruct-4bit` — no second model, no
@@ -91,7 +110,11 @@ enum AgentPrompt {
 struct AgentLoop {
     /// `(userText, systemPrompt) -> reply`. Signature matches
     /// `MlxCleanupService.clean(_:systemPrompt:)`, which is the production generator.
-    typealias Generate = (String, String) async -> String?
+    ///
+    /// `@Sendable` because the loop runs it in a task it can walk away from when the
+    /// budget runs out (see `generateWithinBudget`), so it can't be a closure that
+    /// only works on one thread.
+    typealias Generate = @Sendable (String, String) async -> String?
 
     /// The production generator: the already-loaded qwen.
     ///
@@ -163,9 +186,13 @@ struct AgentLoop {
         onStep(.thinking)
 
         for _ in 0..<maxIterations {
-            guard now() < deadline else { break }
+            let remaining = deadline.timeIntervalSince(now())
+            guard remaining > 0 else { break }
 
-            guard let raw = await generate(Self.render(messages), systemPrompt) else { break }
+            guard let raw = await Self.generateWithinBudget(
+                generate, text: Self.render(messages), systemPrompt: systemPrompt,
+                seconds: remaining)
+            else { break }
             turns.append(AgentTurn(role: .model, text: raw))
             messages.append(.init(role: .assistant, text: raw))
 
@@ -237,6 +264,43 @@ struct AgentLoop {
             self.text = text
             self.tool = tool
         }
+    }
+
+    /// Run the generator, and give up on it once the budget is spent.
+    ///
+    /// The budget used to be checked only *between* iterations, with a bare `await` on
+    /// the model in between. The production generator is `MlxCleanupService.clean`, so
+    /// a wedged MLX/Metal call held the loop — and the notch's "Working on it" — open
+    /// with no ceiling at all, whatever `budget` said.
+    ///
+    /// The two racers are **unstructured** tasks on purpose: a task group waits for its
+    /// children on the way out, which is exactly what a stall makes impossible, so the
+    /// abandoned generation has to be one nobody is awaiting. It's cancelled, but a
+    /// synchronous MLX generation can't observe that — walking away is the only real
+    /// guarantee. A timeout then reads to the caller exactly like a dead generator:
+    /// nil, and the loop reports exhausted, rather than a cancellation error the notch
+    /// would have to explain.
+    private static func generateWithinBudget(_ generate: @escaping Generate,
+                                             text: String,
+                                             systemPrompt: String,
+                                             seconds: TimeInterval) async -> String? {
+        let work = Task { await generate(text, systemPrompt) }
+        let produced = await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            let race = FirstPastThePost()
+            let timeout = Task {
+                try? await Task.sleep(nanoseconds: UInt64(max(seconds, 0) * 1_000_000_000))
+                if race.claim() { continuation.resume(returning: nil) }
+            }
+            Task {
+                let value = await work.value
+                timeout.cancel()
+                if race.claim() { continuation.resume(returning: value) }
+            }
+        }
+        // A no-op when it already finished, and the only thing that can be done about
+        // one that hasn't.
+        work.cancel()
+        return produced
     }
 
     /// Flatten the conversation into the single prompt string the MLX generator takes.
