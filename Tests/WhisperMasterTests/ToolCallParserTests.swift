@@ -142,6 +142,25 @@ final class ToolCallParserTests: XCTestCase {
                        .failure(.wrongType(argument: "limit", expected: "integer")))
     }
 
+    /// `JSONSerialization` hands a JSON boolean back as an `NSNumber` whose `intValue`
+    /// is 1 or 0, so `true` used to sail through the integral check as a silent 1.
+    func testBooleanForAnIntegerArgumentIsRejected() {
+        XCTAssertEqual(parse(##"{"tool":"send_message","args":{"channel":"#a","text":"b","limit":true}}"##),
+                       .failure(.wrongType(argument: "limit", expected: "integer")))
+        XCTAssertEqual(parse(##"{"tool":"send_message","args":{"channel":"#a","text":"b","limit":false}}"##),
+                       .failure(.wrongType(argument: "limit", expected: "integer")))
+    }
+
+    /// …and the fix mustn't take a genuine 1 or 0 with it: `NSNumber(1) as? Bool`
+    /// succeeds in Swift, so the naive `!(value is Bool)` guard would reject both.
+    func testOneAndZeroAreStillIntegers() throws {
+        for literal in ["1", "0"] {
+            let step = try parse(##"{"tool":"send_message","args":{"channel":"#a","text":"b","limit":\##(literal)}}"##).get()
+            guard case .call(let call) = step else { return XCTFail("expected a call") }
+            XCTAssertEqual(call.arguments["limit"], literal)
+        }
+    }
+
     func testStringForABooleanArgumentIsRejected() {
         XCTAssertEqual(parse(##"{"tool":"send_message","args":{"channel":"#a","text":"b","silent":"yes"}}"##),
                        .failure(.wrongType(argument: "silent", expected: "boolean")))

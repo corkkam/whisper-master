@@ -214,6 +214,39 @@ final class ConnectorInstanceStoreTests: XCTestCase {
         XCTAssertEqual(migrated.count, 1)
     }
 
+    // MARK: - activate() idempotency
+
+    /// `AppDelegate.reconcileAuthGate()` calls `activate` on the 0.5 s tick, so a repeat
+    /// call has to be free. It wasn't for the account that matters most — a user who
+    /// hasn't added a connector yet, whose empty list used to read as "not loaded" and
+    /// bought a disk read plus the legacy migration twice a second, forever.
+    func testRepeatActivateWithNoConnectorsDoesNotReReadFromDisk() {
+        let store = makeStore()
+        store.activate(userID: "user_ABC123")
+        let afterFirst = store.diskLoadCount
+        XCTAssertTrue(store.instances.isEmpty)
+
+        store.activate(userID: "user_ABC123")
+        store.activate(userID: "  user_ABC123  ")
+        XCTAssertEqual(store.diskLoadCount, afterFirst,
+                       "the same account, already loaded, must not re-read")
+    }
+
+    func testActivateReloadsWhenTheAccountChangesAndAfterSigningOut() {
+        let store = makeStore()
+        store.activate(userID: "user_A")
+        let afterFirst = store.diskLoadCount
+
+        store.activate(userID: "user_B")
+        XCTAssertEqual(store.diskLoadCount, afterFirst + 1, "a different account is a different file")
+
+        store.activate(userID: nil)
+        store.deactivate()
+        store.activate(userID: nil)
+        XCTAssertEqual(store.diskLoadCount, afterFirst + 3,
+                       "signing out drops what was loaded, so the next activate reloads")
+    }
+
     // MARK: - Per-account file paths
 
     func testPerUserFileURLsAreDistinctAndSanitized() {
