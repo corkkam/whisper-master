@@ -338,6 +338,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Discover other Macs running Whisper Master on the network (the mesh).
         meshCoordinator.start()
 
+        // Watch for coding agents on this Mac. Held behind the gate with the rest of
+        // the bring-up, and dormant until now so `swift test` and the headless
+        // snapshot renderer never open a socket. If no kunai answers on loopback the
+        // poll finds nothing and the surface stays dark, which is the correct
+        // outcome on almost every install.
+        viewModel.state.agents.start()
+
         let userID = currentOnboardingUserID()
 
         // Migration for existing installs: they have no per-user onboarding
@@ -715,6 +722,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // card — where clicks matter.
         pillWindow?.setInteractive(
             state.approvals.pending != nil
+                || state.shouldShowAgentAsk
                 || state.shouldShowBluetoothBanner
                 || state.shouldShowCommandConfirmation
                 || state.shouldShowDueReminderBanner

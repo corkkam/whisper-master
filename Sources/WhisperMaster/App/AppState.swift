@@ -474,6 +474,25 @@ final class AppState {
     /// The one write awaiting the user's consent, surfaced as a notch card.
     let approvals = ApprovalCoordinator()
 
+    /// The coding-agent surface: kunai sessions on this Mac, and whatever one of
+    /// them is currently waiting on a person for.
+    ///
+    /// Starts dormant — `start()` is called from the app layer once, post-auth — so
+    /// `swift test` and the headless snapshot renderer can build an `AppState`
+    /// without opening a socket or polling a port. Same posture as
+    /// `UsageStore(load: false)`.
+    let agents = AgentSurfaceController()
+
+    /// Whether a coding agent is holding a turn open waiting for an answer.
+    ///
+    /// This yields to `approvals.pending` and to nothing else above it: both are
+    /// consent cards with a caller suspended behind them, but the connector card is
+    /// the immediate consequence of something the user just said out loud and it
+    /// denies itself on a timeout, so it must not be the one that waits.
+    var shouldShowAgentAsk: Bool {
+        agents.ask != nil && approvals.pending == nil
+    }
+
     /// Opt-in, off by default — same posture as `llmCleanupEnabled`. When off, a day
     /// query answers from the deterministic `DaySummaryService` and no tool is ever
     /// called.
@@ -615,6 +634,7 @@ final class AppState {
             && download == nil
             && preparingEngine == nil
             && approvals.pending == nil
+            && !shouldShowAgentAsk
             && !shouldShowReminderTimePrompt
             && !shouldShowUndeliveredBanner
     }
@@ -786,6 +806,7 @@ final class AppState {
         if phase != .idle { return true }
         if download != nil || preparingEngine != nil { return true }
         if approvals.pending != nil { return true }
+        if shouldShowAgentAsk { return true }
         return shouldShowReminderTimePrompt
             || shouldShowDueReminderBanner
             || shouldShowCommandConfirmation

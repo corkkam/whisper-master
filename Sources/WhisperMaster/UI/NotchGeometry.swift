@@ -232,11 +232,17 @@ struct NotchSurfaceLayout {
     /// The tallest band the surface can ever show — what the panel has to fit.
     private var maxBandThickness: CGFloat {
         max(
-            max(bottomThickness, reminderThickness),
             max(
-                max(undeliveredThickness, bannerThickness),
-                transcriptThickness(lines: NotchTranscriptModel.visibleLines)
-            )
+                max(bottomThickness, reminderThickness),
+                max(
+                    max(undeliveredThickness, bannerThickness),
+                    transcriptThickness(lines: NotchTranscriptModel.visibleLines)
+                )
+            ),
+            // The agent panel is the tallest band the surface can carry: a choice
+            // card stacks its options, because they are model-authored sentences
+            // rather than three fixed words.
+            NotchAgentPanel.maxThickness
         )
     }
 

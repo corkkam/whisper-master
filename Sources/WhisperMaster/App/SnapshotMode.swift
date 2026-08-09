@@ -282,6 +282,53 @@ enum SnapshotMode {
                     ToolDescriptor.instanceArgument: "Work",
                 ]))
         }
+        // A coding agent asking to run a command. Same three answers as the connector
+        // card above, because it is the same question: the payload is unbounded, so
+        // it must be the words that give way and never the buttons.
+        renderPill(dir, name: "pill-10-agent-run") { s in
+            s.phase = .idle
+            s.agents.seedForSnapshot(
+                ask: .approval(
+                    AgentApproval(
+                        requestID: "r1", tool: "Bash",
+                        headline: "Run  rm -rf build/ && swift build -c release",
+                        detail: "whisper-master")),
+                sessions: [
+                    AgentSession(
+                        id: "s1", repo: "whisper-master", state: .awaitingPermission),
+                    AgentSession(
+                        id: "s2", repo: "kunai", state: .running,
+                        activity: "Editing loop.go",
+                        turnStartedAt: Int64(Date().addingTimeInterval(-17).timeIntervalSince1970 * 1000)),
+                    AgentSession(id: "s3", repo: "landing-page", state: .idle),
+                ])
+        }
+        // The choice card: options are model-authored sentences, so they stack and
+        // the band grows a row at a time. This is the case that proves a choice is
+        // not the approval card with different words.
+        renderPill(dir, name: "pill-10b-agent-choice") { s in
+            s.phase = .idle
+            s.agents.seedForSnapshot(
+                ask: .choice(
+                    AgentChoice(
+                        requestID: "r2",
+                        questions: [
+                            .init(
+                                text: "How should the retry back off?",
+                                header: "Retry", multiSelect: false,
+                                options: [
+                                    "Exponential, capped at 30s",
+                                    "Fixed 5s between attempts",
+                                    "Give up after the first failure",
+                                ])
+                        ],
+                        context: "whisper-master"),
+                ),
+                sessions: [
+                    AgentSession(id: "s1", repo: "whisper-master", state: .awaitingPermission),
+                    AgentSession(id: "s2", repo: "kunai", state: .idle),
+                ])
+        }
         renderPill(dir, name: "pill-7-polishing") { s in
             s.phase = .idle
             s.isPolishing = true

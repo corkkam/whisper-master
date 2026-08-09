@@ -358,6 +358,98 @@ uses `Theme.swift` tokens and the `UI/Components/` ladder, never ad-hoc literals
 
 **Terminals always take the ⌘V path (`TerminalApps`, outcome `terminal`).** A terminal emulator is the one target that *always* has a real paste destination (the shell) but doesn't advertise it via AX like a native field: GPU/custom terminals (Ghostty, Warp, Alacritty, kitty, WezTerm) expose no caret/role/settable value → they'd be misread as **nowhere to type** and the transcript would be copied but never pasted; AppKit terminals (Terminal.app, iTerm2) report `AXTextArea` → they'd take the per-char inject path, which terminals drop (they key off virtual keycodes, not synthesized Unicode). So `pasteFinal` checks `TerminalApps.frontmostIsTerminal()` (an explicit bundle-id allow-list — extend it as new terminals appear) **first**, skips both AX-role branches, and routes to `pasteViaClipboard` (real ⌘V, polish computed up front like the web path — never in-place-refine a live command line). This was the cause of "dictation doesn't paste into the terminal." **macOS Secure Keyboard Entry** (Terminal's menu, or any focused password field) makes the WindowServer swallow synthesized ⌘V too — `TerminalApps.secureKeyboardEntryEnabled()` (`IsSecureEventInputEnabled`) detects it so the status message can explain the block instead of failing silently; nothing in code can bypass it. **Debug/dev builds need their own Accessibility grant:** `dev-install.sh` rebrands to bundle id `app.whispermaster.mac.dev` and re-signs ad-hoc, so TCC treats it as a different app from the installed Release "Whisper Master" — grant "Whisper Master Dev" in System Settings → Privacy → Accessibility (and re-toggle after a rebuild if a stale grant leaves `AXIsProcessTrusted()` true while events are dropped), or auto-paste silently fails everywhere.
 
+### Coding agents in the notch (`Agents/`, `UI/Agents/`)
+
+The notch answers for **coding agents running on this Mac**: when Claude Code needs
+permission to run something, the band drops with the question and three answers, so
+a person watching a video can settle it without going to find the terminal. The whole
+feature is **interrupt-first** — nothing here is summoned, and it adds **no keyboard
+shortcut at all**.
+
+- **The app is a client, never a host.** It does not ship, start, install or
+  supervise [kunai](https://github.com/HEGADE/kunai) (the Go server that drives
+  `claude` over its stream-json control protocol and re-publishes the result). If a
+  server answers, the surface lights up; if not, the feature is simply absent, which
+  is the state on almost every install. Bundling it was considered and rejected:
+  kunai self-updates from its own releases and installs itself as a launchd service
+  on a fixed port with its own data dir, so a second copy inside this app would fight
+  the one already there over the port, `~/.kunai`, and the `~/.claude/commands/kunai.md`
+  slash command kunai rewrites on every boot.
+- **⚠️ Discovery reads `<dataDir>/url`, and must not assume loopback.** kunai records
+  its own public URL there on each boot, and its `/kunai` slash command reads that
+  file rather than baking an address in. `KunaiEndpoint.candidates` does the same:
+  `KUNAI_URL` → `~/.kunai/url` → `~/.kunai-nightly/url` → `http://127.0.0.1:8443`.
+  The first version assumed loopback HTTP and **found nothing on a real machine**: with
+  a tailnet and MagicDNS, `install.sh` mints a certificate and binds the *tailnet IP*,
+  so the server is at `https://<host>.<tailnet>.ts.net:8443` and 127.0.0.1 is dead.
+  The socket scheme therefore follows the base URL (`wss` for `https`) — asking for
+  `ws` against a TLS server fails the upgrade rather than downgrading. `KunaiRESTClient`
+  remembers whichever candidate answered and `AgentSurfaceController` opens the socket
+  against **that same one**, so a machine running both the stable and nightly channels
+  can't read its sessions from one server and attach to the other.
+- **No credentials anywhere, and that is a property of the perimeters, not an
+  oversight.** Loopback is never locked (a forgotten PIN has to stay fixable from the
+  machine), and on a tailnet the tailnet *is* the auth perimeter. The one listener
+  that carries a PIN is `-lan`, off by default; a client pointed at one gets a 401 and
+  the surface stays dark.
+- **`seq` + `epoch` are what make a closed panel cheap.** kunai sequences every frame
+  within a session and keeps a ring buffer, so reattaching asks for everything after
+  the last sequence seen (`?since=N`) instead of replaying the conversation. `epoch`
+  identifies the *process* behind a session id and changes on respawn — and the
+  replacement numbers its events from 1 again, so a retained high-water mark would
+  swallow the entire new conversation as already-seen. `KunaiEventStream` emits
+  `.reset` on an epoch change and the controller drops everything it holds.
+- **The panel is the question, not a list.** `NotchAgentPanel` puts the ask itself on
+  the band, answerable in place, with the other sessions reduced underneath to a dot,
+  a name and a status (`NotchAgentSessionsRow`). An earlier design gave three equal
+  rounded cards to three unequal things — one was a question and two were status — and
+  read as a dropdown menu rather than a notch surface.
+- **An approval reuses `NotchApprovalBanner`'s shape exactly** (`NotchAgentAskBanner`:
+  same Once / Always / No, same capsule fills, same `textGivesWayToTrailing` because
+  the payload is a model-composed command of unbounded length). A permission from
+  Claude Code is the same question a connector write already asks, so it is the same
+  object. **A choice is not** (`NotchAgentChoiceCard`, the `AskUserQuestion` tool):
+  its options are model-authored sentences, so they stack, and a multi-select needs a
+  confirm. **Options are never truncated** — shortening the text of something a person
+  is choosing between is the same failure as abbreviating a consent payload — so a
+  card that can't render them honestly defers to kunai instead.
+- **⚠️ The band's height is decided before the card lays out**, so
+  `NotchAgentChoiceCard.Metrics` is pinned to explicit frames *and* read by
+  `NotchAgentPanel.thickness`; `NotchAgentPanel.maxThickness` feeds
+  `NotchSurfaceLayout.maxBandThickness` because the panel is sized once at window
+  creation and a band taller than its panel is clipped by its own window (the width-axis
+  twin of `maxStateLabelWing`). When those two disagreed, the context row under the
+  choice card was cut in half. `NotchAgentPanelTests` is the lock.
+- **Auto mode trades the approval card for the turn undo, and that is only honest
+  because kunai snapshots the working tree before every turn.** `AgentModeControl`
+  offers Ask / Auto / Plan beside the question, because the moment someone wants to
+  stop being asked is the moment they are being asked. **`bypassPermissions` is
+  deliberately not offered**: it would trade the card for nothing, and it can't be
+  undone from the same panel that set it. Ask stays the default; an unrecognised wire
+  value falls back to Ask, never to Auto.
+- **"What changed" and "what undo would change" are two different questions**
+  (`AgentChangeSet`). The first comes from the turn's own tool calls and is short and
+  readable; the second comes from `GET /api/sessions/{id}/revert`, which asks **git**,
+  because a revert is a whole-repository operation that also discards later turns'
+  edits and every untracked file. kunai's own comment is the reason: a list built from
+  the turn's tool calls "would be reassuringly short and wrong". The undo summary
+  leads with the deletion count, since restoring a tracked file is recoverable and
+  deleting an untracked one is not.
+- **The ask sits directly below the connector approval card in the band ladder** and
+  above everything else. Both are consent with a caller suspended behind them; the
+  connector card wins because it denies itself on a timeout, so it is the one that must
+  not wait. `AppState.shouldShowAgentAsk` is the single test the ladder, the panel
+  interactivity (`setInteractive`) and `notchIsOccupied` all read.
+- The controller **starts dormant** (`AppState.agents`, started from
+  `proceedAfterAuthIfNeeded` with the rest of the post-gate bring-up) so `swift test`
+  and the headless snapshot renderer never open a socket or poll a port — the same
+  posture as `UsageStore(load: false)`. Polling is 3s, deliberately far slower than the
+  0.5s UI tick, because it is a network call whose answer changes on human timescales.
+- **Verifying against a real server:** `KUNAI_LIVE=1 swift test --filter KunaiLiveTests`
+  is a bench in the style of `AudioReplayTests` — it talks to whatever kunai is actually
+  installed and **skips rather than fails** when there is none, so CI and a fresh clone
+  stay green. Snapshots: `pill-10-agent-run`, `pill-10b-agent-choice`.
+
 ### Diagnostics (local-only, `DIAGNOSTICS` build)
 
 A developer-only session tracer, **compiled out of every shipped build**. Gated behind the `DIAGNOSTICS` compile flag: **`DIAGNOSTICS=1 bash Scripts/install.sh`** builds a **Release-optimized** app (so latency/RTF numbers are real) with the tracer on; CI never sets the flag, so `Diagnostics.shared` is a `NoopDiagnostics` and no session data or audio is ever written on a tester's machine. Spec: `docs/superpowers/specs/2026-07-09-diagnostics-session-tracing-design.md`. Each dictation writes a `SessionTrace` to `~/Library/Application Support/WhisperMaster/Diagnostics/` (pretty JSON + a mono WAV of the captured audio + an `index.ndjson` summary; newest 100 kept): a latency **timeline** (key-down → notch → engine → mic warmup → first partial/confirmed → each deterministic stage → paste), **audio** stats (device, is-Bluetooth, sample rate, RMS/peak/clip), the **raw-ASR → per-stage → final** text chain, the **target app** + focus AX snapshot + paste outcome, and the live **LLM verdict** (`llmReady`/`llmRaw`/`llmAccepted`/`llmMs`, captured on the beforePaste path — distinguishes "model no-op" vs "guard rejected" vs "not ready"). This is the instrument for diagnosing field reports ("it misses words / mic feels bad / it's slow") from real recordings instead of guesses; `Scripts/diag-to-cases.swift` turns saved sessions into an audio `cases.jsonl` for the eval/replay harness. Modular under `Diagnostics/` (`SessionTrace`, `AudioSignalStats`, `SessionAudioWriter`, `DiagnosticsStore`, `DiagnosticsRecorder`, `Diagnostics` facade; pure units unit-tested in `DiagnosticsTests`). The facade no-ops without the flag, so call sites in `DictationViewModel`/capture carry no `#if`.

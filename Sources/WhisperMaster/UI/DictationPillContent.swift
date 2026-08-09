@@ -35,16 +35,16 @@ struct DictationPillContent: View {
     /// user set it for a moment, and this band is the whole of its delivery.
     /// (`AppState.canShowDueReminderBanner` already yields it to the approval card
     /// and the undelivered hint, and pauses its clock while it does.)
-    private var showDueReminder: Bool { !showApproval && state.shouldShowDueReminderBanner }
+    private var showDueReminder: Bool { !showApproval && !showAgentAsk && state.shouldShowDueReminderBanner }
 
     /// The "note saved / reminder set" confirmation after a spoken command routed
     /// into Notes & Reminders — highest priority, since the paste was suppressed
     /// and this is the user's only feedback that the words went somewhere.
-    private var showCommandConfirmation: Bool { !showApproval && !showDueReminder && state.shouldShowCommandConfirmation }
+    private var showCommandConfirmation: Bool { !showApproval && !showAgentAsk && !showDueReminder && state.shouldShowCommandConfirmation }
 
     /// The "what's my day" answer — the immediate result of a connector query the
     /// user just asked for. Just under the command confirmation.
-    private var showDaySummary: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && state.shouldShowDaySummary }
+    private var showDaySummary: Bool { !showApproval && !showAgentAsk && !showDueReminder && !showCommandConfirmation && state.shouldShowDaySummary }
 
     /// The "nowhere to paste" hint — the immediate consequence of a dictation
     /// that had no target field.
@@ -53,25 +53,48 @@ struct DictationPillContent: View {
     /// the user to dismiss cards they never read.
     private var showApproval: Bool { state.approvals.pending != nil }
 
-    private var showUndelivered: Bool { !showApproval && !showCommandConfirmation && !showDaySummary && state.shouldShowUndeliveredBanner }
+    /// A coding agent holding a turn open on a question. Directly below the connector
+    /// approval and above everything else, because it is the same kind of thing: a
+    /// caller suspended behind a card. It yields to the connector card because that
+    /// one denies itself on a timeout, so it is the one that must not wait.
+    private var showAgentAsk: Bool { state.shouldShowAgentAsk }
+
+    /// The agent sessions shown as context under the question. Resolved here as well
+    /// as in the panel because the band's thickness depends on whether there are any.
+    private var otherAgentSessions: [AgentSession] {
+        NotchAgentPanel.otherSessions(
+            in: state.agents.sessions, askingRepo: state.agents.askingSession?.repo ?? "")
+    }
+
+    /// Read once per render rather than held: the elapsed labels in the context row
+    /// only need to be right each time the band repaints, and a stored clock here
+    /// would be a second thing to keep ticking.
+    private var now: Date { Date() }
+
+    private var showUndelivered: Bool { !showApproval && !showAgentAsk && !showCommandConfirmation && !showDaySummary && state.shouldShowUndeliveredBanner }
 
     /// The "learned a word" confirmation — just under the undelivered hint.
-    private var showLearned: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && state.shouldShowLearnedBanner }
+    private var showLearned: Bool { !showApproval && !showAgentAsk && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && state.shouldShowLearnedBanner }
 
     /// The one-shot "smart cleanup is ready" confirmation — just under the
     /// learned hint. (Model download *progress* never appears here.)
-    private var showCleanupReady: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
+    private var showCleanupReady: Bool { !showApproval && !showAgentAsk && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
 
     /// The Bluetooth-mic hint takes precedence over the dictation indicator and
     /// uses a taller band to fit its text + button.
-    private var showBanner: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
+    private var showBanner: Bool { !showApproval && !showAgentAsk && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
 
     /// A gentle reminder — lower priority than the hints above, shown only when
     /// idle (`AppState.shouldShowReminder` already gates that).
-    private var showReminder: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
+    private var showReminder: Bool { !showApproval && !showAgentAsk && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
 
     private var bandThickness: CGFloat {
         if showApproval { return layout.bannerThickness }
+        if showAgentAsk, let ask = state.agents.ask {
+            return NotchAgentPanel.thickness(
+                for: ask, otherSessions: otherAgentSessions.count,
+                banner: layout.bannerThickness)
+        }
         if showDueReminder { return layout.dueReminderThickness }
         if showCommandConfirmation { return layout.commandConfirmationThickness }
         if showDaySummary { return layout.daySummaryThickness }
@@ -118,7 +141,7 @@ struct DictationPillContent: View {
     /// them in this same order; this is the single "not the dictation indicator"
     /// test the width, thickness and glow all read from.
     private var bandIsBanner: Bool {
-        showApproval || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered
+        showApproval || showAgentAsk || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered
             || showLearned || showCleanupReady || showBanner || showReminder
     }
 
@@ -184,7 +207,10 @@ struct DictationPillContent: View {
     /// buttons alongside its two lines, and at banner width the words and the
     /// answers were competing for the same ~200pt.
     private var surfaceKind: NotchSurfaceWidth {
-        if showApproval { return .wide }
+        // The agent panel carries three buttons beside an unbounded command, or a
+        // column of model-authored options. Both need the bar, for the same reason
+        // the connector approval card does.
+        if showApproval || showAgentAsk { return .wide }
         guard bandIsDictation else { return .banner }
         return isDeliveredBadge ? .glyph : .wide
     }
@@ -237,6 +263,7 @@ struct DictationPillContent: View {
         // would have left a write waiting on a question nobody was shown, until it
         // timed out and denied itself.
         if showApproval
+            || showAgentAsk
             || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
             || state.shouldShowDeliveredBeat || state.shouldShowLiveTranscript
             || state.shouldShowPolishedBeat { return true }
@@ -303,7 +330,7 @@ struct DictationPillContent: View {
         // button, the tappable command confirmation, and the undelivered hint's
         // Copy button); the dictation indicator stays click-through (the panel
         // toggles ignoresMouseEvents to match).
-        .allowsHitTesting(showApproval || showBanner || showCommandConfirmation || showUndelivered || showDueReminder)
+        .allowsHitTesting(showApproval || showAgentAsk || showBanner || showCommandConfirmation || showUndelivered || showDueReminder)
         // Appear *instantly* (no animation when expanding), animate only the
         // retract. A spring on the way in read as "the notch appears late" even
         // though the state flips synchronously on key-press. Banners (below) keep
@@ -326,6 +353,7 @@ struct DictationPillContent: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showDaySummary)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: state.isSpeakingAnswer)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showApproval)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showAgentAsk)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showDueReminder)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowDeliveredBeat)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowPolishedBeat)
@@ -337,6 +365,21 @@ struct DictationPillContent: View {
             NotchApprovalBanner(approval: approval) { outcome in
                 state.approvals.resolve(outcome)
             }
+        } else if showAgentAsk, let ask = state.agents.ask {
+            NotchAgentPanel(
+                ask: ask,
+                sessions: state.agents.sessions,
+                askingRepo: state.agents.askingSession?.repo ?? "",
+                mode: state.agents.askingSession?.mode ?? .ask,
+                now: now,
+                onResolve: { allow, always in
+                    state.agents.resolve(ask, allow: allow, always: always)
+                },
+                onAnswer: { question, selected in
+                    guard case .choice(let choice) = ask else { return }
+                    state.agents.answer(choice, question: question, selected: selected)
+                },
+                onSelectMode: { state.agents.setMode($0) })
         } else if showDueReminder, let reminder = state.dueReminder {
             NotchDueReminderBanner(
                 reminder: reminder,
