@@ -47,10 +47,44 @@ final class AgentSurfaceController {
     /// interrupted by it. Driven by a tap of the agent key.
     private(set) var isGlanceOpen = false
 
+    /// When a *send* opened the surface, as opposed to a deliberate tap.
+    ///
+    /// The two need different lifetimes. A tap is someone choosing to look, so it
+    /// stays until they close it. A reveal is a receipt for words they just spoke, so
+    /// it has to appear on its own and then get out of the way — otherwise the band
+    /// sits over the menu bar for the rest of the day.
+    private(set) var revealedAt: Date?
+
+    /// How long a revealed session lingers once its turn has finished. Long enough to
+    /// read the reply, short enough that the notch gives the menu bar back.
+    static let revealHold: TimeInterval = 10
+
+    /// Show a session's tail because something just went to it.
+    ///
+    /// This is what stops a spoken prompt from disappearing: the words are suppressed
+    /// from the paste, so without a surface the user has no evidence they went
+    /// anywhere at all.
+    func reveal(sessionID: String) {
+        isGlanceOpen = true
+        revealedAt = Date()
+        openSessionID = sessionID
+        reconcileAttachment()
+    }
+
+    /// Whether a revealed band has outstayed its welcome: the turn is over and the
+    /// hold has elapsed. A tap-opened glance never expires this way.
+    func revealHasExpired(now: Date = Date()) -> Bool {
+        guard let revealedAt else { return false }
+        guard let session = openSession, session.state == .idle else { return false }
+        return now.timeIntervalSince(revealedAt) > Self.revealHold
+    }
+
     /// Open or close the glance. Closing also lets go of whichever session was being
     /// read, so the next interrupt is free to attach to whatever is actually asking.
     func toggleGlance() {
         isGlanceOpen.toggle()
+        // A deliberate tap is not a receipt, so it never auto-expires.
+        revealedAt = nil
         guard !isGlanceOpen else {
             Task { await refresh() }
             return
@@ -62,6 +96,7 @@ final class AgentSurfaceController {
     func closeGlance() {
         guard isGlanceOpen else { return }
         isGlanceOpen = false
+        revealedAt = nil
         openSessionID = nil
         reconcileAttachment()
     }
@@ -315,6 +350,7 @@ final class AgentSurfaceController {
             }
             guard stream != nil else { return false }
             sendPrompt(trimmed)
+            reveal(sessionID: target.id)
             return true
         }
 
@@ -326,6 +362,7 @@ final class AgentSurfaceController {
         await waitForAttachment()
         guard stream != nil else { return false }
         sendPrompt(trimmed)
+        reveal(sessionID: id)
         return true
     }
 

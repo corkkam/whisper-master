@@ -735,8 +735,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 || state.shouldShowDueReminderBanner
                 || state.shouldShowUndeliveredBanner)
 
-        // Keep the optional coding-agent key in step with the preference.
+        // Keep the optional coding-agent key in step with the preference, and give
+        // the menu bar back once a revealed session has been read.
         reconcileAgentHotkey()
+        if state.agents.revealHasExpired() { state.agents.closeGlance() }
 
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
@@ -1134,6 +1136,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             agentHotkeyManager.setHotkey(wanted)
             return
         }
+        // Same claim as push-to-talk: with the stock "Press 🌐 to show Emoji", every
+        // press of the agent key would also open the emoji picker and steal focus
+        // from the app the user is watching.
+        claimFnKeyIfChosen(wanted)
+
         agentHotkeyManager = HotkeyManager(
             hotkey: wanted,
             // No hands-free latch: a held key that keeps listening after release is
