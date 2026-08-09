@@ -242,7 +242,7 @@ struct NotchSurfaceLayout {
             // The agent panel is the tallest band the surface can carry: a choice
             // card stacks its options, because they are model-authored sentences
             // rather than three fixed words.
-            NotchAgentPanel.maxThickness
+            max(NotchAgentPanel.maxThickness, NotchAgentGlance.maxThickness)
         )
     }
 

@@ -18,6 +18,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Watches the fn + control chord — "what I'm about to say goes to the
     /// assistant, not the cursor" (see `setupHotkey`).
     private var commandChordMonitor: ModifierChordMonitor?
+    /// Watches the user-chosen key that talks to a coding agent. Nil whenever no key
+    /// is chosen, or the chosen one collides with push-to-talk — a monitor for a key
+    /// we would refuse to act on is a monitor that should not exist.
+    private var agentHotkeyManager: HotkeyManager?
+    /// The key `agentHotkeyManager` is currently installed for, so the reconcile on
+    /// the refresh tick is a no-op unless the preference actually changed.
+    private var installedAgentHotkey: HotkeyManager.HotkeyOption?
     private let permissionsManager = PermissionsManager()
     private lazy var viewModel = DictationViewModel(
         hotkeyUpdater: { [weak self] hotkey in
@@ -728,6 +735,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 || state.shouldShowDueReminderBanner
                 || state.shouldShowUndeliveredBanner)
 
+        // Keep the optional coding-agent key in step with the preference.
+        reconcileAgentHotkey()
+
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
 
@@ -1095,6 +1105,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         viewModel.hotkeyGestureReset = { [weak self] in
             self?.hotkeyManager?.resetGesture()
+        }
+
+        // The agent key is optional and user-chosen, so it is installed by the same
+        // reconcile the refresh loop runs rather than once here.
+        reconcileAgentHotkey()
+    }
+
+    /// Install, move or remove the coding-agent key to match the preference.
+    ///
+    /// Change-guarded like everything else on the 0.5s path: this runs twice a second
+    /// for the life of the process and the answer is identical on nearly every tick.
+    ///
+    /// A key that collides with push-to-talk resolves to `nil` (see
+    /// `AppState.effectiveAgentHotkey`) and the monitor comes down, rather than two
+    /// monitors fighting over one physical key — dictation wins, because it is the
+    /// thing the app is for.
+    private func reconcileAgentHotkey() {
+        let wanted = viewModel.state.effectiveAgentHotkey
+        guard wanted != installedAgentHotkey else { return }
+        installedAgentHotkey = wanted
+
+        guard let wanted else {
+            agentHotkeyManager = nil
+            return
+        }
+        if let agentHotkeyManager {
+            agentHotkeyManager.setHotkey(wanted)
+            return
+        }
+        agentHotkeyManager = HotkeyManager(
+            hotkey: wanted,
+            // No hands-free latch: a held key that keeps listening after release is
+            // right for typing a paragraph, and wrong for a key whose release is what
+            // sends the words somewhere.
+            latchesOnDoubleTap: false,
+            holdToTalk: { true }
+        ) { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .start:
+                guard self.ensureCanDictate() else { return }
+                self.viewModel.handleAgentKeyStart()
+            case .stop:
+                self.viewModel.handleAgentKeyStop()
+            case .handsFree, .toggle:
+                break
+            }
         }
 
         // **The assistant chord: hold fn + control.** This is the single way in to

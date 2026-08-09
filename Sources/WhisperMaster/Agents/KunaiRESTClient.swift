@@ -90,6 +90,44 @@ actor KunaiRESTClient {
         return try? JSONDecoder().decode(AgentChangeSet.RevertPreview.self, from: data)
     }
 
+    /// Start a session in `cwd` and return its id.
+    ///
+    /// The permission mode is set **at create**, not afterwards, because the CLI
+    /// applies it as a spawn flag: sent later it arrives too late to govern the first
+    /// tool call, which for a session started by voice and then left alone is exactly
+    /// the one that matters.
+    ///
+    /// kunai blocks on the CLI init handshake here, so this is the one call with a
+    /// long timeout. It is never on a path where the user is waiting on a keystroke.
+    func createSession(cwd: String, mode: KunaiWire.PermissionMode) async -> String? {
+        guard let endpoint = active ?? candidates.first,
+              let url = endpoint.api("api/sessions")
+        else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.timeoutInterval = 50  // kunai allows itself 45s for the handshake
+        request.httpBody = try? JSONSerialization.data(
+            withJSONObject: ["cwd": cwd, "mode": mode.rawValue])
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode)
+            else {
+                Log.agents.error(
+                    "kunai refused a new session in \(cwd, privacy: .public)")
+                return nil
+            }
+            struct Created: Decodable { var id: String }
+            return (try? JSONDecoder().decode(Created.self, from: data))?.id
+        } catch {
+            Log.agents.error(
+                "kunai session create failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
     // MARK: Transport
 
     private func get(_ url: URL) async -> Data? {

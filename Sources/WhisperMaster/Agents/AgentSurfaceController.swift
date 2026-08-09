@@ -43,11 +43,41 @@ final class AgentSurfaceController {
     /// the correct state on the overwhelming majority of Macs.
     private(set) var isAvailable = false
 
+    /// Whether the user has opened the surface to look at it, rather than being
+    /// interrupted by it. Driven by a tap of the agent key.
+    private(set) var isGlanceOpen = false
+
+    /// Open or close the glance. Closing also lets go of whichever session was being
+    /// read, so the next interrupt is free to attach to whatever is actually asking.
+    func toggleGlance() {
+        isGlanceOpen.toggle()
+        guard !isGlanceOpen else {
+            Task { await refresh() }
+            return
+        }
+        openSessionID = nil
+        reconcileAttachment()
+    }
+
+    func closeGlance() {
+        guard isGlanceOpen else { return }
+        isGlanceOpen = false
+        openSessionID = nil
+        reconcileAttachment()
+    }
+
     /// The session the user is speaking to when they hold the key with the panel
     /// open. Nil means dictation behaves exactly as it always has.
     var voiceTarget: AgentSession? {
         guard let id = openSessionID ?? ask.flatMap({ _ in attachedSessionID }) else { return nil }
         return sessions.first { $0.id == id }
+    }
+
+    /// The session the user drilled into, if any. Nil means the glance is showing the
+    /// list rather than one conversation.
+    var openSession: AgentSession? {
+        guard let openSessionID else { return nil }
+        return sessions.first { $0.id == openSessionID }
     }
 
     /// The session that is asking, for the banner's second line.
@@ -124,6 +154,12 @@ final class AgentSurfaceController {
         sessions = metas
             .map { AgentSession(meta: $0, mode: knownModes[$0.id] ?? .ask) }
             .rankedForGlance()
+
+        // Remembered so a first spoken prompt on a Mac with a *closed* session still
+        // has somewhere sensible to open, rather than demanding a setting first.
+        if let directory = metas.first(where: { !$0.cwd.isEmpty })?.cwd {
+            lastKnownDirectory = directory
+        }
 
         reconcileAttachment()
     }
@@ -254,6 +290,73 @@ final class AgentSurfaceController {
         send(.prompt(trimmed))
     }
 
+    /// The whole point of the key: speak, and the words reach an agent.
+    ///
+    /// Attaches to the target session first if we are not already on it, then sends.
+    /// If there is **no** session at all it starts one and sends the words as its
+    /// opening prompt, because "hold a key and talk" has to work on a Mac where
+    /// nothing is running yet — otherwise the feature only works for people who
+    /// already went somewhere else to start the work.
+    ///
+    /// Returns false when the words could not be delivered, so the caller can fall
+    /// back rather than swallowing them. A dictation that goes nowhere is the one
+    /// outcome this path must never produce.
+    @discardableResult
+    func deliver(prompt text: String, startingIn newSessionDirectory: String?) async -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, isAvailable else { return false }
+
+        if let target = promptTarget {
+            if attachedSessionID != target.id {
+                openSessionID = target.id
+                reconcileAttachment()
+                // The socket has to be up before a command can ride it.
+                await waitForAttachment()
+            }
+            guard stream != nil else { return false }
+            sendPrompt(trimmed)
+            return true
+        }
+
+        guard let directory = newSessionDirectory, !directory.isEmpty else { return false }
+        guard let id = await rest.createSession(cwd: directory, mode: .ask) else { return false }
+        await refresh()
+        openSessionID = id
+        reconcileAttachment()
+        await waitForAttachment()
+        guard stream != nil else { return false }
+        sendPrompt(trimmed)
+        return true
+    }
+
+    /// A directory a session is known to live in, so a first spoken prompt has
+    /// somewhere to open without the user configuring anything. Nil on a Mac that has
+    /// never run one.
+    private(set) var lastKnownDirectory: String?
+
+    /// Which session a spoken prompt belongs to: the one being read, else the one
+    /// asking, else the most recently active. "Most recently active" beats "first in
+    /// the list" because the list is ranked for *reading* — waiting first — and the
+    /// session you last worked in is the one you mean when you start talking.
+    var promptTarget: AgentSession? {
+        if let openSessionID, let open = sessions.first(where: { $0.id == openSessionID }) {
+            return open
+        }
+        if let asking = askingSession { return asking }
+        return sessions.max { a, b in
+            (a.turnStartedAt ?? 0, a.id) < (b.turnStartedAt ?? 0, b.id)
+        }
+    }
+
+    /// Give the socket a moment to come up. Bounded, because a server that never
+    /// answers must not leave the caller holding a transcript forever.
+    private func waitForAttachment(timeout: Duration = .milliseconds(1500)) async {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while stream == nil, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
     func setMode(_ mode: KunaiWire.PermissionMode) {
         send(.setMode(mode))
         updateMode(mode)
@@ -284,6 +387,20 @@ final class AgentSurfaceController {
     /// Only ever called from `SnapshotMode`, which is compiled out of Release. It
     /// sets the observable state directly and starts nothing, so no socket is opened
     /// and no port is polled.
+    /// Put the glance into a fixed state for the PNG renderer. `openSessionID` set
+    /// means the drill-in form; nil means the session list.
+    func seedGlanceForSnapshot(
+        sessions: [AgentSession], openSessionID: String? = nil,
+        log: AgentTurnLog = AgentTurnLog(), changeSet: AgentChangeSet = AgentChangeSet()
+    ) {
+        self.sessions = sessions.rankedForGlance()
+        self.isAvailable = true
+        self.isGlanceOpen = true
+        self.openSessionID = openSessionID
+        self.log = log
+        self.changeSet = changeSet
+    }
+
     func seedForSnapshot(ask: AgentAsk, sessions: [AgentSession]) {
         self.sessions = sessions.rankedForGlance()
         self.ask = ask

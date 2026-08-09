@@ -32,6 +32,28 @@ struct RecordingSettingsView: View {
                 }
             }
 
+            SectionLabel("Coding agents")
+
+            SettingsCard {
+                SettingsRow(
+                    "Talk to a coding agent",
+                    subtitle: agentKeySubtitle
+                ) {
+                    agentHotkeyMenu
+                }
+                if state.agentHotkey != nil, state.agentHotkey == state.hotkey {
+                    agentKeyCollisionHint
+                }
+                RowDivider()
+                SettingsRow(
+                    "Project folder",
+                    subtitle: "Where a new session opens when nothing is running. "
+                        + "Leave empty to reuse the folder of a session you already have."
+                ) {
+                    agentDirectoryField
+                }
+            }
+
             SectionLabel("Notch")
 
             SettingsCard {
@@ -163,6 +185,69 @@ struct RecordingSettingsView: View {
             .pickerStyle(.menu)
             .tint(Theme.accent)
             .fixedSize()
+        }
+    }
+
+    /// Two monitors on one physical key would fight, so the agent key stands down and
+    /// dictation keeps it. Said out loud, because a picker showing a key that quietly
+    /// does nothing is worse than one that admits it.
+    private var agentKeyCollisionHint: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.warning)
+            Text("That's already your push-to-talk key, so the agent key is off. "
+                + "Pick a different one.")
+                .font(Typography.subheadline)
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Says what the key does, and what is on the other end of it, because "talk to
+    /// a coding agent" means nothing on a Mac with no agent running.
+    private var agentKeySubtitle: String {
+        let base = "Hold it and speak. Your words go to a Claude Code session on this Mac "
+            + "instead of being typed."
+        return state.agents.isAvailable
+            ? base
+            : base + " Nothing is running right now, so this stays quiet until there is."
+    }
+
+    @ViewBuilder
+    private var agentHotkeyMenu: some View {
+        if isSnapshot {
+            hotkeyLabel
+        } else {
+            Picker("", selection: Binding(
+                get: { state.agentHotkey },
+                set: { state.agentHotkey = $0 }
+            )) {
+                // Off is a real choice, and the default: reserving a modifier on
+                // every Mac for a server almost nobody runs would be an imposition.
+                Text("Off").tag(HotkeyManager.HotkeyOption?.none)
+                ForEach(HotkeyManager.HotkeyOption.allCases) { option in
+                    Text(option.displayName).tag(HotkeyManager.HotkeyOption?.some(option))
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .tint(Theme.accent)
+            .fixedSize()
+        }
+    }
+
+    @ViewBuilder
+    private var agentDirectoryField: some View {
+        if isSnapshot {
+            Text(state.agentDefaultDirectory.isEmpty ? "—" : state.agentDefaultDirectory)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(Theme.textSecondary)
+        } else {
+            TextField("~/code/my-project", text: $state.agentDefaultDirectory)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12, design: .monospaced))
+                .frame(width: 260)
         }
     }
 

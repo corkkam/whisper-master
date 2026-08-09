@@ -53,6 +53,12 @@ final class AppState {
     // launch), so the key is left on disk and never read — same reasoning as the
     // retired hotkey key below. Don't reuse the name.
     static let hotkeyDefaultsKey = "WhisperMaster.hotkey.v1"
+    /// The coding-agent key. Stored as the raw option name, or "" for off, so the
+    /// absence of the key means "never chosen" and an empty string means "chosen
+    /// off" — two states a plain optional string cannot tell apart.
+    static let agentHotkeyDefaultsKey = "WhisperMaster.agentHotkey.v1"
+    /// Where a spoken prompt opens a new agent session when nothing is running.
+    static let agentDirectoryDefaultsKey = "WhisperMaster.agentDirectory.v1"
     // `WhisperMaster.dayQueryHotkey.v1` was the retired second push-to-talk key.
     // Left on disk rather than migrated away — it is never read, and deleting a key
     // buys nothing. Don't reuse the name for something else.
@@ -152,6 +158,32 @@ final class AppState {
     }
     var holdToTalkEnabled: Bool = true {
         didSet { UserDefaults.standard.set(holdToTalkEnabled, forKey: Self.holdToTalkDefaultsKey) }
+    }
+
+    /// The key that talks to a coding agent, or nil for off.
+    ///
+    /// A second physical key rather than another chord, and **user-chosen rather
+    /// than fixed**, because it has to stay off whatever the person already uses for
+    /// dictation — which is not the default on most installs. `nil` is a real state:
+    /// somebody with no kunai should not be holding a key aside for it.
+    ///
+    /// Talking to an agent genuinely needs its own way in. Everything else in the
+    /// notch is either an interrupt that arrives on its own or a re-label of a
+    /// dictation already in flight; this one *starts* something, and nothing can
+    /// infer that from the words (see the prohibition on inferring intent in the
+    /// root `CLAUDE.md`).
+    var agentHotkey: HotkeyManager.HotkeyOption? = nil {
+        didSet {
+            UserDefaults.standard.set(agentHotkey?.rawValue ?? "", forKey: Self.agentHotkeyDefaultsKey)
+        }
+    }
+
+    /// The agent key, but only when it is actually usable: a key that collides with
+    /// push-to-talk would swallow one of the two, and the dictation key wins because
+    /// it is the one the whole app is named for.
+    var effectiveAgentHotkey: HotkeyManager.HotkeyOption? {
+        guard let agentHotkey, agentHotkey != hotkey else { return nil }
+        return agentHotkey
     }
     /// True while a double-tap has latched the running dictation open, so it keeps
     /// listening with the key released. Transient (never persisted); set by the
@@ -408,6 +440,33 @@ final class AppState {
     /// is why the old always-on "Create by voice" toggle is gone. An ordinary
     /// dictation that merely opens with "remind me…" is now just text again.
     var commandCaptureArmed: Bool = false
+
+    /// True while the agent key is holding a capture whose words go to a coding
+    /// agent rather than being typed. Transient; mirrored from the view model so the
+    /// band can say which session it is about to send to.
+    var agentCaptureArmed: Bool = false
+
+    /// The repository a spoken prompt opens a **new** session in, when nothing is
+    /// running yet.
+    ///
+    /// Deliberately empty by default rather than falling back to the home directory:
+    /// starting a coding agent loose in `~` is the kind of helpful guess that ends in
+    /// a bad afternoon. With nothing set and nothing running, the words are held in
+    /// the undelivered banner instead, which says what to do.
+    var agentDefaultDirectory: String = "" {
+        didSet {
+            UserDefaults.standard.set(
+                agentDefaultDirectory, forKey: Self.agentDirectoryDefaultsKey)
+        }
+    }
+
+    /// Where a new session opens: the explicit setting, else the directory of a
+    /// session that already exists, so the common case needs no setup at all.
+    var resolvedAgentDirectory: String? {
+        let configured = agentDefaultDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configured.isEmpty { return configured }
+        return agents.lastKnownDirectory
+    }
     /// True while the assistant is carrying out a finished command — the tool-calling
     /// loop is running. The band is already up (`isPolishing` holds it there for the
     /// thinking orb); this is what stops it captioning the work "Polishing", which
@@ -493,6 +552,14 @@ final class AppState {
         agents.ask != nil && approvals.pending == nil
     }
 
+    /// Whether the user has the agent surface open to look at it. Below the ask,
+    /// because a question someone is waiting on outranks browsing, and suppressed
+    /// while dictating so the band can report the recording it is holding.
+    var shouldShowAgentGlance: Bool {
+        agents.isGlanceOpen && !shouldShowAgentAsk && approvals.pending == nil
+            && phase == .idle && !agentCaptureArmed
+    }
+
     /// Opt-in, off by default — same posture as `llmCleanupEnabled`. When off, a day
     /// query answers from the deterministic `DaySummaryService` and no tool is ever
     /// called.
@@ -552,6 +619,13 @@ final class AppState {
         // fn+control chord, not a second physical key — so no collision to break.
         hotkey = (UserDefaults.standard.string(forKey: Self.hotkeyDefaultsKey))
             .flatMap(HotkeyManager.HotkeyOption.init(rawValue:)) ?? .fn
+        // The agent key is off until chosen. Deliberately not defaulted to a free
+        // key: reserving a modifier on every Mac for a server almost nobody runs is
+        // the kind of quiet imposition the fn-claim rules exist to prevent.
+        agentHotkey = (UserDefaults.standard.string(forKey: Self.agentHotkeyDefaultsKey))
+            .flatMap { $0.isEmpty ? nil : HotkeyManager.HotkeyOption(rawValue: $0) }
+        agentDefaultDirectory =
+            UserDefaults.standard.string(forKey: Self.agentDirectoryDefaultsKey) ?? ""
         // Opt-out: on unless the user has explicitly turned it off.
         holdToTalkEnabled = UserDefaults.standard.object(forKey: Self.holdToTalkDefaultsKey) as? Bool ?? true
         // Opt-in: off until the user has explicitly turned it on.
@@ -806,7 +880,7 @@ final class AppState {
         if phase != .idle { return true }
         if download != nil || preparingEngine != nil { return true }
         if approvals.pending != nil { return true }
-        if shouldShowAgentAsk { return true }
+        if shouldShowAgentAsk || shouldShowAgentGlance { return true }
         return shouldShowReminderTimePrompt
             || shouldShowDueReminderBanner
             || shouldShowCommandConfirmation

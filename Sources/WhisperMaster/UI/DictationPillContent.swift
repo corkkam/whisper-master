@@ -35,16 +35,16 @@ struct DictationPillContent: View {
     /// user set it for a moment, and this band is the whole of its delivery.
     /// (`AppState.canShowDueReminderBanner` already yields it to the approval card
     /// and the undelivered hint, and pauses its clock while it does.)
-    private var showDueReminder: Bool { !showApproval && !showAgentAsk && state.shouldShowDueReminderBanner }
+    private var showDueReminder: Bool { !showApproval && !showAgentAsk && !showAgentGlance && state.shouldShowDueReminderBanner }
 
     /// The "note saved / reminder set" confirmation after a spoken command routed
     /// into Notes & Reminders — highest priority, since the paste was suppressed
     /// and this is the user's only feedback that the words went somewhere.
-    private var showCommandConfirmation: Bool { !showApproval && !showAgentAsk && !showDueReminder && state.shouldShowCommandConfirmation }
+    private var showCommandConfirmation: Bool { !showApproval && !showAgentAsk && !showAgentGlance && !showDueReminder && state.shouldShowCommandConfirmation }
 
     /// The "what's my day" answer — the immediate result of a connector query the
     /// user just asked for. Just under the command confirmation.
-    private var showDaySummary: Bool { !showApproval && !showAgentAsk && !showDueReminder && !showCommandConfirmation && state.shouldShowDaySummary }
+    private var showDaySummary: Bool { !showApproval && !showAgentAsk && !showAgentGlance && !showDueReminder && !showCommandConfirmation && state.shouldShowDaySummary }
 
     /// The "nowhere to paste" hint — the immediate consequence of a dictation
     /// that had no target field.
@@ -59,6 +59,10 @@ struct DictationPillContent: View {
     /// one denies itself on a timeout, so it is the one that must not wait.
     private var showAgentAsk: Bool { state.shouldShowAgentAsk }
 
+    /// The surface the user opened with a tap of the agent key: the session list, or
+    /// one session's tail once they went in.
+    private var showAgentGlance: Bool { !showAgentAsk && state.shouldShowAgentGlance }
+
     /// The agent sessions shown as context under the question. Resolved here as well
     /// as in the panel because the band's thickness depends on whether there are any.
     private var otherAgentSessions: [AgentSession] {
@@ -71,22 +75,22 @@ struct DictationPillContent: View {
     /// would be a second thing to keep ticking.
     private var now: Date { Date() }
 
-    private var showUndelivered: Bool { !showApproval && !showAgentAsk && !showCommandConfirmation && !showDaySummary && state.shouldShowUndeliveredBanner }
+    private var showUndelivered: Bool { !showApproval && !showAgentAsk && !showAgentGlance && !showCommandConfirmation && !showDaySummary && state.shouldShowUndeliveredBanner }
 
     /// The "learned a word" confirmation — just under the undelivered hint.
-    private var showLearned: Bool { !showApproval && !showAgentAsk && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && state.shouldShowLearnedBanner }
+    private var showLearned: Bool { !showApproval && !showAgentAsk && !showAgentGlance && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && state.shouldShowLearnedBanner }
 
     /// The one-shot "smart cleanup is ready" confirmation — just under the
     /// learned hint. (Model download *progress* never appears here.)
-    private var showCleanupReady: Bool { !showApproval && !showAgentAsk && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
+    private var showCleanupReady: Bool { !showApproval && !showAgentAsk && !showAgentGlance && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
 
     /// The Bluetooth-mic hint takes precedence over the dictation indicator and
     /// uses a taller band to fit its text + button.
-    private var showBanner: Bool { !showApproval && !showAgentAsk && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
+    private var showBanner: Bool { !showApproval && !showAgentAsk && !showAgentGlance && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
 
     /// A gentle reminder — lower priority than the hints above, shown only when
     /// idle (`AppState.shouldShowReminder` already gates that).
-    private var showReminder: Bool { !showApproval && !showAgentAsk && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
+    private var showReminder: Bool { !showApproval && !showAgentAsk && !showAgentGlance && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
 
     private var bandThickness: CGFloat {
         if showApproval { return layout.bannerThickness }
@@ -94,6 +98,15 @@ struct DictationPillContent: View {
             return NotchAgentPanel.thickness(
                 for: ask, otherSessions: otherAgentSessions.count,
                 banner: layout.bannerThickness)
+        }
+        if showAgentGlance {
+            if let open = state.agents.openSession {
+                _ = open
+                return NotchAgentSessionView.thickness(
+                    lineCount: state.agents.log.renderable.count,
+                    hasChanges: !state.agents.changeSet.editedPaths.isEmpty)
+            }
+            return NotchAgentGlance.listThickness(sessionCount: state.agents.sessions.count)
         }
         if showDueReminder { return layout.dueReminderThickness }
         if showCommandConfirmation { return layout.commandConfirmationThickness }
@@ -141,7 +154,7 @@ struct DictationPillContent: View {
     /// them in this same order; this is the single "not the dictation indicator"
     /// test the width, thickness and glow all read from.
     private var bandIsBanner: Bool {
-        showApproval || showAgentAsk || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered
+        showApproval || showAgentAsk || showAgentGlance || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered
             || showLearned || showCleanupReady || showBanner || showReminder
     }
 
@@ -210,7 +223,7 @@ struct DictationPillContent: View {
         // The agent panel carries three buttons beside an unbounded command, or a
         // column of model-authored options. Both need the bar, for the same reason
         // the connector approval card does.
-        if showApproval || showAgentAsk { return .wide }
+        if showApproval || showAgentAsk || showAgentGlance { return .wide }
         guard bandIsDictation else { return .banner }
         return isDeliveredBadge ? .glyph : .wide
     }
@@ -243,7 +256,9 @@ struct DictationPillContent: View {
         return activity.label(
             holdToTalk: state.holdToTalkEnabled && !state.handsFreeActive,
             commandCapture: state.commandCaptureArmed || state.commandAgentRunning,
-            agentActivity: state.agentActivity)
+            agentActivity: state.agentActivity,
+            agentTarget: state.agentCaptureArmed
+                ? (state.agents.promptTarget?.repo ?? "the agent") : nil)
     }
 
     /// Ceiling on the leading label in the row form, so a caption past the wing cap
@@ -264,6 +279,7 @@ struct DictationPillContent: View {
         // timed out and denied itself.
         if showApproval
             || showAgentAsk
+            || showAgentGlance
             || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
             || state.shouldShowDeliveredBeat || state.shouldShowLiveTranscript
             || state.shouldShowPolishedBeat { return true }
@@ -330,7 +346,7 @@ struct DictationPillContent: View {
         // button, the tappable command confirmation, and the undelivered hint's
         // Copy button); the dictation indicator stays click-through (the panel
         // toggles ignoresMouseEvents to match).
-        .allowsHitTesting(showApproval || showAgentAsk || showBanner || showCommandConfirmation || showUndelivered || showDueReminder)
+        .allowsHitTesting(showApproval || showAgentAsk || showAgentGlance || showBanner || showCommandConfirmation || showUndelivered || showDueReminder)
         // Appear *instantly* (no animation when expanding), animate only the
         // retract. A spring on the way in read as "the notch appears late" even
         // though the state flips synchronously on key-press. Banners (below) keep
@@ -354,6 +370,7 @@ struct DictationPillContent: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: state.isSpeakingAnswer)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showApproval)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showAgentAsk)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showAgentGlance)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showDueReminder)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowDeliveredBeat)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowPolishedBeat)
@@ -379,6 +396,16 @@ struct DictationPillContent: View {
                     guard case .choice(let choice) = ask else { return }
                     state.agents.answer(choice, question: question, selected: selected)
                 },
+                onSelectMode: { state.agents.setMode($0) })
+        } else if showAgentGlance {
+            NotchAgentGlance(
+                sessions: state.agents.sessions,
+                openSession: state.agents.openSession,
+                log: state.agents.log,
+                changes: state.agents.changeSet,
+                now: now,
+                onOpen: { state.agents.open(sessionID: $0.id) },
+                onBack: { state.agents.open(sessionID: nil) },
                 onSelectMode: { state.agents.setMode($0) })
         } else if showDueReminder, let reminder = state.dueReminder {
             NotchDueReminderBanner(

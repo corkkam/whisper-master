@@ -144,14 +144,21 @@ enum NotchActivity: Equatable {
     /// the common failure (a connector that's slow or unreachable) it leaves the
     /// user nothing to act on. It only ever *replaces* that one caption: a step
     /// arriving in any other state is ignored rather than overwriting "Dictating".
+    /// - Parameter agentTarget: the repository a coding-agent capture is bound for,
+    ///   or nil when this is not one. It **names the destination** rather than saying
+    ///   "Dictating", because the whole risk of a key that redirects your words is not
+    ///   knowing where they went until after you let go.
     func label(holdToTalk: Bool,
                commandCapture: Bool = false,
-               agentActivity: AgentActivity? = nil) -> String {
+               agentActivity: AgentActivity? = nil,
+               agentTarget: String? = nil) -> String {
         switch self {
+        case .listening where agentTarget != nil: "Dictating to \(agentTarget ?? "")"
         // Not "Taking a command": the chord asks as well as instructs, and a user
         // mid-question shouldn't be told the band is waiting for an order.
         case .listening where commandCapture: "Asking the assistant"
         case .listening: holdToTalk ? "Dictating" : "Dictating (hands-free)"
+        case .polishing where agentTarget != nil: "Sending to \(agentTarget ?? "")"
         case .polishing where commandCapture: agentActivity?.caption ?? AgentActivity.generic
         case .polishing: "Polishing"
         case .polished: "Polished"

@@ -54,6 +54,16 @@ final class DictationViewModel {
     /// the chord merely re-labelled a session the push-to-talk key owns — there,
     /// letting go of control must not cut the recording short.
     private var commandChordOwnsSession = false
+    /// True when the agent key armed the current session — its finished transcript
+    /// goes to a coding agent instead of being typed. Consumed (and reset) at stop,
+    /// and mirrored into `state.agentCaptureArmed` for the notch.
+    private var agentArmed = false
+    /// True when the agent key is what *started* the running session, so its release
+    /// is what should stop it. False when it only re-labelled a session the
+    /// push-to-talk key owns.
+    private var agentKeyOwnsSession = false
+    /// When the agent key went down, so its release can tell a tap from a hold.
+    private var agentKeyDownAt: Date?
     /// Drives gentle "you haven't used me in a while" reminders in the notch.
     private lazy var reminderScheduler = ReminderScheduler(state: state)
     /// Owns the optional on-device cleanup model: background download, progress
@@ -268,6 +278,11 @@ final class DictationViewModel {
         let commandMode = commandArmed
         setCommandArmed(false)
         commandChordOwnsSession = false
+        // Same consume-at-stop rule as the assistant arm above: read it here, at the
+        // user's stop, so it can't linger into the next session.
+        let agentMode = agentArmed
+        setAgentArmed(false)
+        agentKeyOwnsSession = false
         // However this stop arrived (key release, double-tap, tray, failure), the
         // gesture that latched the session is finished with it.
         state.handsFreeActive = false
@@ -358,7 +373,12 @@ final class DictationViewModel {
                 // intent from words means eating a transcript whenever the guess is
                 // wrong, and no keyword list is good enough to earn that.
                 var assistantHandled = false
-                if commandMode, !cleaned.isEmpty {
+                if agentMode, !cleaned.isEmpty {
+                    // The agent key wins over the assistant chord when both are
+                    // somehow armed: it is the more specific instruction, and it
+                    // names a destination rather than a kind of handling.
+                    assistantHandled = await routeAgentCapture(cleaned)
+                } else if commandMode, !cleaned.isEmpty {
                     assistantHandled = await routeCommandCapture(cleaned)
                 }
                 // The frontmost app is the one about to receive the paste — or, for
@@ -843,6 +863,99 @@ final class DictationViewModel {
     private func setCommandArmed(_ armed: Bool) {
         commandArmed = armed
         state.commandCaptureArmed = armed
+    }
+
+    // MARK: - The agent key
+
+    /// The agent key went down: start (or re-label) a capture whose words go to a
+    /// coding agent.
+    ///
+    /// Mirrors the assistant chord exactly, and for the same reason: this key can be
+    /// pressed a moment after the push-to-talk key, so a session may already be in
+    /// flight. Re-labelling keeps every frame of audio where a restart would drop the
+    /// opening word.
+    func handleAgentKeyStart() {
+        agentKeyDownAt = Date()
+        // A tap while the glance is open closes it, and must not also start a
+        // recording that the release would then have to cancel.
+        if state.agents.isGlanceOpen { return }
+        guard state.agents.isAvailable else {
+            state.statusMessage = "No coding agent is running on this Mac."
+            return
+        }
+        if state.canStop || state.phase == .preparingModels {
+            setAgentArmed(true)
+            state.statusMessage = "Listening for the agent..."
+            return
+        }
+        if state.preparingEngine != nil {
+            state.statusMessage = "Voice engine is still getting ready."
+            return
+        }
+        guard state.canStart else { return }
+        agentKeyOwnsSession = true
+        setAgentArmed(true)
+        startRecording()
+    }
+
+    /// The agent key came up.
+    ///
+    /// **Hold means talk; a quick tap means look.** One key, two gestures, in the
+    /// spirit of the push-to-talk key's own hold / double-tap / toggle set — because
+    /// the alternative was a second binding for "show me the sessions", and a
+    /// shortcut per surface is exactly what makes a keyboard unlearnable.
+    ///
+    /// A tap is resolved *here*, on the release, rather than by delaying the start:
+    /// starting on the press is what keeps the first word of a real dictation, and
+    /// nothing about a sub-`tapMaxHold` press is worth transcribing anyway.
+    func handleAgentKeyStop() {
+        let heldFor = agentKeyDownAt.map { Date().timeIntervalSince($0) } ?? .infinity
+        agentKeyDownAt = nil
+
+        if heldFor < Self.agentTapMaxHold {
+            if agentKeyOwnsSession, state.canStop { cancelSession() }
+            agentKeyOwnsSession = false
+            setAgentArmed(false)
+            state.agents.toggleGlance()
+            return
+        }
+
+        guard agentKeyOwnsSession else { return }
+        agentKeyOwnsSession = false
+        if state.canStop { stopRecording() }
+    }
+
+    /// Longest press still read as a tap. Matches `HotkeyGesture.tapMaxHold`, which
+    /// is the same judgement about the same physical gesture.
+    private static let agentTapMaxHold: TimeInterval = 0.35
+
+    private func setAgentArmed(_ armed: Bool) {
+        agentArmed = armed
+        state.agentCaptureArmed = armed
+    }
+
+    /// Send an armed capture to a coding agent. Returns `true` when the words were
+    /// delivered, so the caller suppresses the paste.
+    ///
+    /// When delivery fails — no server, no session and nowhere to start one — the
+    /// words are **not** silently dropped and **not** pasted into whatever app
+    /// happens to be in front. They go to the undelivered banner with its Copy
+    /// button, because the user held a key that means "send this to the agent", and
+    /// typing it into their editor is the one outcome that key press ruled out.
+    private func routeAgentCapture(_ text: String) async -> Bool {
+        let delivered = await state.agents.deliver(
+            prompt: text, startingIn: state.resolvedAgentDirectory)
+        guard !delivered else {
+            state.statusMessage = "Sent to \(state.agents.promptTarget?.repo ?? "the agent")."
+            return true
+        }
+        copyToClipboard(text)
+        state.undeliveredText = text
+        state.undeliveredTranscriptAt = Date()
+        state.statusMessage = state.agents.isAvailable
+            ? "No session to send to. Set a project folder in Settings."
+            : "No coding agent is running on this Mac."
+        return true
     }
 
     /// Carry out an armed capture. Returns `true` when it handled the text (the

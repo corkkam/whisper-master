@@ -67,6 +67,44 @@ final class NotchAgentPanelTests: XCTestCase {
         XCTAssertLessThanOrEqual(thickness, NotchAgentPanel.maxThickness)
     }
 
+    // MARK: The glance
+
+    func testTheGlanceGrowsARowPerSessionAndStopsAtItsCap() {
+        let two = NotchAgentGlance.listThickness(sessionCount: 2)
+        let three = NotchAgentGlance.listThickness(sessionCount: 3)
+        XCTAssertEqual(
+            three - two,
+            NotchAgentGlance.Metrics.row + NotchAgentGlance.Metrics.rowSpacing)
+
+        // Past the cap it stops growing per session and charges one "+N more" row,
+        // rather than a band that scales with however many agents are running.
+        let many = NotchAgentGlance.listThickness(sessionCount: 40)
+        XCTAssertLessThanOrEqual(many, NotchAgentGlance.maxThickness)
+    }
+
+    func testAnEmptyGlanceStillHasABandToPutASentenceIn() {
+        // It opened because the user asked it to, so it owes them a line rather than
+        // a zero-height band.
+        XCTAssertGreaterThan(NotchAgentGlance.listThickness(sessionCount: 0), 0)
+    }
+
+    func testTheSessionViewIsBoundedByWhatTheWindowWasSizedFor() {
+        let tallest = NotchAgentSessionView.thickness(
+            lineCount: 99, hasChanges: true)
+        XCTAssertEqual(tallest, NotchAgentSessionView.maxThickness)
+        XCTAssertLessThanOrEqual(tallest, NotchAgentGlance.maxThickness)
+    }
+
+    func testTheChangedFilesRowIsOnlyChargedWhenThereAreSome() {
+        let without = NotchAgentSessionView.thickness(lineCount: 3, hasChanges: false)
+        let with = NotchAgentSessionView.thickness(lineCount: 3, hasChanges: true)
+        XCTAssertEqual(
+            with - without,
+            NotchAgentSessionView.Metrics.line + NotchAgentSessionView.Metrics.spacing)
+    }
+
+    // MARK: Panel
+
     func testTheAskingSessionIsNotRepeatedUnderneathItsOwnQuestion() {
         let sessions = [
             AgentSession(id: "s1", repo: "whisper-master", state: .awaitingPermission),

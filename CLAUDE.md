@@ -445,6 +445,33 @@ shortcut at all**.
   and the headless snapshot renderer never open a socket or poll a port — the same
   posture as `UsageStore(load: false)`. Polling is 3s, deliberately far slower than the
   0.5s UI tick, because it is a network call whose answer changes on human timescales.
+- **One key, user-chosen, and it is the only new binding** (`AppState.agentHotkey`,
+  `WhisperMaster.agentHotkey.v1`). **Hold it and talk** → the words go to a coding
+  agent instead of being typed; **tap it** → the glance opens (tap again to close).
+  Two gestures on one key rather than a shortcut per surface, the same trade the
+  push-to-talk key already makes with hold / double-tap / toggle. A tap is resolved on
+  the *release* (`agentTapMaxHold`, 0.35s) rather than by delaying the start, because
+  starting on the press is what keeps the first word of a real dictation.
+  **Off by default**: reserving a modifier on every Mac for a server almost nobody
+  runs is exactly the quiet imposition the fn-claim rules exist to prevent. A key that
+  collides with push-to-talk resolves to nil (`effectiveAgentHotkey`) and the monitor
+  comes down — dictation wins, and Settings says so rather than leaving a picker that
+  silently does nothing.
+- **A spoken prompt always lands somewhere.** `deliver(prompt:startingIn:)` attaches to
+  the target session and sends; with no session at all it **creates one**
+  (`POST /api/sessions`, mode set *at create* because the CLI applies it as a spawn
+  flag and sent later it arrives too late to govern the first tool call). Where it
+  cannot — no server, or nothing running and no folder configured — the words go to the
+  **undelivered banner** with its Copy button. They are never pasted into whatever app
+  is in front: the user held a key that means "send this to the agent", and typing it
+  into their editor is the one outcome that key press ruled out. The new-session
+  directory is `agentDefaultDirectory`, falling back to a directory kunai already
+  reported; deliberately **not** the home directory, because starting an agent loose in
+  `~` is a bad afternoon.
+- **The band names the destination while you hold the key** ("Dictating to
+  whisper-master"), through `NotchActivity.label(agentTarget:)` and the existing
+  wing-growing `wideWing(forStateLabel:)`. Not knowing where your words went until
+  after you let go is the whole risk of a key that redirects them.
 - **Verifying against a real server:** `KUNAI_LIVE=1 swift test --filter KunaiLiveTests`
   is a bench in the style of `AudioReplayTests` — it talks to whatever kunai is actually
   installed and **skips rather than fails** when there is none, so CI and a fresh clone

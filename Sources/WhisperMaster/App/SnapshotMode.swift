@@ -329,6 +329,43 @@ enum SnapshotMode {
                     AgentSession(id: "s2", repo: "kunai", state: .idle),
                 ])
         }
+        // The surface you open rather than the one that interrupts you: a tap of the
+        // agent key. Rows, not cards — the version with three equal cards read as a
+        // dropdown menu pinned under the notch.
+        renderPill(dir, name: "pill-10c-agent-glance") { s in
+            s.phase = .idle
+            s.agents.seedGlanceForSnapshot(sessions: [
+                AgentSession(
+                    id: "s1", repo: "whisper-master", state: .awaitingPermission,
+                    activity: "Run  rm -rf build/"),
+                AgentSession(
+                    id: "s2", repo: "kunai", state: .running,
+                    activity: "Editing internal/session/loop.go",
+                    turnStartedAt: Int64(
+                        Date().addingTimeInterval(-17).timeIntervalSince1970 * 1000)),
+                AgentSession(id: "s3", repo: "landing-page", state: .idle),
+            ])
+        }
+        // One session read on the bezel: the tail of the conversation, what it
+        // edited, and what an undo would really cost.
+        renderPill(dir, name: "pill-10d-agent-session") { s in
+            s.phase = .idle
+            var log = AgentTurnLog()
+            for event in SnapshotMode.sessionTranscriptEvents { log.apply(event) }
+            var changes = AgentChangeSet()
+            changes.editedPaths = AgentChangeSet.editedPaths(in: log)
+            changes.revert = AgentChangeSet.RevertPreview(
+                changed: ["UI/NotchGlow.swift", "Tests/AudioReplayTests.swift"],
+                removed: ["scratch.txt"])
+            s.agents.seedGlanceForSnapshot(
+                sessions: [
+                    AgentSession(
+                        id: "s1", repo: "whisper-master", state: .running,
+                        turnStartedAt: Int64(
+                            Date().addingTimeInterval(-17).timeIntervalSince1970 * 1000))
+                ],
+                openSessionID: "s1", log: log, changeSet: changes)
+        }
         renderPill(dir, name: "pill-7-polishing") { s in
             s.phase = .idle
             s.isPolishing = true
@@ -412,6 +449,24 @@ enum SnapshotMode {
         }
         .frame(width: panel.width + 92, height: panel.height + 60)
         render(view, to: dir.appendingPathComponent("\(name).png"))
+    }
+
+    /// A believable turn for the session-view snapshot, built from real wire frames
+    /// so the render exercises the same reducer the app does.
+    private static var sessionTranscriptEvents: [KunaiWire.Event] {
+        let json = [
+            #"{"seq":1,"t":"user","text":"Fix the flaky audio route test, and clear the build first."}"#,
+            #"{"seq":2,"t":"assistant","blocks":[{"type":"tool_use","id":"t1","name":"Bash"}]}"#,
+            #"{"seq":3,"t":"permission","request_id":"r1","tool_use_id":"t1","tool_name":"Bash","input":{"command":"rm -rf build/"}}"#,
+            #"{"seq":4,"t":"permission_resolved","request_id":"r1","tool_use_id":"t1","behavior":"allow"}"#,
+            #"{"seq":5,"t":"assistant","blocks":[{"type":"tool_use","id":"t2","name":"Edit"}]}"#,
+            #"{"seq":6,"t":"permission","request_id":"r2","tool_use_id":"t2","tool_name":"Edit","input":{"file_path":"/x/Sources/UI/NotchGlow.swift"}}"#,
+            #"{"seq":7,"t":"tool_result","tool_use_id":"t2"}"#,
+            #"{"seq":8,"t":"assistant","blocks":[{"type":"text","text":"Cleared the build and rewrote the route assertion."}]}"#,
+        ]
+        return json.compactMap {
+            try? JSONDecoder().decode(KunaiWire.Event.self, from: Data($0.utf8))
+        }
     }
 
     private static func renderPill(_ dir: URL, name: String, configure: (AppState) -> Void) {
