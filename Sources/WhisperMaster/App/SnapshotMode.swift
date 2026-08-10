@@ -793,14 +793,17 @@ enum SnapshotMode {
     /// band at its own natural width, so one can be chosen from a render. Delete this
     /// and `ReplyLayoutCandidates.swift` once a direction is picked.
     static func renderReplyCandidates(_ dir: URL) {
-        renderCandidate(dir, name: "candidate-a-receipt", width: 620) {
-            ReplyCandidateReceipt()
+        renderCandidate(dir, name: "candidate-d-bento", width: 1040) {
+            ReplyCandidateBento()
         }
-        renderCandidate(dir, name: "candidate-b-editorial", width: 1160) {
-            ReplyCandidateEditorial()
+        renderCandidate(dir, name: "candidate-e-broadsheet", width: 1080) {
+            ReplyCandidateBroadsheet()
         }
-        renderCandidate(dir, name: "candidate-c-session-log", width: 820) {
-            ReplyCandidateSessionLog()
+        renderCandidate(dir, name: "candidate-f-colour-block", width: 1060) {
+            ReplyCandidateColourBlock()
+        }
+        renderCandidate(dir, name: "candidate-g-window", width: 880) {
+            ReplyCandidateWindow()
         }
     }
 
