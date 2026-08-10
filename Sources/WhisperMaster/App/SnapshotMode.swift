@@ -119,7 +119,6 @@ enum SnapshotMode {
 
         // The hover quick-actions band: what the notch holds when the pointer rests
         // on it. Both states, since the empty one is what a fresh account sees.
-        renderReplyCandidates(dir)
         renderQuickActions(dir, name: "quick-actions", state: state)
         renderQuickActions(dir, name: "quick-actions-empty", state: AppState())
 
@@ -789,48 +788,6 @@ enum SnapshotMode {
     /// inherited: `performAsCurrentDrawingAppearance` is what any AppKit-backed
     /// colour resolves against, and the headless renderer has no window to take
     /// it from.
-    /// The three layout directions for the finished turn, each drawn on a real notch
-    /// band at its own natural width, so one can be chosen from a render. Delete this
-    /// and `ReplyLayoutCandidates.swift` once a direction is picked.
-    static func renderReplyCandidates(_ dir: URL) {
-        renderCandidate(dir, name: "candidate-k-verdict", width: 860) {
-            ReplyCandidateVerdict()
-        }
-        renderCandidate(dir, name: "candidate-l-plate", width: 800) {
-            ReplyCandidatePlate()
-        }
-        renderCandidate(dir, name: "candidate-m-ruled", width: 880) {
-            ReplyCandidateRuled()
-        }
-        renderCandidate(dir, name: "candidate-n-quiet", width: 900) {
-            ReplyCandidateQuiet()
-        }
-    }
-
-    private static func renderCandidate<V: View>(
-        _ dir: URL, name: String, width: CGFloat, @ViewBuilder content: () -> V
-    ) {
-        let geometry = snapshotNotch
-        let layout = NotchSurfaceLayout()
-        let shape = NotchShape(
-            topConcaveRadius: layout.topConcaveRadius,
-            bottomCornerRadius: layout.bottomCornerRadius)
-        let band = VStack(spacing: 0) {
-            Color.clear.frame(height: geometry.notchHeight)
-            content()
-        }
-        .frame(width: width)
-        .background(shape.fill(Theme.Notch.surface))
-        .clipShape(shape)
-
-        let view = ZStack(alignment: .top) {
-            Color(white: 0.28)
-            band.padding(.horizontal, 46)
-        }
-        .frame(width: width + 92)
-        render(view, to: dir.appendingPathComponent("\(name).png"))
-    }
-
     private static func render<V: View>(_ view: V, to url: URL) {
         guard let appearance = NSAppearance(named: .aqua) else { return }
 

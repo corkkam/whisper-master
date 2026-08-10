@@ -328,6 +328,12 @@ enum Theme {
         static let stateLayerTint = Color(hex: 0xf2efe9)
 
         static let success = Signal.base
+        /// **Green, not the signal teal.** Command output and test results are the
+        /// one thing on the bezel that is read as *terminal* output, and the signal
+        /// hue reads aqua there — right for the app's machine accent, wrong for a
+        /// passing test. Scoped to the agent reply surface; every other band still
+        /// wears `success`.
+        static let output = Color(hex: 0x4fd88a)
         static let danger = Color(hex: 0xff5f52)
         static let warning = Color(hex: 0xffc25c)
         /// The live listening wave is **ember** — it is your voice.

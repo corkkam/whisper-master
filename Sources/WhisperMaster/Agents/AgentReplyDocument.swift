@@ -24,21 +24,72 @@ struct AgentReplyDocument: Equatable, Sendable {
         /// A pipe table: header cells, then body rows. The separator row is layout
         /// instruction, not content, and is consumed by the parser.
         case table(header: [String], rows: [[String]])
+
+        /// The block's plain text — what the height math measures, and what a
+        /// renderer sets when it doesn't care about the kind. A table has no single
+        /// string, so it reports its rows joined, which is what its line count is.
+        var text: String {
+            switch self {
+            case .prose(let text), .code(let text), .heading(let text): return text
+            case .table(let header, let rows):
+                return ([header] + rows).map { $0.joined(separator: "  ") }
+                    .joined(separator: "\n")
+            }
+        }
     }
 
     var blocks: [Block]
 
-    /// Whether the reply carries something that is *scanned in columns* rather than
-    /// read in lines — a fenced block or a table. Those are the only blocks that
-    /// want the whole display; prose does not, and a two-sentence answer laid out
-    /// at console width was the "why is it a slab" complaint. This is what decides
-    /// whether the band opens to a reading measure or all the way out.
-    var wantsFullWidth: Bool {
-        blocks.contains {
-            if case .prose = $0 { return false }
-            if case .heading = $0 { return false }
-            return true
+    /// How the expanded band reads a reply: **a headline, words, and data.**
+    ///
+    /// The opening paragraph is the verdict and is set in display type; the rest
+    /// splits by *kind* rather than by order — prose and headings into a reading
+    /// column, code and tables into a column beside it, because those are scanned in
+    /// columns and shatter when wrapped to a measure. Splitting by kind rather than
+    /// interleaving is what lets both columns be measured independently, which is
+    /// what the band's height needs.
+    struct Split: Equatable, Sendable {
+        /// The opening paragraph, if the reply starts with prose. A reply that opens
+        /// with a code fence has no verdict to set, and inventing one from the fence
+        /// would put a shell command in 27pt display type.
+        var headline: String?
+        var words: [Block] = []
+        var data: [Block] = []
+    }
+
+    func split() -> Split {
+        var result = Split()
+        var rest = blocks[...]
+        if case .prose(let first)? = blocks.first {
+            result.headline = first
+            rest = blocks.dropFirst()
         }
+        let remaining = Array(rest)
+        for (index, block) in remaining.enumerated() {
+            switch block {
+            case .prose:
+                result.words.append(block)
+            case .code, .table:
+                result.data.append(block)
+            case .heading:
+                // **A heading travels with what it heads.** Splitting purely by kind
+                // stranded "Toolchain" and "Worktrees" in the words column while the
+                // table and the fence they captioned sat in the other one, which
+                // reads as three labels with nothing under them.
+                let next = remaining[safe: index + 1]
+                let headsData: Bool
+                switch next {
+                case .code, .table: headsData = true
+                default: headsData = false
+                }
+                if headsData {
+                    result.data.append(block)
+                } else {
+                    result.words.append(block)
+                }
+            }
+        }
+        return result
     }
 
     static func parse(_ raw: String) -> AgentReplyDocument {
@@ -156,4 +207,12 @@ struct AgentReplyDocument: Equatable, Sendable {
     }
 
     var isEmpty: Bool { blocks.isEmpty }
+}
+
+extension Array {
+    /// Bounds-checked lookup, so the split's one-block lookahead reads as a
+    /// lookahead rather than as an index dance.
+    fileprivate subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
 }

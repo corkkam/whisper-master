@@ -3,34 +3,36 @@ import SwiftUI
 
 /// The finished turn, opened out of the notch.
 ///
-/// The composition is editorial, not administrative. A quiet eyebrow names the
-/// session; **your question is the card's one piece of display type**, set in the
-/// brand's heading face, because it is the thing that gives the answer its meaning
-/// and it is the only line on the band that is *yours*; the answer runs beneath it
-/// as body copy at a reading measure, directly on the bezel with no container. Only
-/// code and tables get a well, because they are the only blocks that are scanned in
-/// columns instead of read in lines. When a turn actually ran something, the run
-/// moves to a right-hand margin — a sidenote column, so reading still starts with
-/// the answer rather than with metadata.
+/// **The answer is the headline.** Every earlier version of this surface made the
+/// question the largest thing on the band and hung the reply underneath it, which is
+/// backwards: you already know what you asked, and what you came back for is what
+/// happened. So the reply's opening paragraph is set in display type as the verdict,
+/// the question shrinks to one ember line above it, and everything else — the
+/// supporting detail, the command output, the run — falls away underneath at
+/// supporting size.
 ///
-/// **The band opens as much as it needs**, the same idiom `NotchSurfaceWidth` uses
-/// for every other surface: a prose answer takes the reading width, and only a reply
-/// carrying code, a table or a run opens the console width. A two-sentence answer
-/// laid out across a thousand points is a slab, however well it is styled.
+/// Below the headline the blocks split by kind rather than by source: **words on the
+/// left, data on the right.** Prose and headings stack in a reading column; code and
+/// tables stack beside it, where being scanned in columns is what they want. Either
+/// side takes the full measure when the other is empty, so an all-prose answer and a
+/// wall of test output both lay out correctly.
+///
+/// **The band opens as much as it needs** — the same idiom `NotchSurfaceWidth` gives
+/// every other surface. A prose-only reply takes the reading width; only one carrying
+/// a grid opens the console.
 ///
 /// **The band's height is decided before this lays out** (the standing rule —
 /// `NotchAgentChoiceCard.Metrics` explains the clipped-context-row bug that minted
 /// it), so `thickness(...)` measures the same faces at the same measures the body
-/// renders at, and the answer scrolls rather than clips once it passes the cap.
+/// renders at, and each column scrolls rather than clips once it passes the cap.
 struct NotchAgentReplyExpanded: View {
     let document: AgentReplyDocument
-    /// What the user asked — the hero line. An answer with no visible question reads
-    /// as content from nowhere.
+    /// What the user asked. One line, above the verdict.
     var prompt: String?
     let repo: String
     var duration: TimeInterval?
     var editedPaths: [String] = []
-    /// The turn's tool calls, listed in the margin.
+    /// The turn's tool calls, reduced to one index line at the foot.
     var tools: [AgentTurnLog.ToolLine] = []
     /// The full width of the black surface. Every column is derived from it, and the
     /// height is measured from the same derivation — measuring at one width while
@@ -53,211 +55,168 @@ struct NotchAgentReplyExpanded: View {
     /// renderer gets the plain stack. Same gate the other AppKit-backed surfaces use.
     @Environment(\.isSnapshot) private var isSnapshot
 
+    private var split: AgentReplyDocument.Split { document.split() }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             eyebrow
                 .frame(height: Metrics.eyebrow)
-            Rectangle()
-                .fill(Theme.Notch.hairline)
-                .frame(height: 1)
-                .padding(.top, Metrics.eyebrowGap)
-            if let prompt, !prompt.isEmpty {
-                // Deliberately *not* pinned to the measured height: display type
-                // renders a taller line box than `boundingRect` reports, and a frame
-                // shorter than the glyphs let the answer start inside the question.
-                // The measurement carries slack instead, so the band is a hair
-                // roomier than the text rather than a hair shorter.
-                question(prompt)
-                    .padding(.top, Metrics.questionTopGap)
+            if let headline = split.headline {
+                verdict(headline)
+                    .padding(.top, Metrics.headlineTopGap)
             }
-            HStack(alignment: .top, spacing: 0) {
-                answer
-                    .frame(width: answerColumnWidth, alignment: .topLeading)
-                if hasMargin {
-                    Spacer(minLength: 0)
-                    margin
-                        .frame(width: Metrics.marginWidth, alignment: .leading)
-                }
-            }
-            .frame(height: bodyHeight, alignment: .top)
-            .padding(.top, Metrics.answerTopGap)
+            columns
+                .frame(height: bodyHeight, alignment: .top)
+                .padding(.top, Metrics.bodyTopGap)
             foot
                 .frame(height: Metrics.foot)
                 .padding(.top, Metrics.footGap)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Theme.Notch.hairline)
+                        .frame(height: 1)
+                        .offset(y: -Metrics.footGap / 2)
+                }
         }
         .padding(.horizontal, Metrics.horizontalPadding)
-        .padding(.vertical, Metrics.verticalPadding)
+        .padding(.top, Metrics.topPadding)
+        .padding(.bottom, Metrics.bottomPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Reply from \(repo)")
     }
 
-    // MARK: Eyebrow
+    // MARK: The line above
 
-    /// Session, how long it took, and the two things you can do with the answer. All
-    /// of it is chrome, so it is set small and quiet above a rule — the card's
-    /// masthead, not its headline.
+    /// Your question, and where the turn ran. Both are context for the verdict, so
+    /// both are small — but the question wears ember, because it is the one line on
+    /// the band that is yours.
     private var eyebrow: some View {
-        HStack(spacing: 0) {
-            Circle()
-                .fill(Theme.Notch.success)
-                .frame(width: 5, height: 5)
-                .padding(.trailing, 8)
-            Text(repo.isEmpty ? "agent" : repo)
-                .font(.system(size: 10.5, weight: .semibold))
-                .tracking(0.3)
-                .foregroundStyle(Theme.Notch.textSecondary)
+        HStack(spacing: 9) {
+            Image(systemName: "mic.fill")
+                .font(.system(size: 8.5, weight: .bold))
+                .foregroundStyle(Theme.Notch.accent)
+            Text(prompt ?? "")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(Theme.Notch.accent)
                 .lineLimit(1)
-            Text(durationLabel)
-                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                .truncationMode(.tail)
+            Spacer(minLength: 20)
+            Text(context)
+                .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(Theme.Notch.textTertiary)
-                .padding(.leading, 10)
-            Spacer(minLength: Theme.Space.md)
-            ghostButton(
-                didCopy ? "Copied" : "Copy",
-                glyph: didCopy ? "checkmark" : "square.on.square",
-                tint: didCopy ? Theme.Notch.success : Theme.Notch.textSecondary
-            ) {
-                onCopy()
-                withAnimation(.easeOut(duration: 0.15)) { didCopy = true }
-            }
-            if let kunaiURL {
-                ghostButton("Open in kunai", glyph: "arrow.up.forward") {
-                    openURL(kunaiURL)
+                .lineLimit(1)
+        }
+    }
+
+    /// "whisper-master · 3m 12s · 1 file changed" — the turn's provenance in one
+    /// line, so nothing further down has to spend a row on it.
+    private var context: String {
+        var parts: [String] = []
+        if !repo.isEmpty { parts.append(repo) }
+        if let duration, duration >= 1 { parts.append(NotchAgentReplyBanner.compact(duration)) }
+        if !editedPaths.isEmpty {
+            parts.append(
+                editedPaths.count == 1 ? "1 file changed" : "\(editedPaths.count) files changed")
+        }
+        return parts.joined(separator: "  ·  ")
+    }
+
+    // MARK: The verdict
+
+    /// The reply's opening paragraph, in display type. This is the whole idea of the
+    /// surface: what happened, at a size you read from across the room.
+    private func verdict(_ text: String) -> some View {
+        Text(Self.inlineMarkdown(text))
+            .font(Typography.heading(Metrics.verdictSize, .semibold, relativeTo: .title))
+            .tracking(Typography.trackingFor(Metrics.verdictSize))
+            .lineSpacing(Metrics.verdictLineSpacing)
+            .foregroundStyle(Theme.Notch.text)
+            .lineLimit(Metrics.verdictMaxLines)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: Self.verdictMeasure(surfaceWidth: surfaceWidth), alignment: .leading)
+    }
+
+    // MARK: Words on the left, data on the right
+
+    private var columns: some View {
+        HStack(alignment: .top, spacing: Metrics.columnGap) {
+            if !split.words.isEmpty {
+                scrolling(height: wordsHeight) {
+                    VStack(alignment: .leading, spacing: Metrics.blockSpacing) {
+                        ForEach(Array(split.words.enumerated()), id: \.offset) { _, block in
+                            switch block {
+                            case .heading(let text):
+                                Text(Self.inlineMarkdown(text))
+                                    .font(.system(size: 9.5, weight: .bold))
+                                    .tracking(1.4)
+                                    .foregroundStyle(Theme.Notch.output)
+                                    .padding(.top, Metrics.headingTopGap)
+                            default:
+                                Text(Self.inlineMarkdown(block.text))
+                                    .font(Typography.sans(Metrics.proseSize, .regular, relativeTo: .body))
+                                    .lineSpacing(Metrics.proseLineSpacing)
+                                    .foregroundStyle(Theme.Notch.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .frame(width: wordsWidth, alignment: .leading)
                 }
-                .padding(.leading, Theme.Space.md)
+                .frame(width: wordsWidth, alignment: .topLeading)
             }
-        }
-    }
-
-    /// The eyebrow's controls: type and a glyph, no capsule. A filled pill up here
-    /// would out-weigh the question, which is the one thing on the card that should
-    /// carry weight.
-    private func ghostButton(
-        _ title: String, glyph: String, tint: Color = Theme.Notch.textSecondary,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: glyph)
-                    .font(.system(size: 9, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 10.5, weight: .semibold))
+            if !split.data.isEmpty {
+                scrolling(height: dataHeight) {
+                    VStack(alignment: .leading, spacing: Metrics.blockSpacing) {
+                        ForEach(Array(split.data.enumerated()), id: \.offset) { _, block in
+                            switch block {
+                            case .table(let header, let rows):
+                                table(header: header, rows: rows)
+                            default:
+                                codeLines(block.text)
+                            }
+                        }
+                    }
+                    .frame(width: dataWidth, alignment: .leading)
+                }
+                .frame(width: dataWidth, alignment: .topLeading)
             }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(tint)
-        .pointerCursor()
-        .accessibilityLabel(title)
-    }
-
-    private var durationLabel: String {
-        guard let duration, duration >= 1 else { return "done" }
-        return NotchAgentReplyBanner.compact(duration)
-    }
-
-    // MARK: The question — the card's one piece of display type
-
-    /// Your words, in the brand's display face. Ember is *your voice* everywhere in
-    /// this app — the listening wave, the dictation rail — so the tick that marks it
-    /// wears ember, and everything the machine wrote below is body copy.
-    private func question(_ prompt: String) -> some View {
-        HStack(alignment: .top, spacing: Metrics.questionTickGap) {
-            RoundedRectangle(cornerRadius: 1.5)
-                .fill(Theme.Notch.accent)
-                .frame(width: 3)
-                .frame(maxHeight: .infinity)
-            Text(prompt)
-                .font(Typography.heading(Metrics.questionSize, .semibold, relativeTo: .title3))
-                .tracking(Typography.trackingFor(Metrics.questionSize))
-                .lineSpacing(Metrics.questionLineSpacing)
-                .foregroundStyle(Theme.Notch.text)
-                .lineLimit(Metrics.questionMaxLines)
-                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: Metrics.maxProseMeasure + Metrics.questionTickGap + 3, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
     }
 
-    // MARK: The answer
-
-    /// The reply, unboxed, on the bezel. The container it used to sit in was the
-    /// thing that made a two-sentence answer read as a form field with a lot of
-    /// empty space in it.
+    /// A column scrolls only when its own content outgrows the band. **Nothing in a
+    /// reply is unreachable** — clipping the tail behind a fade was the original
+    /// defect of this surface.
     @ViewBuilder
-    private var answer: some View {
-        let measured = Self.contentHeight(for: document, width: answerTextWidth)
-        if measured > bodyHeight, !isSnapshot {
-            // **Nothing in a reply is unreachable.** Clipping the tail behind a fade
-            // was the original defect: the answer stopped mid-sentence with no way
-            // to read the rest without leaving for the browser.
-            ScrollView(.vertical, showsIndicators: true) { blocks }
+    private func scrolling<Content: View>(
+        height: CGFloat, @ViewBuilder _ content: () -> Content
+    ) -> some View {
+        if height > bodyHeight, !isSnapshot {
+            ScrollView(.vertical, showsIndicators: true) { content() }
         } else {
-            blocks.frame(maxHeight: .infinity, alignment: .top)
+            // Clipped even in the headless render: a snapshot that lets an
+            // over-long column draw straight through the foot rule hides exactly
+            // the overflow the render exists to catch.
+            content()
+                .frame(height: bodyHeight, alignment: .top)
+                .clipped()
         }
     }
 
-    private var blocks: some View {
-        VStack(alignment: .leading, spacing: Metrics.blockSpacing) {
-            ForEach(Array(document.blocks.enumerated()), id: \.offset) { _, block in
-                switch block {
-                case .prose(let text):
-                    // **Prose gets a measure; data gets the width.** A paragraph run
-                    // edge to edge on a card this wide is a line the eye loses its
-                    // place on. Code and tables are exempt below.
-                    Text(Self.inlineMarkdown(text))
-                        .font(Typography.sans(Metrics.answerSize, .regular, relativeTo: .body))
-                        .lineSpacing(Metrics.answerLineSpacing)
-                        .foregroundStyle(Theme.Notch.text.opacity(0.92))
-                        .frame(maxWidth: Metrics.maxProseMeasure, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                case .heading(let text):
-                    Text(Self.inlineMarkdown(text))
-                        .font(.system(size: 9.5, weight: .bold))
-                        .tracking(1.2)
-                        .foregroundStyle(Theme.Notch.success)
-                        .padding(.top, Metrics.headingTopGap)
-                case .code(let text):
-                    well { codeLines(text) }
-                case .table(let header, let rows):
-                    well { table(header: header, rows: rows) }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// The one container left on the card. Code and tables need an edge because they
-    /// are grids; prose does not.
-    private func well<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        content()
-            .padding(.vertical, Metrics.wellInset)
-            .padding(.horizontal, Metrics.wellInset + 2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: Metrics.wellRadius)
-                    .fill(Color.white.opacity(0.04)))
-            .overlay(
-                RoundedRectangle(cornerRadius: Metrics.wellRadius)
-                    .strokeBorder(Theme.Notch.hairline, lineWidth: 1))
-    }
-
-    /// One `Text` per line, never wrapped: wide output (a worktree list, a table
-    /// dump) shatters into soup when wrapped at the card's measure — and a wrapped
-    /// line also breaks the height math, which counts source lines. Truncation is
-    /// middle, where paths keep both their root and their leaf.
+    /// One `Text` per line, never wrapped: command output shatters into soup when
+    /// wrapped at a card measure — and a wrapped line also breaks the height math,
+    /// which counts source lines. Truncation is middle, where paths keep both their
+    /// root and their leaf.
     private func codeLines(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: Metrics.codeLineSpacing) {
             ForEach(
-                Array(
-                    text.split(separator: "\n", omittingEmptySubsequences: false).enumerated()),
+                Array(text.split(separator: "\n", omittingEmptySubsequences: false).enumerated()),
                 id: \.offset
             ) { _, line in
                 Text(String(line))
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(Theme.Notch.textSecondary)
+                    .font(.system(size: Metrics.codeSize, design: .monospaced))
+                    .foregroundStyle(Theme.Notch.output)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -283,7 +242,7 @@ struct NotchAgentReplyExpanded: View {
                 GridRow {
                     ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
                         Text(Self.inlineMarkdown(cell))
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.system(size: Metrics.codeSize, design: .monospaced))
                             .foregroundStyle(Theme.Notch.textSecondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -293,169 +252,57 @@ struct NotchAgentReplyExpanded: View {
         }
     }
 
-    // MARK: The margin — what the turn did
+    // MARK: The foot
 
-    /// The run as a sidenote column. It only exists when the turn actually called
-    /// something: a margin holding nothing but a repeated repo name is what made the
-    /// card read as two thirds empty.
-    private var margin: some View {
-        VStack(alignment: .leading, spacing: Metrics.marginSectionGap) {
-            if !visibleTools.isEmpty {
-                marginSection("Ran") {
-                    ForEach(visibleTools) { tool in
-                        toolRow(tool).frame(height: Metrics.toolRow)
-                    }
-                    if hiddenToolCount > 0 {
-                        Text("+\(hiddenToolCount) more")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(Theme.Notch.textTertiary)
-                            .frame(height: Metrics.toolRow, alignment: .leading)
-                    }
-                }
-            }
-            if !visiblePaths.isEmpty {
-                marginSection("Changed") {
-                    ForEach(visiblePaths, id: \.self) { path in
-                        Text(path)
-                            .font(.system(size: 10.5, design: .monospaced))
-                            .foregroundStyle(Theme.Notch.textSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.head)
-                            .frame(height: Metrics.pathRow, alignment: .leading)
-                    }
-                    if hiddenPathCount > 0 {
-                        Text("+\(hiddenPathCount) more")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(Theme.Notch.textTertiary)
-                            .frame(height: Metrics.pathRow, alignment: .leading)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .leading) {
-            // The margin's own edge, run the column's full height, so the sidenotes
-            // read as a margin rather than as text that drifted right.
-            Rectangle()
-                .fill(Theme.Notch.hairline)
-                .frame(width: 1)
-                .offset(x: -Metrics.marginRuleGap)
-        }
-    }
-
-    @ViewBuilder
-    private func marginSection<Content: View>(
-        _ title: String, @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: Metrics.marginLabelGap) {
-            Text(title.uppercased())
-                .font(.system(size: 9, weight: .bold))
-                .tracking(1.2)
-                .foregroundStyle(Theme.Notch.textTertiary)
-                .frame(height: Metrics.marginLabel, alignment: .leading)
-            VStack(alignment: .leading, spacing: 0) { content() }
-        }
-    }
-
-    /// One tool call: a verdict glyph, then the call in kunai web's own idiom — a
-    /// shell command reads as a terminal prompt (the ❯ says "command", so the word
-    /// "Bash" is dropped) and every other tool leads with its name.
-    private func toolRow(_ tool: AgentTurnLog.ToolLine) -> some View {
-        HStack(spacing: 0) {
-            Image(systemName: verdictGlyph(tool.verdict))
-                .font(.system(size: 8.5, weight: .bold))
-                .foregroundStyle(verdictTint(tool.verdict))
-                .frame(width: Metrics.toolGlyphColumn, alignment: .leading)
-            if tool.name == "Bash" {
-                Text("❯ ")
-                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Theme.Notch.textTertiary)
-                Text(
-                    AgentTurnLog.trimmedCommand(
-                        tool.detail.hasPrefix("Run  ")
-                            ? String(tool.detail.dropFirst(5)) : tool.detail)
-                )
-                .font(.system(size: 10.5, design: .monospaced))
-                .foregroundStyle(Theme.Notch.textSecondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            } else {
-                Text(tool.name.lowercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Theme.Notch.textTertiary)
-                Text("  " + nonShellDetail(tool))
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(Theme.Notch.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private func verdictGlyph(_ verdict: String?) -> String {
-        switch verdict {
-        case "failed", "denied": return "xmark"
-        case .some: return "checkmark"
-        case nil: return "circle"
-        }
-    }
-
-    private func verdictTint(_ verdict: String?) -> Color {
-        switch verdict {
-        case "failed", "denied": return Theme.Notch.danger
-        case .some: return Theme.Notch.success
-        case nil: return Theme.Notch.textTertiary
-        }
-    }
-
-    /// The detail without the tool's own verb repeated: the headline reads
-    /// "Edit  UI/NotchGlow.swift" and the label beside it already says edit.
-    private func nonShellDetail(_ tool: AgentTurnLog.ToolLine) -> String {
-        guard !tool.detail.isEmpty else { return tool.name }
-        let prefix = "\(tool.name)  "
-        return tool.detail.hasPrefix(prefix)
-            ? String(tool.detail.dropFirst(prefix.count)) : tool.detail
-    }
-
-    // MARK: Foot
-
-    /// The way back. The whole card is tappable, but a surface this size has to say
-    /// so — a band that fills half the screen with no visible exit reads as stuck.
+    /// The run reduced to one index line, and the three things you can do. A turn's
+    /// tool calls are worth being able to check and not worth a column, so they are
+    /// set small and dim and allowed to run out of room.
     private var foot: some View {
-        HStack(spacing: 6) {
-            Spacer()
-            Image(systemName: "chevron.compact.up")
-                .font(.system(size: 11, weight: .bold))
-            Text("click anywhere, or esc, to close")
-                .font(.system(size: 10, weight: .medium))
-            Spacer()
+        HStack(spacing: 0) {
+            Text(Self.runIndex(tools))
+                .foregroundStyle(Theme.Notch.textTertiary.opacity(0.8))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 24)
+            footAction(didCopy ? "copied" : "copy", tint: didCopy ? Theme.Notch.output : nil) {
+                onCopy()
+                withAnimation(.easeOut(duration: 0.15)) { didCopy = true }
+            }
+            if let kunaiURL {
+                footAction("kunai") { openURL(kunaiURL) }
+                    .padding(.leading, 18)
+            }
+            Text("esc")
+                .foregroundStyle(Theme.Notch.textTertiary.opacity(0.55))
+                .padding(.leading, 18)
         }
-        .foregroundStyle(Theme.Notch.textTertiary.opacity(0.7))
-        .accessibilityLabel("Collapse this reply")
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(Theme.Notch.textTertiary.opacity(0.8))
     }
 
-    // MARK: Derived
+    private func footAction(
+        _ title: String, tint: Color? = nil, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(tint ?? Theme.Notch.textSecondary)
+        .pointerCursor()
+        .accessibilityLabel(title)
+    }
 
-    private var visibleTools: [AgentTurnLog.ToolLine] { Array(tools.prefix(Metrics.maxToolRows)) }
-    private var hiddenToolCount: Int { max(0, tools.count - Metrics.maxToolRows) }
-    private var visiblePaths: [String] { Array(editedPaths.prefix(Metrics.maxPathRows)) }
-    private var hiddenPathCount: Int { max(0, editedPaths.count - Metrics.maxPathRows) }
-
-    private var hasMargin: Bool {
-        Self.hasMargin(toolCount: tools.count, changedCount: editedPaths.count)
-    }
-    private var answerColumnWidth: CGFloat {
-        Self.answerColumnWidth(surfaceWidth: surfaceWidth, hasMargin: hasMargin)
-    }
-    private var answerTextWidth: CGFloat { answerColumnWidth }
-    private var questionHeight: CGFloat {
-        Self.questionHeight(prompt, width: Self.questionMeasure(surfaceWidth: surfaceWidth))
-    }
-    private var bodyHeight: CGFloat {
-        Self.bodyHeight(
-            document: document, prompt: prompt, toolCount: tools.count,
-            changedCount: editedPaths.count, surfaceWidth: surfaceWidth, geometry: geometry)
+    /// The commands, joined — trimmed the same way the working row trims them, so a
+    /// compound shell line doesn't spend the whole index.
+    static func runIndex(_ tools: [AgentTurnLog.ToolLine]) -> String {
+        tools
+            .map { tool -> String in
+                let detail = tool.detail.hasPrefix("Run  ")
+                    ? String(tool.detail.dropFirst(5)) : tool.detail
+                let trimmed = AgentTurnLog.trimmedCommand(detail)
+                return trimmed.isEmpty ? tool.name.lowercased() : trimmed
+            }
+            .joined(separator: "  ·  ")
     }
 
     /// Inline markdown only: `code` and **bold** render, block syntax was already
@@ -468,68 +315,65 @@ struct NotchAgentReplyExpanded: View {
             ?? AttributedString(text)
     }
 
+    // MARK: Derived widths and heights
+
+    private var wordsWidth: CGFloat {
+        Self.wordsWidth(surfaceWidth: surfaceWidth, hasData: !split.data.isEmpty,
+                        hasWords: !split.words.isEmpty)
+    }
+    private var dataWidth: CGFloat {
+        Self.dataWidth(surfaceWidth: surfaceWidth, hasData: !split.data.isEmpty,
+                       hasWords: !split.words.isEmpty)
+    }
+    private var wordsHeight: CGFloat { Self.wordsHeight(split.words, width: wordsWidth) }
+    private var dataHeight: CGFloat { Self.dataHeight(split.data) }
+    private var bodyHeight: CGFloat {
+        Self.bodyHeight(document: document, surfaceWidth: surfaceWidth, geometry: geometry)
+    }
+
     // MARK: The two widths the band opens to
 
-    /// The band opens as much as it needs, which is the same idiom every other notch
-    /// surface uses. Prose takes a reading width; only a reply carrying a grid or a
-    /// run takes the console.
+    /// The band opens as much as it needs. Prose takes a reading width; only a reply
+    /// carrying a grid — command output, a table — takes the console.
     enum Layout {
-        /// One column of body copy plus its air. Sized so the measure lands on
-        /// `Metrics.maxProseMeasure` with the card's padding either side.
-        static let readingWidth: CGFloat = 760
-        /// Answer plus margin, with grids at full width.
+        /// Verdict plus one reading column, and nothing wider.
+        static let readingWidth: CGFloat = 860
+        /// Words beside data.
         static let consoleWidth: CGFloat = 1120
 
         static func wantsConsole(
             document: AgentReplyDocument, toolCount: Int, changedCount: Int
         ) -> Bool {
-            document.wantsFullWidth || hasMargin(toolCount: toolCount, changedCount: changedCount)
+            !document.split().data.isEmpty
         }
     }
 
     // MARK: Measurement (shared with `NotchSurfaceLayout`)
 
-    /// Whether the run earns a margin. Only tool calls and changed files do — a
-    /// column holding nothing was a third of the card doing nothing.
-    static func hasMargin(toolCount: Int, changedCount: Int) -> Bool {
-        toolCount > 0 || changedCount > 0
+    private static func contentWidth(_ surfaceWidth: CGFloat) -> CGFloat {
+        max(280, surfaceWidth - Metrics.horizontalPadding * 2)
     }
 
-    /// The column the answer is laid out in. Prose is capped inside it by
-    /// `maxProseMeasure`; grids take all of it.
-    static func answerColumnWidth(surfaceWidth: CGFloat, hasMargin: Bool) -> CGFloat {
-        let content = surfaceWidth - Metrics.horizontalPadding * 2
-        return max(240, hasMargin ? content - Metrics.marginWidth - Metrics.marginGap : content)
+    /// The measure the verdict is set at. Display type at 27pt wants a shorter line
+    /// than body copy does, so it is capped well inside the card.
+    static func verdictMeasure(surfaceWidth: CGFloat) -> CGFloat {
+        min(Metrics.maxVerdictMeasure, contentWidth(surfaceWidth))
     }
 
-    /// The measure the question is set at — display type, capped like the prose so
-    /// the two columns of text share an edge.
-    static func questionMeasure(surfaceWidth: CGFloat) -> CGFloat {
-        min(
-            Metrics.maxProseMeasure,
-            surfaceWidth - Metrics.horizontalPadding * 2 - Metrics.questionTickGap - 3)
+    static func wordsWidth(surfaceWidth: CGFloat, hasData: Bool, hasWords: Bool) -> CGFloat {
+        let content = contentWidth(surfaceWidth)
+        guard hasData else { return min(Metrics.maxProseMeasure, content) }
+        return min(Metrics.maxProseMeasure, (content - Metrics.columnGap) * Metrics.wordsShare)
     }
 
-    /// How tall the question block comes out, display face and all — with a line of
-    /// slack, because SwiftUI sets display type on a taller line box than
-    /// `boundingRect` reports and this number decides the band's height.
-    static func questionHeight(_ prompt: String?, width: CGFloat) -> CGFloat {
-        guard let prompt, !prompt.isEmpty else { return 0 }
-        let line = ceil(questionFont.ascender - questionFont.descender + questionFont.leading)
-            + Metrics.questionLineSpacing
-        let measured = height(
-            prompt, font: questionFont, width: width, lineSpacing: Metrics.questionLineSpacing)
-        let lines = min(CGFloat(Metrics.questionMaxLines), max(1, ceil(measured / line)))
-        return lines * line + Metrics.questionSlack
+    static func dataWidth(surfaceWidth: CGFloat, hasData: Bool, hasWords: Bool) -> CGFloat {
+        let content = contentWidth(surfaceWidth)
+        guard hasWords else { return content }
+        return content - Metrics.columnGap
+            - wordsWidth(surfaceWidth: surfaceWidth, hasData: hasData, hasWords: hasWords)
     }
 
-    /// The question block plus the air around it — what the height math reserves.
-    private static func questionReserve(_ prompt: String?, surfaceWidth: CGFloat) -> CGFloat {
-        let block = questionHeight(prompt, width: questionMeasure(surfaceWidth: surfaceWidth))
-        return block > 0 ? block + Metrics.questionTopGap : 0
-    }
-
-    /// The tallest the body is allowed to be before the answer scrolls.
+    /// The tallest the body is allowed to be before a column scrolls.
     static func bodyCap(for geometry: NotchGeometry) -> CGFloat {
         guard geometry.screenHeight > 0 else { return Metrics.fallbackBodyHeight }
         return max(
@@ -537,40 +381,80 @@ struct NotchAgentReplyExpanded: View {
             (geometry.screenHeight - geometry.notchHeight) * Metrics.screenFraction)
     }
 
-    /// The height the body actually takes: the taller of the answer and the margin,
-    /// capped, and with the question's own block already paid for. A short answer
-    /// keeps a short band.
-    static func bodyHeight(
-        document: AgentReplyDocument, prompt: String?, toolCount: Int, changedCount: Int,
-        surfaceWidth: CGFloat, geometry: NotchGeometry
-    ) -> CGFloat {
-        let margined = hasMargin(toolCount: toolCount, changedCount: changedCount)
-        let answer = contentHeight(
-            for: document,
-            width: answerColumnWidth(surfaceWidth: surfaceWidth, hasMargin: margined))
-        let margin = marginHeight(toolCount: toolCount, changedCount: changedCount)
-        let available = bodyCap(for: geometry)
-            - questionReserve(prompt, surfaceWidth: surfaceWidth)
-        return min(available, max(answer, margin))
+    static func wordsHeight(_ blocks: [AgentReplyDocument.Block], width: CGFloat) -> CGFloat {
+        guard !blocks.isEmpty else { return 0 }
+        var total: CGFloat = 0
+        for block in blocks {
+            if case .heading = block {
+                total += Metrics.headingHeight + Metrics.headingTopGap
+            } else {
+                // Measured at a slightly narrower measure than it renders at.
+                // `boundingRect` sees one plain regular face, but the renderer sets
+                // inline markdown — **bold** runs and `code` runs in a mono face,
+                // both wider — so a straight measurement under-reports the line
+                // count and the column scrolls when it did not need to.
+                total += ceil(
+                    height(
+                        block.text, font: proseFont, width: width * Metrics.proseMeasureSlack,
+                        lineSpacing: Metrics.proseLineSpacing) * Metrics.proseHeightSlack)
+            }
+        }
+        return total + CGFloat(blocks.count - 1) * Metrics.blockSpacing
     }
 
-    /// How tall the sidenote column comes out.
-    static func marginHeight(toolCount: Int, changedCount: Int) -> CGFloat {
-        var sections: [CGFloat] = []
-        if toolCount > 0 {
-            let rows = min(toolCount, Metrics.maxToolRows)
-                + (toolCount > Metrics.maxToolRows ? 1 : 0)
-            sections.append(
-                Metrics.marginLabel + Metrics.marginLabelGap + CGFloat(rows) * Metrics.toolRow)
+    static func dataHeight(_ blocks: [AgentReplyDocument.Block]) -> CGFloat {
+        guard !blocks.isEmpty else { return 0 }
+        var total: CGFloat = 0
+        for block in blocks {
+            switch block {
+            case .table(let header, let rows):
+                total += (header.isEmpty ? 0 : Metrics.tableHeaderHeight)
+                    + CGFloat(rows.count) * Metrics.tableRowHeight
+            default:
+                let lines = block.text
+                    .split(separator: "\n", omittingEmptySubsequences: false).count
+                total += CGFloat(lines) * Metrics.codeLineHeight
+            }
         }
-        if changedCount > 0 {
-            let rows = min(changedCount, Metrics.maxPathRows)
-                + (changedCount > Metrics.maxPathRows ? 1 : 0)
-            sections.append(
-                Metrics.marginLabel + Metrics.marginLabelGap + CGFloat(rows) * Metrics.pathRow)
-        }
-        guard !sections.isEmpty else { return 0 }
-        return sections.reduce(0, +) + CGFloat(sections.count - 1) * Metrics.marginSectionGap
+        return total + CGFloat(blocks.count - 1) * Metrics.blockSpacing
+    }
+
+    /// How tall the verdict comes out — with a line of slack, because SwiftUI sets
+    /// display type on a taller line box than `boundingRect` reports and this number
+    /// decides the band's height.
+    static func verdictHeight(_ text: String?, surfaceWidth: CGFloat) -> CGFloat {
+        guard let text, !text.isEmpty else { return 0 }
+        let line = ceil(verdictFont.ascender - verdictFont.descender + verdictFont.leading)
+            + Metrics.verdictLineSpacing
+        let measured = height(
+            text, font: verdictFont, width: verdictMeasure(surfaceWidth: surfaceWidth),
+            lineSpacing: Metrics.verdictLineSpacing)
+        let lines = min(CGFloat(Metrics.verdictMaxLines), max(1, ceil(measured / line)))
+        return lines * line + Metrics.verdictSlack
+    }
+
+    /// The verdict block plus the air above it — what the height math reserves.
+    private static func verdictReserve(
+        _ document: AgentReplyDocument, surfaceWidth: CGFloat
+    ) -> CGFloat {
+        let block = verdictHeight(document.split().headline, surfaceWidth: surfaceWidth)
+        return block > 0 ? block + Metrics.headlineTopGap : 0
+    }
+
+    /// The height the two columns take: the taller of them, capped, with the verdict
+    /// already paid for. A one-line answer still gets a one-line band.
+    static func bodyHeight(
+        document: AgentReplyDocument, surfaceWidth: CGFloat, geometry: NotchGeometry
+    ) -> CGFloat {
+        let split = document.split()
+        let words = wordsHeight(
+            split.words,
+            width: wordsWidth(
+                surfaceWidth: surfaceWidth, hasData: !split.data.isEmpty,
+                hasWords: !split.words.isEmpty))
+        let available = bodyCap(for: geometry)
+            - verdictReserve(document, surfaceWidth: surfaceWidth)
+        return min(available, max(words, dataHeight(split.data)))
     }
 
     /// The band thickness for a reply, measured with the same faces at the same
@@ -579,46 +463,19 @@ struct NotchAgentReplyExpanded: View {
         for document: AgentReplyDocument, prompt: String?, toolCount: Int,
         changedCount: Int, surfaceWidth: CGFloat, geometry: NotchGeometry
     ) -> CGFloat {
-        chrome + questionReserve(prompt, surfaceWidth: surfaceWidth)
-            + bodyHeight(
-                document: document, prompt: prompt, toolCount: toolCount,
-                changedCount: changedCount, surfaceWidth: surfaceWidth, geometry: geometry)
+        chrome + verdictReserve(document, surfaceWidth: surfaceWidth)
+            + bodyHeight(document: document, surfaceWidth: surfaceWidth, geometry: geometry)
     }
 
-    /// Everything that is not the question or the body: padding, the eyebrow, its
-    /// rule, and the foot.
+    /// Everything that is not the verdict or the columns.
     private static var chrome: CGFloat {
-        Metrics.verticalPadding * 2 + Metrics.eyebrow + Metrics.eyebrowGap + 1
-            + Metrics.answerTopGap + Metrics.footGap + Metrics.foot
+        Metrics.topPadding + Metrics.bottomPadding + Metrics.eyebrow + Metrics.bodyTopGap
+            + Metrics.footGap + Metrics.foot
     }
 
     /// The tallest the band can be, for `NotchSurfaceLayout.panelSize`.
     static func maxThickness(for geometry: NotchGeometry) -> CGFloat {
         chrome + bodyCap(for: geometry)
-    }
-
-    /// Measured content height. Prose is measured with the body face at the measure
-    /// it renders at; code is a line count times a fixed mono line height, since it
-    /// does not wrap.
-    static func contentHeight(for document: AgentReplyDocument, width: CGFloat) -> CGFloat {
-        var total: CGFloat = 0
-        for block in document.blocks {
-            switch block {
-            case .prose(let text):
-                total += height(
-                    text, font: answerFont, width: min(width, Metrics.maxProseMeasure),
-                    lineSpacing: Metrics.answerLineSpacing) + 2  // SwiftUI/AppKit seam
-            case .heading:
-                total += Metrics.headingHeight + Metrics.headingTopGap
-            case .code(let text):
-                let lines = text.split(separator: "\n", omittingEmptySubsequences: false).count
-                total += CGFloat(lines) * Metrics.codeLineHeight + Metrics.wellInset * 2
-            case .table(let header, let rows):
-                total += (header.isEmpty ? 0 : Metrics.tableHeaderHeight)
-                    + CGFloat(rows.count) * Metrics.tableRowHeight + Metrics.wellInset * 2
-            }
-        }
-        return total + CGFloat(max(0, document.blocks.count - 1)) * Metrics.blockSpacing
     }
 
     /// One run of text's height at a measure, with a real font's metrics.
@@ -638,75 +495,64 @@ struct NotchAgentReplyExpanded: View {
     /// The measuring faces, resolved from the brand families rather than from a
     /// hard-coded PostScript name — the families have been swapped once already, and
     /// a stale name here silently measures the system face while rendering another.
-    private static let answerFont: NSFont =
-        NSFont(name: BrandFont.body, size: Metrics.answerSize)
-        ?? .systemFont(ofSize: Metrics.answerSize)
-    private static let questionFont: NSFont =
-        NSFont(name: BrandFont.heading, size: Metrics.questionSize)
-        ?? .systemFont(ofSize: Metrics.questionSize, weight: .semibold)
+    private static let proseFont: NSFont =
+        NSFont(name: BrandFont.body, size: Metrics.proseSize)
+        ?? .systemFont(ofSize: Metrics.proseSize)
+    private static let verdictFont: NSFont =
+        NSFont(name: BrandFont.heading, size: Metrics.verdictSize)
+        ?? .systemFont(ofSize: Metrics.verdictSize, weight: .semibold)
 
     // MARK: Metrics
 
     enum Metrics {
-        static let horizontalPadding: CGFloat = 30
-        static let verticalPadding: CGFloat = 20
+        static let horizontalPadding: CGFloat = 40
+        static let topPadding: CGFloat = 30
+        static let bottomPadding: CGFloat = 22
 
-        /// The masthead row and the air under it, before the rule.
         static let eyebrow: CGFloat = 16
-        static let eyebrowGap: CGFloat = 13
 
-        /// The question: the card's one piece of display type.
-        static let questionSize: CGFloat = 17
-        static let questionLineSpacing: CGFloat = 3
-        static let questionMaxLines = 3
-        static let questionTickGap: CGFloat = 11
-        static let questionTopGap: CGFloat = 18
-        /// Headroom on the measured question, covering the difference between
+        /// The verdict — the card's one piece of display type.
+        static let verdictSize: CGFloat = 27
+        static let verdictLineSpacing: CGFloat = 5
+        static let verdictMaxLines = 3
+        static let headlineTopGap: CGFloat = 22
+        static let maxVerdictMeasure: CGFloat = 700
+        /// Headroom on the measured verdict, covering the difference between
         /// `boundingRect` and SwiftUI's own line box for display type.
-        static let questionSlack: CGFloat = 6
+        static let verdictSlack: CGFloat = 8
 
-        /// The answer.
-        static let answerSize: CGFloat = 14
-        static let answerLineSpacing: CGFloat = 5
-        static let answerTopGap: CGFloat = 16
-        static let blockSpacing: CGFloat = 11
-        /// The longest line of prose the card sets. Grids are exempt — they are
-        /// scanned in columns, and wrapping them to a measure shatters them.
-        static let maxProseMeasure: CGFloat = 660
-        static let headingTopGap: CGFloat = 9
+        /// The two columns under it.
+        static let bodyTopGap: CGFloat = 26
+        static let columnGap: CGFloat = 44
+        /// Share of the body the words take when there is data beside them.
+        static let wordsShare: CGFloat = 0.52
+        static let maxProseMeasure: CGFloat = 470
+        static let proseSize: CGFloat = 13.5
+        static let proseLineSpacing: CGFloat = 6
+        /// How much narrower prose is measured than it is set — headroom for the
+        /// bold and monospaced inline runs the measurement cannot see.
+        static let proseMeasureSlack: CGFloat = 0.94
+        /// And a little taller than `boundingRect` reports: SwiftUI sets a slightly
+        /// looser line box than the `NSFont` metrics give. Under-measuring here is
+        /// the one error that shows — the column clips a sentence in half.
+        static let proseHeightSlack: CGFloat = 1.14
+        static let blockSpacing: CGFloat = 12
+        static let headingTopGap: CGFloat = 8
         static let headingHeight: CGFloat = 14
 
-        /// Code and table wells.
-        static let wellInset: CGFloat = 11
-        static let wellRadius: CGFloat = 10
-        static let codeLineHeight: CGFloat = 16
-        static let codeLineSpacing: CGFloat = 2.5
-        static let tableRowHeight: CGFloat = 19
+        static let codeSize: CGFloat = 11
+        static let codeLineHeight: CGFloat = 18.5
+        static let codeLineSpacing: CGFloat = 3
+        static let tableRowHeight: CGFloat = 20
         static let tableHeaderHeight: CGFloat = 24
 
-        /// The sidenote column.
-        static let marginWidth: CGFloat = 240
-        static let marginGap: CGFloat = 40
-        /// Where the margin's rule sits inside that gap — nearer the sidenotes than
-        /// the answer, so it reads as their edge.
-        static let marginRuleGap: CGFloat = 18
-        static let marginSectionGap: CGFloat = 18
-        static let marginLabel: CGFloat = 12
-        static let marginLabelGap: CGFloat = 8
-        static let toolGlyphColumn: CGFloat = 15
-        static let toolRow: CGFloat = 20
-        static let maxToolRows = 8
-        static let pathRow: CGFloat = 17
-        static let maxPathRows = 6
-
-        /// The foot.
         static let foot: CGFloat = 13
-        static let footGap: CGFloat = 16
+        static let footGap: CGFloat = 18
 
-        /// Share of the display the card may occupy before the answer scrolls.
-        static let screenFraction: CGFloat = 0.62
+        /// Share of the display the columns may occupy before they scroll.
+        static let screenFraction: CGFloat = 0.55
         /// Floor for the body, used when the screen is unknown (the headless
         /// renderer) and as the minimum on any display.
-        static let fallbackBodyHeight: CGFloat = 300
+        static let fallbackBodyHeight: CGFloat = 240
     }
 }

@@ -420,33 +420,41 @@ shortcut at all**.
   creation and a band taller than its panel is clipped by its own window (the width-axis
   twin of `maxStateLabelWing`). When those two disagreed, the context row under the
   choice card was cut in half. `NotchAgentPanelTests` is the lock.
-- **The finished turn is a console, not a banner** (`NotchAgentReplyExpanded`) — the
-  one surface in this app that opens to `expandedReplyMaxWidth` (1120pt) rather than
-  to a wing, and the only one `panelSize` widens the window for. A header names the
-  session and the verdict; a **left rail** carries the run (what you asked, the tool
-  calls as a status-glyph timeline, what changed on disk); the **answer sits on its
-  own raised panel** beside it. Everything about that shape is a fix for the same
-  defect: stacking the metadata *above* the answer in one ~580pt column grew the band
-  downward without ever using the width, so a real reply clipped mid-sentence while
-  two thirds of the display sat empty either side. Two rules keep it honest — **both
-  columns scroll rather than clip** past `bodyCap` (0.62 of the display, floored), and
-  **`bodyHeight` is the taller of the two columns, capped**, so a one-line answer still
-  gets a one-line band instead of a slab. Widths are derived from the single
-  `surfaceWidth` the band is drawn at (`answerTextWidth`), because measuring the height
-  at one width while rendering at another is what produced the skinny over-wrapped
-  tower.
-  - **The rail has to earn its column** (`hasRail` — tool calls or changed files, never
-    the prompt alone). The commonest turn is a question that ran nothing, and a 306pt
-    strip holding one line beside a full answer was a third of the card doing nothing;
-    there, the question goes full width and the answer takes the whole surface. Both
-    layouts are measured (`questionReserve` is what the no-rail path charges the cap
-    for), so the band fits either.
-  - **Prose is capped at `maxProseMeasure`; code and tables are not.** The card runs
-    past a thousand points and a paragraph at that measure is a line the eye loses its
-    place on, but a table or a `git worktree list` is *scanned in columns* — wrapping
-    that to a reading measure is what shatters it into soup. `contentHeight` measures
-    prose at the same cap it renders at.
-  - **Copy is the header's one non-navigational action**, and it copies `lastReplyRaw`
+- **The finished turn puts the ANSWER in display type, not the question**
+  (`NotchAgentReplyExpanded`). This surface was redesigned five times and every earlier
+  version made the question the headline with the reply hung underneath, which is
+  backwards: you already know what you asked. The reply's **opening paragraph is the
+  verdict**, set at 27pt; the question shrinks to one ember line above it; the run
+  falls to a single dimmed index line at the foot. `AgentReplyDocument.split()` is
+  where that reading lives, and it is pure and testable rather than a rule buried in
+  the view.
+  - **Words on the left, data on the right.** Below the verdict the blocks split by
+    *kind* — prose into a reading column, code and tables into a column beside it,
+    because those are scanned in columns and shatter when wrapped to a measure. Either
+    side takes the full measure when the other is empty. **A heading travels with what
+    it heads** (`split()`'s one-block lookahead): splitting purely by kind stranded
+    "Toolchain" and "Worktrees" in the words column while the table and fence they
+    captioned sat in the other one.
+  - **The band opens as much as it needs** — `Layout.readingWidth` (860) for a
+    prose-only reply, `Layout.consoleWidth` (1120) only when there is a grid to put
+    beside it. One fixed width meant a two-sentence answer was laid out across a
+    thousand points, which is a slab however well it is styled. `panelSize` is sized
+    for the console, since the panel is created once and a band wider than its panel is
+    clipped by its own window.
+  - **Both columns scroll rather than clip** past `bodyCap` (0.55 of the display,
+    floored), and **`bodyHeight` is the taller of the two, capped**, so a one-line
+    answer still gets a one-line band. **The snapshot render clips too** — a headless
+    render that lets an over-long column draw through the foot rule hides exactly the
+    overflow it exists to catch.
+  - **Prose is measured narrower and taller than it is set** (`proseMeasureSlack`,
+    `proseHeightSlack`). `boundingRect` sees one plain regular face while the renderer
+    sets inline markdown — bold runs and `code` runs in mono, both wider — and SwiftUI's
+    line box is looser than the `NSFont` metrics. Under-measuring is the one error that
+    shows: the column clips a sentence in half.
+  - **`Theme.Notch.output` is green, deliberately not the signal teal.** Command output
+    and test results are read as *terminal* output, and the app's machine accent reads
+    aqua there. Scoped to this surface; every other band still wears `success`.
+  - **Copy is the foot's one non-navigational action**, and it copies `lastReplyRaw`
     (the markdown), not the presented line. A turn deliberately skips `appendHistory`,
     so the band is the only place the answer exists — without this the sole way to keep
     it is a trip to the browser.
