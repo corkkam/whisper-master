@@ -204,8 +204,14 @@ final class AgentSurfaceController {
         // endpoint does not carry it, and dropping it would flip the mode control
         // back to Ask on every poll.
         let knownModes = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0.mode) })
+        let knownActivity = Dictionary(
+            uniqueKeysWithValues: sessions.map { ($0.id, $0.activity) })
         sessions = metas
-            .map { AgentSession(meta: $0, mode: knownModes[$0.id] ?? .ask) }
+            .map {
+                AgentSession(
+                    meta: $0, mode: knownModes[$0.id] ?? .ask,
+                    activity: knownActivity[$0.id] ?? nil)
+            }
             .rankedForGlance()
 
         // Remembered so a first spoken prompt on a Mac with a *closed* session still
@@ -275,6 +281,7 @@ final class AgentSurfaceController {
     private func apply(_ event: KunaiWire.Event) {
         log.apply(event)
         changeSet.editedPaths = AgentChangeSet.editedPaths(in: log)
+        applyActivity(log.currentActivity)
 
         switch event.kind {
         case .hello:
@@ -301,10 +308,12 @@ final class AgentSurfaceController {
             applyState(KunaiWire.SessionState(wire: event.state))
 
         case .assistant:
-            // Keep the newest thing it said; the band shows one line, not a log.
-            if let text = event.blocks?.compactMap(\.text).last?
-                .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
-                lastReply = text
+            // Keep the newest thing it said, as one *readable* line — the raw
+            // markdown put a literal ``` on the band when a reply opened with a
+            // code fence.
+            if let text = event.blocks?.compactMap(\.text).last,
+               let line = AgentReplyLine.compact(text) {
+                lastReply = line
             }
 
         case .result:
@@ -315,8 +324,9 @@ final class AgentSurfaceController {
             // the newest assistant text in the log, then to a plain "Finished".
             if lastReply == nil {
                 for entry in log.entries.reversed() {
-                    if case .assistant(_, let text) = entry {
-                        lastReply = text
+                    if case .assistant(_, let text) = entry,
+                       let line = AgentReplyLine.compact(text) {
+                        lastReply = line
                         break
                     }
                 }
@@ -337,6 +347,17 @@ final class AgentSurfaceController {
         // First question wins. A second card stacked on the first would hide which
         // one the buttons answer.
         if ask == nil { ask = built }
+    }
+
+    /// The caption the working row shows: what the agent is doing, learned from its
+    /// own tool calls. Written onto the attached session so the row and the glance
+    /// both read one value.
+    private func applyActivity(_ activity: String?) {
+        guard let activity,
+              let attachedSessionID,
+              let index = sessions.firstIndex(where: { $0.id == attachedSessionID })
+        else { return }
+        sessions[index].activity = activity
     }
 
     /// Write a live state onto the attached session, so the band tracks the socket

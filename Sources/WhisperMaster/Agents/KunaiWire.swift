@@ -53,8 +53,31 @@ extension KunaiWire {
         var text: String?
         var id: String?
         var name: String?
+        /// The tool's arguments, for `tool_use` blocks. Decoded because most tool
+        /// calls never raise a permission (reads, or a session in auto mode) — this
+        /// block is then the **only** place the "Editing NotchGlow.swift" caption can
+        /// come from.
+        var input: [String: JSONValue]?
 
-        enum CodingKeys: String, CodingKey { case type, text, id, name }
+        enum CodingKeys: String, CodingKey { case type, text, id, name, input }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            type = (try? c.decode(String.self, forKey: .type)) ?? ""
+            text = try? c.decode(String.self, forKey: .text)
+            id = try? c.decode(String.self, forKey: .id)
+            name = try? c.decode(String.self, forKey: .name)
+            input = try? c.decode([String: JSONValue].self, forKey: .input)
+        }
+
+        init(type: String, text: String? = nil, id: String? = nil,
+             name: String? = nil, input: [String: JSONValue]? = nil) {
+            self.type = type
+            self.text = text
+            self.id = id
+            self.name = name
+            self.input = input
+        }
     }
 
     /// A server → client frame.

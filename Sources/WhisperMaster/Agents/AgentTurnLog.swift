@@ -55,6 +55,45 @@ struct AgentTurnLog: Sendable, Equatable {
 
     var isEmpty: Bool { entries.isEmpty && streaming.isEmpty }
 
+    /// What the agent is doing right now, in the user's terms — the caption the
+    /// working row shows beside "Working 17s".
+    ///
+    /// The newest tool call still awaiting its result wins (that is the thing
+    /// actually running); otherwise the newest tool call at all, since "just
+    /// finished editing X" beats a bare repo name. Nil until a tool has appeared,
+    /// which the caller renders as the repo.
+    var currentActivity: String? {
+        var newest: (name: String, detail: String)?
+        var inFlight: (name: String, detail: String)?
+        for entry in entries {
+            guard case .tool(_, let name, let detail, let verdict) = entry else { continue }
+            newest = (name, detail)
+            if verdict == nil { inFlight = (name, detail) }
+        }
+        guard let pick = inFlight ?? newest else { return nil }
+        return Self.presentActivity(name: pick.name, detail: pick.detail)
+    }
+
+    /// Turn a tool line into a progressive caption: "Run  swift test" reads as a
+    /// request, "Running swift test" reads as what is happening.
+    static func presentActivity(name: String, detail: String) -> String {
+        let progressive: [(prefix: String, verb: String)] = [
+            ("Run  ", "Running "), ("Edit  ", "Editing "),
+            ("Read  ", "Reading "), ("Fetch  ", "Fetching "),
+        ]
+        for rule in progressive where detail.hasPrefix(rule.prefix) {
+            return rule.verb + detail.dropFirst(rule.prefix.count)
+        }
+        if !detail.isEmpty { return detail }
+        // No argument to show: the tool's own name, made humane for the two
+        // commonest cases, is still better than a bare repo.
+        switch name {
+        case "Bash": return "Running a command"
+        case "Edit", "Write": return "Editing files"
+        default: return name
+        }
+    }
+
     /// Drop everything. Called when the session's epoch changes, because the new
     /// process's sequence numbering has no relationship to the old one's.
     mutating func reset() {
@@ -86,8 +125,14 @@ struct AgentTurnLog: Sendable, Equatable {
                     guard let text = block.text?.trimmed, !text.isEmpty else { continue }
                     append(.assistant(id: id, text: text))
                 case "tool_use":
+                    // Most tool calls never raise a permission (reads, auto mode), so
+                    // this block is the only chance to say what the call *is*.
+                    let detail = AgentApproval.headline(
+                        tool: block.name, input: block.input?.asJSON ?? .null,
+                        permTitle: nil)
                     append(.tool(id: block.id ?? id, name: block.name ?? "Tool",
-                                 detail: "", verdict: nil))
+                                 detail: detail == (block.name ?? "") ? "" : detail,
+                                 verdict: nil))
                 default:
                     continue  // thinking blocks stay out of the tail
                 }
