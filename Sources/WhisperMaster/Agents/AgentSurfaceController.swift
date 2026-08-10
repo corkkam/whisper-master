@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -100,6 +101,19 @@ final class AgentSurfaceController {
             replyExpanded = true
             replyPinned = true
         }
+    }
+
+    /// Put the whole answer on the clipboard — the raw markdown, not the one-line
+    /// presentation, because what you copy out of a reply is the thing you paste
+    /// into a commit message or a ticket. The band is the only place this text
+    /// exists (a turn deliberately skips `appendHistory`), so without this the only
+    /// way to keep it is to go to the browser.
+    @discardableResult
+    func copyLastReply() -> Bool {
+        guard let text = lastReplyRaw ?? lastReply, !text.isEmpty else { return false }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        return true
     }
 
     /// Show a session's tail because something just went to it.

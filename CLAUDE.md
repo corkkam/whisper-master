@@ -435,6 +435,21 @@ shortcut at all**.
   `surfaceWidth` the band is drawn at (`answerTextWidth`), because measuring the height
   at one width while rendering at another is what produced the skinny over-wrapped
   tower.
+  - **The rail has to earn its column** (`hasRail` — tool calls or changed files, never
+    the prompt alone). The commonest turn is a question that ran nothing, and a 306pt
+    strip holding one line beside a full answer was a third of the card doing nothing;
+    there, the question goes full width and the answer takes the whole surface. Both
+    layouts are measured (`questionReserve` is what the no-rail path charges the cap
+    for), so the band fits either.
+  - **Prose is capped at `maxProseMeasure`; code and tables are not.** The card runs
+    past a thousand points and a paragraph at that measure is a line the eye loses its
+    place on, but a table or a `git worktree list` is *scanned in columns* — wrapping
+    that to a reading measure is what shatters it into soup. `contentHeight` measures
+    prose at the same cap it renders at.
+  - **Copy is the header's one non-navigational action**, and it copies `lastReplyRaw`
+    (the markdown), not the presented line. A turn deliberately skips `appendHistory`,
+    so the band is the only place the answer exists — without this the sole way to keep
+    it is a trip to the browser.
 - **Auto mode trades the approval card for the turn undo, and that is only honest
   because kunai snapshots the working tree before every turn.** `AgentModeControl`
   offers Ask / Auto / Plan beside the question, because the moment someone wants to

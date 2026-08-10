@@ -418,6 +418,35 @@ enum SnapshotMode {
                 turnEvents: Array(sessionTranscriptEvents.dropFirst()))
             s.agents.toggleReplyExpansion()
         }
+        // The commonest turn of all: a question that called no tools and changed
+        // nothing. There is no run to put in a rail, so the question goes full
+        // width and the answer takes the whole card — a 306pt strip holding one
+        // line beside a full answer was a third of the surface doing nothing.
+        renderPill(dir, name: "pill-10g-agent-reply-answer-only") { s in
+            s.phase = .idle
+            s.agents.seedReplyForSnapshot(
+                session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
+                reply: """
+                    Per directory:
+
+                    ```
+                    Sources/     WhisperMaster/ → 21 modules
+                    Tests/       WhisperMasterTests/ → 50 test files + Fixtures/
+                    Resources/   AppIcon.icns  Info.plist  WhisperMaster.entitlements
+                    Scripts/     14 files — bundle.sh release.sh install.sh dev-install.sh
+                    eval/        dashboard/  text-cleanup/
+                    docs/        design/  superpowers/  supabase-clerk-integration.md
+                    .github/     CI workflows
+                    ```
+
+                    Generated or scratch, nothing meaningful inside: `.build/`, \
+                    `build/`, `.context/`, `.swiftpm/`, `WhisperMaster.xcodeproj/`, \
+                    `.git/`.
+                    """,
+                duration: 9,
+                prompt: "So tell me what are there in the directories.")
+            s.agents.toggleReplyExpansion()
+        }
         renderPill(dir, name: "pill-7-polishing") { s in
             s.phase = .idle
             s.isPolishing = true

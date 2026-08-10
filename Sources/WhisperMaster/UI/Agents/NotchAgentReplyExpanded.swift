@@ -36,7 +36,13 @@ struct NotchAgentReplyExpanded: View {
     /// The display this is drawn on. A reply is a document, so the card sizes
     /// itself against the screen rather than a constant.
     var geometry: NotchGeometry = .none
+    /// Puts the whole answer on the clipboard. Injected so the view stays free of
+    /// the pasteboard, the same shape the undelivered hint's Copy uses.
+    var onCopy: () -> Void = {}
 
+    /// Latched for a beat after a copy, so the button reports what it did. Local
+    /// because it is presentation, not app state.
+    @State private var didCopy = false
     @Environment(\.openURL) private var openURL
     /// `ImageRenderer` collapses a flexible `ScrollView` to nothing, so the
     /// headless renderer gets the plain stack. Same gate the other AppKit-backed
@@ -50,15 +56,40 @@ struct NotchAgentReplyExpanded: View {
             Divider().overlay(Theme.Notch.hairline)
                 .padding(.top, Metrics.headerGap / 2)
                 .padding(.bottom, Metrics.headerGap / 2)
-            HStack(alignment: .top, spacing: Metrics.columnGap) {
-                rail
-                    .frame(width: Metrics.railWidth, alignment: .leading)
-                answerPanel
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            // **The rail earns its column.** A turn that called no tools and changed
+            // no files has nothing to put in it, and a 306pt strip holding one line
+            // of prompt beside a full answer was a third of the card doing nothing.
+            // So the question moves up to full width and the answer takes the rest.
+            if hasRail {
+                HStack(alignment: .top, spacing: 0) {
+                    rail
+                        .frame(width: Metrics.railWidth, alignment: .leading)
+                    // The rail's own edge, run full height. Without it a short run
+                    // beside a long answer leaves the column's lower half reading as
+                    // a hole in the card rather than as a gutter.
+                    Rectangle()
+                        .fill(Theme.Notch.hairline)
+                        .frame(width: 1)
+                        .frame(maxHeight: .infinity)
+                        .padding(.leading, Metrics.railEdgeGap)
+                        .padding(.trailing, Metrics.columnGap - Metrics.railEdgeGap - 1)
+                    answerPanel
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: bodyHeight, alignment: .top)
+            } else {
+                VStack(alignment: .leading, spacing: Metrics.sectionGap) {
+                    if let prompt, !prompt.isEmpty {
+                        section("You asked") { promptLine(prompt) }
+                            .frame(height: promptBlock, alignment: .top)
+                    }
+                    answerPanel
+                        .frame(height: bodyHeight, alignment: .top)
+                }
             }
-            .frame(height: bodyHeight, alignment: .top)
             collapseHint
                 .frame(height: Metrics.collapseHint)
+                .padding(.top, Metrics.collapseHintGap)
         }
         .padding(.horizontal, Metrics.horizontalPadding)
         .padding(.vertical, Metrics.verticalPadding)
@@ -82,28 +113,47 @@ struct NotchAgentReplyExpanded: View {
                 .lineLimit(1)
             statusChip
             Spacer(minLength: Theme.Space.sm)
+            // The answer lives only as long as this band does — a turn skips
+            // history on purpose — so taking it with you is the one action the
+            // header owes you.
+            capsuleButton(
+                didCopy ? "Copied" : "Copy answer",
+                glyph: didCopy ? "checkmark" : "doc.on.doc",
+                tint: didCopy ? Theme.Notch.success : Theme.Notch.text
+            ) {
+                onCopy()
+                withAnimation(.easeOut(duration: 0.15)) { didCopy = true }
+            }
             if let kunaiURL {
-                // A real button in the band's own capsule idiom, not caption text
-                // cosplaying as a link.
-                Button {
+                capsuleButton("Open in kunai", glyph: "arrow.up.right") {
                     openURL(kunaiURL)
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("Open in kunai")
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 8, weight: .bold))
-                    }
                 }
-                .buttonStyle(.plain)
-                .font(Typography.notchCaption)
-                .foregroundStyle(Theme.Notch.text)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(Theme.Notch.controlFill))
-                .pointerCursor()
-                .accessibilityLabel("Open this session in kunai")
             }
         }
+    }
+
+    /// The band's one button shape, so the header reads as a pair of controls
+    /// rather than two differently-built links.
+    private func capsuleButton(
+        _ title: String, glyph: String, tint: Color = Theme.Notch.text,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: glyph)
+                    .font(.system(size: 9, weight: .bold))
+                Text(title)
+            }
+        }
+        .buttonStyle(.plain)
+        .font(Typography.notchCaption)
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(Theme.Notch.controlFill))
+        .overlay(Capsule().strokeBorder(Theme.Notch.hairline, lineWidth: 1))
+        .pointerCursor()
+        .accessibilityLabel(title)
     }
 
     /// "Finished · 3m 12s" as one quiet capsule. The verdict and how long it took
@@ -135,23 +185,7 @@ struct NotchAgentReplyExpanded: View {
     private var rail: some View {
         let stack = VStack(alignment: .leading, spacing: Metrics.sectionGap) {
             if let prompt, !prompt.isEmpty {
-                section("You asked") {
-                    HStack(alignment: .top, spacing: Theme.Space.sm) {
-                        // Ember is *your voice* everywhere in this app — the
-                        // listening wave, the dictation rail — so your words wear
-                        // it here too.
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .fill(Theme.Notch.accent)
-                            .frame(width: 3)
-                        Text(prompt)
-                            .font(Typography.notchBody)
-                            .lineSpacing(Metrics.proseLineSpacing)
-                            .foregroundStyle(Theme.Notch.text)
-                            .lineLimit(Metrics.promptMaxLines)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                }
+                section("You asked") { promptLine(prompt) }
             }
             if !visibleTools.isEmpty {
                 section("What it did") {
@@ -206,6 +240,25 @@ struct NotchAgentReplyExpanded: View {
         } else {
             stack
         }
+    }
+
+    /// What you said, on the ember rail. Ember is *your voice* everywhere in this
+    /// app — the listening wave, the dictation bar — so your words wear it here too,
+    /// and the answer's own marker is signal. Colour is doing the speaker labels.
+    private func promptLine(_ prompt: String) -> some View {
+        HStack(alignment: .top, spacing: Theme.Space.sm) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(Theme.Notch.accent)
+                .frame(width: 3)
+            Text(prompt)
+                .font(Typography.notchBody)
+                .lineSpacing(Metrics.proseLineSpacing)
+                .foregroundStyle(Theme.Notch.text)
+                .lineLimit(Metrics.promptMaxLines)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// A rail section: a tracked, uppercase label over its content. The label is
@@ -314,6 +367,15 @@ struct NotchAgentReplyExpanded: View {
         .overlay(
             RoundedRectangle(cornerRadius: Metrics.answerRadius)
                 .strokeBorder(Theme.Notch.hairline, lineWidth: 1))
+        // A single lit top edge, the way a real panel catches the light from
+        // above. One hairline, not a gradient wash — a saturated bloom at low
+        // alpha over pure black reads as dirt, which is the same finding that
+        // took the glow off these bands.
+        .overlay(alignment: .top) {
+            RoundedRectangle(cornerRadius: Metrics.answerRadius)
+                .trim(from: 0.03, to: 0.47)
+                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+        }
     }
 
     @ViewBuilder
@@ -322,10 +384,16 @@ struct NotchAgentReplyExpanded: View {
             ForEach(Array(document.blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .prose(let text):
+                    // **Prose gets a measure; data gets the width.** The card is
+                    // over a thousand points wide, and a paragraph run edge to edge
+                    // at that width is a line your eye loses its place on. Code and
+                    // tables are scanned in columns rather than read in lines, so
+                    // they keep the full panel.
                     Text(Self.inlineMarkdown(text))
                         .font(Typography.notchBody)
                         .lineSpacing(Metrics.proseLineSpacing)
                         .foregroundStyle(Theme.Notch.text)
+                        .frame(maxWidth: Metrics.maxProseMeasure, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
                 case .code(let text):
                     codeBlock(text)
@@ -340,7 +408,9 @@ struct NotchAgentReplyExpanded: View {
                         Text(Self.inlineMarkdown(text))
                             .font(Typography.notchLabel)
                             .foregroundStyle(Theme.Notch.text)
+                        Spacer(minLength: 0)
                     }
+                    .frame(maxWidth: Metrics.maxProseMeasure, alignment: .leading)
                     .padding(.top, Metrics.headingTopGap)
                 case .table(let header, let rows):
                     tableView(header: header, rows: rows)
@@ -420,13 +490,15 @@ struct NotchAgentReplyExpanded: View {
     /// The way back. The whole card is tappable, but a surface this size has to say
     /// so — a band that fills half the screen with no visible exit reads as stuck.
     private var collapseHint: some View {
-        HStack {
+        HStack(spacing: 6) {
             Spacer()
             Image(systemName: "chevron.compact.up")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.Notch.textTertiary.opacity(0.7))
+                .font(.system(size: 11, weight: .bold))
+            Text("Click anywhere, or press esc, to close")
+                .font(Typography.notchCaption)
             Spacer()
         }
+        .foregroundStyle(Theme.Notch.textTertiary.opacity(0.75))
         .accessibilityLabel("Collapse this reply")
     }
 
@@ -439,12 +511,18 @@ struct NotchAgentReplyExpanded: View {
     private var visiblePaths: [String] { Array(editedPaths.prefix(Metrics.maxPathRows)) }
     private var hiddenPathCount: Int { max(0, editedPaths.count - Metrics.maxPathRows) }
 
+    private var hasRail: Bool { Self.hasRail(toolCount: tools.count, changedCount: editedPaths.count) }
+
     private var answerTextWidth: CGFloat {
-        Self.answerTextWidth(surfaceWidth: surfaceWidth)
+        Self.answerTextWidth(surfaceWidth: surfaceWidth, hasRail: hasRail)
     }
 
     private var railHeight: CGFloat {
         Self.railHeight(prompt: prompt, toolCount: tools.count, changedCount: editedPaths.count)
+    }
+
+    private var promptBlock: CGFloat {
+        Self.promptBlockHeight(prompt, width: surfaceWidth - Metrics.horizontalPadding * 2)
     }
 
     private var bodyHeight: CGFloat {
@@ -474,7 +552,11 @@ struct NotchAgentReplyExpanded: View {
         /// The run rail. Wide enough for a real path in mono at 10.5pt without the
         /// middle truncation eating the informative part.
         static let railWidth: CGFloat = 306
-        static let columnGap: CGFloat = 26
+        static let columnGap: CGFloat = 30
+        /// How far the rail's edge sits from the rail itself. Nearer the rail than
+        /// the answer, so it reads as the rail's boundary rather than as a second
+        /// border on the panel.
+        static let railEdgeGap: CGFloat = 11
         /// The answer panel's own inset and shape.
         static let answerInset: CGFloat = 18
         static let answerRadius: CGFloat = 14
@@ -500,10 +582,15 @@ struct NotchAgentReplyExpanded: View {
         static let maxToolRows = 8
         static let pathRow: CGFloat = 17
         static let maxPathRows = 5
-        /// The spoken prompt, at most this many lines in the rail.
+        /// The spoken prompt, at most this many lines wherever it appears.
         static let promptMaxLines = 5
-        /// The collapse affordance at the foot of the card.
+        /// The longest line of prose the answer sets. The card runs past 1000pt, and
+        /// a paragraph at that measure is a line the eye loses its place on; code and
+        /// tables are exempt because they are scanned in columns, not read in lines.
+        static let maxProseMeasure: CGFloat = 720
+        /// The collapse affordance at the foot of the card, and its air.
         static let collapseHint: CGFloat = 14
+        static let collapseHintGap: CGFloat = 10
         /// Share of the display the whole card may occupy before its columns
         /// scroll. A reply is a document; a constant cap meant a 16-inch display
         /// and a laptop both stopped at the same arbitrary line.
@@ -515,23 +602,52 @@ struct NotchAgentReplyExpanded: View {
 
     // MARK: Measurement (shared with `NotchSurfaceLayout`)
 
-    /// The measure the answer's prose is wrapped at — the surface minus the card's
-    /// padding, the rail, the gap, and the answer panel's own inset.
-    static func answerTextWidth(surfaceWidth: CGFloat) -> CGFloat {
-        max(
-            220,
-            surfaceWidth - Metrics.horizontalPadding * 2 - Metrics.railWidth
-                - Metrics.columnGap - Metrics.answerInset * 2)
+    /// Whether the run rail earns its column. Only the tool calls and the changed
+    /// files justify one — a lone prompt does not, and pretending otherwise left a
+    /// third of the card empty on every read-only question.
+    static func hasRail(toolCount: Int, changedCount: Int) -> Bool {
+        toolCount > 0 || changedCount > 0
     }
 
-    /// How tall the rail's three sections come out.
+    /// The width the answer panel's content is laid out in. With no rail the answer
+    /// takes the whole card; prose is capped separately, by `maxProseMeasure`.
+    static func answerTextWidth(surfaceWidth: CGFloat, hasRail: Bool) -> CGFloat {
+        let outer = surfaceWidth - Metrics.horizontalPadding * 2 - Metrics.answerInset * 2
+        return max(220, hasRail ? outer - Metrics.railWidth - Metrics.columnGap : outer)
+    }
+
+    /// The question above the answer, when it is not in the rail: its label, the
+    /// gap under it, and the text at the card's full measure. The gap *below* the
+    /// block belongs to the stack that lays it out, not to the block.
+    static func promptBlockHeight(_ prompt: String?, width: CGFloat) -> CGFloat {
+        guard let prompt, !prompt.isEmpty else { return 0 }
+        let measured = proseHeight(prompt, width: max(1, width - 3 - Theme.Space.sm))
+        return Metrics.sectionLabel + Metrics.labelGap + min(measured, promptLineCap)
+    }
+
+    /// The prompt block plus the gap that separates it from the answer — what the
+    /// height math has to reserve when there is no rail.
+    private static func questionReserve(
+        _ prompt: String?, toolCount: Int, changedCount: Int, surfaceWidth: CGFloat
+    ) -> CGFloat {
+        guard !hasRail(toolCount: toolCount, changedCount: changedCount) else { return 0 }
+        let block = promptBlockHeight(
+            prompt, width: surfaceWidth - Metrics.horizontalPadding * 2)
+        return block > 0 ? block + Metrics.sectionGap : 0
+    }
+
+    /// The prompt never grows past `promptMaxLines`, in either place it appears.
+    private static var promptLineCap: CGFloat {
+        CGFloat(Metrics.promptMaxLines) * (proseLineHeight + Metrics.proseLineSpacing)
+    }
+
+    /// How tall the rail's sections come out.
     static func railHeight(prompt: String?, toolCount: Int, changedCount: Int) -> CGFloat {
         var sections: [CGFloat] = []
         if let prompt, !prompt.isEmpty {
             let width = Metrics.railWidth - 3 - Theme.Space.sm
             let measured = proseHeight(prompt, width: width)
-            let lineCap = CGFloat(Metrics.promptMaxLines) * (proseLineHeight + Metrics.proseLineSpacing)
-            sections.append(Metrics.sectionLabel + Metrics.labelGap + min(measured, lineCap))
+            sections.append(Metrics.sectionLabel + Metrics.labelGap + min(measured, promptLineCap))
         }
         if toolCount > 0 {
             let rows = min(toolCount, Metrics.maxToolRows)
@@ -564,9 +680,21 @@ struct NotchAgentReplyExpanded: View {
         document: AgentReplyDocument, prompt: String?, toolCount: Int, changedCount: Int,
         surfaceWidth: CGFloat, geometry: NotchGeometry
     ) -> CGFloat {
+        let railed = hasRail(toolCount: toolCount, changedCount: changedCount)
         let answer =
-            contentHeight(for: document, width: answerTextWidth(surfaceWidth: surfaceWidth))
+            contentHeight(
+                for: document,
+                width: answerTextWidth(surfaceWidth: surfaceWidth, hasRail: railed))
             + Metrics.answerInset * 2
+        guard railed else {
+            // No rail, so the question sits above the answer and the cap has to
+            // pay for it — otherwise a long prompt pushes the card past the ceiling
+            // the panel was sized for.
+            let question = questionReserve(
+                prompt, toolCount: toolCount, changedCount: changedCount,
+                surfaceWidth: surfaceWidth)
+            return min(bodyCap(for: geometry) - question, answer)
+        }
         let rail = railHeight(prompt: prompt, toolCount: toolCount, changedCount: changedCount)
         return min(bodyCap(for: geometry), max(answer, rail))
     }
@@ -577,7 +705,10 @@ struct NotchAgentReplyExpanded: View {
         for document: AgentReplyDocument, prompt: String?, toolCount: Int,
         changedCount: Int, surfaceWidth: CGFloat, geometry: NotchGeometry
     ) -> CGFloat {
-        chrome
+        let question = questionReserve(
+            prompt, toolCount: toolCount, changedCount: changedCount,
+            surfaceWidth: surfaceWidth)
+        return chrome + question
             + bodyHeight(
                 document: document, prompt: prompt, toolCount: toolCount,
                 changedCount: changedCount, surfaceWidth: surfaceWidth, geometry: geometry)
@@ -587,7 +718,7 @@ struct NotchAgentReplyExpanded: View {
     /// collapse affordance.
     private static var chrome: CGFloat {
         Metrics.verticalPadding * 2 + Metrics.headerHeight + Metrics.headerGap + 1
-            + Metrics.collapseHint
+            + Metrics.collapseHintGap + Metrics.collapseHint
     }
 
     /// The tallest the expanded band can be, for `NotchSurfaceLayout.panelSize`.
@@ -603,7 +734,8 @@ struct NotchAgentReplyExpanded: View {
         for block in document.blocks {
             switch block {
             case .prose(let text):
-                total += proseHeight(text, width: width) + 2  // SwiftUI/AppKit seam
+                // Measured at the measure it renders at, capped the same way.
+                total += proseHeight(text, width: min(width, Metrics.maxProseMeasure)) + 2
             case .code(let text):
                 let lines = text.split(separator: "\n", omittingEmptySubsequences: false).count
                 total += CGFloat(lines) * Metrics.codeLineHeight + Metrics.codeInset * 2

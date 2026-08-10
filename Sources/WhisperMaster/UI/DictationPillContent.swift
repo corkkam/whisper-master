@@ -473,7 +473,8 @@ struct DictationPillContent: View {
                         tools: state.agents.log.currentTurnTools,
                         surfaceWidth: expandedReplyWidth,
                         kunaiURL: state.agents.openSessionURL,
-                        geometry: geometry)
+                        geometry: geometry,
+                        onCopy: { state.agents.copyLastReply() })
                 } else {
                     NotchAgentReplyBanner(
                         reply: reply,
