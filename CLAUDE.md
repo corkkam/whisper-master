@@ -458,6 +458,35 @@ shortcut at all**.
     (the markdown), not the presented line. A turn deliberately skips `appendHistory`,
     so the band is the only place the answer exists — without this the sole way to keep
     it is a trip to the browser.
+- **The other sessions get one line, once — never a notification centre**
+  (`AgentAttention`, `NotchAgentNudgeBanner`). The band watches one session, so a
+  second agent could block on a permission nobody would ever be asked about, or
+  finish unseen. kunai's poll already reports every session's state, so the
+  transitions are read from it and **no second socket exists**. The whole design is
+  the restraint: the watched session is never announced (its own surfaces already
+  speak for it); **only transitions**, so a session already blocked at launch is not
+  news; **once per event**, remembered until the session leaves that state, so a
+  flapping poll cannot repeat itself; and the **newest event wins** rather than
+  queueing, because a queue on this surface is a stack of bands waiting to take the
+  menu bar. A permission outranks a finish — one is a stopped machine, the other is
+  only news.
+  - **It is a pointer, not the card.** With one socket we do not *have* the other
+    session's question, and rendering a guess at it would be worse than silence. Tap
+    → `focus(sessionID:)` moves the one socket there and the real card follows. The
+    tap is the consent; nothing ever yanks you to another agent on its own.
+  - It sits near the **bottom** of the ladder, below everything carrying consent, a
+    schedule, or unrecoverable text, and is suppressed entirely while dictating. Its
+    clock is **paused while the band is busy** and it is **dropped once shown**
+    (`AppDelegate.reconcileAgentNudge`), so a message can neither expire unseen nor
+    reappear stale — the same paused-clock shape `dueReminderAt` uses.
+  - **The tray is the agents' entry point that is not a shortcut.** The glance opens
+    with a user-chosen key that is *off by default*, so a fresh install had no way to
+    reach the sessions at all. A **Coding Agents** submenu lists them (click one →
+    the same `focus`), hidden entirely when kunai is not running. The status icon
+    reflects exactly one agent state — **another session is blocked** — because an
+    icon that changed on every tool call is noise; a running count goes in the header
+    line only. Both are change-guarded (`renderedAgentRows` compares *state*, not the
+    elapsed label, or the menu rebuilds twice a second forever).
 - **Auto mode trades the approval card for the turn undo, and that is only honest
   because kunai snapshots the working tree before every turn.** `AgentModeControl`
   offers Ask / Auto / Plan beside the question, because the moment someone wants to

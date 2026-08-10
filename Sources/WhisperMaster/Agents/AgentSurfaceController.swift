@@ -316,7 +316,61 @@ final class AgentSurfaceController {
             lastKnownDirectory = directory
         }
 
+        // What the sessions we are *not* watching have been doing. Read from the poll
+        // we already make, so noticing a second agent costs nothing.
+        if let event = attention.update(sessions: sessions, watching: attendedSessionID) {
+            nudge = event
+            nudgeAt = Date()
+        }
+
         reconcileAttachment()
+    }
+
+    // MARK: Other sessions
+
+    /// The session the band is currently speaking for — the one whose events are
+    /// already reaching the user. Everything else is a candidate for a nudge.
+    private var attendedSessionID: String? { openSessionID ?? attachedSessionID }
+
+    /// Whether any session that is not on screen is blocked on a permission. This is
+    /// what the menu bar reflects: a machine stopped, waiting, out of sight.
+    var otherSessionNeedsYou: Bool {
+        sessions.contains { $0.id != attendedSessionID && $0.state == .awaitingPermission }
+    }
+
+    var runningSessionCount: Int { sessions.count(where: { $0.state == .running }) }
+
+    /// The one-line interruption raised for another session, and when it was raised.
+    private(set) var nudge: AgentAttention.Event?
+    private(set) var nudgeAt: Date?
+    private var attention = AgentAttention()
+
+    /// How long a nudge stays up. Short: it is a pointer, not the content.
+    static let nudgeHold: TimeInterval = 7
+
+    /// Hold the nudge's clock while something else has the band. Same trick the due
+    /// reminder uses — a window that runs down while it is suppressed is a message
+    /// the user never got.
+    func holdNudge() {
+        guard nudge != nil else { return }
+        nudgeAt = Date()
+    }
+
+    func dismissNudge() {
+        nudge = nil
+        nudgeAt = nil
+    }
+
+    /// Move attention to another session: what tapping a nudge does.
+    ///
+    /// It **switches rather than fans out** — one socket, moved deliberately. That is
+    /// the whole design: we never yank the user to another agent on our own, and we
+    /// never try to render a session we are not attached to. The tap is the consent,
+    /// and the surfaces that follow (its card, its reply) are the ones that already
+    /// work.
+    func focus(sessionID: String) {
+        dismissNudge()
+        reveal(sessionID: sessionID)
     }
 
     /// Attach to the session that most deserves the socket: the one the user opened,
@@ -712,6 +766,13 @@ final class AgentSurfaceController {
         lastReplyRaw = reply
         lastReplyAt = Date()
         lastTurnDuration = duration
+    }
+
+    func seedNudgeForSnapshot(_ event: AgentAttention.Event, sessions: [AgentSession]) {
+        self.sessions = sessions.rankedForGlance()
+        self.isAvailable = true
+        self.nudge = event
+        self.nudgeAt = Date()
     }
 
     func seedForSnapshot(ask: AgentAsk, sessions: [AgentSession]) {

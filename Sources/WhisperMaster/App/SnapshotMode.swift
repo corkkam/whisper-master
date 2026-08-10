@@ -422,6 +422,24 @@ enum SnapshotMode {
         // nothing. There is no run to put in a rail, so the question goes full
         // width and the answer takes the whole card — a 306pt strip holding one
         // line beside a full answer was a third of the surface doing nothing.
+        // Another session, out of sight, blocked on a permission. A pointer, not the
+        // card: we hold one socket, so we do not have that session's question, and
+        // rendering a guess at it would be worse than saying nothing.
+        renderPill(dir, name: "pill-10k-agent-nudge-needs-you") { s in
+            s.phase = .idle
+            s.agents.seedNudgeForSnapshot(
+                AgentAttention.Event(sessionID: "s2", repo: "kunai", kind: .needsYou),
+                sessions: [
+                    AgentSession(id: "s1", repo: "whisper-master", state: .running),
+                    AgentSession(id: "s2", repo: "kunai", state: .awaitingPermission),
+                ])
+        }
+        renderPill(dir, name: "pill-10l-agent-nudge-finished") { s in
+            s.phase = .idle
+            s.agents.seedNudgeForSnapshot(
+                AgentAttention.Event(sessionID: "s3", repo: "landing-page", kind: .finished),
+                sessions: [AgentSession(id: "s3", repo: "landing-page", state: .idle)])
+        }
         // The shape a real answer actually has: bold section headers, bullet lists,
         // and a closing paragraph. Before the parser split on blank lines this whole
         // reply was one prose block, so the verdict swallowed it and the line cap cut

@@ -87,6 +87,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var historyMenuItem: NSMenuItem?
     private var historySeparator: NSMenuItem?
     private var renderedHistoryIDs: [UUID] = []
+    /// The coding-agent section of the tray menu, and the signature of what is
+    /// currently drawn in it. Change-guarded like the history submenu: this is
+    /// rebuilt on a 0.5s tick, and the answer is identical on nearly every one.
+    private var agentsMenu: NSMenu?
+    private var agentsMenuItem: NSMenuItem?
+    private var renderedAgentRows: [String] = []
 
     /// Sparkle auto-updater. `startingUpdater: true` begins scheduled update
     /// checks (gated by `SUEnableAutomaticChecks` in Info.plist) against the
@@ -606,6 +612,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         historyMenu = historySub
         historyMenuItem = historyItem
 
+        // **The agents' entry point that is not a shortcut.** The glance opens with a
+        // user-chosen key that is off by default, so on a fresh install there was no
+        // way to reach the sessions at all. The tray is always there, needs nothing
+        // configured, and is where people already look to see what an app is doing.
+        // It hides itself when kunai is not running, so a Mac without one is
+        // unchanged.
+        let agentsItem = NSMenuItem(title: "Coding Agents", action: nil, keyEquivalent: "")
+        let agentsSub = NSMenu()
+        agentsItem.submenu = agentsSub
+        agentsItem.isHidden = true
+        menu.addItem(agentsItem)
+        agentsMenu = agentsSub
+        agentsMenuItem = agentsItem
+
         let separator = NSMenuItem.separator()
         menu.addItem(separator)
         historySeparator = separator
@@ -733,6 +753,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // card — where clicks matter.
         pillWindow?.setInteractive(
             state.approvals.pending != nil
+                // The nudge is a pointer to another session, so it has to be
+                // tappable — a band that says "tap to answer" and swallows the tap
+                // is worse than no band.
+                || state.shouldShowAgentNudge
                 || state.shouldShowAgentAsk
                 || state.shouldShowAgentGlance
                 || state.shouldShowAgentReply
@@ -750,6 +774,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the menu bar back once a revealed session has been read.
         reconcileAgentHotkey()
         if state.agents.revealHasExpired() { state.agents.closeGlance() }
+        reconcileAgentNudge()
 
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
@@ -877,6 +902,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         refreshHistoryMenu()
+        refreshAgentsMenu()
+    }
+
+    /// Redraw the agents section, only when what it says has changed.
+    private func refreshAgentsMenu() {
+        guard let agentsMenu, let agentsMenuItem else { return }
+        let controller = viewModel.state.agents
+        let sessions = controller.sessions
+        // Absent is the normal state: no kunai, no section. A greyed-out menu for a
+        // server almost nobody runs is clutter on every other Mac.
+        let visible = controller.isAvailable && !sessions.isEmpty
+        if agentsMenuItem.isHidden == visible { agentsMenuItem.isHidden = !visible }
+        guard visible else {
+            if !renderedAgentRows.isEmpty {
+                renderedAgentRows = []
+                agentsMenu.removeAllItems()
+            }
+            return
+        }
+
+        let now = Date()
+        let rows = sessions.map { "\($0.id)|\($0.repo)|\($0.statusLabel(now: now))" }
+        // The elapsed stamp changes every second, so compare on the *state* rather
+        // than the label — otherwise this rebuilds the menu twice a second forever,
+        // which is exactly what the change guard exists to prevent.
+        let signature = sessions.map { "\($0.id)|\($0.repo)|\($0.state.rawValue)" }
+        guard signature != renderedAgentRows else { return }
+        renderedAgentRows = signature
+        _ = rows
+
+        agentsMenu.removeAllItems()
+        for session in sessions {
+            let item = NSMenuItem(
+                title: "\(session.repo.isEmpty ? "agent" : session.repo) — \(session.statusLabel(now: now))",
+                action: #selector(openAgentSession(_:)),
+                keyEquivalent: "")
+            item.target = self
+            item.representedObject = session.id
+            if session.state == .awaitingPermission {
+                item.image = NSImage(
+                    systemSymbolName: "hand.raised.fill", accessibilityDescription: nil)
+            }
+            agentsMenu.addItem(item)
+        }
+    }
+
+    /// Open one session on the band from the tray. Same door the nudge uses, so
+    /// there is one way in and it behaves identically however it was reached.
+    @objc private func openAgentSession(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        viewModel.state.agents.focus(sessionID: id)
     }
 
     private func refreshHistoryMenu() {
@@ -953,6 +1029,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return f
     }()
 
+    /// Keep the other-session nudge honest on the same tick everything else runs on.
+    ///
+    /// Two jobs, and they are opposites. While the band is busy the nudge's clock is
+    /// **pinned**, because a window that runs down behind an approval card is a
+    /// message the user never received. Once it has had its time on screen it is
+    /// **dropped**, so a stale pointer cannot reappear the next time the band frees
+    /// up. Same paused-clock shape the due reminder uses.
+    private func reconcileAgentNudge() {
+        let state = viewModel.state
+        guard state.agents.nudge != nil else { return }
+        guard state.canShowAgentNudge else {
+            state.agents.holdNudge()
+            return
+        }
+        guard let raisedAt = state.agents.nudgeAt else { return }
+        if Date().timeIntervalSince(raisedAt) >= AgentSurfaceController.nudgeHold {
+            state.agents.dismissNudge()
+        }
+    }
+
     private func trayAppearance(for state: AppState) -> (String?, String, String) {
         if state.preparingEngine != nil {
             let percent = Int((state.download?.fractionCompleted ?? 0) * 100)
@@ -971,6 +1067,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .idle:
             if !state.selectedEngine.isInstalled {
                 return ("arrow.down.circle", "Whisper Master — voice engine not installed", "Voice engine not installed")
+            }
+            // **The one agent state the menu bar reflects.** An agent blocked on a
+            // permission you cannot see is the failure this whole feature exists to
+            // prevent, and the tray is the surface that is always there — no
+            // shortcut, no band, no timing. Everything else about the agents stays
+            // in the notch, because a menu-bar icon that changed on every tool call
+            // would be noise.
+            if state.agents.otherSessionNeedsYou {
+                return (
+                    "hand.raised.fill", "Whisper Master — an agent needs you",
+                    "An agent needs you")
+            }
+            if state.agents.runningSessionCount > 0 {
+                let count = state.agents.runningSessionCount
+                let label = count == 1 ? "1 agent working" : "\(count) agents working"
+                return (nil, "Whisper Master — \(label)", label)
             }
             return (nil, "Whisper Master — ready", "Ready")
         }

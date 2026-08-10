@@ -606,6 +606,47 @@ final class AppState {
             && phase == .idle && !agentCaptureArmed
     }
 
+    /// A one-line pointer to a session that is **not** on screen: it needs a
+    /// permission answered, or it finished while you were looking elsewhere.
+    ///
+    /// It sits low in the ladder on purpose. Every band above it is either something
+    /// with a caller suspended behind it, something the user scheduled, or text that
+    /// would otherwise be lost — this is only news, and news must never take the
+    /// menu bar from any of those. It is also suppressed entirely while dictating:
+    /// the band's job during a recording is to report the recording.
+    var shouldShowAgentNudge: Bool {
+        guard agentNudgesEnabled, let raisedAt = agents.nudgeAt, agents.nudge != nil
+        else { return false }
+        guard Date().timeIntervalSince(raisedAt) < AgentSurfaceController.nudgeHold
+        else { return false }
+        return canShowAgentNudge
+    }
+
+    /// Whether the band is free to carry a nudge. Split out so the refresh loop can
+    /// *pause* the nudge's clock while something else is up, rather than letting a
+    /// message the user never saw run out of time.
+    var canShowAgentNudge: Bool {
+        !shouldShowAgentAsk && !shouldShowAgentGlance && !shouldShowAgentWorking
+            && !shouldShowAgentReply
+            && approvals.pending == nil
+            && !shouldShowDueReminderBanner
+            && !shouldShowCommandConfirmation
+            && !shouldShowDaySummary
+            && !shouldShowUndeliveredBanner
+            && phase == .idle && !agentCaptureArmed && !commandCaptureArmed
+    }
+
+    /// One line in Settings, on by default. It is a new class of interruption, so it
+    /// gets a hard off switch — but only one, and it is not a decision anyone has to
+    /// make before the feature works.
+    var agentNudgesEnabled: Bool = true {
+        didSet {
+            UserDefaults.standard.set(agentNudgesEnabled, forKey: Self.agentNudgesDefaultsKey)
+        }
+    }
+
+    static let agentNudgesDefaultsKey = "WhisperMaster.agentNudges.v1"
+
     /// From the moment a prompt is delivered until its reply lands, the revealed
     /// band always has something to show. Keying this on the session's *state*
     /// left a gap — the `running` frame arrives a beat after the send, and a
@@ -690,6 +731,10 @@ final class AppState {
             UserDefaults.standard.string(forKey: Self.agentDirectoryDefaultsKey) ?? ""
         agentExpandedRepliesEnabled =
             UserDefaults.standard.bool(forKey: Self.agentExpandedRepliesDefaultsKey)
+        // On unless turned off: an absent key must not read as "off", or the feature
+        // is dark for everyone who has never opened Settings.
+        agentNudgesEnabled =
+            UserDefaults.standard.object(forKey: Self.agentNudgesDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         holdToTalkEnabled = UserDefaults.standard.object(forKey: Self.holdToTalkDefaultsKey) as? Bool ?? true
         // Opt-in: off until the user has explicitly turned it on.
@@ -952,6 +997,7 @@ final class AppState {
             || shouldShowDaySummary
             || shouldShowBluetoothBanner
             || shouldShowUndeliveredBanner
+            || shouldShowAgentNudge
             || shouldShowLearnedBanner
             || shouldShowCleanupReadyBanner
             || shouldShowReminder

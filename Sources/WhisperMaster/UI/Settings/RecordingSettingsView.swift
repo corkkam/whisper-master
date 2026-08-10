@@ -55,6 +55,15 @@ struct RecordingSettingsView: View {
                 }
                 RowDivider()
                 SettingsRow(
+                    "Tell me about other sessions",
+                    subtitle: "When an agent you aren't watching needs a permission or "
+                        + "finishes, the notch says so once. Tap it to go there."
+                ) {
+                    ThemeToggle(
+                        isOn: $state.agentNudgesEnabled, label: "Tell me about other sessions")
+                }
+                RowDivider()
+                SettingsRow(
                     "Project folder",
                     subtitle: "Where a new session opens when nothing is running. "
                         + "Leave empty to reuse the folder of a session you already have."
