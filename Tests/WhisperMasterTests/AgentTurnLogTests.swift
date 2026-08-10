@@ -130,3 +130,37 @@ final class AgentTurnLogTests: XCTestCase {
         XCTAssertEqual(preview.summary, "1 file restored")
     }
 }
+
+/// The caption the menu-bar row carries while a turn runs.
+final class AgentWorkingCaptionTests: XCTestCase {
+
+    func testANewTurnDoesNotInheritThePreviousTurnsCommand() throws {
+        // The poll reports a session's *last known* activity, so between sending a
+        // prompt and its first tool call it still names the previous turn's command.
+        // That is what read as a caption that never changed whatever you said.
+        var log = AgentTurnLog()
+        var call = KunaiWire.Event(seq: 1, kind: .permission)
+        call.toolUseID = "t1"
+        call.toolName = "Bash"
+        log.apply(call)
+        XCTAssertNotNil(log.currentActivity)
+
+        var prompt = KunaiWire.Event(seq: 2, kind: .user)
+        prompt.text = "now do the other thing"
+        log.apply(prompt)
+        XCTAssertNil(
+            log.currentActivity,
+            "a fresh turn has run nothing yet, and the repo is the honest caption")
+    }
+
+    func testTheSubjectIsTrimmedSoTheStatusSurvives() {
+        // The bar's wing is capped. With the subject leading, an over-long command
+        // pushed the elapsed time off the end — the half that actually changes.
+        let long = NotchAgentWorkingRow.trimmedSubject(
+            "Running echo \"== tracked secrets? ==\" && git ls-files --error-unmatch .env")
+        XCTAssertTrue(long.hasSuffix("…"))
+        XCTAssertLessThanOrEqual(long.count, NotchAgentWorkingRow.maxSubjectCharacters + 1)
+        // A short one is left exactly as it is.
+        XCTAssertEqual(NotchAgentWorkingRow.trimmedSubject("Editing loop.go"), "Editing loop.go")
+    }
+}

@@ -512,11 +512,11 @@ struct NotchAgentReplyExpanded: View {
         static let eyebrow: CGFloat = 16
 
         /// The verdict — the card's one piece of display type.
-        static let verdictSize: CGFloat = 27
-        static let verdictLineSpacing: CGFloat = 5
-        static let verdictMaxLines = 3
-        static let headlineTopGap: CGFloat = 22
-        static let maxVerdictMeasure: CGFloat = 700
+        static let verdictSize: CGFloat = 21
+        static let verdictLineSpacing: CGFloat = 4
+        static let verdictMaxLines = 4
+        static let headlineTopGap: CGFloat = 18
+        static let maxVerdictMeasure: CGFloat = 720
         /// Headroom on the measured verdict, covering the difference between
         /// `boundingRect` and SwiftUI's own line box for display type.
         static let verdictSlack: CGFloat = 8
@@ -527,7 +527,7 @@ struct NotchAgentReplyExpanded: View {
         /// Share of the body the words take when there is data beside them.
         static let wordsShare: CGFloat = 0.52
         static let maxProseMeasure: CGFloat = 470
-        static let proseSize: CGFloat = 13.5
+        static let proseSize: CGFloat = 13
         static let proseLineSpacing: CGFloat = 6
         /// How much narrower prose is measured than it is set — headroom for the
         /// bold and monospaced inline runs the measurement cannot see.
@@ -540,8 +540,8 @@ struct NotchAgentReplyExpanded: View {
         static let headingTopGap: CGFloat = 8
         static let headingHeight: CGFloat = 14
 
-        static let codeSize: CGFloat = 11
-        static let codeLineHeight: CGFloat = 18.5
+        static let codeSize: CGFloat = 10.5
+        static let codeLineHeight: CGFloat = 18
         static let codeLineSpacing: CGFloat = 3
         static let tableRowHeight: CGFloat = 20
         static let tableHeaderHeight: CGFloat = 24

@@ -190,3 +190,56 @@ final class AgentReplyExpansionTests: XCTestCase {
         XCTAssertEqual(controller.lastReplyRaw, "```\ncode\n```\nProse line.")
     }
 }
+
+/// How the expanded band reads a reply: one sentence as the verdict, then words
+/// and data in their own columns.
+final class AgentReplySplitTests: XCTestCase {
+
+    func testTheVerdictIsOneSentenceAndTheRestRejoinsTheBody() {
+        // A model often answers in a single long paragraph. Setting all of it in
+        // display type truncated with an ellipsis, and the headline is the one line
+        // on this surface that must never be cut.
+        let doc = AgentReplyDocument.parse(
+            "Too vague for me to guess well. \"Things\" could be files, directories, "
+                + "tools, branches, issues, or capabilities.")
+        let split = doc.split()
+        XCTAssertEqual(split.headline, "Too vague for me to guess well.")
+        XCTAssertEqual(split.words.count, 1)
+        XCTAssertEqual(
+            split.words.first?.text,
+            "\"Things\" could be files, directories, tools, branches, issues, or capabilities.")
+    }
+
+    func testAVersionNumberDoesNotEndTheVerdict() {
+        // A terminator only ends a sentence when whitespace follows it, or
+        // "parakeet-tdt-0.6b-v3" would become the whole headline.
+        let doc = AgentReplyDocument.parse("Loaded parakeet-tdt-0.6b-v3 and warmed it. Ready.")
+        XCTAssertEqual(doc.split().headline, "Loaded parakeet-tdt-0.6b-v3 and warmed it.")
+    }
+
+    func testAReplyOpeningWithCodeHasNoVerdict() {
+        // Inventing one from the fence would put a shell command in display type.
+        let doc = AgentReplyDocument.parse("```\nswift build\n```\n\nDone.")
+        let split = doc.split()
+        XCTAssertNil(split.headline)
+        XCTAssertEqual(split.data.count, 1)
+        XCTAssertEqual(split.words.first?.text, "Done.")
+    }
+
+    func testAHeadingTravelsWithTheDataItHeads() {
+        // Splitting purely by kind stranded the caption in the words column while
+        // the table it captioned sat in the other one.
+        let doc = AgentReplyDocument.parse(
+            "Ran both.\n\n## Toolchain\n\n| tool | version |\n|---|---|\n| swift | 6.3 |\n\n"
+                + "## Notes\n\nNothing else changed.")
+        let split = doc.split()
+        XCTAssertEqual(split.data.count, 2)  // the heading and its table
+        if case .heading(let text) = split.data.first {
+            XCTAssertEqual(text, "Toolchain")
+        } else {
+            XCTFail("the heading above a table belongs to the data column")
+        }
+        // A heading above prose stays with the prose.
+        XCTAssertTrue(split.words.contains { $0.text == "Notes" })
+    }
+}

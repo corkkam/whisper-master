@@ -98,13 +98,17 @@ struct AgentTurnLog: Sendable, Equatable {
     /// actually running); otherwise the newest tool call at all, since "just
     /// finished editing X" beats a bare repo name. Nil until a tool has appeared,
     /// which the caller renders as the repo.
+    /// **Scoped to the current turn, not the whole tail.** Scanning every entry meant
+    /// a fresh turn kept the previous turn's last command on the bezel until its own
+    /// first tool call landed — and a turn that answers without calling anything kept
+    /// it for the whole run, which reads as a caption that never changes whatever you
+    /// say. Nil is the honest answer there, and the caller renders the repo.
     var currentActivity: String? {
         var newest: (name: String, detail: String)?
         var inFlight: (name: String, detail: String)?
-        for entry in entries {
-            guard case .tool(_, let name, let detail, let verdict) = entry else { continue }
-            newest = (name, detail)
-            if verdict == nil { inFlight = (name, detail) }
+        for tool in currentTurnTools {
+            newest = (tool.name, tool.detail)
+            if tool.verdict == nil { inFlight = (tool.name, tool.detail) }
         }
         guard let pick = inFlight ?? newest else { return nil }
         return Self.presentActivity(name: pick.name, detail: pick.detail)

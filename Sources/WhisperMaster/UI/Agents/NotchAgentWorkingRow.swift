@@ -19,6 +19,8 @@ struct NotchAgentWorkingRow: View {
     var orbSize: CGFloat = NotchTranscriptRow.orbDiameter
     var verticalInset: CGFloat = NotchTranscriptRow.verticalPadding
     var labelMaxWidth: CGFloat?
+    /// The socket's view of this turn, when the owner has one.
+    var live: String?
     /// Stop the turn — kunai's interrupt. On the row because the moment you want an
     /// agent to stop is the moment you are watching it work.
     var onStop: (() -> Void)?
@@ -55,7 +57,7 @@ struct NotchAgentWorkingRow: View {
         .accessibilityLabel(caption)
     }
 
-    private var caption: String { Self.caption(for: session, now: now) }
+    private var caption: String { Self.caption(for: session, now: now, live: live) }
 
     /// One line, like the dictation row's state word: what it is doing (or which
     /// codebase), then how long. Never the raw tool name — a notch reading
@@ -64,13 +66,16 @@ struct NotchAgentWorkingRow: View {
     /// Static because `DictationPillContent` feeds the same string to
     /// `wideWing(forStateLabel:)`: the wing is sized to the caption, so the two
     /// must be one computation or the bar truncates exactly the words it grew for.
-    static func caption(for session: AgentSession, now: Date) -> String {
-        let subject: String
-        if let activity = session.activity, !activity.isEmpty {
-            subject = activity
-        } else {
-            subject = session.repo
-        }
+    /// `live` is the socket's own view of this turn (`AgentTurnLog.currentActivity`)
+    /// and wins over the polled session. The poll reports a session's *last known*
+    /// activity, so between sending a new prompt and its first tool call it still
+    /// names the previous turn's command — which reads as a caption that never
+    /// changes whatever you say.
+    static func caption(for session: AgentSession, now: Date, live: String? = nil) -> String {
+        let activity = [live, session.activity]
+            .compactMap { $0 }
+            .first { !$0.isEmpty }
+        let subject = trimmedSubject(activity ?? session.repo)
         // The row shows from the send onward, which is before kunai reports the
         // turn as running — in that beat "Idle" would be a lie about words that
         // are mid-flight, so the pending state reads as what it is.
@@ -78,4 +83,21 @@ struct NotchAgentWorkingRow: View {
             ? session.statusLabel(now: now) : "Starting"
         return "\(subject) · \(status)"
     }
+
+    /// The bar's wing is capped, so an over-long caption truncates — and with the
+    /// subject leading, what got cut was the elapsed time at the end rather than the
+    /// middle of a shell command. Trimming the subject to a budget keeps the status
+    /// on screen, which is the half that changes.
+    static func trimmedSubject(_ subject: String) -> String {
+        let compact = AgentTurnLog.trimmedCommand(subject)
+        guard compact.count > maxSubjectCharacters else { return compact }
+        let cut = compact.prefix(maxSubjectCharacters)
+            .reversed().drop(while: { !$0.isWhitespace }).reversed()
+        let kept = String(cut).trimmingCharacters(in: .whitespaces)
+        return (kept.isEmpty ? String(compact.prefix(maxSubjectCharacters)) : kept) + "…"
+    }
+
+    /// Measured against `NotchSurfaceLayout.maxStateLabelWing`: past this the whole
+    /// caption stops fitting the wing and the status is what gets dropped.
+    static let maxSubjectCharacters = 34
 }

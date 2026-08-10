@@ -314,7 +314,8 @@ struct DictationPillContent: View {
         // assistant's connector captions it has to grow the wing rather than
         // truncate against the base width.
         if showAgentWorking, let session = state.agents.openSession {
-            return NotchAgentWorkingRow.caption(for: session, now: now)
+            return NotchAgentWorkingRow.caption(
+                for: session, now: now, live: state.agents.log.currentActivity)
         }
         guard surfaceKind == .wide, transcriptModel.isEmpty else { return "" }
         return activity.label(
@@ -471,6 +472,7 @@ struct DictationPillContent: View {
                 orbSize: layout.rowOrbDiameter(for: geometry),
                 verticalInset: layout.rowVerticalPadding,
                 labelMaxWidth: rowLabelMaxWidth,
+                live: state.agents.log.currentActivity,
                 onStop: { state.agents.interrupt() })
         } else if showAgentReply, let reply = state.agents.lastReply {
             // Click for the whole thing; click again for the one-liner. The full

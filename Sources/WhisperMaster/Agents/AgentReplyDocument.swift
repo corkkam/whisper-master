@@ -49,19 +49,51 @@ struct AgentReplyDocument: Equatable, Sendable {
     /// interleaving is what lets both columns be measured independently, which is
     /// what the band's height needs.
     struct Split: Equatable, Sendable {
-        /// The opening paragraph, if the reply starts with prose. A reply that opens
-        /// with a code fence has no verdict to set, and inventing one from the fence
-        /// would put a shell command in 27pt display type.
+        /// The opening **sentence**, if the reply starts with prose. A reply that
+        /// opens with a code fence has no verdict to set, and inventing one from the
+        /// fence would put a shell command in display type.
         var headline: String?
         var words: [Block] = []
         var data: [Block] = []
+    }
+
+    /// The verdict is one sentence, not the whole opening paragraph.
+    ///
+    /// A model often answers in a single long paragraph, and setting all of it in
+    /// display type either ran off the band or truncated with an ellipsis — the
+    /// headline is the one line on this surface that must never be cut, because it
+    /// is the thing the design exists to show. So the first sentence leads and the
+    /// remainder rejoins the body as ordinary prose.
+    static func firstSentence(_ text: String) -> (lead: String, rest: String?) {
+        let terminators: Set<Character> = [".", "!", "?"]
+        var index = text.startIndex
+        while index < text.endIndex {
+            let character = text[index]
+            let next = text.index(after: index)
+            if terminators.contains(character) {
+                // A terminator only ends a sentence when whitespace follows it, so
+                // "0.6b-v3" and "e.g" stay inside their sentence.
+                guard next < text.endIndex else { break }
+                if text[next].isWhitespace {
+                    let lead = String(text[..<next])
+                    let rest = String(text[next...])
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    return (lead, rest.isEmpty ? nil : rest)
+                }
+            }
+            index = next
+        }
+        return (text, nil)
     }
 
     func split() -> Split {
         var result = Split()
         var rest = blocks[...]
         if case .prose(let first)? = blocks.first {
-            result.headline = first
+            let (lead, remainder) = Self.firstSentence(first)
+            result.headline = lead
+            // The remainder leads the body, so the paragraph still reads in order.
+            if let remainder { result.words.append(.prose(remainder)) }
             rest = blocks.dropFirst()
         }
         let remaining = Array(rest)

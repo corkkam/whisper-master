@@ -427,6 +427,10 @@ enum SnapshotMode {
             s.agents.seedReplyForSnapshot(
                 session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
                 reply: """
+                    Too vague for me to guess well — "things" could be files, \
+                    directories, tools, branches, issues, or capabilities. I've covered \
+                    each of those at some point.
+
                     Per directory:
 
                     ```
