@@ -28,6 +28,19 @@ struct AgentReplyDocument: Equatable, Sendable {
 
     var blocks: [Block]
 
+    /// Whether the reply carries something that is *scanned in columns* rather than
+    /// read in lines — a fenced block or a table. Those are the only blocks that
+    /// want the whole display; prose does not, and a two-sentence answer laid out
+    /// at console width was the "why is it a slab" complaint. This is what decides
+    /// whether the band opens to a reading measure or all the way out.
+    var wantsFullWidth: Bool {
+        blocks.contains {
+            if case .prose = $0 { return false }
+            if case .heading = $0 { return false }
+            return true
+        }
+    }
+
     static func parse(_ raw: String) -> AgentReplyDocument {
         var blocks: [Block] = []
         var proseLines: [String] = []

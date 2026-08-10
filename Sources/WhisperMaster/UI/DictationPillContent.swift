@@ -78,12 +78,30 @@ struct DictationPillContent: View {
             in: state.agents.sessions, askingRepo: state.agents.askingSession?.repo ?? "")
     }
 
-    /// The full width of the expanded reply's console. Both its columns are derived
-    /// from this one number, and the height is measured from the same derivation —
-    /// measuring at an assumed width while rendering at another is what produced the
-    /// skinny over-wrapped tower.
+    /// The finished reply, parsed once per render. Both the band's thickness and its
+    /// width are decided from it, and re-parsing for each would be the same string
+    /// walked three times a frame.
+    private var replyDocument: AgentReplyDocument? {
+        guard showAgentReply, state.agents.replyExpanded,
+              let reply = state.agents.lastReply
+        else { return nil }
+        return AgentReplyDocument.parse(state.agents.lastReplyRaw ?? reply)
+    }
+
+    /// The full width of the expanded reply. Every column is derived from this one
+    /// number, and the height is measured from the same derivation — measuring at an
+    /// assumed width while rendering at another is what produced the skinny
+    /// over-wrapped tower. The rung follows the reply: prose gets a reading measure,
+    /// grids and runs get the console.
     private var expandedReplyWidth: CGFloat {
-        layout.expandedReplySurfaceWidth(for: geometry)
+        layout.expandedReplySurfaceWidth(
+            for: geometry,
+            console: replyDocument.map {
+                NotchAgentReplyExpanded.Layout.wantsConsole(
+                    document: $0,
+                    toolCount: state.agents.log.currentTurnTools.count,
+                    changedCount: state.agents.changeSet.editedPaths.count)
+            } ?? false)
     }
 
     /// Read once per render rather than held: the elapsed labels in the context row
@@ -116,11 +134,9 @@ struct DictationPillContent: View {
                 banner: layout.bannerThickness)
         }
         if showAgentReply {
-            guard state.agents.replyExpanded, let reply = state.agents.lastReply else {
-                return layout.bannerThickness
-            }
+            guard let document = replyDocument else { return layout.bannerThickness }
             return NotchAgentReplyExpanded.thickness(
-                for: AgentReplyDocument.parse(state.agents.lastReplyRaw ?? reply),
+                for: document,
                 prompt: state.agents.log.lastUserPrompt,
                 toolCount: state.agents.log.currentTurnTools.count,
                 changedCount: state.agents.changeSet.editedPaths.count,
@@ -287,9 +303,7 @@ struct DictationPillContent: View {
     private var surfaceWidth: CGFloat {
         // The expanded reply is the "big notch": it takes the widest surface the
         // panel was sized for, the same cap the assistant's longest captions reach.
-        if showAgentReply, state.agents.replyExpanded {
-            return layout.expandedReplySurfaceWidth(for: geometry)
-        }
+        if showAgentReply, state.agents.replyExpanded { return expandedReplyWidth }
         return layout.surfaceWidth(for: geometry, surfaceKind, stateLabel: stateLabel)
     }
 
@@ -463,9 +477,9 @@ struct DictationPillContent: View {
             // reply is stored raw, so the expanded band re-presents it from source
             // rather than expanding the truncated line.
             Group {
-                if state.agents.replyExpanded {
+                if state.agents.replyExpanded, let document = replyDocument {
                     NotchAgentReplyExpanded(
-                        document: AgentReplyDocument.parse(state.agents.lastReplyRaw ?? reply),
+                        document: document,
                         prompt: state.agents.log.lastUserPrompt,
                         repo: state.agents.openSession?.repo ?? "",
                         duration: state.agents.lastTurnDuration,
