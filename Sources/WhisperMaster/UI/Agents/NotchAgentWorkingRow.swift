@@ -1,38 +1,33 @@
 import SwiftUI
 
-/// An agent mid-turn, as a slim row rather than a panel.
+/// An agent mid-turn, in the menu-bar row — the same resting form a dictation
+/// takes, because it is the same situation: something is running, nothing needs
+/// reading, and the surface's job is to say so without taking any room.
 ///
-/// This is the state the surface spends most of its time in, and it exists because
-/// the full session tail is the wrong shape for it: a turn runs for minutes, and a
-/// 200pt band sitting over the menu bar for minutes is not ambient awareness, it is
-/// an obstruction. So a running turn gets the **row** — the same two-ended shape
-/// dictation uses, the caption at the leading edge and the orb at the trailing one —
-/// and the tail comes back once there is something finished to read.
+/// One line at the leading edge, the working orb at the trailing edge, at
+/// menu-bar height. **Not** a band: the first version dropped a slab below the
+/// bezel with a two-line caption inside it and the orb adrift in empty black,
+/// which is a shape nothing else in this app uses for "busy".
 ///
-/// The orb is `.working`, never `.listening`: ember means *your voice*, and nothing
-/// here is hearing you.
+/// The orb is `.working`, never `.listening`: ember means *your voice*, and
+/// nothing here is hearing you.
 struct NotchAgentWorkingRow: View {
     let session: AgentSession
     let now: Date
-    /// Matches the row form the dictation bar uses on this geometry, so the two read
-    /// as the same surface in two moods.
+    /// Matches the row form the dictation bar uses on this geometry, so the two
+    /// read as the same surface in two moods.
     var orbSize: CGFloat = NotchTranscriptRow.orbDiameter
     var verticalInset: CGFloat = NotchTranscriptRow.verticalPadding
     var labelMaxWidth: CGFloat?
 
     var body: some View {
         HStack(spacing: Theme.Space.md) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(caption)
-                    .font(Typography.notchBody)
-                    .foregroundStyle(Theme.Notch.text)
-                Text(session.statusLabel(now: now))
-                    .font(Typography.notchCaption)
-                    .foregroundStyle(Theme.Notch.textSecondary)
-            }
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(maxWidth: labelMaxWidth, alignment: .leading)
+            Text(caption)
+                .font(Typography.notchBody)
+                .foregroundStyle(Theme.Notch.text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: labelMaxWidth, alignment: .leading)
 
             Spacer(minLength: Theme.Space.sm)
 
@@ -43,14 +38,25 @@ struct NotchAgentWorkingRow: View {
         .padding(.vertical, verticalInset)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(caption). \(session.statusLabel(now: now))")
+        .accessibilityLabel(caption)
     }
 
-    /// What it is doing, or which codebase it is doing it in. Never the raw tool
-    /// name — a notch reading `mcp__foo__bar` is the same leak the approval card's
-    /// raw arguments were.
-    private var caption: String {
-        guard let activity = session.activity, !activity.isEmpty else { return session.repo }
-        return activity
+    private var caption: String { Self.caption(for: session, now: now) }
+
+    /// One line, like the dictation row's state word: what it is doing (or which
+    /// codebase), then how long. Never the raw tool name — a notch reading
+    /// `mcp__foo__bar` is the same leak the approval card's raw arguments were.
+    ///
+    /// Static because `DictationPillContent` feeds the same string to
+    /// `wideWing(forStateLabel:)`: the wing is sized to the caption, so the two
+    /// must be one computation or the bar truncates exactly the words it grew for.
+    static func caption(for session: AgentSession, now: Date) -> String {
+        let subject: String
+        if let activity = session.activity, !activity.isEmpty {
+            subject = activity
+        } else {
+            subject = session.repo
+        }
+        return "\(subject) · \(session.statusLabel(now: now))"
     }
 }

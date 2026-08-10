@@ -107,7 +107,6 @@ struct DictationPillContent: View {
                 for: ask, otherSessions: otherAgentSessions.count,
                 banner: layout.bannerThickness)
         }
-        if showAgentWorking { return layout.bottomThickness }
         if showAgentReply { return layout.bannerThickness }
         if showAgentGlance {
             return NotchAgentGlance.listThickness(sessionCount: state.agents.sessions.count)
@@ -144,6 +143,11 @@ struct DictationPillContent: View {
     /// so the leading label and trailing orb land outside the camera housing
     /// without any special-casing.
     private var isNotchRow: Bool {
+        // An agent mid-turn takes the same resting form a dictation does: the
+        // caption in one wing, the orb in the other, at menu-bar height. Rendering
+        // it as a dropped band put a slab of empty black under the bezel with a
+        // caption lost in it — nothing else in the app treats "working" that way.
+        if showAgentWorking { return true }
         guard bandIsDictation || isDeliveredBadge else { return false }
         return transcriptModel.isEmpty
     }
@@ -257,6 +261,12 @@ struct DictationPillContent: View {
     /// The state word the bar is carrying, or "" for every surface that isn't the
     /// bar. Resolved here because it decides the width as well as the content.
     private var stateLabel: String {
+        // The working row's caption carries a file name or a repo name, so like the
+        // assistant's connector captions it has to grow the wing rather than
+        // truncate against the base width.
+        if showAgentWorking, let session = state.agents.openSession {
+            return NotchAgentWorkingRow.caption(for: session, now: now)
+        }
         guard surfaceKind == .wide, transcriptModel.isEmpty else { return "" }
         return activity.label(
             holdToTalk: state.holdToTalkEnabled && !state.handsFreeActive,
@@ -410,6 +420,7 @@ struct DictationPillContent: View {
             NotchAgentWorkingRow(
                 session: session, now: now,
                 orbSize: layout.rowOrbDiameter(for: geometry),
+                verticalInset: layout.rowVerticalPadding,
                 labelMaxWidth: rowLabelMaxWidth)
         } else if showAgentReply, let reply = state.agents.lastReply {
             NotchAgentReplyBanner(

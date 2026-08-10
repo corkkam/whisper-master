@@ -90,7 +90,11 @@ final class AgentSurfaceController {
     func revealHasExpired(now: Date = Date()) -> Bool {
         guard let revealedAt else { return false }
         guard let session = openSession, session.state == .idle else { return false }
-        return now.timeIntervalSince(revealedAt) > Self.revealHold
+        // The hold is reading time for the *reply*, so it counts from when the reply
+        // landed — measured from the send, a three-minute turn would expire the
+        // banner the moment it appeared.
+        let start = lastReplyAt ?? revealedAt
+        return now.timeIntervalSince(start) > Self.revealHold
     }
 
     /// Open or close the glance. Closing also lets go of whichever session was being
@@ -305,6 +309,19 @@ final class AgentSurfaceController {
 
         case .result:
             lastTurnDuration = event.durationMs.map { Double($0) / 1000 }
+            // A turn can end without an `assistant` frame reaching us (attached
+            // late, or the reply streamed before the socket came up). The banner is
+            // the whole of the response, so it must always have a line: fall back to
+            // the newest assistant text in the log, then to a plain "Finished".
+            if lastReply == nil {
+                for entry in log.entries.reversed() {
+                    if case .assistant(_, let text) = entry {
+                        lastReply = text
+                        break
+                    }
+                }
+            }
+            if lastReply == nil { lastReply = "Finished" }
             lastReplyAt = Date()
             applyState(.idle)
 

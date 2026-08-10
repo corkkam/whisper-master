@@ -556,9 +556,13 @@ final class AppState {
     /// because a question someone is waiting on outranks browsing, and suppressed
     /// while dictating so the band can report the recording it is holding.
     var shouldShowAgentGlance: Bool {
-        agents.isGlanceOpen && !shouldShowAgentAsk && approvals.pending == nil
+        // `revealedAt == nil` is what keeps a *sent prompt* from ever landing on the
+        // list: a reveal is a receipt for the turn (row while working, one banner
+        // line when it ends), and falling through to the session list in between
+        // read as the notch flashing unrelated content.
+        agents.isGlanceOpen && agents.revealedAt == nil
+            && !shouldShowAgentAsk && approvals.pending == nil
             && phase == .idle && !agentCaptureArmed
-            && !shouldShowAgentWorking && !shouldShowAgentReply
     }
 
     /// A session revealed by a send that is still mid-turn.
