@@ -557,6 +557,22 @@ final class AppState {
     /// while dictating so the band can report the recording it is holding.
     var shouldShowAgentGlance: Bool {
         agents.isGlanceOpen && !shouldShowAgentAsk && approvals.pending == nil
+            && phase == .idle && !agentCaptureArmed && !shouldShowAgentWorking
+    }
+
+    /// A session revealed by a send that is still mid-turn.
+    ///
+    /// It gets the slim **row** rather than the full tail, because a turn runs for
+    /// minutes and a panel-height band over the menu bar for minutes is an
+    /// obstruction rather than ambient awareness. The tail comes back the moment
+    /// there is a finished reply to read.
+    ///
+    /// Only a *revealed* session does this. A glance the user opened deliberately
+    /// shows what they asked for, running or not.
+    var shouldShowAgentWorking: Bool {
+        agents.isGlanceOpen && agents.revealedAt != nil
+            && agents.openSession?.state == .running
+            && !shouldShowAgentAsk && approvals.pending == nil
             && phase == .idle && !agentCaptureArmed
     }
 
@@ -880,7 +896,7 @@ final class AppState {
         if phase != .idle { return true }
         if download != nil || preparingEngine != nil { return true }
         if approvals.pending != nil { return true }
-        if shouldShowAgentAsk || shouldShowAgentGlance { return true }
+        if shouldShowAgentAsk || shouldShowAgentGlance || shouldShowAgentWorking { return true }
         return shouldShowReminderTimePrompt
             || shouldShowDueReminderBanner
             || shouldShowCommandConfirmation

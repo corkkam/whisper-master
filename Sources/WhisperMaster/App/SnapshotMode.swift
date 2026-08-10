@@ -346,6 +346,23 @@ enum SnapshotMode {
                 AgentSession(id: "s3", repo: "landing-page", state: .idle),
             ])
         }
+        // Mid-turn: the slim row, not the panel. A turn runs for minutes, and a
+        // panel-height band over the menu bar for minutes is an obstruction rather
+        // than ambient awareness. This must stay the same height as the dictation
+        // row it borrows its shape from.
+        renderPill(dir, name: "pill-10e-agent-working") { s in
+            s.phase = .idle
+            s.agents.seedGlanceForSnapshot(
+                sessions: [
+                    AgentSession(
+                        id: "s1", repo: "whisper-master", state: .running,
+                        activity: "Editing NotchGlow.swift",
+                        turnStartedAt: Int64(
+                            Date().addingTimeInterval(-17).timeIntervalSince1970 * 1000))
+                ],
+                openSessionID: "s1")
+            s.agents.reveal(sessionID: "s1")
+        }
         // One session read on the bezel: the tail of the conversation, what it
         // edited, and what an undo would really cost.
         renderPill(dir, name: "pill-10d-agent-session") { s in
