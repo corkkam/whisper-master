@@ -153,6 +153,24 @@ struct AgentTurnLog: Sendable, Equatable {
         }
     }
 
+    /// Mark a turn as begun from *our* side, the moment a prompt is sent.
+    ///
+    /// The turn boundary is what `currentTurnTools` and `currentActivity` are
+    /// measured from, and waiting for kunai to echo the `user` frame back means
+    /// there is a window — the whole time before the agent's first tool call — where
+    /// the log still believes the previous turn is running and the bezel names a
+    /// command from minutes ago. That window is exactly when someone is watching the
+    /// notch to see whether their words landed.
+    ///
+    /// The echo, when it arrives, is deduplicated against this.
+    mutating func beginTurn(prompt: String) {
+        let text = prompt.trimmed
+        guard !text.isEmpty else { return }
+        streaming = ""
+        if case .user(_, let last)? = entries.last, last == text { return }
+        append(.user(id: "local-\(highestSeq)-\(entries.count)", text: text))
+    }
+
     /// Drop everything. Called when the session's epoch changes, because the new
     /// process's sequence numbering has no relationship to the old one's.
     mutating func reset() {
@@ -169,6 +187,13 @@ struct AgentTurnLog: Sendable, Equatable {
         case .user:
             guard let text = event.text?.trimmed, !text.isEmpty else { return }
             streaming = ""
+            // kunai echoes the prompt we sent, and `beginTurn` has usually already
+            // opened the turn with it. Adopt the real sequence rather than showing
+            // the same words twice.
+            if case .user(_, let last)? = entries.last, last == text {
+                entries[entries.count - 1] = .user(id: "u\(event.seq)", text: text)
+                return
+            }
             append(.user(id: "u\(event.seq)", text: text))
 
         case .delta:

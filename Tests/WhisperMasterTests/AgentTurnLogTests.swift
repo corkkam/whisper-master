@@ -164,3 +164,32 @@ final class AgentWorkingCaptionTests: XCTestCase {
         XCTAssertEqual(NotchAgentWorkingRow.trimmedSubject("Editing loop.go"), "Editing loop.go")
     }
 }
+
+/// The turn boundary, opened from our side the moment a prompt is sent.
+final class AgentTurnBoundaryTests: XCTestCase {
+
+    func testSendingAPromptEndsThePreviousTurnImmediately() throws {
+        // Waiting for kunai to echo the `user` frame leaves a window — the whole
+        // time before the agent's first tool call — where the bezel names a command
+        // from the turn before. That window is exactly when someone is watching.
+        var log = AgentTurnLog()
+        var call = KunaiWire.Event(seq: 1, kind: .permission)
+        call.toolUseID = "t1"
+        call.toolName = "Bash"
+        log.apply(call)
+        XCTAssertNotNil(log.currentActivity)
+
+        log.beginTurn(prompt: "now do the other thing")
+        XCTAssertNil(log.currentActivity)
+        XCTAssertEqual(log.lastUserPrompt, "now do the other thing")
+    }
+
+    func testTheEchoedUserFrameDoesNotDuplicateTheLocalOne() throws {
+        var log = AgentTurnLog()
+        log.beginTurn(prompt: "check the tests")
+        var echo = KunaiWire.Event(seq: 7, kind: .user)
+        echo.text = "check the tests"
+        log.apply(echo)
+        XCTAssertEqual(log.entries.filter { if case .user = $0 { return true } else { return false } }.count, 1)
+    }
+}

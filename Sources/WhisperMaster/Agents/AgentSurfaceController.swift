@@ -521,6 +521,14 @@ final class AgentSurfaceController {
     func sendPrompt(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        // Open the turn locally rather than waiting for kunai to echo the `user`
+        // frame: until the boundary moves, the log still believes the previous turn
+        // is running and the bezel names a command from minutes ago.
+        log.beginTurn(prompt: trimmed)
+        // Last turn's answer belongs to last turn. Leaving it set meant a new prompt
+        // could land while the finished reply was still on the band.
+        lastReply = nil
+        lastReplyRaw = nil
         send(.prompt(trimmed))
     }
 

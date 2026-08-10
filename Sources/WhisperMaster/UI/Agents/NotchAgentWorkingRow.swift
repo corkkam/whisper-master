@@ -72,10 +72,15 @@ struct NotchAgentWorkingRow: View {
     /// names the previous turn's command — which reads as a caption that never
     /// changes whatever you say.
     static func caption(for session: AgentSession, now: Date, live: String? = nil) -> String {
-        let activity = [live, session.activity]
-            .compactMap { $0 }
-            .first { !$0.isEmpty }
-        let subject = trimmedSubject(activity ?? session.repo)
+        // **No fallback to the polled activity.** This row only ever shows the
+        // session the socket is attached to, so the socket is the authority — and
+        // the poll carries a session's *last known* activity, which for a turn that
+        // has not called anything yet is the previous turn's command. Naming the
+        // repo is the honest answer to "what is it doing"; naming a command it is
+        // not running is not. (`session.activity` still serves the glance, which
+        // lists sessions nothing is attached to.)
+        let subject = trimmedSubject(
+            (live?.isEmpty == false ? live : nil) ?? session.repo)
         // The row shows from the send onward, which is before kunai reports the
         // turn as running — in that beat "Idle" would be a lie about words that
         // are mid-flight, so the pending state reads as what it is.
