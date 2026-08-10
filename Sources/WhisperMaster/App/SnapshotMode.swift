@@ -381,8 +381,15 @@ enum SnapshotMode {
             s.agents.seedReplyForSnapshot(
                 session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
                 reply: """
-                    Ran fresh. Output is identical to before, with one difference: \
-                    the route assertion now waits on the rebuilt engine.
+                    Ran both. Here's what's available:
+
+                    ## Toolchain
+
+                    | tool | version |
+                    |---|---|
+                    | swift | 6.3.3, arm64-apple-macosx26.0 |
+                    | xcodebuild | Xcode 26.6, build 17F113 |
+                    | xcodegen | 2.44.1 |
 
                     ```swift
                     XCTAssertEqual(replayed.transcript, expected)

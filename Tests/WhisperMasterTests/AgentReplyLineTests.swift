@@ -104,9 +104,9 @@ final class AgentReplyDocumentTests: XCTestCase {
             [.prose("Fixed it."), .code("let x = 1\nlet y = 2"), .prose("All tests pass.")])
     }
 
-    func testHeadingAndQuoteChromeIsStrippedListsAreKept() {
+    func testAHeadingLeadsItsListRatherThanFlatteningIntoIt() {
         let doc = AgentReplyDocument.parse("## What changed\n- kept the dash")
-        XCTAssertEqual(doc.blocks, [.prose("What changed\n- kept the dash")])
+        XCTAssertEqual(doc.blocks, [.heading("What changed"), .prose("- kept the dash")])
     }
 
     func testAnUnclosedFenceStillShowsItsCode() {
@@ -116,6 +116,36 @@ final class AgentReplyDocumentTests: XCTestCase {
 
     func testAnEmptyReplyMakesAnEmptyDocument() {
         XCTAssertTrue(AgentReplyDocument.parse("  \n ").isEmpty)
+    }
+
+    func testAPipeTableBecomesARealTableNotLiteralPipes() {
+        // The `| tool | path | |---|---|` garbage that kept being reported: raw
+        // markdown tables on the band.
+        let doc = AgentReplyDocument.parse(
+            "| tool | path |\n|---|---|\n| swift | /usr/bin/swift |\n| xcodegen | /opt/homebrew/bin/xcodegen |")
+        XCTAssertEqual(
+            doc.blocks,
+            [.table(
+                header: ["tool", "path"],
+                rows: [["swift", "/usr/bin/swift"], ["xcodegen", "/opt/homebrew/bin/xcodegen"]])])
+    }
+
+    func testATableWithNoSeparatorHasNoHeader() {
+        let doc = AgentReplyDocument.parse("| a | b |\n| c | d |")
+        XCTAssertEqual(doc.blocks, [.table(header: [], rows: [["a", "b"], ["c", "d"]])])
+    }
+
+    func testAHeadingIsItsOwnBlockWithItsHashesGone() {
+        let doc = AgentReplyDocument.parse("## Toolchain\nEverything installed.")
+        XCTAssertEqual(doc.blocks, [.heading("Toolchain"), .prose("Everything installed.")])
+    }
+
+    func testProseTableAndCodeInterleaveInOrder() {
+        let doc = AgentReplyDocument.parse(
+            "Intro.\n| a | b |\n|---|---|\n| 1 | 2 |\n```\nls\n```\nDone.")
+        XCTAssertEqual(doc.blocks.count, 4)
+        XCTAssertEqual(doc.blocks.first, .prose("Intro."))
+        XCTAssertEqual(doc.blocks.last, .prose("Done."))
     }
 }
 

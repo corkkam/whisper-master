@@ -118,6 +118,13 @@ struct NotchAgentReplyExpanded: View {
                         .background(
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(Theme.Notch.text.opacity(0.05)))
+                case .heading(let text):
+                    Text(Self.inlineMarkdown(text))
+                        .font(Typography.notchLabel)
+                        .foregroundStyle(Theme.Notch.text)
+                        .padding(.top, Metrics.headingTopGap)
+                case .table(let header, let rows):
+                    tableView(header: header, rows: rows)
                 }
             }
         }
@@ -135,6 +142,40 @@ struct NotchAgentReplyExpanded: View {
                 .allowsHitTesting(false)
             }
         }
+    }
+
+    /// A pipe table as a real grid: header in caption ink over a hairline, cells
+    /// in small mono, columns aligned. This is what was rendering as literal
+    /// `| tool | path |` pipes.
+    private func tableView(header: [String], rows: [[String]]) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: Theme.Space.lg, verticalSpacing: 4) {
+            if !header.isEmpty {
+                GridRow {
+                    ForEach(Array(header.enumerated()), id: \.offset) { _, cell in
+                        Text(Self.inlineMarkdown(cell))
+                            .font(Typography.notchCaption)
+                            .foregroundStyle(Theme.Notch.textTertiary)
+                    }
+                }
+                Divider().overlay(Theme.Notch.hairline)
+            }
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                GridRow {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                        Text(Self.inlineMarkdown(cell))
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(Theme.Notch.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+            }
+        }
+        .padding(Metrics.codeInset)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Theme.Notch.text.opacity(0.05)))
     }
 
     private var visibleTools: [AgentTurnLog.ToolLine] {
@@ -250,6 +291,12 @@ struct NotchAgentReplyExpanded: View {
         static let footer: CGFloat = 22
         static let codeInset: CGFloat = 8
         static let codeLineHeight: CGFloat = 15
+        /// One table row (mono cell + grid spacing), and the header's extra chrome.
+        static let tableRowHeight: CGFloat = 18
+        static let tableHeaderHeight: CGFloat = 22
+        /// Air above a heading, so sections read as sections.
+        static let headingTopGap: CGFloat = 6
+        static let headingHeight: CGFloat = 24
         /// The most content the band will hold before clipping behind the fade. The
         /// notch is a summary surface; past this the reply is a document, and
         /// documents live in kunai.
@@ -309,6 +356,12 @@ struct NotchAgentReplyExpanded: View {
             case .code(let text):
                 let lines = text.split(separator: "\n", omittingEmptySubsequences: false).count
                 total += CGFloat(lines) * Metrics.codeLineHeight + Metrics.codeInset * 2
+            case .heading:
+                total += Metrics.headingHeight + Metrics.headingTopGap
+            case .table(let header, let rows):
+                total += (header.isEmpty ? 0 : Metrics.tableHeaderHeight)
+                    + CGFloat(rows.count) * Metrics.tableRowHeight
+                    + Metrics.codeInset * 2
             }
         }
         total += CGFloat(max(0, document.blocks.count - 1)) * Metrics.blockSpacing
