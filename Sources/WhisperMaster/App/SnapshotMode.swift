@@ -363,25 +363,16 @@ enum SnapshotMode {
                 openSessionID: "s1")
             s.agents.reveal(sessionID: "s1")
         }
-        // One session read on the bezel: the tail of the conversation, what it
-        // edited, and what an undo would really cost.
-        renderPill(dir, name: "pill-10d-agent-session") { s in
+        // The finished turn, as one banner line: the same icon-title-subtitle shape
+        // every other band in this app uses. It replaced a dense transcript with role
+        // labels and monospaced tool rows, which was a log file on the bezel.
+        renderPill(dir, name: "pill-10d-agent-reply") { s in
             s.phase = .idle
-            var log = AgentTurnLog()
-            for event in SnapshotMode.sessionTranscriptEvents { log.apply(event) }
-            var changes = AgentChangeSet()
-            changes.editedPaths = AgentChangeSet.editedPaths(in: log)
-            changes.revert = AgentChangeSet.RevertPreview(
-                changed: ["UI/NotchGlow.swift", "Tests/AudioReplayTests.swift"],
-                removed: ["scratch.txt"])
-            s.agents.seedGlanceForSnapshot(
-                sessions: [
-                    AgentSession(
-                        id: "s1", repo: "whisper-master", state: .running,
-                        turnStartedAt: Int64(
-                            Date().addingTimeInterval(-17).timeIntervalSince1970 * 1000))
-                ],
-                openSessionID: "s1", log: log, changeSet: changes)
+            s.agents.seedReplyForSnapshot(
+                session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
+                reply: "Cleared the build and rewrote the route assertion to wait on the "
+                    + "rebuilt engine instead of a fixed delay.",
+                duration: 192)
         }
         renderPill(dir, name: "pill-7-polishing") { s in
             s.phase = .idle

@@ -88,21 +88,6 @@ final class NotchAgentPanelTests: XCTestCase {
         XCTAssertGreaterThan(NotchAgentGlance.listThickness(sessionCount: 0), 0)
     }
 
-    func testTheSessionViewIsBoundedByWhatTheWindowWasSizedFor() {
-        let tallest = NotchAgentSessionView.thickness(
-            lineCount: 99, hasChanges: true)
-        XCTAssertEqual(tallest, NotchAgentSessionView.maxThickness)
-        XCTAssertLessThanOrEqual(tallest, NotchAgentGlance.maxThickness)
-    }
-
-    func testTheChangedFilesRowIsOnlyChargedWhenThereAreSome() {
-        let without = NotchAgentSessionView.thickness(lineCount: 3, hasChanges: false)
-        let with = NotchAgentSessionView.thickness(lineCount: 3, hasChanges: true)
-        XCTAssertEqual(
-            with - without,
-            NotchAgentSessionView.Metrics.line + NotchAgentSessionView.Metrics.spacing)
-    }
-
     // MARK: Panel
 
     func testTheAskingSessionIsNotRepeatedUnderneathItsOwnQuestion() {

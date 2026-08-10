@@ -2,37 +2,24 @@ import SwiftUI
 
 /// The surface you *open*, as opposed to the one that interrupts you.
 ///
-/// Two states behind one band, because they are the same question at two depths:
-/// **which sessions do I have**, and then **what did this one just do**. A tap of the
-/// agent key opens it, a tap closes it, and clicking a row goes one level in.
+/// A tap of the agent key opens it; a tap closes it; clicking a row makes that
+/// session the one your next spoken prompt goes to.
 ///
-/// It is a list of rows rather than cards, and it carries no header or legend. The
+/// It is a list of rows rather than cards, and it carries no header or legend — the
 /// version that had both read as a dropdown menu pinned under the notch rather than
-/// part of the notch.
+/// part of it. It is also **only a list**: an earlier version drilled into a dense
+/// transcript with role labels and monospaced tool rows, which is a log file on the
+/// bezel. What a finished turn has to say arrives as one banner line
+/// (`NotchAgentReplyBanner`), the way every other band in this app reports itself.
 struct NotchAgentGlance: View {
     let sessions: [AgentSession]
-    let openSession: AgentSession?
-    let log: AgentTurnLog
-    let changes: AgentChangeSet
+    /// The session a spoken prompt would go to, marked so the choice is visible
+    /// before you hold the key rather than after you let go.
+    let selectedID: String?
     let now: Date
-
     let onOpen: (AgentSession) -> Void
-    let onBack: () -> Void
-    let onSelectMode: (KunaiWire.PermissionMode) -> Void
 
     var body: some View {
-        if let openSession {
-            NotchAgentSessionView(
-                session: openSession, log: log, changes: changes, now: now,
-                onBack: onBack, onSelectMode: onSelectMode)
-        } else {
-            sessionList
-        }
-    }
-
-    // MARK: The list
-
-    private var sessionList: some View {
         VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
             if sessions.isEmpty {
                 empty
@@ -71,6 +58,9 @@ struct NotchAgentGlance: View {
     private func row(_ session: AgentSession) -> some View {
         Button { onOpen(session) } label: {
             HStack(spacing: Theme.Space.sm) {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(session.id == selectedID ? Theme.Notch.accent : Color.clear)
+                    .frame(width: 3, height: 18)
                 Circle()
                     .fill(dotColor(for: session))
                     .frame(width: 6, height: 6)
@@ -128,9 +118,6 @@ struct NotchAgentGlance: View {
             + max(0, total - 1) * Metrics.rowSpacing
     }
 
-    /// The tallest the glance can be in either form, for `NotchSurfaceLayout`.
-    static var maxThickness: CGFloat {
-        max(listThickness(sessionCount: Metrics.maxRows + 1),
-            NotchAgentSessionView.maxThickness)
-    }
+    /// The tallest the glance can be, for `NotchSurfaceLayout`.
+    static var maxThickness: CGFloat { listThickness(sessionCount: Metrics.maxRows + 1) }
 }

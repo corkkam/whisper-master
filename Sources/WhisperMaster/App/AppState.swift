@@ -557,7 +557,8 @@ final class AppState {
     /// while dictating so the band can report the recording it is holding.
     var shouldShowAgentGlance: Bool {
         agents.isGlanceOpen && !shouldShowAgentAsk && approvals.pending == nil
-            && phase == .idle && !agentCaptureArmed && !shouldShowAgentWorking
+            && phase == .idle && !agentCaptureArmed
+            && !shouldShowAgentWorking && !shouldShowAgentReply
     }
 
     /// A session revealed by a send that is still mid-turn.
@@ -569,6 +570,16 @@ final class AppState {
     ///
     /// Only a *revealed* session does this. A glance the user opened deliberately
     /// shows what they asked for, running or not.
+    /// A finished turn's one-line answer. The whole of the response, because the
+    /// paste was suppressed — the same job the spoken-command confirmation does.
+    var shouldShowAgentReply: Bool {
+        agents.isGlanceOpen && agents.revealedAt != nil
+            && agents.lastReply != nil
+            && agents.openSession?.state != .running
+            && !shouldShowAgentAsk && approvals.pending == nil
+            && phase == .idle && !agentCaptureArmed
+    }
+
     var shouldShowAgentWorking: Bool {
         agents.isGlanceOpen && agents.revealedAt != nil
             && agents.openSession?.state == .running
@@ -896,7 +907,8 @@ final class AppState {
         if phase != .idle { return true }
         if download != nil || preparingEngine != nil { return true }
         if approvals.pending != nil { return true }
-        if shouldShowAgentAsk || shouldShowAgentGlance || shouldShowAgentWorking { return true }
+        if shouldShowAgentAsk || shouldShowAgentGlance || shouldShowAgentWorking
+            || shouldShowAgentReply { return true }
         return shouldShowReminderTimePrompt
             || shouldShowDueReminderBanner
             || shouldShowCommandConfirmation

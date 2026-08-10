@@ -39,6 +39,16 @@ final class AgentSurfaceController {
     /// What the open session's latest turn changed.
     private(set) var changeSet = AgentChangeSet()
 
+    /// The last thing the agent actually said, and when it finished saying it.
+    ///
+    /// This is what the band reports when a turn ends. The notch has never streamed a
+    /// transcript — it reports *state* — so a finished turn gets one line, the way
+    /// every other band in the app does.
+    private(set) var lastReply: String?
+    private(set) var lastReplyAt: Date?
+    /// How long that turn took, for the band's quiet second line.
+    private(set) var lastTurnDuration: TimeInterval?
+
     /// True once a kunai has answered. Until then the surface stays dark, which is
     /// the correct state on the overwhelming majority of Macs.
     private(set) var isAvailable = false
@@ -65,6 +75,10 @@ final class AgentSurfaceController {
     /// from the paste, so without a surface the user has no evidence they went
     /// anywhere at all.
     func reveal(sessionID: String) {
+        // The previous turn's answer must not flash up as though it were this one's.
+        lastReply = nil
+        lastReplyAt = nil
+        lastTurnDuration = nil
         isGlanceOpen = true
         revealedAt = Date()
         openSessionID = sessionID
@@ -275,6 +289,25 @@ final class AgentSurfaceController {
         case .permissionResolved:
             if ask?.requestID == event.requestID { ask = nil }
 
+        case .state:
+            // **The attached session's state comes from its own socket, in real time.**
+            // Deriving it from the 3s poll made the band flip between "working" and
+            // "done" on every tick while a turn was starting, which read as the notch
+            // flickering rather than as a session running.
+            applyState(KunaiWire.SessionState(wire: event.state))
+
+        case .assistant:
+            // Keep the newest thing it said; the band shows one line, not a log.
+            if let text = event.blocks?.compactMap(\.text).last?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                lastReply = text
+            }
+
+        case .result:
+            lastTurnDuration = event.durationMs.map { Double($0) / 1000 }
+            lastReplyAt = Date()
+            applyState(.idle)
+
         default:
             break
         }
@@ -287,6 +320,19 @@ final class AgentSurfaceController {
         // First question wins. A second card stacked on the first would hide which
         // one the buttons answer.
         if ask == nil { ask = built }
+    }
+
+    /// Write a live state onto the attached session, so the band tracks the socket
+    /// rather than waiting up to three seconds for the next poll.
+    private func applyState(_ state: KunaiWire.SessionState) {
+        guard let attachedSessionID,
+              let index = sessions.firstIndex(where: { $0.id == attachedSessionID })
+        else { return }
+        sessions[index].state = state
+        if state == .running, sessions[index].turnStartedAt == nil {
+            sessions[index].turnStartedAt = Int64(Date().timeIntervalSince1970 * 1000)
+        }
+        if state == .idle { sessions[index].turnStartedAt = nil }
     }
 
     private func updateMode(_ mode: KunaiWire.PermissionMode) {
@@ -443,6 +489,20 @@ final class AgentSurfaceController {
         self.openSessionID = openSessionID
         self.log = log
         self.changeSet = changeSet
+    }
+
+    /// A finished turn, for the reply-banner render.
+    func seedReplyForSnapshot(
+        session: AgentSession, reply: String, duration: TimeInterval
+    ) {
+        sessions = [session]
+        isAvailable = true
+        isGlanceOpen = true
+        revealedAt = Date()
+        openSessionID = session.id
+        lastReply = reply
+        lastReplyAt = Date()
+        lastTurnDuration = duration
     }
 
     func seedForSnapshot(ask: AgentAsk, sessions: [AgentSession]) {
