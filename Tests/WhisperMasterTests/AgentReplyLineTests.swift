@@ -75,3 +75,72 @@ final class AgentReplyLineTests: XCTestCase {
         try JSONDecoder().decode(KunaiWire.Event.self, from: Data(json.utf8))
     }
 }
+
+/// The expanded band's document: prose stays prose, code stays code, and the
+/// height math is decided before layout (the standing band rule).
+final class AgentReplyDocumentTests: XCTestCase {
+
+    func testProseAndCodeSplitAtTheFences() {
+        let doc = AgentReplyDocument.parse(
+            "Fixed it.\n```swift\nlet x = 1\nlet y = 2\n```\nAll tests pass.")
+        XCTAssertEqual(
+            doc.blocks,
+            [.prose("Fixed it."), .code("let x = 1\nlet y = 2"), .prose("All tests pass.")])
+    }
+
+    func testHeadingAndQuoteChromeIsStrippedListsAreKept() {
+        let doc = AgentReplyDocument.parse("## What changed\n- kept the dash")
+        XCTAssertEqual(doc.blocks, [.prose("What changed\n- kept the dash")])
+    }
+
+    func testAnUnclosedFenceStillShowsItsCode() {
+        let doc = AgentReplyDocument.parse("Here:\n```\nswift build")
+        XCTAssertEqual(doc.blocks, [.prose("Here:"), .code("swift build")])
+    }
+
+    func testAnEmptyReplyMakesAnEmptyDocument() {
+        XCTAssertTrue(AgentReplyDocument.parse("  \n ").isEmpty)
+    }
+}
+
+/// Click-to-expand and the Settings default, on the controller.
+@MainActor
+final class AgentReplyExpansionTests: XCTestCase {
+
+    private func revealed() -> AgentSurfaceController {
+        let controller = AgentSurfaceController(candidates: [])
+        controller.seedReplyForSnapshot(
+            session: AgentSession(id: "s1", repo: "r", state: .idle),
+            reply: "Done.", duration: 5)
+        return controller
+    }
+
+    func testClickingExpandsAndPinsSoItCannotVanishUnderTheReader() {
+        let controller = revealed()
+        controller.toggleReplyExpansion()
+        XCTAssertTrue(controller.replyExpanded)
+        let muchLater = Date().addingTimeInterval(AgentSurfaceController.expandedRevealHold * 10)
+        XCTAssertFalse(controller.revealHasExpired(now: muchLater))
+    }
+
+    func testCollapsingRestartsTheRetractClock() {
+        let controller = revealed()
+        controller.toggleReplyExpansion()
+        controller.toggleReplyExpansion()
+        XCTAssertFalse(controller.replyExpanded)
+        XCTAssertFalse(controller.revealHasExpired(now: Date()))
+        let later = Date().addingTimeInterval(AgentSurfaceController.revealHold + 1)
+        XCTAssertTrue(controller.revealHasExpired(now: later))
+    }
+
+    func testTheRawReplySurvivesForExpansion() {
+        // The banner shows a compacted line; expanding must go back to the source,
+        // not inflate the truncated line.
+        let controller = AgentSurfaceController(candidates: [])
+        controller.seedReplyForSnapshot(
+            session: AgentSession(id: "s1", repo: "r", state: .idle),
+            reply: "```\ncode\n```\nProse line.", duration: 5)
+        XCTAssertEqual(controller.lastReply, "Prose line.")
+        XCTAssertEqual(controller.lastReplyRaw, "```\ncode\n```\nProse line.")
+    }
+}

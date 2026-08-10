@@ -374,6 +374,26 @@ enum SnapshotMode {
                     + "rebuilt engine instead of a fixed delay.",
                 duration: 192)
         }
+        // The same reply, clicked open (or arriving open via the Settings toggle):
+        // full markdown as prose and code, what changed, and where the rest lives.
+        renderPill(dir, name: "pill-10f-agent-reply-expanded") { s in
+            s.phase = .idle
+            s.agents.seedReplyForSnapshot(
+                session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
+                reply: """
+                    Ran fresh. Output is identical to before, with one difference: \
+                    the route assertion now waits on the rebuilt engine.
+
+                    ```swift
+                    XCTAssertEqual(replayed.transcript, expected)
+                    ```
+
+                    All 42 tests pass. The flake was the fixed delay racing the \
+                    engine rebuild on slower runs.
+                    """,
+                duration: 192)
+            s.agents.toggleReplyExpansion()
+        }
         renderPill(dir, name: "pill-7-polishing") { s in
             s.phase = .idle
             s.isPolishing = true

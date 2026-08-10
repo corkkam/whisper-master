@@ -59,6 +59,8 @@ final class AppState {
     static let agentHotkeyDefaultsKey = "WhisperMaster.agentHotkey.v1"
     /// Where a spoken prompt opens a new agent session when nothing is running.
     static let agentDirectoryDefaultsKey = "WhisperMaster.agentDirectory.v1"
+    /// Whether a finished turn's reply arrives as the full expanded band.
+    static let agentExpandedRepliesDefaultsKey = "WhisperMaster.agentExpandedReplies.v1"
     // `WhisperMaster.dayQueryHotkey.v1` was the retired second push-to-talk key.
     // Left on disk rather than migrated away — it is never read, and deleting a key
     // buys nothing. Don't reuse the name for something else.
@@ -446,6 +448,18 @@ final class AppState {
     /// band can say which session it is about to send to.
     var agentCaptureArmed: Bool = false
 
+    /// Replies arrive as the full expanded band rather than the one-line banner.
+    /// Off by default: the expanded band is a paragraph of screen, and the one-line
+    /// banner with click-to-expand is the calmer default. Written through to the
+    /// controller, which is what actually acts on it at the moment a turn ends.
+    var agentExpandedRepliesEnabled: Bool = false {
+        didSet {
+            UserDefaults.standard.set(
+                agentExpandedRepliesEnabled, forKey: Self.agentExpandedRepliesDefaultsKey)
+            agents.expandRepliesByDefault = agentExpandedRepliesEnabled
+        }
+    }
+
     /// The repository a spoken prompt opens a **new** session in, when nothing is
     /// running yet.
     ///
@@ -657,6 +671,8 @@ final class AppState {
             .flatMap { $0.isEmpty ? nil : HotkeyManager.HotkeyOption(rawValue: $0) }
         agentDefaultDirectory =
             UserDefaults.standard.string(forKey: Self.agentDirectoryDefaultsKey) ?? ""
+        agentExpandedRepliesEnabled =
+            UserDefaults.standard.bool(forKey: Self.agentExpandedRepliesDefaultsKey)
         // Opt-out: on unless the user has explicitly turned it off.
         holdToTalkEnabled = UserDefaults.standard.object(forKey: Self.holdToTalkDefaultsKey) as? Bool ?? true
         // Opt-in: off until the user has explicitly turned it on.

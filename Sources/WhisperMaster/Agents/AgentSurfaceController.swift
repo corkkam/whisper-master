@@ -45,6 +45,10 @@ final class AgentSurfaceController {
     /// transcript — it reports *state* — so a finished turn gets one line, the way
     /// every other band in the app does.
     private(set) var lastReply: String?
+    /// The same reply before presentation — the markdown source the expanded band
+    /// renders. The banner's one-liner is a *presentation* of this, so expanding
+    /// must go back to the source rather than inflating the truncated line.
+    private(set) var lastReplyRaw: String?
     private(set) var lastReplyAt: Date?
     /// How long that turn took, for the band's quiet second line.
     private(set) var lastTurnDuration: TimeInterval?
@@ -69,6 +73,35 @@ final class AgentSurfaceController {
     /// read the reply, short enough that the notch gives the menu bar back.
     static let revealHold: TimeInterval = 10
 
+    /// The hold for a reply that arrived already expanded (the Settings default):
+    /// a full reply is a paragraph, not a line, so it earns proportionate reading
+    /// time before the band retracts.
+    static let expandedRevealHold: TimeInterval = 30
+
+    /// Whether the finish banner is currently the full-reply band.
+    private(set) var replyExpanded = false
+    /// True when the *user clicked* it open. A pinned reply never auto-expires:
+    /// closing something someone deliberately opened is the notch deciding it knows
+    /// better. Arriving expanded via the Settings default does not pin.
+    private(set) var replyPinned = false
+    /// The Settings preference, written through by `AppState`: replies arrive
+    /// already expanded.
+    var expandRepliesByDefault = false
+
+    /// The click on the finish band: collapsed → expanded and pinned; expanded →
+    /// back to the one-line banner, with the retract clock restarted so the band
+    /// still leaves on its own.
+    func toggleReplyExpansion() {
+        if replyExpanded {
+            replyExpanded = false
+            replyPinned = false
+            lastReplyAt = Date()
+        } else {
+            replyExpanded = true
+            replyPinned = true
+        }
+    }
+
     /// Show a session's tail because something just went to it.
     ///
     /// This is what stops a spoken prompt from disappearing: the words are suppressed
@@ -77,8 +110,11 @@ final class AgentSurfaceController {
     func reveal(sessionID: String) {
         // The previous turn's answer must not flash up as though it were this one's.
         lastReply = nil
+        lastReplyRaw = nil
         lastReplyAt = nil
         lastTurnDuration = nil
+        replyExpanded = false
+        replyPinned = false
         isGlanceOpen = true
         revealedAt = Date()
         openSessionID = sessionID
@@ -89,12 +125,14 @@ final class AgentSurfaceController {
     /// hold has elapsed. A tap-opened glance never expires this way.
     func revealHasExpired(now: Date = Date()) -> Bool {
         guard let revealedAt else { return false }
+        guard !replyPinned else { return false }
         guard let session = openSession, session.state == .idle else { return false }
         // The hold is reading time for the *reply*, so it counts from when the reply
         // landed — measured from the send, a three-minute turn would expire the
         // banner the moment it appeared.
         let start = lastReplyAt ?? revealedAt
-        return now.timeIntervalSince(start) > Self.revealHold
+        let hold = replyExpanded ? Self.expandedRevealHold : Self.revealHold
+        return now.timeIntervalSince(start) > hold
     }
 
     /// Open or close the glance. Closing also lets go of whichever session was being
@@ -115,6 +153,8 @@ final class AgentSurfaceController {
         guard isGlanceOpen else { return }
         isGlanceOpen = false
         revealedAt = nil
+        replyExpanded = false
+        replyPinned = false
         openSessionID = nil
         reconcileAttachment()
     }
@@ -314,6 +354,7 @@ final class AgentSurfaceController {
             if let text = event.blocks?.compactMap(\.text).last,
                let line = AgentReplyLine.compact(text) {
                 lastReply = line
+                lastReplyRaw = text
             }
 
         case .result:
@@ -327,12 +368,16 @@ final class AgentSurfaceController {
                     if case .assistant(_, let text) = entry,
                        let line = AgentReplyLine.compact(text) {
                         lastReply = line
+                        lastReplyRaw = text
                         break
                     }
                 }
             }
             if lastReply == nil { lastReply = "Finished" }
             lastReplyAt = Date()
+            // The Settings default: the full reply, without the extra click. Not
+            // pinned, so the longer hold still retracts it.
+            if expandRepliesByDefault { replyExpanded = true }
             applyState(.idle)
 
         default:
@@ -538,7 +583,8 @@ final class AgentSurfaceController {
         isGlanceOpen = true
         revealedAt = Date()
         openSessionID = session.id
-        lastReply = reply
+        lastReply = AgentReplyLine.compact(reply) ?? reply
+        lastReplyRaw = reply
         lastReplyAt = Date()
         lastTurnDuration = duration
     }

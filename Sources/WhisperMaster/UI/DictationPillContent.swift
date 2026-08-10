@@ -107,7 +107,14 @@ struct DictationPillContent: View {
                 for: ask, otherSessions: otherAgentSessions.count,
                 banner: layout.bannerThickness)
         }
-        if showAgentReply { return layout.bannerThickness }
+        if showAgentReply {
+            guard state.agents.replyExpanded, let reply = state.agents.lastReply else {
+                return layout.bannerThickness
+            }
+            return NotchAgentReplyExpanded.thickness(
+                for: AgentReplyDocument.parse(state.agents.lastReplyRaw ?? reply),
+                width: NotchAgentReplyExpanded.Metrics.assumedTextWidth)
+        }
         if showAgentGlance {
             return NotchAgentGlance.listThickness(sessionCount: state.agents.sessions.count)
         }
@@ -363,7 +370,7 @@ struct DictationPillContent: View {
         // button, the tappable command confirmation, and the undelivered hint's
         // Copy button); the dictation indicator stays click-through (the panel
         // toggles ignoresMouseEvents to match).
-        .allowsHitTesting(showApproval || showAgentAsk || showAgentGlance || showBanner || showCommandConfirmation || showUndelivered || showDueReminder)
+        .allowsHitTesting(showApproval || showAgentAsk || showAgentGlance || showAgentReply || showBanner || showCommandConfirmation || showUndelivered || showDueReminder)
         // Appear *instantly* (no animation when expanding), animate only the
         // retract. A spring on the way in read as "the notch appears late" even
         // though the state flips synchronously on key-press. Banners (below) keep
@@ -423,10 +430,25 @@ struct DictationPillContent: View {
                 verticalInset: layout.rowVerticalPadding,
                 labelMaxWidth: rowLabelMaxWidth)
         } else if showAgentReply, let reply = state.agents.lastReply {
-            NotchAgentReplyBanner(
-                reply: reply,
-                repo: state.agents.openSession?.repo ?? "",
-                duration: state.agents.lastTurnDuration)
+            // Click for the whole thing; click again for the one-liner. The full
+            // reply is stored raw, so the expanded band re-presents it from source
+            // rather than expanding the truncated line.
+            Group {
+                if state.agents.replyExpanded {
+                    NotchAgentReplyExpanded(
+                        document: AgentReplyDocument.parse(state.agents.lastReplyRaw ?? reply),
+                        repo: state.agents.openSession?.repo ?? "",
+                        duration: state.agents.lastTurnDuration,
+                        editedPaths: state.agents.changeSet.editedPaths)
+                } else {
+                    NotchAgentReplyBanner(
+                        reply: reply,
+                        repo: state.agents.openSession?.repo ?? "",
+                        duration: state.agents.lastTurnDuration)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { state.agents.toggleReplyExpansion() }
         } else if showAgentGlance {
             NotchAgentGlance(
                 sessions: state.agents.sessions,

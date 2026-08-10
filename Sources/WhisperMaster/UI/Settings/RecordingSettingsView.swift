@@ -46,6 +46,15 @@ struct RecordingSettingsView: View {
                 }
                 RowDivider()
                 SettingsRow(
+                    "Show full replies",
+                    subtitle: "When a turn finishes, drop the whole reply out of the notch "
+                        + "instead of one line. Click a reply to expand it either way."
+                ) {
+                    ThemeToggle(
+                        isOn: $state.agentExpandedRepliesEnabled, label: "Show full replies")
+                }
+                RowDivider()
+                SettingsRow(
                     "Project folder",
                     subtitle: "Where a new session opens when nothing is running. "
                         + "Leave empty to reuse the folder of a session you already have."
