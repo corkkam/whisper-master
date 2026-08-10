@@ -78,13 +78,12 @@ struct DictationPillContent: View {
             in: state.agents.sessions, askingRepo: state.agents.askingSession?.repo ?? "")
     }
 
-    /// The width the expanded reply's text actually renders at: the wide surface
-    /// minus its own padding. The height is measured at this same number — measuring
-    /// at an assumed width while rendering at another is what produced the skinny
-    /// over-wrapped tower.
-    private var expandedReplyTextWidth: CGFloat {
+    /// The full width of the expanded reply's console. Both its columns are derived
+    /// from this one number, and the height is measured from the same derivation —
+    /// measuring at an assumed width while rendering at another is what produced the
+    /// skinny over-wrapped tower.
+    private var expandedReplyWidth: CGFloat {
         layout.expandedReplySurfaceWidth(for: geometry)
-            - NotchAgentReplyExpanded.Metrics.horizontalPadding * 2
     }
 
     /// Read once per render rather than held: the elapsed labels in the context row
@@ -124,7 +123,8 @@ struct DictationPillContent: View {
                 for: AgentReplyDocument.parse(state.agents.lastReplyRaw ?? reply),
                 prompt: state.agents.log.lastUserPrompt,
                 toolCount: state.agents.log.currentTurnTools.count,
-                width: expandedReplyTextWidth,
+                changedCount: state.agents.changeSet.editedPaths.count,
+                surfaceWidth: expandedReplyWidth,
                 geometry: geometry)
         }
         if showAgentGlance {
@@ -471,7 +471,7 @@ struct DictationPillContent: View {
                         duration: state.agents.lastTurnDuration,
                         editedPaths: state.agents.changeSet.editedPaths,
                         tools: state.agents.log.currentTurnTools,
-                        textWidth: expandedReplyTextWidth,
+                        surfaceWidth: expandedReplyWidth,
                         kunaiURL: state.agents.openSessionURL,
                         geometry: geometry)
                 } else {

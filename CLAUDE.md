@@ -420,6 +420,21 @@ shortcut at all**.
   creation and a band taller than its panel is clipped by its own window (the width-axis
   twin of `maxStateLabelWing`). When those two disagreed, the context row under the
   choice card was cut in half. `NotchAgentPanelTests` is the lock.
+- **The finished turn is a console, not a banner** (`NotchAgentReplyExpanded`) — the
+  one surface in this app that opens to `expandedReplyMaxWidth` (1120pt) rather than
+  to a wing, and the only one `panelSize` widens the window for. A header names the
+  session and the verdict; a **left rail** carries the run (what you asked, the tool
+  calls as a status-glyph timeline, what changed on disk); the **answer sits on its
+  own raised panel** beside it. Everything about that shape is a fix for the same
+  defect: stacking the metadata *above* the answer in one ~580pt column grew the band
+  downward without ever using the width, so a real reply clipped mid-sentence while
+  two thirds of the display sat empty either side. Two rules keep it honest — **both
+  columns scroll rather than clip** past `bodyCap` (0.62 of the display, floored), and
+  **`bodyHeight` is the taller of the two columns, capped**, so a one-line answer still
+  gets a one-line band instead of a slab. Widths are derived from the single
+  `surfaceWidth` the band is drawn at (`answerTextWidth`), because measuring the height
+  at one width while rendering at another is what produced the skinny over-wrapped
+  tower.
 - **Auto mode trades the approval card for the turn undo, and that is only honest
   because kunai snapshots the working tree before every turn.** `AgentModeControl`
   offers Ask / Auto / Plan beside the question, because the moment someone wants to

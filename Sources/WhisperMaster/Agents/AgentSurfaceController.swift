@@ -648,6 +648,9 @@ final class AgentSurfaceController {
             log.apply(event)
         }
         for event in turnEvents { log.apply(event) }
+        // Derived, not invented — the same call the live path makes when a turn
+        // ends, so the rendered "Changed" rail is the seeded turn's real edits.
+        changeSet.editedPaths = AgentChangeSet.editedPaths(in: log)
         sessions = [session]
         isAvailable = true
         isGlanceOpen = true

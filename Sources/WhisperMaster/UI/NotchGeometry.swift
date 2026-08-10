@@ -266,7 +266,12 @@ struct NotchSurfaceLayout {
     /// clip exactly the captions this exists to show.
     func panelSize(for geometry: NotchGeometry) -> CGSize {
         CGSize(
-            width: surfaceWidth(for: geometry, .wide, stateLabel: Self.widestLabelProbe),
+            // The expanded reply is wider than the bar at its wing cap, and the
+            // panel is sized once at window creation — a band wider than its panel
+            // is clipped by its own window.
+            width: max(
+                surfaceWidth(for: geometry, .wide, stateLabel: Self.widestLabelProbe),
+                expandedReplySurfaceWidth(for: geometry)),
             height: geometry.notchHeight + maxBandThickness(for: geometry)
         )
     }
@@ -276,18 +281,22 @@ struct NotchSurfaceLayout {
     /// code path through the same clamping.
     private static let widestLabelProbe = String(repeating: "M", count: 64)
 
-    /// Wings for the expanded agent reply. Deliberately *narrower* than the wing
-    /// cap: at the cap the reply ran ~130 characters a line, twice a readable
-    /// measure, and read as a wall rather than a card. 220pt a side puts the text
-    /// column near 85 characters — big without being unreadable.
-    var expandedReplySideExtension: CGFloat = 220
+    /// Ceiling on the expanded agent reply — the widest surface this app draws.
+    ///
+    /// It is a **console**, not a banner: a rail of run metadata beside the answer
+    /// on its own panel (`NotchAgentReplyExpanded`). At the old 220pt wings the
+    /// whole thing came to ~580pt, which forced everything into one stacked column
+    /// and left the answer clipping while two thirds of the display sat empty
+    /// either side. The two columns want roughly 306 + 26 + 700, plus padding.
+    var expandedReplyMaxWidth: CGFloat = 1120
 
-    /// Width of the expanded agent reply band: a reading measure, screen-clamped
-    /// the same way the wide bar is.
+    /// Width of the expanded agent reply band: as wide as the display allows, up to
+    /// the ceiling, screen-clamped the same way the wide bar is.
     func expandedReplySurfaceWidth(for geometry: NotchGeometry) -> CGFloat {
-        let width = bodyWidth(for: geometry) + expandedReplySideExtension * 2
-        guard geometry.screenWidth > 0 else { return width }
-        return min(width, geometry.screenWidth - wideScreenInset * 2)
+        guard geometry.screenWidth > 0 else { return expandedReplyMaxWidth }
+        return max(
+            bodyWidth(for: geometry),
+            min(expandedReplyMaxWidth, geometry.screenWidth - wideScreenInset * 2))
     }
 
     /// The widest surface the panel supports — the wide bar at its full wing cap.
