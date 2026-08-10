@@ -341,11 +341,21 @@ struct NotchAgentReplyExpanded: View {
         /// Words beside data.
         static let consoleWidth: CGFloat = 1120
 
+        /// The console is earned, not assumed. A reply carrying two lines of narrow
+        /// output does not justify a thousand points of black beside a one-sentence
+        /// verdict; a `git worktree list` or a wide table does.
         static func wantsConsole(
             document: AgentReplyDocument, toolCount: Int, changedCount: Int
         ) -> Bool {
-            !document.split().data.isEmpty
+            let split = document.split()
+            guard !split.data.isEmpty else { return false }
+            return !split.words.isEmpty || document.longestDataLine > wideDataLine
         }
+
+        /// Characters past which a data line wants more than the reading column.
+        /// Measured: the reading width leaves ~430pt for data, which is about this
+        /// many at the 10.5pt mono the wells are set in.
+        static let wideDataLine = 58
     }
 
     // MARK: Measurement (shared with `NotchSurfaceLayout`)
@@ -547,7 +557,7 @@ struct NotchAgentReplyExpanded: View {
         static let tableHeaderHeight: CGFloat = 24
 
         static let foot: CGFloat = 13
-        static let footGap: CGFloat = 18
+        static let footGap: CGFloat = 26
 
         /// Share of the display the columns may occupy before they scroll.
         static let screenFraction: CGFloat = 0.55

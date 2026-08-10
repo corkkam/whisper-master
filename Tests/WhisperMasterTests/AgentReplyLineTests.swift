@@ -217,13 +217,35 @@ final class AgentReplySplitTests: XCTestCase {
         XCTAssertEqual(doc.split().headline, "Loaded parakeet-tdt-0.6b-v3 and warmed it.")
     }
 
-    func testAReplyOpeningWithCodeHasNoVerdict() {
-        // Inventing one from the fence would put a shell command in display type.
-        let doc = AgentReplyDocument.parse("```\nswift build\n```\n\nDone.")
+    func testAReplyOpeningWithCodeStillGetsAVerdictFromItsProse() {
+        // The verdict is the first prose *anywhere*, not only the first block. A
+        // reply that leads with a fence and explains itself underneath used to leave
+        // the headline slot empty and orphan the explanation in a column beside the
+        // fence, which reduced the whole surface to two small things in a wide band.
+        let doc = AgentReplyDocument.parse("```\nCLAUDE.md README.md\n```\n\n11 files.")
         let split = doc.split()
-        XCTAssertNil(split.headline)
+        XCTAssertEqual(split.headline, "11 files.")
         XCTAssertEqual(split.data.count, 1)
-        XCTAssertEqual(split.words.first?.text, "Done.")
+        XCTAssertTrue(split.words.isEmpty)
+    }
+
+    func testAReplyWithNoProseAtAllHasNoVerdict() {
+        // Inventing one from the fence would put a shell command in display type.
+        let doc = AgentReplyDocument.parse("```\nswift build\n```")
+        XCTAssertNil(doc.split().headline)
+    }
+
+    func testShortOutputDoesNotEarnTheConsoleWidth() {
+        // Two lines of narrow output do not justify a thousand points of black.
+        let narrow = AgentReplyDocument.parse("Done.\n\n```\nok\n```")
+        XCTAssertFalse(
+            NotchAgentReplyExpanded.Layout.wantsConsole(
+                document: narrow, toolCount: 0, changedCount: 0))
+        let wide = AgentReplyDocument.parse(
+            "Done.\n\n```\n" + String(repeating: "x", count: 90) + "\n```")
+        XCTAssertTrue(
+            NotchAgentReplyExpanded.Layout.wantsConsole(
+                document: wide, toolCount: 0, changedCount: 0))
     }
 
     func testAHeadingTravelsWithTheDataItHeads() {

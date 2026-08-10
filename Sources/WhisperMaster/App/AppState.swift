@@ -590,10 +590,18 @@ final class AppState {
     /// shows what they asked for, running or not.
     /// A finished turn's one-line answer. The whole of the response, because the
     /// paste was suppressed — the same job the spoken-command confirmation does.
+    /// **The exact complement of `shouldShowAgentWorking`, on purpose.** These two
+    /// used to disagree: the reply also required the session not to be `running`,
+    /// and the 3s poll carries a state up to three seconds stale — so between the
+    /// socket delivering the answer and the poll catching up, *neither* band
+    /// qualified and the surface went dark, then came back. That was the flicker.
+    /// A new turn clearing `lastReply` (`sendPrompt`, and the `running` transition
+    /// in `applyState`) is what keeps the complement honest without a state test
+    /// here.
     var shouldShowAgentReply: Bool {
         agents.isGlanceOpen && agents.revealedAt != nil
+            && agents.openSession != nil
             && agents.lastReply != nil
-            && agents.openSession?.state != .running
             && !shouldShowAgentAsk && approvals.pending == nil
             && phase == .idle && !agentCaptureArmed
     }

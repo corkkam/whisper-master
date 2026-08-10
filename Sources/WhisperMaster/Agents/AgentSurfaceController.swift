@@ -294,10 +294,19 @@ final class AgentSurfaceController {
         let knownActivity = Dictionary(
             uniqueKeysWithValues: sessions.map { ($0.id, $0.activity) })
         sessions = metas
-            .map {
-                AgentSession(
-                    meta: $0, mode: knownModes[$0.id] ?? .ask,
-                    activity: knownActivity[$0.id] ?? nil)
+            .map { meta in
+                var session = AgentSession(
+                    meta: meta, mode: knownModes[meta.id] ?? .ask,
+                    activity: knownActivity[meta.id] ?? nil)
+                // The socket is live and this list is up to three seconds old, so on
+                // the attached session the socket wins. Letting the poll overwrite it
+                // flipped a finished turn back to `running`, which took the reply off
+                // the band until the next poll — half of the reported flicker.
+                if meta.id == attachedSessionID, let socketState {
+                    session.state = socketState
+                    if socketState == .idle { session.turnStartedAt = nil }
+                }
+                return session
             }
             .rankedForGlance()
 
@@ -481,12 +490,26 @@ final class AgentSurfaceController {
         guard let attachedSessionID,
               let index = sessions.firstIndex(where: { $0.id == attachedSessionID })
         else { return }
+        // A turn starting is what makes the previous turn's answer old news. Doing it
+        // here as well as in `sendPrompt` covers the turn someone started from the
+        // terminal or kunai's web app, which this client never saw sent.
+        if state == .running, sessions[index].state != .running {
+            lastReply = nil
+            lastReplyRaw = nil
+        }
         sessions[index].state = state
         if state == .running, sessions[index].turnStartedAt == nil {
             sessions[index].turnStartedAt = Int64(Date().timeIntervalSince1970 * 1000)
         }
         if state == .idle { sessions[index].turnStartedAt = nil }
+        socketState = state
     }
+
+    /// The attached session's state as the **socket** last reported it. The poll
+    /// replaces `sessions` wholesale every three seconds, so without this the live
+    /// state was overwritten by one up to three seconds old — a finished turn flipped
+    /// back to `running`, which is the other half of the flicker.
+    private var socketState: KunaiWire.SessionState?
 
     private func updateMode(_ mode: KunaiWire.PermissionMode) {
         guard let attachedSessionID,

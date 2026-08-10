@@ -422,6 +422,25 @@ enum SnapshotMode {
         // nothing. There is no run to put in a rail, so the question goes full
         // width and the answer takes the whole card — a 306pt strip holding one
         // line beside a full answer was a third of the surface doing nothing.
+        // The small turn: a fence and one short sentence under it. It is the shape
+        // that read as "two things floating in a wide band" — the verdict slot empty
+        // because the reply did not open with prose.
+        renderPill(dir, name: "pill-10h-agent-reply-small") { s in
+            s.phase = .idle
+            s.agents.seedReplyForSnapshot(
+                session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
+                reply: """
+                    ```
+                    CLAUDE.md  README.md  project.yml  Package.swift  Package.resolved
+                    whats-new.json  .env  .env.example  .gitignore  DeveloperID.p12
+                    ```
+
+                    11 files at the root, and none of them are generated.
+                    """,
+                duration: 4,
+                prompt: "Please again tell me what are the things there.")
+            s.agents.toggleReplyExpansion()
+        }
         renderPill(dir, name: "pill-10g-agent-reply-answer-only") { s in
             s.phase = .idle
             s.agents.seedReplyForSnapshot(

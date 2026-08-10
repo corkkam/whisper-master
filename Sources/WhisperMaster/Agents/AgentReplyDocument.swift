@@ -88,16 +88,23 @@ struct AgentReplyDocument: Equatable, Sendable {
 
     func split() -> Split {
         var result = Split()
-        var rest = blocks[...]
-        if case .prose(let first)? = blocks.first {
-            let (lead, remainder) = Self.firstSentence(first)
-            result.headline = lead
-            // The remainder leads the body, so the paragraph still reads in order.
-            if let remainder { result.words.append(.prose(remainder)) }
-            rest = blocks.dropFirst()
+        // **The verdict is the first prose anywhere, not only the first block.** A
+        // reply that opens with a fence and explains itself underneath left the
+        // headline slot empty and the explanation orphaned in a column beside the
+        // fence — the whole surface reduced to two small things floating in a wide
+        // band, which is what "this looks like nothing" was.
+        let headlineIndex = blocks.firstIndex {
+            if case .prose = $0 { return true }
+            return false
         }
-        let remaining = Array(rest)
-        for (index, block) in remaining.enumerated() {
+        for (index, block) in blocks.enumerated() {
+            if index == headlineIndex, case .prose(let text) = block {
+                let (lead, remainder) = Self.firstSentence(text)
+                result.headline = lead
+                // The remainder leads the body, so the paragraph reads in order.
+                if let remainder { result.words.append(.prose(remainder)) }
+                continue
+            }
             switch block {
             case .prose:
                 result.words.append(block)
@@ -108,20 +115,23 @@ struct AgentReplyDocument: Equatable, Sendable {
                 // stranded "Toolchain" and "Worktrees" in the words column while the
                 // table and the fence they captioned sat in the other one, which
                 // reads as three labels with nothing under them.
-                let next = remaining[safe: index + 1]
-                let headsData: Bool
-                switch next {
-                case .code, .table: headsData = true
-                default: headsData = false
-                }
-                if headsData {
-                    result.data.append(block)
-                } else {
-                    result.words.append(block)
+                switch blocks[safe: index + 1] {
+                case .code, .table: result.data.append(block)
+                default: result.words.append(block)
                 }
             }
         }
         return result
+    }
+
+    /// The longest line any data block carries — what decides whether the band needs
+    /// the console or can stay at a reading width. Two lines of short output do not
+    /// earn a thousand points of black.
+    var longestDataLine: Int {
+        split().data.reduce(0) { widest, block in
+            let lines = block.text.split(separator: "\n", omittingEmptySubsequences: false)
+            return max(widest, lines.map(\.count).max() ?? 0)
+        }
     }
 
     static func parse(_ raw: String) -> AgentReplyDocument {

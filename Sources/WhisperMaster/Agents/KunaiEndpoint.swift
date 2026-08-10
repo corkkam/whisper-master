@@ -7,15 +7,16 @@ import Foundation
 /// absent. That is what keeps this a dictation app that can also drive an agent,
 /// rather than a dictation app that ships an agent server.
 ///
-/// **Discovery reads the file kunai writes for exactly this purpose.** The server
-/// records its own public URL at `<dataDir>/url` on every boot, and its `/kunai`
-/// slash command reads that file rather than baking an address in, so a machine
-/// renamed or a port moved needs no rewrite. Doing the same here means we find the
-/// server wherever it actually is instead of guessing loopback — which matters,
-/// because a real install is frequently *not* on loopback: with a tailnet and
-/// MagicDNS, `install.sh` mints a certificate and binds the tailnet IP, so the
-/// server is on `https://<host>.<tailnet>.ts.net:8443` and nothing answers on
-/// 127.0.0.1 at all.
+/// **Loopback first, then the file kunai writes.** A tailnet install binds *both*
+/// `127.0.0.1:<port>` in plain HTTP and the tailnet IP with TLS — verified with
+/// `lsof` against a real install — and this app always runs on the same machine as
+/// the server it is talking to. So the local address is the right one: no TLS
+/// handshake, no MagicDNS resolution, and it keeps working when Tailscale is down or
+/// the Mac is offline. Reading `<dataDir>/url` (the file kunai records its own public
+/// URL in on every boot, and the one its `/kunai` slash command reads) stays in the
+/// list underneath, because a non-default `-addr`, a moved port, or a
+/// loopback-less bind is exactly what it exists to describe. The caller probes in
+/// order, so the first address that actually answers wins either way.
 ///
 /// No credentials appear anywhere in this client, and that is a property of the two
 /// perimeters kunai supports rather than an oversight. Loopback is never locked (a
@@ -43,10 +44,15 @@ struct KunaiEndpoint: Sendable, Equatable {
             ?? URL(fileURLWithPath: "/")
     }
 
-    /// Data directories kunai installs into, newest channel first. `install.sh`
-    /// gives the nightly channel its own directory and port so it can run beside a
-    /// stable install without sharing anything.
-    static let dataDirectories = [".kunai", ".kunai-nightly"]
+    /// Data directories kunai installs into, newest channel first, each with the
+    /// port `install.sh` gives that channel — the nightly gets its own directory
+    /// *and* its own port so it can run beside a stable install without sharing
+    /// anything.
+    static let channels: [(directory: String, port: Int)] = [
+        (".kunai", defaultPort), (".kunai-nightly", defaultPort + 1),
+    ]
+
+    static var dataDirectories: [String] { channels.map(\.directory) }
 
     /// Where to look, in order: an explicit override, then whatever each installed
     /// kunai recorded for itself, then the documented default.
@@ -62,16 +68,25 @@ struct KunaiEndpoint: Sendable, Equatable {
             found.append(KunaiEndpoint(baseURL: url))
         }
 
+        // Loopback next, one per installed channel. Both processes are on this Mac,
+        // so this is the cheapest and most reliable address there is — and unlike the
+        // recorded URL it does not depend on Tailscale being up.
+        for channel in channels {
+            found.append(KunaiEndpoint(port: channel.port))
+        }
+
+        // Then whatever each install recorded for itself, which is what covers a
+        // non-default bind.
         let home = FileManager.default.homeDirectoryForCurrentUser
-        for directory in dataDirectories {
-            let path = home.appendingPathComponent(directory).appendingPathComponent("url")
+        for channel in channels {
+            let path = home.appendingPathComponent(channel.directory)
+                .appendingPathComponent("url")
             guard let contents = try? String(contentsOf: path, encoding: .utf8),
                   let url = normalized(contents)
             else { continue }
             found.append(KunaiEndpoint(baseURL: url))
         }
 
-        found.append(KunaiEndpoint())
         // Preserve order while dropping duplicates: a machine with one install must
         // not probe the same address twice.
         var seen = Set<String>()
