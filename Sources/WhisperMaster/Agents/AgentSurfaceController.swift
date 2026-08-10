@@ -193,6 +193,15 @@ final class AgentSurfaceController {
     /// for the life of the process.
     var pollInterval: Duration = .seconds(3)
 
+    /// The history/live boundary for the attached socket. kunai replays the
+    /// session's ring buffer on attach — every prior turn's frames arrive before
+    /// the live ones — and `hello.high_seq` is the highest sequence that existed
+    /// before we attached. Every frame at or below it is **history**: context for
+    /// the log, but not something happening now. Treating replayed frames as live
+    /// is what made the band re-announce every old turn on the first dictation,
+    /// reply and working flashing once per turn of history.
+    private var liveSince: UInt64 = 0
+
     /// The address the socket is opened against: whichever candidate answered the
     /// last session poll. Held here rather than resolved again, so a machine running
     /// two kunai channels cannot read its sessions from one and attach to the other.
@@ -280,6 +289,7 @@ final class AgentSurfaceController {
         let stream = KunaiEventStream(endpoint: endpoint, sessionID: sessionID)
         self.stream = stream
         attachedSessionID = sessionID
+        liveSince = 0
         log.reset()
         changeSet = AgentChangeSet()
 
@@ -305,7 +315,9 @@ final class AgentSurfaceController {
     private func handle(_ frame: KunaiEventStream.Frame) {
         switch frame {
         case .reset:
-            // The session respawned: everything we hold describes a dead process.
+            // The session respawned: everything we hold describes a dead process,
+            // including the history/live boundary — the replacement numbers from 1.
+            liveSince = 0
             log.reset()
             ask = nil
             changeSet = AgentChangeSet()
@@ -318,23 +330,35 @@ final class AgentSurfaceController {
         }
     }
 
-    private func apply(_ event: KunaiWire.Event) {
+    /// Internal rather than private so the replay-vs-live gating is testable: it is
+    /// the piece that broke, and it can only be exercised by feeding frames in.
+    func apply(_ event: KunaiWire.Event) {
         log.apply(event)
         changeSet.editedPaths = AgentChangeSet.editedPaths(in: log)
         applyActivity(log.currentActivity)
 
+        // History informs the log above; only live frames get to *announce*
+        // anything below. `seq == 0` (a frame kunai didn't sequence) counts as
+        // live rather than being silently swallowed.
+        let isLive = event.seq > liveSince || event.seq == 0
+
         switch event.kind {
         case .hello:
+            liveSince = event.highSeq ?? 0
             if let mode = event.mode { updateMode(KunaiWire.PermissionMode(wire: mode)) }
-            // `pending` carries the asks that were already outstanding when we
-            // attached. Without reading it, a question raised before the panel opened
-            // would never be shown and the turn would sit behind it.
+            // `pending` carries the asks still outstanding at attach — genuinely
+            // waiting, however old their sequence numbers are.
             for pendingEvent in event.pending ?? [] { raiseAsk(from: pendingEvent) }
 
         case .mode:
+            guard isLive else { return }
             updateMode(KunaiWire.PermissionMode(wire: event.mode))
 
         case .permission:
+            // A replayed permission was already answered — its resolution is a few
+            // frames behind it in the same replay. Raising it would flash a consent
+            // card for a question nobody is asking.
+            guard isLive else { return }
             raiseAsk(from: event)
 
         case .permissionResolved:
@@ -344,13 +368,17 @@ final class AgentSurfaceController {
             // **The attached session's state comes from its own socket, in real time.**
             // Deriving it from the 3s poll made the band flip between "working" and
             // "done" on every tick while a turn was starting, which read as the notch
-            // flickering rather than as a session running.
+            // flickering rather than as a session running. Replayed state frames are
+            // past states, and the present one rides on `hello`.
+            guard isLive else { return }
             applyState(KunaiWire.SessionState(wire: event.state))
 
         case .assistant:
             // Keep the newest thing it said, as one *readable* line — the raw
             // markdown put a literal ``` on the band when a reply opened with a
-            // code fence.
+            // code fence. Live only: a replayed reply belongs to a turn that
+            // already had its banner.
+            guard isLive else { return }
             if let text = event.blocks?.compactMap(\.text).last,
                let line = AgentReplyLine.compact(text) {
                 lastReply = line
@@ -358,6 +386,10 @@ final class AgentSurfaceController {
             }
 
         case .result:
+            // A replayed result is a turn that finished before we attached; letting
+            // it through re-announced every historical turn, once each, on the
+            // first dictation.
+            guard isLive else { return }
             lastTurnDuration = event.durationMs.map { Double($0) / 1000 }
             // A turn can end without an `assistant` frame reaching us (attached
             // late, or the reply streamed before the socket came up). The banner is
