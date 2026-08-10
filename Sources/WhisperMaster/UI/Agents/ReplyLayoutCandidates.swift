@@ -7,11 +7,11 @@ import SwiftUI
 /// measurement, and no state; only the direction that gets picked is built for real
 /// and the rest are deleted.
 ///
-/// Round one (receipt / editorial / session log) was one idea — type on black
-/// separated by hairlines — in three arrangements. Round two (bento / broadsheet /
-/// colour block / window) changed the material but stayed a dashboard. This round
-/// goes for elegance instead of information density: a page with real margins, a
-/// thread drawn out of the notch itself, and the answer arriving on paper.
+/// Round one arranged type with hairlines. Round two changed the material to tiles,
+/// columns, colour and window chrome. Round three went quiet — margins, a thread,
+/// paper. This round attacks the *hierarchy*: what if the answer is the headline
+/// rather than the question, what if the frame is an instrument, what if the page is
+/// ruled, what if almost all of it is empty.
 enum ReplyLayoutCandidate {
 
     /// The content every candidate is drawn with, so the comparison is about the
@@ -20,366 +20,384 @@ enum ReplyLayoutCandidate {
         static let repo = "whisper-master"
         static let elapsed = "3m 12s"
         static let question = "Fix the flaky audio route test, and clear the build first."
+        /// The answer's opening sentence, which is almost always the whole verdict.
+        static let verdict = "Cleared the build, then rewrote the route assertion to wait on the rebuilt engine."
         static let lead =
-            "Cleared the build, then rewrote the route assertion to wait on the rebuilt "
-            + "engine instead of a fixed delay."
+            "The flake was the fixed delay racing the engine rebuild on slower runs, so it "
+            + "only showed up under load. Both suites are green on the rebuilt engine now."
         static let code = """
             ✓ AudioRouteTests           42 passed   0 failed
             ✓ TranscriptMergerTests     18 passed   0 failed
             """
-        static let tail =
-            "The flake was the fixed delay racing the engine rebuild on slower runs, so "
-            + "it only showed up under load."
         static let tools: [(time: String, text: String)] = [
             ("00:01", "rm -rf build/"),
             ("00:04", "swift test --filter AudioRoute"),
             ("02:51", "edit  Audio/RouteTests.swift"),
         ]
         static let changed = ["Audio/RouteTests.swift"]
-        /// The run reduced to one quiet line — an index, not a list.
         static let runIndex = "rm -rf build/  ·  swift test --filter AudioRoute  ·  edit RouteTests.swift"
     }
 }
 
-// MARK: - H. Letter
+// MARK: - K. Verdict
 
-/// **H — Letter.** No panels, no tiles, no rules between things: a page with real
-/// margins. The question hangs in the left margin the way a marginal note does, the
-/// answer is set as prose at a generous size with wide leading, and the run is one
-/// quiet index line at the foot. The elegance is the restraint — the notch opens and
-/// hands you something that reads like a page, not a dashboard.
-struct ReplyCandidateLetter: View {
+/// **K — Verdict.** Every candidate so far made the question the headline. But you
+/// already know what you asked; what you came back for is the answer. So the answer's
+/// opening sentence *is* the headline, set large, and the question shrinks to a
+/// single ember line above it. Everything else — the detail, the output, the run —
+/// falls away underneath at supporting size.
+struct ReplyCandidateVerdict: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 56) {
-                VStack(alignment: .trailing, spacing: 0) {
-                    Text("YOU ASKED")
-                        .font(.system(size: 8.5, weight: .bold))
-                        .tracking(2)
-                        .foregroundStyle(Theme.Notch.accent.opacity(0.85))
-                    Text(ReplyLayoutCandidate.Sample.question)
-                        .font(Typography.heading(15, .semibold, relativeTo: .headline))
-                        .tracking(Typography.trackingFor(15))
-                        .lineSpacing(4)
-                        .multilineTextAlignment(.trailing)
-                        .foregroundStyle(Theme.Notch.text.opacity(0.88))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 12)
-
-                    Rectangle()
-                        .fill(Theme.Notch.hairline)
-                        .frame(width: 26, height: 1)
-                        .padding(.vertical, 20)
-
-                    Text(ReplyLayoutCandidate.Sample.elapsed)
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Theme.Notch.textSecondary)
-                    Text(ReplyLayoutCandidate.Sample.repo)
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(Theme.Notch.textTertiary)
-                        .padding(.top, 3)
-                    Text("1 file changed")
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(Theme.Notch.textTertiary)
-                        .padding(.top, 3)
-                }
-                .frame(width: 216, alignment: .trailing)
-
-                VStack(alignment: .leading, spacing: 20) {
-                    Text(ReplyLayoutCandidate.Sample.lead)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(ReplyLayoutCandidate.Sample.code)
-                        .font(.system(size: 11.5, design: .monospaced))
-                        .lineSpacing(5)
-                        .foregroundStyle(Theme.Notch.success)
-                        .padding(.leading, 2)
-                        .overlay(alignment: .leading) {
-                            Rectangle()
-                                .fill(Theme.Notch.success.opacity(0.5))
-                                .frame(width: 1)
-                                .offset(x: -16)
-                        }
-                    Text(ReplyLayoutCandidate.Sample.tail)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .font(Typography.sans(16, .regular, relativeTo: .body))
-                .lineSpacing(9)
-                .foregroundStyle(Theme.Notch.text.opacity(0.9))
-                .frame(width: 560, alignment: .leading)
-
-                Spacer(minLength: 0)
+            HStack(spacing: 9) {
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 8.5, weight: .bold))
+                Text(ReplyLayoutCandidate.Sample.question)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 20)
+                Text("\(ReplyLayoutCandidate.Sample.repo)  ·  \(ReplyLayoutCandidate.Sample.elapsed)")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Theme.Notch.textTertiary)
             }
+            .foregroundStyle(Theme.Notch.accent)
 
-            Spacer(minLength: 40)
+            Text(ReplyLayoutCandidate.Sample.verdict)
+                .font(Typography.heading(27, .semibold, relativeTo: .title))
+                .tracking(Typography.trackingFor(27))
+                .lineSpacing(5)
+                .foregroundStyle(Theme.Notch.text)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: 700, alignment: .leading)
+                .padding(.top, 22)
+
+            HStack(alignment: .top, spacing: 44) {
+                Text(ReplyLayoutCandidate.Sample.lead)
+                    .font(Typography.sans(13.5, .regular, relativeTo: .body))
+                    .lineSpacing(6)
+                    .foregroundStyle(Theme.Notch.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: 420, alignment: .leading)
+                Text(ReplyLayoutCandidate.Sample.code)
+                    .font(.system(size: 11, design: .monospaced))
+                    .lineSpacing(4)
+                    .foregroundStyle(Theme.Notch.success)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, 26)
+
+            Spacer(minLength: 30)
 
             HStack(spacing: 0) {
-                Text(ReplyLayoutCandidate.Sample.runIndex)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Theme.Notch.textTertiary.opacity(0.75))
-                    .lineLimit(1)
+                ForEach(Array(ReplyLayoutCandidate.Sample.tools.enumerated()), id: \.offset) {
+                    index, tool in
+                    if index > 0 {
+                        Text("·")
+                            .foregroundStyle(Theme.Notch.textTertiary.opacity(0.5))
+                            .padding(.horizontal, 10)
+                    }
+                    Text(tool.text)
+                        .foregroundStyle(Theme.Notch.textTertiary.opacity(0.85))
+                        .lineLimit(1)
+                }
                 Spacer(minLength: 24)
                 Text("copy")
                 Text("kunai").padding(.leading, 16)
                 Text("esc").padding(.leading, 16)
             }
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
             .foregroundStyle(Theme.Notch.textTertiary.opacity(0.75))
-            .padding(.top, 22)
+            .padding(.top, 18)
             .overlay(alignment: .top) {
-                Rectangle().fill(Theme.Notch.hairline).frame(height: 1)
+                Rectangle().fill(Theme.Notch.hairline).frame(height: 1).offset(y: -9)
             }
         }
-        .padding(.horizontal, 46)
-        .padding(.top, 34)
-        .padding(.bottom, 24)
+        .padding(.horizontal, 40)
+        .padding(.top, 30)
+        .padding(.bottom, 22)
     }
 }
 
-// MARK: - I. Thread
+// MARK: - L. Plate
 
-/// **I — Thread.** One ember line is drawn *out of the notch itself*, curves down
-/// into the left margin, and becomes the spine of the turn: your question at the top
-/// of it, each tool call a small ring on it, the answer flowing beside it, and a
-/// filled node where it ends. The only candidate that could not belong to any other
-/// app — the thing it hangs from is the hardware.
-struct ReplyCandidateThread: View {
-    /// Where the thread lands after it leaves the notch.
-    private let spineX: CGFloat = 74
-    private let notchCenterX: CGFloat = 460
-
+/// **L — Plate.** The turn presented as a drawing on a plate: thin ember corner
+/// brackets holding the content like a viewfinder, dimension ticks along the top
+/// edge, and the session name set *vertically* down the left margin in tracked caps.
+/// Precise rather than decorative — the elegance of an instrument panel, where every
+/// mark is a measurement.
+struct ReplyCandidatePlate: View {
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            ThreadPath(fromX: notchCenterX, toX: spineX, drop: 26, radius: 30)
-                .stroke(
-                    LinearGradient(
-                        colors: [Theme.Notch.accent, Theme.Notch.accent.opacity(0.28)],
-                        startPoint: .top, endPoint: .bottom),
-                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+        HStack(alignment: .top, spacing: 0) {
+            Text(ReplyLayoutCandidate.Sample.repo.uppercased())
+                .font(.system(size: 9, weight: .bold))
+                .tracking(3.4)
+                .foregroundStyle(Theme.Notch.textTertiary)
+                .fixedSize()
+                .rotationEffect(.degrees(-90))
+                .frame(width: 22)
+                .padding(.top, 130)
 
             VStack(alignment: .leading, spacing: 0) {
-                node(filled: true, tint: Theme.Notch.accent)
-                    .padding(.leading, spineX - 4)
-                    .padding(.top, 66)
+                ticks
+                    .padding(.bottom, 16)
 
-                HStack(alignment: .top, spacing: 0) {
-                    Color.clear.frame(width: spineX + 30)
-                    VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("QUERY")
+                            .font(.system(size: 8, weight: .bold))
+                            .tracking(2.2)
+                            .foregroundStyle(Theme.Notch.accent)
                         Text(ReplyLayoutCandidate.Sample.question)
-                            .font(Typography.heading(19, .semibold, relativeTo: .title3))
-                            .tracking(Typography.trackingFor(19))
-                            .lineSpacing(3)
+                            .font(Typography.sans(16, .semibold, relativeTo: .body))
                             .foregroundStyle(Theme.Notch.text)
                             .fixedSize(horizontal: false, vertical: true)
-                            .frame(width: 520, alignment: .leading)
+                    }
 
-                        VStack(alignment: .leading, spacing: 11) {
-                            ForEach(
-                                Array(ReplyLayoutCandidate.Sample.tools.enumerated()),
-                                id: \.offset
-                            ) { _, tool in
-                                HStack(spacing: 14) {
-                                    node(filled: false, tint: Theme.Notch.textTertiary)
-                                        .offset(x: -34)
-                                        .frame(width: 0)
-                                    Text(tool.text)
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundStyle(Theme.Notch.textTertiary)
-                                    Spacer(minLength: 0)
-                                }
-                            }
-                        }
-                        .padding(.top, 22)
-
-                        HStack(alignment: .top, spacing: 14) {
-                            node(filled: true, tint: Theme.Notch.success)
-                                .offset(x: -34)
-                                .frame(width: 0)
-                            VStack(alignment: .leading, spacing: 16) {
-                                Text(ReplyLayoutCandidate.Sample.lead)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Text(ReplyLayoutCandidate.Sample.code)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .lineSpacing(4)
-                                    .foregroundStyle(Theme.Notch.success)
-                                Text(ReplyLayoutCandidate.Sample.tail)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .font(Typography.sans(14.5, .regular, relativeTo: .body))
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("RESULT")
+                            .font(.system(size: 8, weight: .bold))
+                            .tracking(2.2)
+                            .foregroundStyle(Theme.Notch.success)
+                        Text(ReplyLayoutCandidate.Sample.verdict + " " + ReplyLayoutCandidate.Sample.lead)
+                            .font(Typography.sans(14, .regular, relativeTo: .body))
                             .lineSpacing(6)
                             .foregroundStyle(Theme.Notch.text.opacity(0.9))
-                            .frame(width: 560, alignment: .leading)
-                        }
-                        .padding(.top, 24)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(width: 620, alignment: .leading)
+                        Text(ReplyLayoutCandidate.Sample.code)
+                            .font(.system(size: 11, design: .monospaced))
+                            .lineSpacing(4)
+                            .foregroundStyle(Theme.Notch.success)
+                            .padding(.top, 4)
                     }
-                    Spacer(minLength: 0)
-                    VStack(alignment: .trailing, spacing: 6) {
-                        Text(ReplyLayoutCandidate.Sample.elapsed)
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Theme.Notch.textSecondary)
-                        Text(ReplyLayoutCandidate.Sample.repo)
-                            .font(.system(size: 10.5, design: .monospaced))
-                            .foregroundStyle(Theme.Notch.textTertiary)
-                        Text("copy · kunai · esc")
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Theme.Notch.textTertiary.opacity(0.75))
-                            .padding(.top, 10)
-                    }
-                    .padding(.trailing, 40)
                 }
-                .padding(.top, 14)
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay { CornerBrackets(length: 18, inset: 0).stroke(Theme.Notch.accent.opacity(0.75), lineWidth: 1.2) }
+
+                HStack(spacing: 0) {
+                    ForEach(Array(ReplyLayoutCandidate.Sample.tools.enumerated()), id: \.offset) {
+                        index, tool in
+                        Text(String(format: "%02d", index + 1))
+                            .foregroundStyle(Theme.Notch.textTertiary.opacity(0.55))
+                            .padding(.trailing, 7)
+                        Text(tool.text)
+                            .foregroundStyle(Theme.Notch.textSecondary)
+                            .lineLimit(1)
+                        if index < ReplyLayoutCandidate.Sample.tools.count - 1 {
+                            Spacer(minLength: 18)
+                        }
+                    }
+                    Spacer(minLength: 24)
+                    Text(ReplyLayoutCandidate.Sample.elapsed)
+                        .foregroundStyle(Theme.Notch.text)
+                }
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .padding(.top, 18)
             }
+            .padding(.trailing, 34)
         }
-        .padding(.bottom, 34)
+        .padding(.leading, 22)
+        .padding(.top, 26)
+        .padding(.bottom, 24)
     }
 
-    private func node(filled: Bool, tint: Color) -> some View {
-        Circle()
-            .strokeBorder(tint, lineWidth: 1.5)
-            .background(Circle().fill(filled ? tint : Theme.Notch.surface))
-            .frame(width: 8, height: 8)
+    /// A measured edge: long tick, four short, repeating. It says "this surface is
+    /// calibrated" without printing a single number.
+    private var ticks: some View {
+        HStack(alignment: .top, spacing: 8) {
+            ForEach(0..<44, id: \.self) { index in
+                Rectangle()
+                    .fill(Theme.Notch.text.opacity(index % 5 == 0 ? 0.28 : 0.12))
+                    .frame(width: 1, height: index % 5 == 0 ? 9 : 5)
+            }
+            Spacer(minLength: 0)
+        }
     }
 
-    /// The line that leaves the notch: straight down out of the housing, one quarter
-    /// turn, then straight down the margin. Drawn as a path so the corner is a true
-    /// radius rather than two rectangles meeting.
-    private struct ThreadPath: Shape {
-        let fromX: CGFloat
-        let toX: CGFloat
-        let drop: CGFloat
-        let radius: CGFloat
+    private struct CornerBrackets: Shape {
+        let length: CGFloat
+        let inset: CGFloat
 
         func path(in rect: CGRect) -> Path {
             var path = Path()
-            path.move(to: CGPoint(x: fromX, y: 0))
-            path.addLine(to: CGPoint(x: fromX, y: drop))
-            path.addQuadCurve(
-                to: CGPoint(x: fromX - radius, y: drop + radius),
-                control: CGPoint(x: fromX, y: drop + radius))
-            path.addLine(to: CGPoint(x: toX + radius, y: drop + radius))
-            path.addQuadCurve(
-                to: CGPoint(x: toX, y: drop + radius * 2),
-                control: CGPoint(x: toX, y: drop + radius))
-            path.addLine(to: CGPoint(x: toX, y: rect.maxY))
+            let r = rect.insetBy(dx: inset, dy: inset)
+            for (corner, dx, dy) in [
+                (CGPoint(x: r.minX, y: r.minY), CGFloat(1), CGFloat(1)),
+                (CGPoint(x: r.maxX, y: r.minY), CGFloat(-1), CGFloat(1)),
+                (CGPoint(x: r.minX, y: r.maxY), CGFloat(1), CGFloat(-1)),
+                (CGPoint(x: r.maxX, y: r.maxY), CGFloat(-1), CGFloat(-1)),
+            ] {
+                path.move(to: CGPoint(x: corner.x + dx * length, y: corner.y))
+                path.addLine(to: corner)
+                path.addLine(to: CGPoint(x: corner.x, y: corner.y + dy * length))
+            }
             return path
         }
     }
 }
 
-// MARK: - J. Paper
+// MARK: - M. Ruled
 
-/// **J — Paper.** The swing. This whole app is warm paper and ink — the window, the
-/// settings, the notes — and the notch band is the one place that is always black.
-/// So the answer *arrives on paper*: your question stays on the bezel in the app's
-/// own ink voice, and what the machine wrote is handed to you as a cream card resting
-/// on the black. Nothing else in the product looks like this, and it is unmistakably
-/// this product.
-struct ReplyCandidatePaper: View {
+/// **M — Ruled.** The answer is written on a ruled sheet: faint baselines running the
+/// full width, the text sitting on them, the question above as a heading with a short
+/// ember underline. The rules are the only ornament, and because they are horizontal
+/// and continuous they make the band feel like a *page* laid under the notch rather
+/// than a panel bolted to it.
+struct ReplyCandidateRuled: View {
+    private let ruleSpacing: CGFloat = 30
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center, spacing: 12) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Theme.Notch.accent)
-                    .frame(width: 3, height: 26)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("YOU ASKED")
-                        .font(.system(size: 8.5, weight: .bold))
-                        .tracking(2)
-                        .foregroundStyle(Theme.Notch.textTertiary)
-                    Text(ReplyLayoutCandidate.Sample.question)
-                        .font(Typography.sans(15, .semibold, relativeTo: .body))
-                        .foregroundStyle(Theme.Notch.text)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 20)
-                HStack(spacing: 7) {
-                    Circle().fill(Theme.Notch.success).frame(width: 5, height: 5)
-                    Text("\(ReplyLayoutCandidate.Sample.repo) · \(ReplyLayoutCandidate.Sample.elapsed)")
-                        .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Theme.Notch.textTertiary)
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 14) {
+                Text(ReplyLayoutCandidate.Sample.question)
+                    .font(Typography.heading(20, .semibold, relativeTo: .title3))
+                    .tracking(Typography.trackingFor(20))
+                    .foregroundStyle(Theme.Notch.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 16)
+                Text("\(ReplyLayoutCandidate.Sample.elapsed)  ·  \(ReplyLayoutCandidate.Sample.repo)")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Theme.Notch.textTertiary)
             }
+            Rectangle()
+                .fill(Theme.Notch.accent)
+                .frame(width: 44, height: 2)
+                .padding(.top, 11)
 
-            // The card. Warm ground, ink type, the app's own paper brought onto the
-            // bezel — with a real shadow, because the whole point is that it is
-            // resting on the black rather than cut into it.
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 0) {
-                    Text("THE ANSWER")
-                        .font(.system(size: 8.5, weight: .bold))
-                        .tracking(2)
-                        .foregroundStyle(Theme.textFaint)
-                    Spacer()
-                    ForEach(
-                        Array(ReplyLayoutCandidate.Sample.tools.enumerated()), id: \.offset
-                    ) { index, tool in
-                        if index > 0 {
-                            Text("·").foregroundStyle(Theme.textFaint).padding(.horizontal, 7)
-                        }
-                        Text(tool.text.split(separator: " ").first.map(String.init) ?? "")
-                            .foregroundStyle(Theme.textTertiary)
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    ForEach(0..<7, id: \.self) { _ in
+                        Rectangle()
+                            .fill(Theme.Notch.text.opacity(0.055))
+                            .frame(height: 1)
+                            .frame(height: ruleSpacing, alignment: .bottom)
                     }
-                    Text("· 1 file changed")
-                        .foregroundStyle(Theme.textFaint)
-                        .padding(.leading, 7)
                 }
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-
-                Text(ReplyLayoutCandidate.Sample.lead)
-                    .font(Typography.sans(15.5, .regular, relativeTo: .body))
-                    .lineSpacing(7)
-                    .foregroundStyle(Theme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(ReplyLayoutCandidate.Sample.code)
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .lineSpacing(5)
-                    .foregroundStyle(Theme.Signal.ink)
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10).fill(Theme.paper300.opacity(0.7)))
-
-                Text(ReplyLayoutCandidate.Sample.tail)
-                    .font(Typography.sans(15.5, .regular, relativeTo: .body))
-                    .lineSpacing(7)
-                    .foregroundStyle(Theme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 10) {
-                    Spacer()
-                    paperAction("Copy answer", glyph: "square.on.square")
-                    paperAction("Open in kunai", glyph: "arrow.up.forward")
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(ReplyLayoutCandidate.Sample.verdict)
+                        .font(Typography.sans(15, .medium, relativeTo: .body))
+                        .foregroundStyle(Theme.Notch.text)
+                        .lineSpacing(ruleSpacing - 18)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(ReplyLayoutCandidate.Sample.lead)
+                        .font(Typography.sans(15, .regular, relativeTo: .body))
+                        .foregroundStyle(Theme.Notch.text.opacity(0.86))
+                        .lineSpacing(ruleSpacing - 18)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 5)
                 }
-                .padding(.top, 2)
+                .frame(width: 660, alignment: .leading)
+                .padding(.top, 4)
             }
-            .padding(26)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Theme.surface)
-                    .shadow(color: .black.opacity(0.55), radius: 24, y: 10))
+            .padding(.top, 20)
+
+            HStack(alignment: .top, spacing: 34) {
+                Text(ReplyLayoutCandidate.Sample.code)
+                    .font(.system(size: 11, design: .monospaced))
+                    .lineSpacing(4)
+                    .foregroundStyle(Theme.Notch.success)
+                    .padding(.leading, 15)
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(Theme.Notch.success.opacity(0.45)).frame(width: 2)
+                    }
+                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(Array(ReplyLayoutCandidate.Sample.tools.enumerated()), id: \.offset) {
+                        _, tool in
+                        HStack(spacing: 9) {
+                            Text(tool.time)
+                                .foregroundStyle(Theme.Notch.textTertiary.opacity(0.6))
+                            Text(tool.text)
+                                .foregroundStyle(Theme.Notch.textTertiary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .font(.system(size: 10, design: .monospaced))
+            }
+            .padding(.top, 22)
 
             HStack {
                 Spacer()
-                Text("click anywhere, or esc, to close")
-                    .font(.system(size: 10, weight: .medium))
+                Text("copy  ·  kunai  ·  esc")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Theme.Notch.textTertiary.opacity(0.7))
                 Spacer()
             }
+            .padding(.top, 26)
         }
-        .padding(.horizontal, 30)
-        .padding(.top, 22)
-        .padding(.bottom, 18)
+        .padding(.horizontal, 38)
+        .padding(.top, 28)
+        .padding(.bottom, 20)
     }
+}
 
-    private func paperAction(_ title: String, glyph: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: glyph).font(.system(size: 9, weight: .bold))
-            Text(title).font(.system(size: 11, weight: .semibold))
+// MARK: - N. Quiet
+
+/// **N — Quiet.** Almost all of it is empty. The content sits in a single narrow
+/// column pushed well right of centre; the whole left third holds one ember dot, the
+/// elapsed time, and nothing else. A finished turn is a small event, and a surface
+/// that behaves like one — mostly black, one column, generous type — is calmer to
+/// have drop over a video than any amount of well-arranged information.
+struct ReplyCandidateQuiet: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 14) {
+                Circle()
+                    .fill(Theme.Notch.accent)
+                    .frame(width: 7, height: 7)
+                Text(ReplyLayoutCandidate.Sample.elapsed)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Theme.Notch.textSecondary)
+                Text(ReplyLayoutCandidate.Sample.repo)
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Theme.Notch.textTertiary.opacity(0.8))
+                Spacer(minLength: 0)
+                Text("copy\nkunai\nesc")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .lineSpacing(5)
+                    .foregroundStyle(Theme.Notch.textTertiary.opacity(0.6))
+            }
+            .frame(width: 250, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 24) {
+                Text(ReplyLayoutCandidate.Sample.question)
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(0.2)
+                    .foregroundStyle(Theme.Notch.accent)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(ReplyLayoutCandidate.Sample.verdict)
+                    .font(Typography.sans(17, .regular, relativeTo: .body))
+                    .lineSpacing(9)
+                    .foregroundStyle(Theme.Notch.text)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(ReplyLayoutCandidate.Sample.code)
+                    .font(.system(size: 11, design: .monospaced))
+                    .lineSpacing(5)
+                    .foregroundStyle(Theme.Notch.success)
+
+                Text(ReplyLayoutCandidate.Sample.lead)
+                    .font(Typography.sans(14, .regular, relativeTo: .body))
+                    .lineSpacing(7)
+                    .foregroundStyle(Theme.Notch.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(ReplyLayoutCandidate.Sample.runIndex)
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .foregroundStyle(Theme.Notch.textTertiary.opacity(0.55))
+                    .lineLimit(1)
+                    .padding(.top, 4)
+            }
+            .frame(width: 470, alignment: .leading)
+
+            Spacer(minLength: 0)
         }
-        .foregroundStyle(Theme.textSecondary)
-        .padding(.horizontal, 13)
-        .padding(.vertical, 7)
-        .background(Capsule().fill(Theme.paper200))
+        .padding(.leading, 44)
+        .padding(.trailing, 40)
+        .padding(.top, 40)
+        .padding(.bottom, 34)
     }
 }
