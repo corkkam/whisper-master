@@ -13,9 +13,20 @@ struct AboutSettingsView: View {
             HStack(spacing: 18) {
                 BrandLogo(size: 58, cornerRadius: 14)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("Whisper Master")
-                        .font(Typography.sans(23, .bold))
-                        .foregroundStyle(Theme.textPrimary)
+                    HStack(spacing: Theme.Space.sm) {
+                        Text("Whisper Master")
+                            .font(Typography.sans(23, .bold))
+                            .foregroundStyle(Theme.textPrimary)
+                        // Only a non-shipping build wears a badge; stable says
+                        // nothing (`UpdateChannel.buildLabel`). `fixedSize`
+                        // keeps it from being squeezed when the title wraps in
+                        // a narrow window.
+                        if let label = AppInfo.buildChannel.buildLabel {
+                            Chip(label)
+                                .fixedSize()
+                                .accessibilityLabel("\(label) build")
+                        }
+                    }
                     Text("Version \(AppInfo.version) · On-device dictation")
                         .font(Typography.mono)
                         .foregroundStyle(Theme.textSecondary)
