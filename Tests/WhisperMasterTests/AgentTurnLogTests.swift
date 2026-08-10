@@ -193,3 +193,37 @@ final class AgentTurnBoundaryTests: XCTestCase {
         XCTAssertEqual(log.entries.filter { if case .user = $0 { return true } else { return false } }.count, 1)
     }
 }
+
+/// What the band's *width* is measured against while a turn runs.
+final class AgentWorkingWingTests: XCTestCase {
+
+    func testTheWingLabelDoesNotCarryTheRunningClock() {
+        // The rendered caption ends in an elapsed stamp that changes every second,
+        // and the wing is sized from the label — so the band re-measured and animated
+        // its own width once a second for the whole turn. That pulsing is the flicker.
+        let started = Int64(Date().addingTimeInterval(-9).timeIntervalSince1970 * 1000)
+        let session = AgentSession(
+            id: "s1", repo: "whisper-master", state: .running,
+            activity: "Editing loop.go", turnStartedAt: started)
+
+        let atNine = NotchAgentWorkingRow.sizingLabel(for: session, live: "Editing loop.go")
+        let laterStart = Int64(Date().addingTimeInterval(-71).timeIntervalSince1970 * 1000)
+        let older = AgentSession(
+            id: "s1", repo: "whisper-master", state: .running,
+            activity: "Editing loop.go", turnStartedAt: laterStart)
+        let atSeventyOne = NotchAgentWorkingRow.sizingLabel(for: older, live: "Editing loop.go")
+
+        XCTAssertEqual(atNine, atSeventyOne, "the sizing label must not move with the clock")
+        // The rendered caption, by contrast, is expected to differ — that is its job.
+        XCTAssertNotEqual(
+            NotchAgentWorkingRow.caption(for: session, now: Date(), live: "Editing loop.go"),
+            NotchAgentWorkingRow.caption(for: older, now: Date(), live: "Editing loop.go"))
+    }
+
+    func testTheWingSnapsToAStepSoSmallTextChangesCannotMoveTheBand() {
+        let layout = NotchSurfaceLayout()
+        let a = layout.wideWing(forStateLabel: "Running swift test · Working 9s")
+        let b = layout.wideWing(forStateLabel: "Running swift test · Working 10s")
+        XCTAssertEqual(a, b)
+    }
+}

@@ -302,9 +302,9 @@ final class AgentSurfaceController {
                 // the attached session the socket wins. Letting the poll overwrite it
                 // flipped a finished turn back to `running`, which took the reply off
                 // the band until the next poll — half of the reported flicker.
-                if meta.id == attachedSessionID, let socketState {
-                    session.state = socketState
-                    if socketState == .idle { session.turnStartedAt = nil }
+                if let live = socketStates[meta.id] {
+                    session.state = live
+                    if live == .idle { session.turnStartedAt = nil }
                 }
                 return session
             }
@@ -368,6 +368,9 @@ final class AgentSurfaceController {
             log.reset()
             ask = nil
             changeSet = AgentChangeSet()
+            // …including whatever the dead process last said its state was, or the
+            // poll would keep being overruled by it.
+            if let attachedSessionID { socketStates[attachedSessionID] = nil }
 
         case .disconnected:
             ask = nil
@@ -502,14 +505,18 @@ final class AgentSurfaceController {
             sessions[index].turnStartedAt = Int64(Date().timeIntervalSince1970 * 1000)
         }
         if state == .idle { sessions[index].turnStartedAt = nil }
-        socketState = state
+        socketStates[attachedSessionID] = state
     }
 
-    /// The attached session's state as the **socket** last reported it. The poll
+    /// Each session's state as its **socket** last reported it, keyed by id. The poll
     /// replaces `sessions` wholesale every three seconds, so without this the live
     /// state was overwritten by one up to three seconds old — a finished turn flipped
-    /// back to `running`, which is the other half of the flicker.
-    private var socketState: KunaiWire.SessionState?
+    /// back to `running`, which took the reply off the band until the next round trip.
+    ///
+    /// Keyed rather than a single value on purpose: a lone `socketState` would be
+    /// applied to whichever session the poll happened to be describing, so attaching
+    /// to a second session made the first one's state follow it around.
+    private var socketStates: [String: KunaiWire.SessionState] = [:]
 
     private func updateMode(_ mode: KunaiWire.PermissionMode) {
         guard let attachedSessionID,

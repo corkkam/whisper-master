@@ -169,8 +169,18 @@ struct NotchSurfaceLayout {
         let needed = NotchTextMetrics.width(label)
             + NotchTranscriptRow.horizontalPadding
             + stateLabelSlack
-        return min(maxStateLabelWing, max(wideSideExtension, ceil(needed)))
+        // **Snapped to a step, so the band cannot twitch.** The width is animated, so
+        // any caption that changes while it is on screen — a running clock, a
+        // connector name being re-reported — moved the whole surface by a few points
+        // each time. Quantising means only a real change in the caption's length is
+        // ever visible as a resize.
+        let snapped = (needed / wingStep).rounded(.up) * wingStep
+        return min(maxStateLabelWing, max(wideSideExtension, snapped))
     }
+
+    /// The grid the grown wing snaps to. Coarse enough that a word's worth of text
+    /// change stays in one bucket, fine enough that a long caption still fits.
+    var wingStep: CGFloat = 24
 
     /// Headroom on a measured state label: the bold/medium weight difference plus a
     /// little air, so a caption sized exactly to its wing doesn't read as jammed

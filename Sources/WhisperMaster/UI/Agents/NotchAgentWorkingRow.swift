@@ -89,6 +89,24 @@ struct NotchAgentWorkingRow: View {
         return "\(subject) · \(status)"
     }
 
+    /// The caption **the wing is measured against**, which is deliberately not the
+    /// caption that is rendered.
+    ///
+    /// The real one ends in a running clock, so it changes every second — and the
+    /// wing is sized from the label, so the band re-measured and animated its own
+    /// width once a second for the whole turn. That pulsing is what was reported as
+    /// flickering. Holding the status at its widest fixed form means the band only
+    /// moves when the *subject* changes, which is a real event.
+    static func sizingLabel(for session: AgentSession, live: String? = nil) -> String {
+        let subject = trimmedSubject(
+            (live?.isEmpty == false ? live : nil) ?? session.repo)
+        return "\(subject) · \(widestStatus)"
+    }
+
+    /// The longest `AgentSession.statusLabel` can get: "Working" plus an elapsed
+    /// stamp. Wider than "Needs you" or "Starting", so it bounds them all.
+    static let widestStatus = "Working 00m 00s"
+
     /// The bar's wing is capped, so an over-long caption truncates — and with the
     /// subject leading, what got cut was the elapsed time at the end rather than the
     /// middle of a shell command. Trimming the subject to a budget keeps the status

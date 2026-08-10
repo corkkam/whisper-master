@@ -314,8 +314,11 @@ struct DictationPillContent: View {
         // assistant's connector captions it has to grow the wing rather than
         // truncate against the base width.
         if showAgentWorking, let session = state.agents.openSession {
-            return NotchAgentWorkingRow.caption(
-                for: session, now: now, live: state.agents.log.currentActivity)
+            // The *sizing* label, not the rendered one: the rendered caption ends in
+            // a running clock, and measuring the wing against it re-sized the band
+            // every second.
+            return NotchAgentWorkingRow.sizingLabel(
+                for: session, live: state.agents.log.currentActivity)
         }
         guard surfaceKind == .wide, transcriptModel.isEmpty else { return "" }
         return activity.label(
