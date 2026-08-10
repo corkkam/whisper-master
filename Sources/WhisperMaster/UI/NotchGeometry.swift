@@ -269,6 +269,20 @@ struct NotchSurfaceLayout {
     /// code path through the same clamping.
     private static let widestLabelProbe = String(repeating: "M", count: 64)
 
+    /// Wings for the expanded agent reply. Deliberately *narrower* than the wing
+    /// cap: at the cap the reply ran ~130 characters a line, twice a readable
+    /// measure, and read as a wall rather than a card. 220pt a side puts the text
+    /// column near 85 characters — big without being unreadable.
+    var expandedReplySideExtension: CGFloat = 220
+
+    /// Width of the expanded agent reply band: a reading measure, screen-clamped
+    /// the same way the wide bar is.
+    func expandedReplySurfaceWidth(for geometry: NotchGeometry) -> CGFloat {
+        let width = bodyWidth(for: geometry) + expandedReplySideExtension * 2
+        guard geometry.screenWidth > 0 else { return width }
+        return min(width, geometry.screenWidth - wideScreenInset * 2)
+    }
+
     /// The widest surface the panel supports — the wide bar at its full wing cap.
     /// The expanded reply renders at this width, so it and `panelSize` are the
     /// same number by construction rather than by coincidence.

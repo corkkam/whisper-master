@@ -72,10 +72,11 @@ struct NotchAgentReplyExpanded: View {
                 Divider().overlay(Theme.Notch.hairline)
             }
             content
+            Divider().overlay(Theme.Notch.hairline)
             footer
                 .frame(height: Metrics.footer)
         }
-        .padding(.horizontal, Theme.Space.lg)
+        .padding(.horizontal, Metrics.horizontalPadding)
         .padding(.vertical, Metrics.verticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
@@ -104,6 +105,7 @@ struct NotchAgentReplyExpanded: View {
                 case .prose(let text):
                     Text(Self.inlineMarkdown(text))
                         .font(Typography.notchBody)
+                        .lineSpacing(Metrics.proseLineSpacing)
                         .foregroundStyle(Theme.Notch.text)
                         .fixedSize(horizontal: false, vertical: true)
                 case .code(let text):
@@ -129,7 +131,7 @@ struct NotchAgentReplyExpanded: View {
                     colors: [Theme.Notch.surface.opacity(0), Theme.Notch.surface],
                     startPoint: .top, endPoint: .bottom
                 )
-                .frame(height: 28)
+                .frame(height: 36)
                 .allowsHitTesting(false)
             }
         }
@@ -239,7 +241,11 @@ struct NotchAgentReplyExpanded: View {
     // MARK: Metrics
 
     enum Metrics {
-        static let verticalPadding: CGFloat = Theme.Space.md
+        static let horizontalPadding: CGFloat = Theme.Space.xl
+        /// Extra leading between prose lines: the measure is ~85 characters, and
+        /// at that width the notch body's default leading reads as a wall.
+        static let proseLineSpacing: CGFloat = 3
+        static let verticalPadding: CGFloat = Theme.Space.lg
         static let blockSpacing: CGFloat = Theme.Space.sm
         static let footer: CGFloat = 22
         static let codeInset: CGFloat = 8
@@ -273,7 +279,7 @@ struct NotchAgentReplyExpanded: View {
             + min(
                 contentHeight(for: document, width: width - Metrics.railInset),
                 Metrics.contentCap)
-            + Metrics.blockSpacing + Metrics.footer
+            + Metrics.blockSpacing + 1 + Metrics.blockSpacing + Metrics.footer
     }
 
     /// The tallest the expanded band can be, for `NotchSurfaceLayout.panelSize`.
@@ -291,8 +297,11 @@ struct NotchAgentReplyExpanded: View {
         for block in document.blocks {
             switch block {
             case .prose(let text):
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.lineSpacing = Metrics.proseLineSpacing
                 let bounds = NSAttributedString(
-                    string: text, attributes: [.font: proseFont]
+                    string: text,
+                    attributes: [.font: proseFont, .paragraphStyle: paragraph]
                 ).boundingRect(
                     with: CGSize(width: width, height: .greatestFiniteMagnitude),
                     options: [.usesLineFragmentOrigin, .usesFontLeading])

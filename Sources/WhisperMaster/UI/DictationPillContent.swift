@@ -83,7 +83,8 @@ struct DictationPillContent: View {
     /// at an assumed width while rendering at another is what produced the skinny
     /// over-wrapped tower.
     private var expandedReplyTextWidth: CGFloat {
-        layout.maxWideSurfaceWidth(for: geometry) - Theme.Space.lg * 2
+        layout.expandedReplySurfaceWidth(for: geometry)
+            - NotchAgentReplyExpanded.Metrics.horizontalPadding * 2
     }
 
     /// Read once per render rather than held: the elapsed labels in the context row
@@ -283,7 +284,7 @@ struct DictationPillContent: View {
         // The expanded reply is the "big notch": it takes the widest surface the
         // panel was sized for, the same cap the assistant's longest captions reach.
         if showAgentReply, state.agents.replyExpanded {
-            return layout.maxWideSurfaceWidth(for: geometry)
+            return layout.expandedReplySurfaceWidth(for: geometry)
         }
         return layout.surfaceWidth(for: geometry, surfaceKind, stateLabel: stateLabel)
     }
