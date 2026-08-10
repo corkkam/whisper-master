@@ -55,6 +55,16 @@ struct AgentTurnLog: Sendable, Equatable {
 
     var isEmpty: Bool { entries.isEmpty && streaming.isEmpty }
 
+    /// The newest thing the user said — the question the expanded reply answers.
+    /// Shown above the reply, because an answer with no visible question is "old
+    /// history, missing".
+    var lastUserPrompt: String? {
+        for entry in entries.reversed() {
+            if case .user(_, let text) = entry { return text }
+        }
+        return nil
+    }
+
     /// What the agent is doing right now, in the user's terms — the caption the
     /// working row shows beside "Working 17s".
     ///

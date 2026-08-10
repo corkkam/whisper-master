@@ -78,6 +78,14 @@ struct DictationPillContent: View {
             in: state.agents.sessions, askingRepo: state.agents.askingSession?.repo ?? "")
     }
 
+    /// The width the expanded reply's text actually renders at: the wide surface
+    /// minus its own padding. The height is measured at this same number — measuring
+    /// at an assumed width while rendering at another is what produced the skinny
+    /// over-wrapped tower.
+    private var expandedReplyTextWidth: CGFloat {
+        layout.surfaceWidth(for: geometry, .wide) - Theme.Space.lg * 2
+    }
+
     /// Read once per render rather than held: the elapsed labels in the context row
     /// only need to be right each time the band repaints, and a stored clock here
     /// would be a second thing to keep ticking.
@@ -113,7 +121,8 @@ struct DictationPillContent: View {
             }
             return NotchAgentReplyExpanded.thickness(
                 for: AgentReplyDocument.parse(state.agents.lastReplyRaw ?? reply),
-                width: NotchAgentReplyExpanded.Metrics.assumedTextWidth)
+                prompt: state.agents.log.lastUserPrompt,
+                width: expandedReplyTextWidth)
         }
         if showAgentGlance {
             return NotchAgentGlance.listThickness(sessionCount: state.agents.sessions.count)
@@ -238,8 +247,10 @@ struct DictationPillContent: View {
         // The agent panel carries three buttons beside an unbounded command, or a
         // column of model-authored options. Both need the bar, for the same reason
         // the connector approval card does.
-        if showApproval || showAgentAsk || showAgentGlance || showAgentWorking { return .wide }
-        if showAgentReply { return .banner }
+        // The reply — collapsed or expanded — takes the bar: "show me the whole
+        // thing" at banner width was a skinny tower of over-wrapped text.
+        if showApproval || showAgentAsk || showAgentGlance || showAgentWorking
+            || showAgentReply { return .wide }
         guard bandIsDictation else { return .banner }
         return isDeliveredBadge ? .glyph : .wide
     }
@@ -437,9 +448,11 @@ struct DictationPillContent: View {
                 if state.agents.replyExpanded {
                     NotchAgentReplyExpanded(
                         document: AgentReplyDocument.parse(state.agents.lastReplyRaw ?? reply),
+                        prompt: state.agents.log.lastUserPrompt,
                         repo: state.agents.openSession?.repo ?? "",
                         duration: state.agents.lastTurnDuration,
-                        editedPaths: state.agents.changeSet.editedPaths)
+                        editedPaths: state.agents.changeSet.editedPaths,
+                        textWidth: expandedReplyTextWidth)
                 } else {
                     NotchAgentReplyBanner(
                         reply: reply,

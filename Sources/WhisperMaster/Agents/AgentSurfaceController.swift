@@ -576,8 +576,14 @@ final class AgentSurfaceController {
 
     /// A finished turn, for the reply-banner render.
     func seedReplyForSnapshot(
-        session: AgentSession, reply: String, duration: TimeInterval
+        session: AgentSession, reply: String, duration: TimeInterval,
+        prompt: String? = nil
     ) {
+        if let prompt {
+            var event = KunaiWire.Event(seq: 1, kind: .user)
+            event.text = prompt
+            log.apply(event)
+        }
         sessions = [session]
         isAvailable = true
         isGlanceOpen = true

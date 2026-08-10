@@ -17,12 +17,31 @@ import SwiftUI
 /// body renders, and the clip design absorbs the last point of drift.
 struct NotchAgentReplyExpanded: View {
     let document: AgentReplyDocument
+    /// What the user asked, shown quietly above the answer. An answer with no
+    /// visible question reads as content from nowhere.
+    var prompt: String?
     let repo: String
     var duration: TimeInterval?
     var editedPaths: [String] = []
+    /// The width the text renders at — the same number the height was measured
+    /// with. Two different widths here is the skinny-tower bug.
+    var textWidth: CGFloat = 500
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.blockSpacing) {
+            if let prompt {
+                HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Theme.Notch.textTertiary)
+                    Text(prompt)
+                        .font(Typography.notchCaption)
+                        .foregroundStyle(Theme.Notch.textSecondary)
+                        .lineLimit(2)
+                }
+                .frame(maxHeight: Metrics.promptLine, alignment: .topLeading)
+                Divider().overlay(Theme.Notch.hairline)
+            }
             content
             footer
                 .frame(height: Metrics.footer)
@@ -36,7 +55,7 @@ struct NotchAgentReplyExpanded: View {
 
     @ViewBuilder
     private var content: some View {
-        let measured = Self.contentHeight(for: document, width: Metrics.assumedTextWidth)
+        let measured = Self.contentHeight(for: document, width: textWidth)
         VStack(alignment: .leading, spacing: Metrics.blockSpacing) {
             ForEach(Array(document.blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
@@ -124,23 +143,26 @@ struct NotchAgentReplyExpanded: View {
         /// The most content the band will hold before clipping behind the fade. The
         /// notch is a summary surface; past this the reply is a document, and
         /// documents live in kunai.
-        static let contentCap: CGFloat = 220
-        /// The text width the height estimate assumes: the wide surface's usual text
-        /// column. Measuring at a slightly conservative width errs tall, and the
-        /// clip absorbs tall.
-        static let assumedTextWidth: CGFloat = 500
+        static let contentCap: CGFloat = 320
+        /// The prompt line above the answer: two caption lines at most.
+        static let promptLine: CGFloat = 30
     }
 
     /// The band thickness for a reply, measured with the same fonts the body uses.
-    static func thickness(for document: AgentReplyDocument, width: CGFloat) -> CGFloat {
-        Metrics.verticalPadding * 2
+    static func thickness(
+        for document: AgentReplyDocument, prompt: String?, width: CGFloat
+    ) -> CGFloat {
+        let promptPart: CGFloat =
+            prompt == nil ? 0 : Metrics.promptLine + 1 + Metrics.blockSpacing * 2
+        return Metrics.verticalPadding * 2 + promptPart
             + min(contentHeight(for: document, width: width), Metrics.contentCap)
             + Metrics.blockSpacing + Metrics.footer
     }
 
     /// The tallest the expanded band can be, for `NotchSurfaceLayout.panelSize`.
     static var maxThickness: CGFloat {
-        Metrics.verticalPadding * 2 + Metrics.contentCap + Metrics.blockSpacing + Metrics.footer
+        Metrics.verticalPadding * 2 + Metrics.promptLine + 1 + Metrics.blockSpacing * 2
+            + Metrics.contentCap + Metrics.blockSpacing + Metrics.footer
     }
 
     /// Measured content height. Prose is measured with the notch body's `NSFont` at

@@ -391,7 +391,8 @@ enum SnapshotMode {
                     All 42 tests pass. The flake was the fixed delay racing the \
                     engine rebuild on slower runs.
                     """,
-                duration: 192)
+                duration: 192,
+                prompt: "Fix the flaky audio route test, and clear the build first.")
             s.agents.toggleReplyExpansion()
         }
         renderPill(dir, name: "pill-7-polishing") { s in
