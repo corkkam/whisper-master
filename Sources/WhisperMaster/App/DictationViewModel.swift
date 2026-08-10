@@ -64,6 +64,9 @@ final class DictationViewModel {
     private var agentKeyOwnsSession = false
     /// When the agent key went down, so its release can tell a tap from a hold.
     private var agentKeyDownAt: Date?
+    /// Whether an agent band was on screen at the press — a tap then means
+    /// "dismiss", not "open the list".
+    private var agentGlanceWasOpenAtKeyDown = false
     /// Drives gentle "you haven't used me in a while" reminders in the notch.
     private lazy var reminderScheduler = ReminderScheduler(state: state)
     /// Owns the optional on-device cleanup model: background download, progress
@@ -146,6 +149,10 @@ final class DictationViewModel {
     }
 
     func startRecording(command: Bool = false) {
+        // Whatever agent band was lingering — a pinned reply, an open glance — a
+        // new recording outranks it, and letting it pop back up mid- or
+        // post-dictation is the "shows during normal dictation" bug.
+        state.agents.closeGlance()
         guard state.canStart else { return }
         // Every session begins as a normal dictation unless the command chord armed
         // it — reset here so a stale arm can't leak into the next one.
@@ -876,9 +883,10 @@ final class DictationViewModel {
     /// opening word.
     func handleAgentKeyStart() {
         agentKeyDownAt = Date()
-        // A tap while the glance is open closes it, and must not also start a
-        // recording that the release would then have to cancel.
-        if state.agents.isGlanceOpen { return }
+        // Remember what was on screen at the press: a tap dismisses it, while a
+        // hold talks — and the hold must start recording *now*, band open or not,
+        // or the first word is lost.
+        agentGlanceWasOpenAtKeyDown = state.agents.isGlanceOpen
         guard state.agents.isAvailable else {
             state.statusMessage = "No coding agent is running on this Mac."
             return
@@ -916,7 +924,14 @@ final class DictationViewModel {
             if agentKeyOwnsSession, state.canStop { cancelSession() }
             agentKeyOwnsSession = false
             setAgentArmed(false)
-            state.agents.toggleGlance()
+            // A tap on an open band dismisses it and stops there; a tap on a bare
+            // notch opens the glance. Without the distinction, tapping to dismiss
+            // a reply immediately replaced it with the session list.
+            if agentGlanceWasOpenAtKeyDown {
+                state.agents.closeGlance()
+            } else {
+                state.agents.toggleGlance()
+            }
             return
         }
 

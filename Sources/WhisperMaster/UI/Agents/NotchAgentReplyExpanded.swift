@@ -23,6 +23,9 @@ struct NotchAgentReplyExpanded: View {
     let repo: String
     var duration: TimeInterval?
     var editedPaths: [String] = []
+    /// The turn's tool calls, listed between the question and the answer — the
+    /// Figma order, and the thing this band was rightly said to be hiding.
+    var tools: [AgentTurnLog.ToolLine] = []
     /// The width the text renders at — the same number the height was measured
     /// with. Two different widths here is the skinny-tower bug.
     var textWidth: CGFloat = 500
@@ -40,6 +43,20 @@ struct NotchAgentReplyExpanded: View {
                         .lineLimit(2)
                 }
                 .frame(maxHeight: Metrics.promptLine, alignment: .topLeading)
+            }
+            if !visibleTools.isEmpty {
+                ForEach(visibleTools) { tool in
+                    toolRow(tool)
+                        .frame(height: Metrics.toolRow)
+                }
+                if hiddenToolCount > 0 {
+                    Text("+\(hiddenToolCount) more in kunai")
+                        .font(Typography.notchCaption)
+                        .foregroundStyle(Theme.Notch.textTertiary)
+                        .frame(height: Metrics.toolRow)
+                }
+            }
+            if prompt != nil || !visibleTools.isEmpty {
                 Divider().overlay(Theme.Notch.hairline)
             }
             content
@@ -91,6 +108,56 @@ struct NotchAgentReplyExpanded: View {
                 .allowsHitTesting(false)
             }
         }
+    }
+
+    private var visibleTools: [AgentTurnLog.ToolLine] {
+        Array(tools.prefix(Metrics.maxToolRows))
+    }
+    private var hiddenToolCount: Int { max(0, tools.count - Metrics.maxToolRows) }
+
+    /// One tool call, in kunai web's own idiom: a shell command reads as a
+    /// terminal prompt — the ❯ says "command", so the word "Bash" is dropped —
+    /// and every other tool leads with its name. The verdict sits at the
+    /// trailing edge, quietly.
+    private func toolRow(_ tool: AgentTurnLog.ToolLine) -> some View {
+        HStack(spacing: Theme.Space.sm) {
+            if tool.name == "Bash" {
+                Text("❯")
+                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Theme.Notch.textTertiary)
+                Text(tool.detail.hasPrefix("Run  ") ? String(tool.detail.dropFirst(5)) : tool.detail)
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Theme.Notch.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } else {
+                Text(tool.name.uppercased())
+                    .font(Typography.notchCaption)
+                    .foregroundStyle(Theme.Notch.textTertiary)
+                    .frame(minWidth: 40, alignment: .leading)
+                Text(nonShellDetail(tool))
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Theme.Notch.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: Theme.Space.sm)
+            if let verdict = tool.verdict {
+                Text(verdict)
+                    .font(Typography.notchCaption)
+                    .foregroundStyle(
+                        verdict == "failed" ? Theme.Notch.danger : Theme.Notch.textTertiary)
+            }
+        }
+    }
+
+    /// The detail column without the tool's own verb repeated: the headline reads
+    /// "Edit  UI/NotchGlow.swift" and the label column already says EDIT.
+    private func nonShellDetail(_ tool: AgentTurnLog.ToolLine) -> String {
+        guard !tool.detail.isEmpty else { return tool.name }
+        let prefix = "\(tool.name)  "
+        return tool.detail.hasPrefix(prefix)
+            ? String(tool.detail.dropFirst(prefix.count)) : tool.detail
     }
 
     private var footer: some View {
@@ -146,23 +213,33 @@ struct NotchAgentReplyExpanded: View {
         static let contentCap: CGFloat = 320
         /// The prompt line above the answer: two caption lines at most.
         static let promptLine: CGFloat = 30
+        /// One tool call's row.
+        static let toolRow: CGFloat = 18
+        /// The most tool rows shown before "+N more in kunai".
+        static let maxToolRows = 5
     }
 
     /// The band thickness for a reply, measured with the same fonts the body uses.
     static func thickness(
-        for document: AgentReplyDocument, prompt: String?, width: CGFloat
+        for document: AgentReplyDocument, prompt: String?, toolCount: Int, width: CGFloat
     ) -> CGFloat {
         let promptPart: CGFloat =
-            prompt == nil ? 0 : Metrics.promptLine + 1 + Metrics.blockSpacing * 2
-        return Metrics.verticalPadding * 2 + promptPart
+            prompt == nil ? 0 : Metrics.promptLine + Metrics.blockSpacing
+        let shownTools = min(toolCount, Metrics.maxToolRows)
+            + (toolCount > Metrics.maxToolRows ? 1 : 0)
+        let toolPart = CGFloat(shownTools) * (Metrics.toolRow + Metrics.blockSpacing)
+        let dividerPart: CGFloat =
+            (prompt != nil || toolCount > 0) ? 1 + Metrics.blockSpacing : 0
+        return Metrics.verticalPadding * 2 + promptPart + toolPart + dividerPart
             + min(contentHeight(for: document, width: width), Metrics.contentCap)
             + Metrics.blockSpacing + Metrics.footer
     }
 
     /// The tallest the expanded band can be, for `NotchSurfaceLayout.panelSize`.
     static var maxThickness: CGFloat {
-        Metrics.verticalPadding * 2 + Metrics.promptLine + 1 + Metrics.blockSpacing * 2
-            + Metrics.contentCap + Metrics.blockSpacing + Metrics.footer
+        thickness(
+            for: AgentReplyDocument(blocks: []), prompt: "p",
+            toolCount: Metrics.maxToolRows + 1, width: 500) + Metrics.contentCap
     }
 
     /// Measured content height. Prose is measured with the notch body's `NSFont` at

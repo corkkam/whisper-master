@@ -25,6 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The key `agentHotkeyManager` is currently installed for, so the reconcile on
     /// the refresh tick is a no-op unless the preference actually changed.
     private var installedAgentHotkey: HotkeyManager.HotkeyOption?
+    /// Esc-to-dismiss for the agent bands. Two monitors because a global one never
+    /// sees events while our own panel is key.
+    private var escKeyMonitorGlobal: Any?
+    private var escKeyMonitorLocal: Any?
     private let permissionsManager = PermissionsManager()
     private lazy var viewModel = DictationViewModel(
         hotkeyUpdater: { [weak self] hotkey in
@@ -1118,6 +1122,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The agent key is optional and user-chosen, so it is installed by the same
         // reconcile the refresh loop runs rather than once here.
         reconcileAgentHotkey()
+
+        // Esc dismisses whatever agent band is up — the reply, the glance, the
+        // working row. Observation, not consumption: a global monitor cannot
+        // swallow the key, and does not need to; the band closing is the whole
+        // effect. The turn itself keeps running server-side (the stop button on
+        // the working row is what interrupts).
+        escKeyMonitorGlobal = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
+            self?.handleEscIfAgentSurfaceShowing(event)
+        }
+        escKeyMonitorLocal = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
+            self?.handleEscIfAgentSurfaceShowing(event)
+            return event
+        }
+    }
+
+    private func handleEscIfAgentSurfaceShowing(_ event: NSEvent) {
+        guard event.keyCode == 53 else { return }
+        let state = viewModel.state
+        guard state.shouldShowAgentReply || state.shouldShowAgentGlance
+            || state.shouldShowAgentWorking
+        else { return }
+        state.agents.closeGlance()
     }
 
     /// Install, move or remove the coding-agent key to match the preference.

@@ -83,7 +83,7 @@ struct DictationPillContent: View {
     /// at an assumed width while rendering at another is what produced the skinny
     /// over-wrapped tower.
     private var expandedReplyTextWidth: CGFloat {
-        layout.surfaceWidth(for: geometry, .wide) - Theme.Space.lg * 2
+        layout.maxWideSurfaceWidth(for: geometry) - Theme.Space.lg * 2
     }
 
     /// Read once per render rather than held: the elapsed labels in the context row
@@ -122,6 +122,7 @@ struct DictationPillContent: View {
             return NotchAgentReplyExpanded.thickness(
                 for: AgentReplyDocument.parse(state.agents.lastReplyRaw ?? reply),
                 prompt: state.agents.log.lastUserPrompt,
+                toolCount: state.agents.log.currentTurnTools.count,
                 width: expandedReplyTextWidth)
         }
         if showAgentGlance {
@@ -273,7 +274,12 @@ struct DictationPillContent: View {
     /// a caption longer than `wideSideExtension` would otherwise run under the
     /// camera housing rather than widening the band.
     private var surfaceWidth: CGFloat {
-        layout.surfaceWidth(for: geometry, surfaceKind, stateLabel: stateLabel)
+        // The expanded reply is the "big notch": it takes the widest surface the
+        // panel was sized for, the same cap the assistant's longest captions reach.
+        if showAgentReply, state.agents.replyExpanded {
+            return layout.maxWideSurfaceWidth(for: geometry)
+        }
+        return layout.surfaceWidth(for: geometry, surfaceKind, stateLabel: stateLabel)
     }
 
     /// The state word the bar is carrying, or "" for every surface that isn't the
@@ -381,7 +387,7 @@ struct DictationPillContent: View {
         // button, the tappable command confirmation, and the undelivered hint's
         // Copy button); the dictation indicator stays click-through (the panel
         // toggles ignoresMouseEvents to match).
-        .allowsHitTesting(showApproval || showAgentAsk || showAgentGlance || showAgentReply || showBanner || showCommandConfirmation || showUndelivered || showDueReminder)
+        .allowsHitTesting(showApproval || showAgentAsk || showAgentGlance || showAgentReply || showAgentWorking || showBanner || showCommandConfirmation || showUndelivered || showDueReminder)
         // Appear *instantly* (no animation when expanding), animate only the
         // retract. A spring on the way in read as "the notch appears late" even
         // though the state flips synchronously on key-press. Banners (below) keep
@@ -439,7 +445,8 @@ struct DictationPillContent: View {
                 session: session, now: now,
                 orbSize: layout.rowOrbDiameter(for: geometry),
                 verticalInset: layout.rowVerticalPadding,
-                labelMaxWidth: rowLabelMaxWidth)
+                labelMaxWidth: rowLabelMaxWidth,
+                onStop: { state.agents.interrupt() })
         } else if showAgentReply, let reply = state.agents.lastReply {
             // Click for the whole thing; click again for the one-liner. The full
             // reply is stored raw, so the expanded band re-presents it from source
@@ -452,6 +459,7 @@ struct DictationPillContent: View {
                         repo: state.agents.openSession?.repo ?? "",
                         duration: state.agents.lastTurnDuration,
                         editedPaths: state.agents.changeSet.editedPaths,
+                        tools: state.agents.log.currentTurnTools,
                         textWidth: expandedReplyTextWidth)
                 } else {
                     NotchAgentReplyBanner(

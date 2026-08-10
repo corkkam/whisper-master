@@ -530,6 +530,13 @@ final class AgentSurfaceController {
         }
     }
 
+    /// Stop the running turn — kunai's interrupt, the same thing Esc does in the
+    /// CLI. The band's working row carries the button, because the moment you want
+    /// an agent to stop is the moment you are watching it work.
+    func interrupt() {
+        send(.interrupt())
+    }
+
     func setMode(_ mode: KunaiWire.PermissionMode) {
         send(.setMode(mode))
         updateMode(mode)
@@ -577,13 +584,14 @@ final class AgentSurfaceController {
     /// A finished turn, for the reply-banner render.
     func seedReplyForSnapshot(
         session: AgentSession, reply: String, duration: TimeInterval,
-        prompt: String? = nil
+        prompt: String? = nil, turnEvents: [KunaiWire.Event] = []
     ) {
         if let prompt {
             var event = KunaiWire.Event(seq: 1, kind: .user)
             event.text = prompt
             log.apply(event)
         }
+        for event in turnEvents { log.apply(event) }
         sessions = [session]
         isAvailable = true
         isGlanceOpen = true

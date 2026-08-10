@@ -34,9 +34,11 @@ struct AgentTurnLog: Sendable, Equatable {
         }
     }
 
-    /// How many entries the tail keeps. Six covers a prompt, its tool calls and the
-    /// reply, which is one exchange — the unit anybody actually reads on a bezel.
-    static let maxEntries = 6
+    /// How many entries the tail keeps. Deep enough for one full exchange — the
+    /// prompt, a real turn's worth of tool calls, and the reply — because the
+    /// expanded band shows the turn's tool calls and a tail that evicted them
+    /// mid-turn would show a turn with its middle missing.
+    static let maxEntries = 12
 
     private(set) var entries: [Entry] = []
     /// Assistant text still streaming in. Rendered under the committed entries and
@@ -54,6 +56,30 @@ struct AgentTurnLog: Sendable, Equatable {
     }
 
     var isEmpty: Bool { entries.isEmpty && streaming.isEmpty }
+
+    /// One tool call of the current turn, as the expanded band lists them.
+    struct ToolLine: Sendable, Equatable, Identifiable {
+        var id: String
+        var name: String
+        var detail: String
+        var verdict: String?
+    }
+
+    /// The tool calls since the last user prompt — the work this turn did, in
+    /// order. This is the "what is it doing" the band was rightly said to be
+    /// hiding.
+    var currentTurnTools: [ToolLine] {
+        var lastUser = -1
+        for (index, entry) in entries.enumerated() {
+            if case .user = entry { lastUser = index }
+        }
+        return entries.dropFirst(lastUser + 1).compactMap { entry in
+            guard case .tool(let id, let name, let detail, let verdict) = entry else {
+                return nil
+            }
+            return ToolLine(id: id, name: name, detail: detail, verdict: verdict)
+        }
+    }
 
     /// The newest thing the user said — the question the expanded reply answers.
     /// Shown above the reply, because an answer with no visible question is "old

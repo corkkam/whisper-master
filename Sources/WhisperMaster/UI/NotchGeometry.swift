@@ -269,6 +269,13 @@ struct NotchSurfaceLayout {
     /// code path through the same clamping.
     private static let widestLabelProbe = String(repeating: "M", count: 64)
 
+    /// The widest surface the panel supports — the wide bar at its full wing cap.
+    /// The expanded reply renders at this width, so it and `panelSize` are the
+    /// same number by construction rather than by coincidence.
+    func maxWideSurfaceWidth(for geometry: NotchGeometry) -> CGFloat {
+        surfaceWidth(for: geometry, .wide, stateLabel: Self.widestLabelProbe)
+    }
+
     /// Top-center origin (AppKit bottom-left coordinates) on a screen.
     func panelOrigin(for geometry: NotchGeometry, on screen: NSScreen) -> CGPoint {
         let size = panelSize(for: geometry)

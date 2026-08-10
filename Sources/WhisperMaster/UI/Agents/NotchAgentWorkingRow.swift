@@ -19,6 +19,9 @@ struct NotchAgentWorkingRow: View {
     var orbSize: CGFloat = NotchTranscriptRow.orbDiameter
     var verticalInset: CGFloat = NotchTranscriptRow.verticalPadding
     var labelMaxWidth: CGFloat?
+    /// Stop the turn — kunai's interrupt. On the row because the moment you want an
+    /// agent to stop is the moment you are watching it work.
+    var onStop: (() -> Void)?
 
     var body: some View {
         HStack(spacing: Theme.Space.md) {
@@ -30,6 +33,17 @@ struct NotchAgentWorkingRow: View {
                 .frame(maxWidth: labelMaxWidth, alignment: .leading)
 
             Spacer(minLength: Theme.Space.sm)
+
+            if let onStop {
+                Button(action: onStop) {
+                    Image(systemName: "stop.circle")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.Notch.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .accessibilityLabel("Stop this turn")
+            }
 
             OrbView(level: 0, mode: .working, diameter: orbSize, preset: .small)
                 .frame(width: orbSize, height: orbSize)

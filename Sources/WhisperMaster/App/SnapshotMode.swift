@@ -392,7 +392,8 @@ enum SnapshotMode {
                     engine rebuild on slower runs.
                     """,
                 duration: 192,
-                prompt: "Fix the flaky audio route test, and clear the build first.")
+                prompt: "Fix the flaky audio route test, and clear the build first.",
+                turnEvents: Array(sessionTranscriptEvents.dropFirst()))
             s.agents.toggleReplyExpansion()
         }
         renderPill(dir, name: "pill-7-polishing") { s in
