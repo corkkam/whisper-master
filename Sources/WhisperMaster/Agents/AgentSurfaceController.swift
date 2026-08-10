@@ -385,12 +385,19 @@ final class AgentSurfaceController {
         }
     }
 
-    /// Give the socket a moment to come up. Bounded, because a server that never
-    /// answers must not leave the caller holding a transcript forever.
+    /// Give the **socket** a moment to come up — not merely the object that owns it.
+    ///
+    /// Waiting on `stream != nil` was the bug: `attach` assigns it synchronously
+    /// while the WebSocket is opened later by the pump task, so this returned
+    /// immediately and the prompt was sent into a stream with no socket. The queue in
+    /// `KunaiEventStream.send` makes that survivable either way; this just avoids
+    /// relying on it in the common case.
     private func waitForAttachment(timeout: Duration = .milliseconds(1500)) async {
         let deadline = ContinuousClock.now.advanced(by: timeout)
-        while stream == nil, ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(50))
+        while ContinuousClock.now < deadline {
+            guard let stream else { return }  // detached; nothing to wait for
+            if await stream.isReady { return }
+            try? await Task.sleep(for: .milliseconds(25))
         }
     }
 

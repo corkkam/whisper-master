@@ -30,6 +30,8 @@ actor KunaiEventStream {
     private var task: URLSessionWebSocketTask?
     private var pump: Task<Void, Never>?
     private var continuation: AsyncStream<Frame>.Continuation?
+    /// Commands raised before the socket existed. Flushed the moment it does.
+    private var pending: [KunaiWire.Command] = []
 
     /// The resume mark and the process it belongs to. Both are only meaningful
     /// together, which is why they live side by side and are cleared together.
@@ -59,19 +61,50 @@ actor KunaiEventStream {
         }
     }
 
-    /// Send one command. Silently dropped when not attached: a command with no
-    /// socket has nowhere to go, and the caller's alternative is to do nothing
-    /// anyway.
+    /// Send one command, queueing it if the socket is not up yet.
     func send(_ command: KunaiWire.Command) async {
-        guard let task, let data = try? JSONEncoder().encode(command),
+        guard let task else {
+            // **The socket is opened asynchronously**, by the pump task calling
+            // `connect()`. A command sent in the same turn as `attach` therefore
+            // arrives before there is anything to send it on, and the first version
+            // dropped it on the floor with a bare `guard … else { return }` — so a
+            // spoken prompt vanished while the notch reported it sent.
+            //
+            // Queueing rather than failing is right because the caller has already
+            // committed: the words were captured, the paste was suppressed, and there
+            // is nowhere else for them to go.
+            pending.append(command)
+            Log.agents.notice("kunai command queued until the socket is up")
+            return
+        }
+        await transmit(command, on: task)
+    }
+
+    /// Whether the socket actually exists, as opposed to this object existing.
+    var isReady: Bool { task != nil }
+
+    /// How many commands are waiting on the socket. Test seam.
+    var pendingCount: Int { pending.count }
+
+    private func transmit(_ command: KunaiWire.Command, on task: URLSessionWebSocketTask) async {
+        guard let data = try? JSONEncoder().encode(command),
               let text = String(data: data, encoding: .utf8)
         else { return }
         do {
             try await task.send(.string(text))
+            Log.agents.notice("kunai command sent: \(command.t, privacy: .public)")
         } catch {
             Log.agents.error("kunai command failed: \(error.localizedDescription, privacy: .public)")
-            await handleDrop()
+            handleDrop()
         }
+    }
+
+    /// Send whatever was queued while the socket was coming up.
+    private func flushPending() async {
+        guard let task, !pending.isEmpty else { return }
+        let queued = pending
+        pending.removeAll()
+        for command in queued { await transmit(command, on: task) }
     }
 
     func disconnect() {
@@ -93,6 +126,10 @@ actor KunaiEventStream {
         task = socket
         socket.resume()
         pump = Task { [weak self] in await self?.receiveLoop(socket) }
+        // `resume()` starts the handshake; URLSession buffers sends until it
+        // completes, so anything queued can go out now rather than waiting for the
+        // first frame back.
+        Task { [weak self] in await self?.flushPending() }
     }
 
     private func receiveLoop(_ socket: URLSessionWebSocketTask) async {
@@ -104,7 +141,7 @@ actor KunaiEventStream {
             } catch {
                 Log.agents.debug(
                     "kunai socket closed: \(error.localizedDescription, privacy: .public)")
-                await handleDrop()
+                handleDrop()
                 return
             }
         }
@@ -139,6 +176,10 @@ actor KunaiEventStream {
     private func handleDrop() {
         task = nil
         pump = nil
+        if !pending.isEmpty {
+            Log.agents.error(
+                "kunai socket dropped with \(self.pending.count, privacy: .public) command(s) unsent")
+        }
         continuation?.yield(.disconnected)
     }
 }
