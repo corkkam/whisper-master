@@ -203,8 +203,10 @@ final class AgentSurfaceController {
     /// affordance. kunai routes a bare `/<sessionID>` path to that session, against
     /// whichever server actually answered discovery.
     var openSessionURL: URL? {
-        guard let endpoint, let id = openSessionID ?? attachedSessionID else { return nil }
-        return endpoint.baseURL.appendingPathComponent(id)
+        guard let id = openSessionID ?? attachedSessionID else { return nil }
+        // The web app for a remote session lives on *its* machine.
+        guard let base = fleet.endpoint(forSession: id) ?? endpoint else { return nil }
+        return base.baseURL.appendingPathComponent(id)
     }
 
     /// The session that is asking, for the banner's second line.
@@ -232,9 +234,11 @@ final class AgentSurfaceController {
     static let livePollInterval = KunaiPollCadence.live
     static let backgroundPollInterval = KunaiPollCadence.background
 
-    /// The fleet socket: every session's state, pushed rather than polled.
-    private var fleetStream: KunaiFleetStream?
-    private var fleetTask: Task<Void, Never>?
+    /// Every machine's sessions, merged. One fleet socket per machine, which is
+    /// kunai's own design — sessions live on the machine that runs them, so a client
+    /// that talks only to its own Mac sees only its own Mac.
+    private let fleet = AgentFleet()
+    private var fleetWired = false
 
     /// Missed polls in a row. See `refresh` — one miss is routine, several is a
     /// server that is actually gone.
@@ -277,6 +281,7 @@ final class AgentSurfaceController {
     func stop() {
         pollTask?.cancel()
         pollTask = nil
+        fleet.stop()
         detach()
         sessions = []
         isAvailable = false
@@ -307,34 +312,39 @@ final class AgentSurfaceController {
         consecutivePollFailures = 0
         endpoint = await rest.active
         isAvailable = true
-        applySessions(metas)
-        // The push is the real source; the poll only exists to cover it being down.
-        // Opening it here rather than at `start()` is what lets it use whichever
-        // endpoint discovery actually settled on.
-        startFleetIfNeeded()
+        // Machines first: sessions live on the machine that runs them, so this is
+        // what turns "the agents on this Mac" into "the agents you are running".
+        let machines = await rest.machines()
+        reconcileFleet(machines: machines)
+
+        // The poll's own list is the *local* machine's, and it is only the fallback:
+        // once any fleet socket is pushing, applying it here would delete every
+        // remote machine's sessions on every pass. An older kunai with no
+        // `/api/machines` lands here too, and still works, as one machine.
+        if !fleet.isPushing {
+            applySessions(metas.map { AgentSession(meta: $0) })
+        }
     }
 
-    /// Fold a session list into state, from **either** source.
+    /// Fold a merged session list into state.
     ///
-    /// The fleet push and the REST poll deliver the identical shape (kunai shares
-    /// the two deliberately), so they share this. Two copies of this merge is how
-    /// the push and the fallback would quietly grow different behaviour.
-    private func applySessions(_ metas: [KunaiWire.SessionMeta]) {
-        // Preserve the mode we already learned from each session's socket: neither
-        // the list endpoint nor the fleet push carries it, and dropping it would
-        // flip the mode control back to Ask on every update.
+    /// The fleet push and the REST poll both arrive here, so the two can never grow
+    /// different behaviour. Everything the list endpoint does not carry — the mode we
+    /// learned from a socket, the activity, the live state of the session we are
+    /// attached to — is re-applied on top.
+    private func applySessions(_ incoming: [AgentSession]) {
         let knownModes = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0.mode) })
         let knownActivity = Dictionary(
             uniqueKeysWithValues: sessions.map { ($0.id, $0.activity) })
-        sessions = metas
-            .map { meta in
-                var session = AgentSession(
-                    meta: meta, mode: knownModes[meta.id] ?? .ask,
-                    activity: knownActivity[meta.id] ?? nil)
-                // The attached socket is still the authority on its own session:
-                // the fleet push coalesces, so it can land a hair behind a state
-                // frame we already have.
-                if let live = socketStates[meta.id] {
+        sessions = incoming
+            .map { session in
+                var session = session
+                session.mode = knownModes[session.id] ?? session.mode
+                session.activity = session.activity ?? knownActivity[session.id] ?? nil
+                // The attached socket is still the authority on its own session: the
+                // fleet push coalesces, so it can land a hair behind a state frame we
+                // already have.
+                if let live = socketStates[session.id] {
                     session.state = live
                     if live == .idle { session.turnStartedAt = nil }
                 }
@@ -344,8 +354,8 @@ final class AgentSurfaceController {
 
         // Remembered so a first spoken prompt on a Mac with a *closed* session still
         // has somewhere sensible to open, rather than demanding a setting first.
-        if let directory = metas.first(where: { !$0.cwd.isEmpty })?.cwd {
-            lastKnownDirectory = directory
+        if let local = sessions.first(where: { !$0.isRemote && !$0.cwd.isEmpty })?.cwd {
+            lastKnownDirectory = local
         }
 
         // What the sessions we are *not* watching have been doing.
@@ -358,42 +368,26 @@ final class AgentSurfaceController {
         reconcileAskAttachment()
     }
 
-    // MARK: The fleet socket
+    // MARK: The fleet
 
-    /// Open the fleet socket once discovery has an endpoint. Idempotent.
-    private func startFleetIfNeeded() {
-        guard fleetTask == nil, let endpoint else { return }
-        let stream = KunaiFleetStream(endpoint: endpoint)
-        fleetStream = stream
-        fleetTask = Task { [weak self] in
-            let frames = await stream.connect()
-            for await frame in frames {
-                guard let self else { return }
-                switch frame {
-                case .sessions(let metas):
-                    await self.receiveFleet(metas)
-                case .disconnected:
-                    await self.fleetDropped()
-                }
+    /// Wire the fleet up once, then keep its machine list current. Both are cheap and
+    /// idempotent, so the poll can just call this every pass.
+    private func reconcileFleet(machines: [KunaiMachine]) {
+        if !fleetWired {
+            fleetWired = true
+            fleet.onSessions = { [weak self] merged in
+                self?.receiveFleet(merged)
             }
         }
+        fleet.reconcile(machines: machines, local: endpoint)
+        // A push is proof the server is up, so the poll can go back to sleep.
+        pollInterval = fleet.isPushing ? Self.backgroundPollInterval : Self.livePollInterval
     }
 
-    private func receiveFleet(_ metas: [KunaiWire.SessionMeta]) {
+    private func receiveFleet(_ merged: [AgentSession]) {
         isAvailable = true
         consecutivePollFailures = 0
-        // A push is proof the server is up, so the poll can go back to sleep.
-        pollInterval = Self.backgroundPollInterval
-        applySessions(metas)
-    }
-
-    /// The socket went away. Fall back to the fast poll and let the next pass
-    /// re-open it — the poll is the thing that knows whether the server is there.
-    private func fleetDropped() {
-        fleetTask?.cancel()
-        fleetTask = nil
-        fleetStream = nil
-        pollInterval = Self.livePollInterval
+        applySessions(merged)
     }
 
     // MARK: The asking session's socket
@@ -422,9 +416,11 @@ final class AgentSurfaceController {
         }?.id
         guard wanted != askSessionID else { return }
         detachAsk()
-        guard let wanted, let endpoint else { return }
+        guard let wanted else { return }
 
-        let stream = KunaiEventStream(endpoint: endpoint, sessionID: wanted)
+        let askEndpoint = fleet.endpoint(forSession: wanted) ?? endpoint
+        guard let askEndpoint else { return }
+        let stream = KunaiEventStream(endpoint: askEndpoint, sessionID: wanted)
         askStream = stream
         askSessionID = wanted
         askPumpTask = Task { [weak self] in
@@ -468,6 +464,9 @@ final class AgentSurfaceController {
             return
         }
     }
+
+    /// The machines kunai knows about. Read by Settings to say what the notch can see.
+    var machines: [KunaiMachine] { fleet.machines }
 
     // MARK: Other sessions
 
@@ -529,7 +528,10 @@ final class AgentSurfaceController {
     // MARK: Attachment
 
     private func attach(to sessionID: String) {
-        guard let endpoint else { return }
+        // **A session's socket belongs to its machine.** Attaching everything to this
+        // Mac's kunai worked only while every session was on this Mac; a session on
+        // another box has to be reached at that box's own address.
+        guard let endpoint = fleet.endpoint(forSession: sessionID) ?? endpoint else { return }
         let stream = KunaiEventStream(endpoint: endpoint, sessionID: sessionID)
         self.stream = stream
         attachedSessionID = sessionID

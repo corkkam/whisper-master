@@ -149,3 +149,66 @@ final class KunaiFleetWireTests: XCTestCase {
         XCTAssertEqual(secure.fleetSocket()?.absoluteString, "wss://host.ts.net:8443/ws/fleet")
     }
 }
+
+/// Sessions live on the machine that runs them, so the fleet is per machine.
+final class KunaiMachineTests: XCTestCase {
+
+    private func decode(_ json: String) throws -> [KunaiMachine] {
+        try JSONDecoder().decode([KunaiMachine].self, from: Data(json.utf8))
+    }
+
+    func testTheMachineListDecodesIncludingSelf() throws {
+        // Verbatim from a real `GET /api/machines`.
+        let machines = try decode(#"""
+            [{"id":"subrahmanyas-macbook-pro","label":"subrahmanyas-MacBook-Pro.local",
+              "url":"https://subrahmanyas-macbook-pro.tail75ba2a.ts.net:8443","self":true},
+             {"id":"linux-1","label":"linux",
+              "url":"https://linux-1.tail75ba2a.ts.net:8443","self":false}]
+            """#)
+        XCTAssertEqual(machines.count, 2)
+        XCTAssertTrue(machines[0].isSelf)
+        XCTAssertFalse(machines[1].isSelf)
+        // `.local` is noise on a bezel.
+        XCTAssertEqual(machines[0].shortLabel, "subrahmanyas-MacBook-Pro")
+        XCTAssertEqual(machines[1].shortLabel, "linux")
+    }
+
+    func testThisMacIsReachedThroughDiscoveryNotItsTailnetURL() throws {
+        // Loopback beats a round trip through the tailnet to reach ourselves, and it
+        // keeps working when Tailscale is down.
+        let machines = try decode(#"""
+            [{"id":"me","label":"me","url":"https://me.ts.net:8443","self":true},
+             {"id":"other","label":"other","url":"https://other.ts.net:8443","self":false}]
+            """#)
+        let local = KunaiEndpoint(baseURL: URL(string: "http://127.0.0.1:8443")!)
+        XCTAssertEqual(
+            machines[0].endpoint(local: local)?.baseURL.absoluteString, "http://127.0.0.1:8443")
+        XCTAssertEqual(
+            machines[1].endpoint(local: local)?.baseURL.absoluteString,
+            "https://other.ts.net:8443")
+    }
+
+    func testARemoteSessionSaysWhereItIs() {
+        var session = AgentSession(id: "s", repo: "kunai", state: .awaitingPermission)
+        session.machineLabel = "linux"
+        XCTAssertTrue(session.isRemote)
+
+        var attention = AgentAttention()
+        _ = attention.update(sessions: [{ var s = session; s.state = .running; return s }()],
+                             watching: nil)
+        let event = attention.update(sessions: [session], watching: nil)
+        // Ambiguous otherwise: "kunai needs you" means something different when kunai
+        // is the box in the other room.
+        XCTAssertEqual(event?.line, "kunai on linux needs you")
+    }
+
+    func testALocalSessionIsNeverLabelledWithAMachine() {
+        let session = AgentSession(id: "s", repo: "whisper-master", state: .running)
+        XCTAssertFalse(session.isRemote)
+        var attention = AgentAttention()
+        _ = attention.update(sessions: [session], watching: nil)
+        let done = AgentSession(id: "s", repo: "whisper-master", state: .idle)
+        XCTAssertEqual(attention.update(sessions: [done], watching: nil)?.line,
+                       "whisper-master finished")
+    }
+}

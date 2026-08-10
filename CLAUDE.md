@@ -375,6 +375,22 @@ shortcut at all**.
   on a fixed port with its own data dir, so a second copy inside this app would fight
   the one already there over the port, `~/.kunai`, and the `~/.claude/commands/kunai.md`
   slash command kunai rewrites on every boot.
+- **⚠️ Sessions live on the machine that runs them, and so does the fleet socket.**
+  `GET /api/machines` lists the fleet (`{id,label,url,self}`); `GET /api/sessions` and
+  the fleet push both read the **local** session manager, so a client that talks only
+  to its own Mac sees only its own Mac however many machines are registered. kunai's
+  own note says it — "the fleet socket: one per machine" — and its web app opens one
+  against each machine's origin, which is why `handleFleetWS` allows a peer's origin.
+  `AgentFleet` does the same: a socket per machine, each machine's sessions in **its
+  own bucket** (one flat list would mean the last push to arrive deleted every other
+  machine's agents), merged into one list with this Mac's first. A dropped socket
+  **keeps** that machine's sessions until the machine leaves the list — a blip is far
+  commoner than a machine ceasing to exist, and clearing would make its agents vanish
+  and return. **The local machine is reached through ordinary discovery, not its
+  advertised tailnet URL** (loopback beats a round trip to reach ourselves, and
+  survives Tailscale being down); every other machine uses the URL it advertises. A
+  session's `/ws/app/{id}` and its "Open in kunai" link both resolve against **its**
+  machine, and the surfaces label a session only when it is *not* on this Mac.
 - **Two sockets, never one per session — the shape kunai's own web app uses.**
   `GET /ws/fleet` pushes *every* session's state, coalesced and seeded on connect, in
   the **same `SessionMeta` shape `GET /api/sessions` returns** (kunai shares the two

@@ -422,6 +422,24 @@ enum SnapshotMode {
         // nothing. There is no run to put in a rail, so the question goes full
         // width and the answer takes the whole card — a 306pt strip holding one
         // line beside a full answer was a third of the surface doing nothing.
+        // The glance with a session on another machine. Sessions live on the machine
+        // that runs them, so a client talking only to its own Mac saw only its own.
+        renderPill(dir, name: "pill-10m-agent-glance-fleet") { s in
+            s.phase = .idle
+            var remote = AgentSession(
+                id: "s9", repo: "kunai", state: .running,
+                activity: "Editing internal/session/loop.go",
+                turnStartedAt: Int64(Date().addingTimeInterval(-42).timeIntervalSince1970 * 1000))
+            remote.machineID = "linux-1"
+            remote.machineLabel = "linux"
+            s.agents.seedGlanceForSnapshot(sessions: [
+                AgentSession(
+                    id: "s1", repo: "whisper-master", state: .awaitingPermission,
+                    activity: "Run  swift test"),
+                remote,
+                AgentSession(id: "s3", repo: "landing-page", state: .idle),
+            ])
+        }
         // Another session, out of sight, blocked on a permission. A pointer, not the
         // card: we hold one socket, so we do not have that session's question, and
         // rendering a guess at it would be worse than saying nothing.
