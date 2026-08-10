@@ -265,3 +265,63 @@ final class AgentReplySplitTests: XCTestCase {
         XCTAssertTrue(split.words.contains { $0.text == "Notes" })
     }
 }
+
+/// What the parser makes of the markdown a real reply is written in.
+final class AgentReplyStructureTests: XCTestCase {
+
+    func testABlankLineEndsAParagraph() {
+        // Without this the whole reply was one prose block, the verdict's first
+        // sentence swallowed most of it, and the headline's line cap cut the rest.
+        // Nothing was missing from the data — it was all inside one truncated block.
+        let doc = AgentReplyDocument.parse("First line.\n\nSecond paragraph.\n\nThird.")
+        XCTAssertEqual(doc.blocks.count, 3)
+    }
+
+    func testAWhollyBoldLineIsASectionHeader() {
+        // Models write "**Source & build**" at least as often as "## Source & build".
+        let doc = AgentReplyDocument.parse("Intro.\n\n**Source & build**\n\n- one\n- two")
+        guard case .heading(let text)? = doc.blocks.dropFirst().first else {
+            return XCTFail("a wholly bold line should parse as a heading")
+        }
+        XCTAssertEqual(text, "Source & build")
+    }
+
+    func testBoldInsideASentenceStaysProse() {
+        let doc = AgentReplyDocument.parse("This is **important** to note.")
+        guard case .prose? = doc.blocks.first else {
+            return XCTFail("inline emphasis is not a heading")
+        }
+    }
+
+    func testAListNeverBecomesTheVerdict() {
+        // A bulleted run set in display type is not a headline.
+        let doc = AgentReplyDocument.parse("- one\n- two\n\nThat is the shape of it.")
+        let split = doc.split()
+        XCTAssertEqual(split.headline, "That is the shape of it.")
+        XCTAssertEqual(split.words.first?.text, "- one\n- two")
+    }
+
+    func testEverySectionOfARealReplySurvives() {
+        // The whole reported failure in one assertion: three sections, their bullets,
+        // and the closing paragraph all have to reach the band.
+        let doc = AgentReplyDocument.parse("""
+            Contents of `/tmp/x`:
+
+            **Source & build**
+
+            - `Sources/` — the app code
+            - `Tests/` — SwiftPM test target
+
+            **Files**
+
+            - `CLAUDE.md`, `README.md`
+
+            Also, there's no `graphify-out/` here.
+            """)
+        let split = doc.split()
+        XCTAssertEqual(split.headline, "Contents of `/tmp/x`:")
+        XCTAssertEqual(split.words.filter { if case .heading = $0 { return true } else { return false } }.count, 2)
+        XCTAssertTrue(split.words.contains { $0.text.contains("SwiftPM test target") })
+        XCTAssertTrue(split.words.contains { $0.text.contains("graphify-out") })
+    }
+}

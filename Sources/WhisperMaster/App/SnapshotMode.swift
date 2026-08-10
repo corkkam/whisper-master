@@ -422,6 +422,45 @@ enum SnapshotMode {
         // nothing. There is no run to put in a rail, so the question goes full
         // width and the answer takes the whole card — a 306pt strip holding one
         // line beside a full answer was a third of the surface doing nothing.
+        // The shape a real answer actually has: bold section headers, bullet lists,
+        // and a closing paragraph. Before the parser split on blank lines this whole
+        // reply was one prose block, so the verdict swallowed it and the line cap cut
+        // everything after the first bullet.
+        renderPill(dir, name: "pill-10j-agent-reply-sections") { s in
+            s.phase = .idle
+            s.agents.seedReplyForSnapshot(
+                session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
+                reply: """
+                    Contents of `/Users/ninja/coding/whisper-master`:
+
+                    **Source & build**
+
+                    - `Sources/` — the app code
+                    - `Tests/` — SwiftPM test target
+                    - `Resources/` — Info.plist, assets
+                    - `Scripts/` — bundle/release/install/dmg scripts
+                    - `project.yml` — XcodeGen source of truth
+                    - `.build/`, `build/` — build output
+
+                    **Other top-level dirs**
+
+                    - `eval/` — text-cleanup evaluation engine
+                    - `docs/` — specs and docs
+                    - `.claude/`, `.context/`, `.github/`, `.vscode/`
+
+                    **Files**
+
+                    - `CLAUDE.md` (90k), `README.md`, `whats-new.json`
+                    - `.env`, `.env.example`, `.gitignore`, `.DS_Store`
+                    - `DeveloperID.p12` — signing cert
+
+                    Also, there's no `graphify-out/` here despite the CLAUDE.md graphify \
+                    section, so the graph hasn't been generated in this clone.
+                    """,
+                duration: 14,
+                prompt: "Tell me, what are the things available in the directory? Again, it's a test.")
+            s.agents.toggleReplyExpansion()
+        }
         // Prose only, filling the body exactly: the case where the foot rule was
         // drawn straight through the last line of the answer.
         renderPill(dir, name: "pill-10i-agent-reply-prose") { s in

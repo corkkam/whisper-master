@@ -94,8 +94,8 @@ struct AgentReplyDocument: Equatable, Sendable {
         // fence — the whole surface reduced to two small things floating in a wide
         // band, which is what "this looks like nothing" was.
         let headlineIndex = blocks.firstIndex {
-            if case .prose = $0 { return true }
-            return false
+            guard case .prose(let text) = $0 else { return false }
+            return !Self.isList(text)
         }
         for (index, block) in blocks.enumerated() {
             if index == headlineIndex, case .prose(let text) = block {
@@ -179,11 +179,30 @@ struct AgentReplyDocument: Equatable, Sendable {
                 continue
             }
             flushTable()
+            // **A blank line ends a paragraph.** Without this the whole reply — every
+            // section, every bullet — was one prose block, so the verdict's first
+            // sentence swallowed most of the answer and the rest was cut by the
+            // headline's line cap. That is the "not showing all the content" report:
+            // nothing was missing from the data, it was all inside one block being
+            // truncated as a headline.
+            if trimmed.isEmpty {
+                flushProse()
+                continue
+            }
             if trimmed.hasPrefix("#") {
                 flushProse()
                 let text = trimmed.drop(while: { $0 == "#" })
                     .trimmingCharacters(in: .whitespaces)
                 if !text.isEmpty { blocks.append(.heading(text)) }
+                continue
+            }
+            // A line that is *entirely* bold is a section header, whatever the
+            // markdown says. Models write "**Source & build**" at least as often as
+            // "## Source & build", and reading it as prose left the section titles
+            // buried mid-paragraph.
+            if let bold = Self.boldOnlyHeading(trimmed) {
+                flushProse()
+                blocks.append(.heading(bold))
                 continue
             }
             proseLines.append(Self.strippingBlockChrome(line))
@@ -228,6 +247,30 @@ struct AgentReplyDocument: Equatable, Sendable {
 
     /// Drop the block-level markers that read as noise at band size: quote arrows.
     /// (Headings are their own block now; list dashes are kept — a list is content.)
+    /// A whole line wrapped in `**` — a section header written the way models
+    /// usually write them. Nil for a line that merely *contains* bold, which is
+    /// ordinary emphasis and must stay in its paragraph.
+    static func boldOnlyHeading(_ line: String) -> String? {
+        guard line.hasPrefix("**"), line.hasSuffix("**"), line.count > 4 else { return nil }
+        let inner = String(line.dropFirst(2).dropLast(2))
+        guard !inner.isEmpty, !inner.contains("**") else { return nil }
+        return inner
+    }
+
+    /// Whether a paragraph is a list. A list can be many lines long and reads as
+    /// items rather than as a sentence, so it never becomes the verdict — a bulleted
+    /// run set in display type is not a headline.
+    static func isList(_ text: String) -> Bool {
+        guard let first = text.split(separator: "\n").first?
+            .trimmingCharacters(in: .whitespaces) else { return false }
+        if first.hasPrefix("- ") || first.hasPrefix("* ") || first.hasPrefix("• ") { return true }
+        // "1. ", "2) " and friends.
+        let leadingDigits = first.prefix(while: \.isNumber)
+        guard !leadingDigits.isEmpty else { return false }
+        let after = first.dropFirst(leadingDigits.count)
+        return after.hasPrefix(". ") || after.hasPrefix(") ")
+    }
+
     private static func strippingBlockChrome(_ line: String) -> String {
         var text = Substring(line)
         let leadingWhitespace = text.prefix(while: { $0 == " " })

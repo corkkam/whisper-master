@@ -342,7 +342,7 @@ struct NotchAgentReplyExpanded: View {
     /// carrying a grid — command output, a table — takes the console.
     enum Layout {
         /// Verdict plus one reading column, and nothing wider.
-        static let readingWidth: CGFloat = 860
+        static let readingWidth: CGFloat = 780
         /// Words beside data.
         static let consoleWidth: CGFloat = 1120
 
@@ -377,7 +377,11 @@ struct NotchAgentReplyExpanded: View {
 
     static func wordsWidth(surfaceWidth: CGFloat, hasData: Bool, hasWords: Bool) -> CGFloat {
         let content = contentWidth(surfaceWidth)
-        guard hasData else { return min(Metrics.maxProseMeasure, content) }
+        // Alone, prose gets a full reading measure; sharing the card with a grid it
+        // gets the narrower one. Using the two-column measure for a solo answer left
+        // the right half of the card empty and wrapped the text tighter than it
+        // needed to be.
+        guard hasData else { return min(Metrics.maxSoloProseMeasure, content) }
         return min(Metrics.maxProseMeasure, (content - Metrics.columnGap) * Metrics.wordsShare)
     }
 
@@ -542,6 +546,8 @@ struct NotchAgentReplyExpanded: View {
         /// Share of the body the words take when there is data beside them.
         static let wordsShare: CGFloat = 0.52
         static let maxProseMeasure: CGFloat = 470
+        /// The measure prose takes when there is no data column beside it.
+        static let maxSoloProseMeasure: CGFloat = 620
         static let proseSize: CGFloat = 13
         static let proseLineSpacing: CGFloat = 6
         /// How much narrower prose is measured than it is set — headroom for the
