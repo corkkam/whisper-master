@@ -39,16 +39,22 @@ struct NotchAgentReplyExpanded: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.blockSpacing) {
             if let prompt {
-                HStack(alignment: .firstTextBaseline, spacing: Theme.Space.sm) {
+                // Ember is *your voice* everywhere in this app — the listening wave,
+                // the dictation rail — so your words wear it here too.
+                HStack(alignment: .center, spacing: Theme.Space.sm) {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(Theme.Notch.accent)
+                        .frame(width: 3)
+                        .frame(maxHeight: Metrics.promptLine - 6)
                     Image(systemName: "mic.fill")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Theme.Notch.textTertiary)
+                        .foregroundStyle(Theme.Notch.accent)
                     Text(prompt)
                         .font(Typography.notchCaption)
-                        .foregroundStyle(Theme.Notch.textSecondary)
+                        .foregroundStyle(Theme.Notch.text)
                         .lineLimit(2)
                 }
-                .frame(maxHeight: Metrics.promptLine, alignment: .topLeading)
+                .frame(maxHeight: Metrics.promptLine, alignment: .leading)
             }
             if !visibleTools.isEmpty {
                 ForEach(visibleTools) { tool in
@@ -78,7 +84,20 @@ struct NotchAgentReplyExpanded: View {
 
     @ViewBuilder
     private var content: some View {
-        let measured = Self.contentHeight(for: document, width: textWidth)
+        let measured = Self.contentHeight(for: document, width: textWidth - Metrics.railInset)
+        // The machine's half wears signal, the way every working state does.
+        HStack(alignment: .top, spacing: Theme.Space.sm) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(Theme.Notch.success.opacity(0.75))
+                .frame(width: 3)
+                .frame(maxHeight: .infinity)
+            answerBlocks(measured: measured)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private func answerBlocks(measured: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: Metrics.blockSpacing) {
             ForEach(Array(document.blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
@@ -179,6 +198,9 @@ struct NotchAgentReplyExpanded: View {
                     .truncationMode(.head)
             }
             Spacer(minLength: Theme.Space.sm)
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Theme.Notch.success)
             Text(trailing)
                 .font(Typography.notchCaption)
                 .foregroundStyle(Theme.Notch.textTertiary)
@@ -232,6 +254,8 @@ struct NotchAgentReplyExpanded: View {
         static let toolRow: CGFloat = 18
         /// The most tool rows shown before "+N more in kunai".
         static let maxToolRows = 5
+        /// The answer's signal rail plus its gap, charged against the text column.
+        static let railInset: CGFloat = 11
     }
 
     /// The band thickness for a reply, measured with the same fonts the body uses.
@@ -246,7 +270,9 @@ struct NotchAgentReplyExpanded: View {
         let dividerPart: CGFloat =
             (prompt != nil || toolCount > 0) ? 1 + Metrics.blockSpacing : 0
         return Metrics.verticalPadding * 2 + promptPart + toolPart + dividerPart
-            + min(contentHeight(for: document, width: width), Metrics.contentCap)
+            + min(
+                contentHeight(for: document, width: width - Metrics.railInset),
+                Metrics.contentCap)
             + Metrics.blockSpacing + Metrics.footer
     }
 

@@ -604,7 +604,11 @@ final class AppState {
     /// missed frame left the band dark while the agent visibly worked. "No reply
     /// yet" is the honest test: it is what the receipt is waiting on.
     var shouldShowAgentWorking: Bool {
+        // `openSession != nil` is load-bearing: the row cannot render without a
+        // session, and a state that says "show" while the branch has nothing to
+        // draw is exactly the empty black strip that was reported.
         agents.isGlanceOpen && agents.revealedAt != nil
+            && agents.openSession != nil
             && agents.lastReply == nil
             && !shouldShowAgentAsk && approvals.pending == nil
             && phase == .idle && !agentCaptureArmed

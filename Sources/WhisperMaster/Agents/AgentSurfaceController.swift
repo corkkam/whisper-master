@@ -201,6 +201,12 @@ final class AgentSurfaceController {
     /// for the life of the process.
     var pollInterval: Duration = .seconds(3)
 
+    /// Missed polls in a row. See `refresh` — one miss is routine, several is a
+    /// server that is actually gone.
+    private var consecutivePollFailures = 0
+    /// How many consecutive missed polls count as "gone": ~9s at the 3s cadence.
+    static let pollFailureGrace = 3
+
     /// The history/live boundary for the attached socket. kunai replays the
     /// session's ring buffer on attach — every prior turn's frames arrive before
     /// the live ones — and `hello.high_seq` is the highest sequence that existed
@@ -248,14 +254,24 @@ final class AgentSurfaceController {
     func refresh() async {
         let metas = await rest.sessions()
         let reachable = await rest.isReachable
-        endpoint = await rest.active
-        isAvailable = reachable
 
+        // One failed poll is not an absent server: the 2s request timeout trips
+        // routinely while kunai is busy spawning a claude process, and clearing
+        // the sessions on that single miss emptied the revealed band mid-turn —
+        // a bare black strip across the menu bar. The surface only goes dark
+        // after the server has missed several polls in a row.
         guard reachable else {
-            sessions = []
-            detach()
+            consecutivePollFailures += 1
+            if consecutivePollFailures >= Self.pollFailureGrace {
+                isAvailable = false
+                sessions = []
+                detach()
+            }
             return
         }
+        consecutivePollFailures = 0
+        endpoint = await rest.active
+        isAvailable = true
 
         // Preserve the mode we already learned from each session's socket: the list
         // endpoint does not carry it, and dropping it would flip the mode control

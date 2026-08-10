@@ -201,7 +201,13 @@ struct DictationPillContent: View {
     /// dictation states that deserve their light (danger, and a quiet signal), even
     /// though neither carries a transcript.
     private var activity: NotchActivity {
-        bandIsBanner ? .idle : NotchActivity.resolve(from: state)
+        // The agent bands are the two banners that earn light: a finished reply is
+        // a delivery (centre signal bloom, like the checkmark's), and a running
+        // turn is machine work (trailing signal, like transcribing). Every other
+        // banner stays matte and carries its own colour.
+        if showAgentReply { return .delivered }
+        if showAgentWorking { return .transcribing }
+        return bandIsBanner ? .idle : NotchActivity.resolve(from: state)
     }
 
     /// The words the band is carrying, resolved here rather than in the row so the
