@@ -598,9 +598,14 @@ final class AppState {
             && phase == .idle && !agentCaptureArmed
     }
 
+    /// From the moment a prompt is delivered until its reply lands, the revealed
+    /// band always has something to show. Keying this on the session's *state*
+    /// left a gap — the `running` frame arrives a beat after the send, and a
+    /// missed frame left the band dark while the agent visibly worked. "No reply
+    /// yet" is the honest test: it is what the receipt is waiting on.
     var shouldShowAgentWorking: Bool {
         agents.isGlanceOpen && agents.revealedAt != nil
-            && agents.openSession?.state == .running
+            && agents.lastReply == nil
             && !shouldShowAgentAsk && approvals.pending == nil
             && phase == .idle && !agentCaptureArmed
     }

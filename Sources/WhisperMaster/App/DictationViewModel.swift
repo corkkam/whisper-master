@@ -944,26 +944,6 @@ final class DictationViewModel {
     /// is the same judgement about the same physical gesture.
     private static let agentTapMaxHold: TimeInterval = 0.35
 
-    /// When the last agent reply was filed into the answer log, so the refresh tick
-    /// can call this every half second and append each reply exactly once.
-    private var lastRecordedAgentReplyAt: Date?
-
-    /// File a finished agent reply into Today → Recent answers. The band retracts
-    /// on its own, and without this the reply would be unrecoverable afterwards —
-    /// the same reasoning that sends every assistant answer through `appendAnswer`.
-    func recordAgentReplyIfNew() {
-        guard let repliedAt = state.agents.lastReplyAt,
-              repliedAt != lastRecordedAgentReplyAt,
-              let reply = state.agents.lastReplyRaw ?? state.agents.lastReply
-        else { return }
-        lastRecordedAgentReplyAt = repliedAt
-        state.appendAnswer(
-            question: "Spoken to \(state.agents.openSession?.repo ?? "a coding agent")",
-            answer: reply,
-            provenance: state.agents.openSession?.repo ?? "",
-            source: .spoken)
-    }
-
     private func setAgentArmed(_ armed: Bool) {
         agentArmed = armed
         state.agentCaptureArmed = armed

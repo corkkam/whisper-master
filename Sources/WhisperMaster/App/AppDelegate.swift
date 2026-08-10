@@ -736,6 +736,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 || state.shouldShowAgentAsk
                 || state.shouldShowAgentGlance
                 || state.shouldShowAgentReply
+                // The working row carries the stop button. Without this the window
+                // stays click-through and a click on "stop" falls through to
+                // whatever menu-bar item sits behind the band — which is how
+                // pressing stop opened a menu-bar assistant instead.
+                || state.shouldShowAgentWorking
                 || state.shouldShowBluetoothBanner
                 || state.shouldShowCommandConfirmation
                 || state.shouldShowDueReminderBanner
@@ -745,10 +750,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the menu bar back once a revealed session has been read.
         reconcileAgentHotkey()
         if state.agents.revealHasExpired() { state.agents.closeGlance() }
-        // A reply exists only as long as the band does, so each one is also filed
-        // into Today → Recent answers — the same rule every assistant answer
-        // follows, driven from this tick so the view model stays the one writer.
-        viewModel.recordAgentReplyIfNew()
 
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()

@@ -71,6 +71,11 @@ struct NotchAgentWorkingRow: View {
         } else {
             subject = session.repo
         }
-        return "\(subject) · \(session.statusLabel(now: now))"
+        // The row shows from the send onward, which is before kunai reports the
+        // turn as running — in that beat "Idle" would be a lie about words that
+        // are mid-flight, so the pending state reads as what it is.
+        let status = session.state == .running
+            ? session.statusLabel(now: now) : "Starting"
+        return "\(subject) · \(status)"
     }
 }
