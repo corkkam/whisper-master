@@ -401,6 +401,17 @@ enum SnapshotMode {
 
                     All 42 tests pass. The flake was the fixed delay racing the \
                     engine rebuild on slower runs.
+
+                    ## What is still parked
+
+                    1. **1.1.0 is stuck mid-release.** Beta.4 shipped the audio \
+                    crash fix, `release/1.1.0` is still open on origin, and nothing \
+                    has been merged to `main` or tagged.
+                    2. **A bug branch that may or may not be dead.** \
+                    `mic-testing-transcribes-wrong` is parked in the `hat-yai` \
+                    worktree, and CLAUDE.md describes that bug as fixed.
+                    3. **Four worktrees carrying unmerged branches**, which is more \
+                    parked work than the branch list suggested.
                     """,
                 duration: 192,
                 prompt: "Fix the flaky audio route test, and clear the build first.",
@@ -467,7 +478,7 @@ enum SnapshotMode {
     /// no user sees. The width clamp makes these images wide; that is the real
     /// surface width.
     private static let snapshotNotch = NotchGeometry(
-        notchWidth: 208, notchHeight: 37.5, screenWidth: 1710
+        notchWidth: 208, notchHeight: 37.5, screenWidth: 1710, screenHeight: 1107
     )
 
     /// Render the notch pill in a single state onto a neutral backdrop.

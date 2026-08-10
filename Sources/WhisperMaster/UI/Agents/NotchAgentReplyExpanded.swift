@@ -33,8 +33,15 @@ struct NotchAgentReplyExpanded: View {
     /// button; without it the words would be a link that goes nowhere, which is
     /// exactly what was reported.
     var kunaiURL: URL?
+    /// The display this is drawn on. A reply is a document, so the card sizes
+    /// itself against the screen rather than a constant.
+    var geometry: NotchGeometry = .none
 
     @Environment(\.openURL) private var openURL
+    /// `ImageRenderer` collapses a flexible `ScrollView` to nothing, so the
+    /// headless renderer gets the plain stack. Same gate the other AppKit-backed
+    /// surfaces use.
+    @Environment(\.isSnapshot) private var isSnapshot
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.blockSpacing) {
@@ -86,19 +93,32 @@ struct NotchAgentReplyExpanded: View {
     @ViewBuilder
     private var content: some View {
         let measured = Self.contentHeight(for: document, width: textWidth - Metrics.railInset)
+        let cap = Self.contentCap(for: geometry)
         // The machine's half wears signal, the way every working state does.
         HStack(alignment: .top, spacing: Theme.Space.sm) {
             RoundedRectangle(cornerRadius: 1.5)
                 .fill(Theme.Notch.success.opacity(0.75))
                 .frame(width: 3)
                 .frame(maxHeight: .infinity)
-            answerBlocks(measured: measured)
+            if measured > cap, !isSnapshot {
+                // **Nothing in a reply is unreachable.** Clipping the tail behind a
+                // fade was the defect behind every "it looks the same" report: the
+                // answer simply stopped mid-sentence and there was no way to read
+                // the rest without leaving for the browser.
+                ScrollView(.vertical, showsIndicators: true) {
+                    answerBlocks()
+                }
+                .frame(height: cap)
+            } else {
+                answerBlocks()
+                    .frame(maxHeight: cap, alignment: .top)
+            }
         }
         .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder
-    private func answerBlocks(measured: CGFloat) -> some View {
+    private func answerBlocks() -> some View {
         VStack(alignment: .leading, spacing: Metrics.blockSpacing) {
             ForEach(Array(document.blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
@@ -143,20 +163,18 @@ struct NotchAgentReplyExpanded: View {
                 }
             }
         }
-        .frame(maxHeight: Metrics.contentCap, alignment: .top)
-        .clipped()
-        .overlay(alignment: .bottom) {
-            if measured > Metrics.contentCap {
-                // The rest exists; say where, rather than ending mid-sentence with
-                // no explanation.
-                LinearGradient(
-                    colors: [Theme.Notch.surface.opacity(0), Theme.Notch.surface],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .frame(height: 36)
-                .allowsHitTesting(false)
-            }
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// How much room the answer gets: most of the display, floored so a small
+    /// screen still shows a paragraph. A reply is a document, and a constant cap
+    /// meant a 16-inch display clipped at exactly the same arbitrary line a laptop
+    /// did.
+    static func contentCap(for geometry: NotchGeometry) -> CGFloat {
+        guard geometry.screenHeight > 0 else { return Metrics.fallbackContentCap }
+        return max(
+            Metrics.fallbackContentCap,
+            (geometry.screenHeight - geometry.notchHeight) * Metrics.screenFraction)
     }
 
     /// A pipe table as a real grid: header in caption ink over a hairline, cells
@@ -316,10 +334,13 @@ struct NotchAgentReplyExpanded: View {
         /// Air above a heading, so sections read as sections.
         static let headingTopGap: CGFloat = 10
         static let headingHeight: CGFloat = 28
-        /// The most content the band will hold before clipping behind the fade. The
-        /// notch is a summary surface; past this the reply is a document, and
-        /// documents live in kunai.
-        static let contentCap: CGFloat = 320
+        /// Floor for the answer area, used when the screen is unknown (the headless
+        /// renderer) and as the minimum on any display.
+        static let fallbackContentCap: CGFloat = 320
+        /// Share of the display the answer may occupy before it scrolls. Two thirds
+        /// leaves the desktop legible underneath while giving a real reply room to
+        /// be read in one go.
+        static let screenFraction: CGFloat = 0.66
         /// The prompt line above the answer: two caption lines at most.
         static let promptLine: CGFloat = 30
         /// One tool call's row.
@@ -332,7 +353,8 @@ struct NotchAgentReplyExpanded: View {
 
     /// The band thickness for a reply, measured with the same fonts the body uses.
     static func thickness(
-        for document: AgentReplyDocument, prompt: String?, toolCount: Int, width: CGFloat
+        for document: AgentReplyDocument, prompt: String?, toolCount: Int,
+        width: CGFloat, geometry: NotchGeometry
     ) -> CGFloat {
         let promptPart: CGFloat =
             prompt == nil ? 0 : Metrics.promptLine + Metrics.blockSpacing
@@ -344,15 +366,16 @@ struct NotchAgentReplyExpanded: View {
         return Metrics.verticalPadding * 2 + promptPart + toolPart + dividerPart
             + min(
                 contentHeight(for: document, width: width - Metrics.railInset),
-                Metrics.contentCap)
+                contentCap(for: geometry))
             + Metrics.blockSpacing + 1 + Metrics.blockSpacing + Metrics.footer
     }
 
     /// The tallest the expanded band can be, for `NotchSurfaceLayout.panelSize`.
-    static var maxThickness: CGFloat {
+    static func maxThickness(for geometry: NotchGeometry) -> CGFloat {
         thickness(
             for: AgentReplyDocument(blocks: []), prompt: "p",
-            toolCount: Metrics.maxToolRows + 1, width: 500) + Metrics.contentCap
+            toolCount: Metrics.maxToolRows + 1, width: 500, geometry: geometry)
+            + contentCap(for: geometry)
     }
 
     /// Measured content height. Prose is measured with the notch body's `NSFont` at

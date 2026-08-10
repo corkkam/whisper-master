@@ -12,12 +12,17 @@ struct NotchGeometry: Equatable {
     /// Width of the display the surface is drawn on, so the wide dictation band
     /// can be held inside the screen. Zero means "unknown" — no clamp applied.
     let screenWidth: CGFloat
+    /// Height of the display, which is what the expanded agent reply sizes itself
+    /// against. A reply is a document: capping it at a constant meant a 16-inch
+    /// display and a laptop both clipped the answer at the same arbitrary point.
+    var screenHeight: CGFloat = 0
 
     /// Whether the display actually has a notch.
     var hasNotch: Bool { notchHeight > 0 }
 
     /// A notch-less geometry with a sensible dead-zone height for fallback layouts.
-    static let none = NotchGeometry(notchWidth: 0, notchHeight: 0, screenWidth: 0)
+    static let none = NotchGeometry(
+        notchWidth: 0, notchHeight: 0, screenWidth: 0, screenHeight: 0)
 
     /// Resolve the notch geometry for a screen.
     ///
@@ -27,7 +32,9 @@ struct NotchGeometry: Equatable {
         let inset = screen.safeAreaInsets.top
         guard inset > 0 else {
             // No notch, but the screen width still bounds the wide band.
-            return NotchGeometry(notchWidth: 0, notchHeight: 0, screenWidth: screen.frame.width)
+            return NotchGeometry(
+                notchWidth: 0, notchHeight: 0,
+                screenWidth: screen.frame.width, screenHeight: screen.frame.height)
         }
 
         let leftWidth = screen.auxiliaryTopLeftArea?.width ?? 0
@@ -37,7 +44,8 @@ struct NotchGeometry: Equatable {
         return NotchGeometry(
             notchWidth: max(0, width),
             notchHeight: inset,
-            screenWidth: screen.frame.width
+            screenWidth: screen.frame.width,
+            screenHeight: screen.frame.height
         )
     }
 }
@@ -230,7 +238,7 @@ struct NotchSurfaceLayout {
     }
 
     /// The tallest band the surface can ever show — what the panel has to fit.
-    private var maxBandThickness: CGFloat {
+    private func maxBandThickness(for geometry: NotchGeometry) -> CGFloat {
         max(
             max(
                 max(bottomThickness, reminderThickness),
@@ -244,8 +252,7 @@ struct NotchSurfaceLayout {
             // rather than three fixed words.
             max(
                 max(NotchAgentPanel.maxThickness, NotchAgentGlance.maxThickness),
-                NotchAgentReplyExpanded.maxThickness
-            )
+                NotchAgentReplyExpanded.maxThickness(for: geometry))
         )
     }
 
@@ -260,7 +267,7 @@ struct NotchSurfaceLayout {
     func panelSize(for geometry: NotchGeometry) -> CGSize {
         CGSize(
             width: surfaceWidth(for: geometry, .wide, stateLabel: Self.widestLabelProbe),
-            height: geometry.notchHeight + maxBandThickness
+            height: geometry.notchHeight + maxBandThickness(for: geometry)
         )
     }
 

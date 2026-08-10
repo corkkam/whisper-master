@@ -124,7 +124,8 @@ struct DictationPillContent: View {
                 for: AgentReplyDocument.parse(state.agents.lastReplyRaw ?? reply),
                 prompt: state.agents.log.lastUserPrompt,
                 toolCount: state.agents.log.currentTurnTools.count,
-                width: expandedReplyTextWidth)
+                width: expandedReplyTextWidth,
+                geometry: geometry)
         }
         if showAgentGlance {
             return NotchAgentGlance.listThickness(sessionCount: state.agents.sessions.count)
@@ -471,7 +472,8 @@ struct DictationPillContent: View {
                         editedPaths: state.agents.changeSet.editedPaths,
                         tools: state.agents.log.currentTurnTools,
                         textWidth: expandedReplyTextWidth,
-                        kunaiURL: state.agents.openSessionURL)
+                        kunaiURL: state.agents.openSessionURL,
+                        geometry: geometry)
                 } else {
                     NotchAgentReplyBanner(
                         reply: reply,
