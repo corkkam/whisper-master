@@ -375,6 +375,34 @@ shortcut at all**.
   on a fixed port with its own data dir, so a second copy inside this app would fight
   the one already there over the port, `~/.kunai`, and the `~/.claude/commands/kunai.md`
   slash command kunai rewrites on every boot.
+- **Two sockets, never one per session — the shape kunai's own web app uses.**
+  `GET /ws/fleet` pushes *every* session's state, coalesced and seeded on connect, in
+  the **same `SessionMeta` shape `GET /api/sessions` returns** (kunai shares the two
+  deliberately, so a push can't drift from the fetch). `GET /ws/app/{id}` carries the
+  one conversation being read. Adopting the fleet push is a **correctness** change,
+  not a performance one: while the list came from a 3s poll it was permanently behind
+  the per-session socket and the two disagreed — a finished turn flipped back to
+  `running` on the next poll, a blocked agent went unnoticed for seconds, and the band
+  flickered between two clocks reading the same session. `applySessions` is the one
+  merge both sources run through; the poll drops to `KunaiPollCadence.background`
+  (20s) once the push lands and back to `.live` (3s) if it drops, because its only
+  remaining job is noticing a server return.
+  - **A second `/ws/app/{id}` opens for a neighbour that is blocked, and only for
+    that.** The fleet push says *which* session is asking; the question and its
+    arguments exist only on that session's own stream, so without this a blocked agent
+    could not raise its card until you tapped across. It carries **permissions only** —
+    transcript, reply, change set and mode all stay with the focused session, so the
+    band can never show two conversations. `askOwner` records which socket raised the
+    card because the answer has to go back down *that* one (`sendToAskOwner`);
+    resolving a request id on the focused stream would leave the blocked session
+    blocked.
+  - **Opening a session adopts what it already said** (`reveal(adoptExistingReply:)`).
+    kunai replays the ring buffer on attach, so the log already holds the tail — this
+    lets it populate the reply band, but **only** for a session opened on purpose and
+    only while it is idle. It is false for a *send*, because the previous turn's answer
+    replaying as though it were this one's is exactly the ghost reply that used to
+    flash up, and false for a running session, which would put a finished reply beside
+    an agent still working.
 - **⚠️ Discovery reads `<dataDir>/url`, and must not assume loopback.** kunai records
   its own public URL there on each boot, and its `/kunai` slash command reads that
   file rather than baking an address in. `KunaiEndpoint.candidates` does the same:

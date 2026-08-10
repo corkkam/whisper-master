@@ -103,3 +103,49 @@ final class AgentAttentionTests: XCTestCase {
             attention.update(sessions: [session("a", .awaitingPermission)], watching: nil))
     }
 }
+
+/// The fleet socket's frames, and the second socket opened for a blocked neighbour.
+final class KunaiFleetWireTests: XCTestCase {
+
+    private struct Wire: Decodable {
+        let t: String
+        let sessions: [KunaiWire.SessionMeta]?
+    }
+
+    func testASessionsPushDecodesAsTheListEndpointDoes() throws {
+        // kunai shares the shape between GET /api/sessions and the fleet push on
+        // purpose — "a push that showed a different shape from the fetch would be a
+        // bug nobody could see until a client mixed the two". We mix the two, so this
+        // is that check.
+        let json = #"""
+            {"t":"sessions","sessions":[
+              {"id":"s1","cwd":"/x/whisper-master","state":"running"},
+              {"id":"s2","cwd":"/x/kunai","state":"awaiting_permission"}
+            ]}
+            """#
+        let frame = try JSONDecoder().decode(Wire.self, from: Data(json.utf8))
+        XCTAssertEqual(frame.t, "sessions")
+        XCTAssertEqual(frame.sessions?.count, 2)
+        let sessions = (frame.sessions ?? []).map { AgentSession(meta: $0, mode: .ask) }
+        XCTAssertEqual(sessions.first?.repo, "whisper-master")
+        XCTAssertEqual(sessions.last?.state, .awaitingPermission)
+    }
+
+    func testAStatsPushIsIgnoredRatherThanTakingTheStreamDown() throws {
+        // The socket carries more than we consume, and an unfamiliar frame must never
+        // be fatal — the notch reports agents, not the machine they run on.
+        let frame = try JSONDecoder().decode(
+            Wire.self, from: Data(#"{"t":"stats","stats":{"cpu":12}}"#.utf8))
+        XCTAssertEqual(frame.t, "stats")
+        XCTAssertNil(frame.sessions)
+    }
+
+    func testTheFleetSocketURLFollowsTheSchemeOfItsBase() {
+        let plain = KunaiEndpoint(baseURL: URL(string: "http://127.0.0.1:8443")!)
+        XCTAssertEqual(plain.fleetSocket()?.absoluteString, "ws://127.0.0.1:8443/ws/fleet")
+        // A TLS install needs wss; asking for ws there fails the upgrade rather than
+        // silently downgrading.
+        let secure = KunaiEndpoint(baseURL: URL(string: "https://host.ts.net:8443")!)
+        XCTAssertEqual(secure.fleetSocket()?.absoluteString, "wss://host.ts.net:8443/ws/fleet")
+    }
+}
