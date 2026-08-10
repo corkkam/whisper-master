@@ -173,6 +173,14 @@ final class AgentSurfaceController {
         return sessions.first { $0.id == openSessionID }
     }
 
+    /// The open session's page in kunai's own web app, for the "Open in kunai"
+    /// affordance. kunai routes a bare `/<sessionID>` path to that session, against
+    /// whichever server actually answered discovery.
+    var openSessionURL: URL? {
+        guard let endpoint, let id = openSessionID ?? attachedSessionID else { return nil }
+        return endpoint.baseURL.appendingPathComponent(id)
+    }
+
     /// The session that is asking, for the banner's second line.
     var askingSession: AgentSession? {
         guard let attachedSessionID else { return nil }

@@ -29,6 +29,12 @@ struct NotchAgentReplyExpanded: View {
     /// The width the text renders at — the same number the height was measured
     /// with. Two different widths here is the skinny-tower bug.
     var textWidth: CGFloat = 500
+    /// This session's page in kunai's web app. With it, "Open in kunai" is a real
+    /// button; without it the words would be a link that goes nowhere, which is
+    /// exactly what was reported.
+    var kunaiURL: URL?
+
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.blockSpacing) {
@@ -177,16 +183,25 @@ struct NotchAgentReplyExpanded: View {
                 .font(Typography.notchCaption)
                 .foregroundStyle(Theme.Notch.textTertiary)
                 .lineLimit(1)
+            if let kunaiURL {
+                // A real button in the band's own capsule idiom, not caption text
+                // cosplaying as a link.
+                Button("Open in kunai") { openURL(kunaiURL) }
+                    .buttonStyle(.plain)
+                    .font(Typography.notchCaption)
+                    .foregroundStyle(Theme.Notch.text)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Theme.Notch.text.opacity(0.12)))
+                    .pointerCursor()
+                    .accessibilityLabel("Open this session in kunai")
+            }
         }
     }
 
     private var trailing: String {
-        var parts = [repo]
-        if let duration, duration >= 1 {
-            parts.append(NotchAgentReplyBanner.compact(duration))
-        }
-        parts.append("full reply in kunai")
-        return parts.joined(separator: " · ")
+        guard let duration, duration >= 1 else { return repo }
+        return "\(repo) · \(NotchAgentReplyBanner.compact(duration))"
     }
 
     /// Inline markdown only: `code` and **bold** render, block syntax was already
@@ -204,7 +219,7 @@ struct NotchAgentReplyExpanded: View {
     enum Metrics {
         static let verticalPadding: CGFloat = Theme.Space.md
         static let blockSpacing: CGFloat = Theme.Space.sm
-        static let footer: CGFloat = 16
+        static let footer: CGFloat = 22
         static let codeInset: CGFloat = 8
         static let codeLineHeight: CGFloat = 15
         /// The most content the band will hold before clipping behind the fade. The

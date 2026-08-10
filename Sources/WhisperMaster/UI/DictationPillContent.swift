@@ -460,7 +460,8 @@ struct DictationPillContent: View {
                         duration: state.agents.lastTurnDuration,
                         editedPaths: state.agents.changeSet.editedPaths,
                         tools: state.agents.log.currentTurnTools,
-                        textWidth: expandedReplyTextWidth)
+                        textWidth: expandedReplyTextWidth,
+                        kunaiURL: state.agents.openSessionURL)
                 } else {
                     NotchAgentReplyBanner(
                         reply: reply,
