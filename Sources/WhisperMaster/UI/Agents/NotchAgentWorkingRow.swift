@@ -36,9 +36,9 @@ struct NotchAgentWorkingRow: View {
 
             if let onStop {
                 Button(action: onStop) {
-                    Image(systemName: "stop.circle")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.Notch.textTertiary)
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.Notch.textSecondary)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()

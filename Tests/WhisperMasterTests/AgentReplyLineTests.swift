@@ -67,6 +67,22 @@ final class AgentReplyLineTests: XCTestCase {
         XCTAssertEqual(log.currentActivity, "Reading a/b.swift")
     }
 
+    func testACompoundShellCommandIsTrimmedToItsLeadingCommand() {
+        // Claude opens most turns with a git-status combo; the whole compound
+        // string in a one-line caption is noise, and the trim is visible, never
+        // silent.
+        XCTAssertEqual(
+            AgentTurnLog.presentActivity(
+                name: "Bash", detail: "Run  git status --short; echo \"== recent\"; git log"),
+            "Running git status --short …")
+        XCTAssertEqual(
+            AgentTurnLog.presentActivity(name: "Bash", detail: "Run  swift build && swift test"),
+            "Running swift build …")
+        XCTAssertEqual(
+            AgentTurnLog.presentActivity(name: "Bash", detail: "Run  swift test"),
+            "Running swift test")
+    }
+
     func testNoToolsYetMeansNoActivitySoTheRowShowsTheRepo() {
         XCTAssertNil(AgentTurnLog().currentActivity)
     }

@@ -206,8 +206,11 @@ struct DictationPillContent: View {
         // a delivery (centre signal bloom, like the checkmark's), and a running
         // turn is machine work (trailing signal, like transcribing). Every other
         // banner stays matte and carries its own colour.
-        if showAgentReply { return .delivered }
-        if showAgentWorking { return .transcribing }
+        // The agent bands are matte, like every other banner. The delivered glow
+        // was tried behind the reply card and read as a murky gradient smudge
+        // under a full card of text — the design system's own warning about a
+        // saturated hue at low alpha over pure black. Its character comes from
+        // the rails and the type, not haze.
         return bandIsBanner ? .idle : NotchActivity.resolve(from: state)
     }
 

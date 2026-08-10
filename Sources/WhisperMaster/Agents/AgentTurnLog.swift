@@ -118,7 +118,19 @@ struct AgentTurnLog: Sendable, Equatable {
             ("Read  ", "Reading "), ("Fetch  ", "Fetching "),
         ]
         for rule in progressive where detail.hasPrefix(rule.prefix) {
-            return rule.verb + detail.dropFirst(rule.prefix.count)
+            var argument = String(detail.dropFirst(rule.prefix.count))
+            // A compound shell command in a one-line caption is noise: the leading
+            // command is what names the work, so the tail is trimmed — visibly,
+            // with an ellipsis, never silently.
+            if rule.prefix == "Run  " {
+                for separator in ["; ", " && ", " || "] {
+                    if let range = argument.range(of: separator) {
+                        argument = String(argument[..<range.lowerBound]) + " …"
+                        break
+                    }
+                }
+            }
+            return rule.verb + argument
         }
         if !detail.isEmpty { return detail }
         // No argument to show: the tool's own name, made humane for the two
