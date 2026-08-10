@@ -109,15 +109,30 @@ struct NotchAgentReplyExpanded: View {
                         .foregroundStyle(Theme.Notch.text)
                         .fixedSize(horizontal: false, vertical: true)
                 case .code(let text):
-                    Text(text)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Theme.Notch.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(Metrics.codeInset)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Theme.Notch.text.opacity(0.05)))
+                    // One Text per line, never wrapped: wide command output (a
+                    // worktree list, a table dump) shatters into soup when wrapped
+                    // at the card's measure — and a wrapped line also breaks the
+                    // height math, which counts source lines. Truncation is
+                    // middle, where paths keep both their root and their leaf.
+                    VStack(alignment: .leading, spacing: Metrics.codeLineSpacing) {
+                        ForEach(
+                            Array(text.split(
+                                separator: "\n", omittingEmptySubsequences: false)
+                                .enumerated()),
+                            id: \.offset
+                        ) { _, line in
+                            Text(String(line))
+                                .font(.system(size: 10.5, design: .monospaced))
+                                .foregroundStyle(Theme.Notch.textSecondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                    .padding(Metrics.codeInset)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Theme.Notch.text.opacity(0.05)))
                 case .heading(let text):
                     Text(Self.inlineMarkdown(text))
                         .font(Typography.notchLabel)
@@ -193,7 +208,10 @@ struct NotchAgentReplyExpanded: View {
                 Text("❯")
                     .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Theme.Notch.textTertiary)
-                Text(tool.detail.hasPrefix("Run  ") ? String(tool.detail.dropFirst(5)) : tool.detail)
+                Text(
+                    AgentTurnLog.trimmedCommand(
+                        tool.detail.hasPrefix("Run  ")
+                            ? String(tool.detail.dropFirst(5)) : tool.detail))
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(Theme.Notch.textSecondary)
                     .lineLimit(1)
@@ -291,12 +309,13 @@ struct NotchAgentReplyExpanded: View {
         static let footer: CGFloat = 22
         static let codeInset: CGFloat = 8
         static let codeLineHeight: CGFloat = 15
+        static let codeLineSpacing: CGFloat = 2
         /// One table row (mono cell + grid spacing), and the header's extra chrome.
         static let tableRowHeight: CGFloat = 18
         static let tableHeaderHeight: CGFloat = 22
         /// Air above a heading, so sections read as sections.
-        static let headingTopGap: CGFloat = 6
-        static let headingHeight: CGFloat = 24
+        static let headingTopGap: CGFloat = 10
+        static let headingHeight: CGFloat = 28
         /// The most content the band will hold before clipping behind the fade. The
         /// notch is a summary surface; past this the reply is a document, and
         /// documents live in kunai.

@@ -391,8 +391,12 @@ enum SnapshotMode {
                     | xcodebuild | Xcode 26.6, build 17F113 |
                     | xcodegen | 2.44.1 |
 
-                    ```swift
-                    XCTAssertEqual(replayed.transcript, expected)
+                    ## Worktrees
+
+                    ```
+                    ~/conductor/workspaces/whisper-master/hat-yai        mic-testing-transcribes-wrong  fdb7411
+                    ~/conductor/workspaces/whisper-master/pattaya        feat/notch-agent-surface       7140bb5
+                    ~/conductor/workspaces/whisper-master/san-francisco  ux-onbaord-better              dd1a7cd
                     ```
 
                     All 42 tests pass. The flake was the fixed delay racing the \

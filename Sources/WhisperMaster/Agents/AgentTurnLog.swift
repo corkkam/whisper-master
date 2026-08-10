@@ -110,6 +110,18 @@ struct AgentTurnLog: Sendable, Equatable {
         return Self.presentActivity(name: pick.name, detail: pick.detail)
     }
 
+    /// A compound shell command cut to its leading command, with a visible
+    /// ellipsis. One helper because two surfaces show commands — the working
+    /// row's caption and the reply card's tool rows — and they must agree.
+    static func trimmedCommand(_ command: String) -> String {
+        for separator in ["; ", " && ", " || "] {
+            if let range = command.range(of: separator) {
+                return String(command[..<range.lowerBound]) + " …"
+            }
+        }
+        return command
+    }
+
     /// Turn a tool line into a progressive caption: "Run  swift test" reads as a
     /// request, "Running swift test" reads as what is happening.
     static func presentActivity(name: String, detail: String) -> String {
@@ -123,12 +135,7 @@ struct AgentTurnLog: Sendable, Equatable {
             // command is what names the work, so the tail is trimmed — visibly,
             // with an ellipsis, never silently.
             if rule.prefix == "Run  " {
-                for separator in ["; ", " && ", " || "] {
-                    if let range = argument.range(of: separator) {
-                        argument = String(argument[..<range.lowerBound]) + " …"
-                        break
-                    }
-                }
+                argument = Self.trimmedCommand(argument)
             }
             return rule.verb + argument
         }
