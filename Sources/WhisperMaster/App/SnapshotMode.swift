@@ -422,6 +422,22 @@ enum SnapshotMode {
         // nothing. There is no run to put in a rail, so the question goes full
         // width and the answer takes the whole card — a 306pt strip holding one
         // line beside a full answer was a third of the surface doing nothing.
+        // Prose only, filling the body exactly: the case where the foot rule was
+        // drawn straight through the last line of the answer.
+        renderPill(dir, name: "pill-10i-agent-reply-prose") { s in
+            s.phase = .idle
+            s.agents.seedReplyForSnapshot(
+                session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
+                reply: """
+                    Got it — testing wrapped.
+
+                    Whenever you want to get back to actual work, the 1.1.0 release and \
+                    those four parked worktrees are still sitting there.
+                    """,
+                duration: 3,
+                prompt: "That is all for now, thanks.")
+            s.agents.toggleReplyExpansion()
+        }
         // The small turn: a fence and one short sentence under it. It is the shape
         // that read as "two things floating in a wide band" — the verdict slot empty
         // because the reply did not open with prose.

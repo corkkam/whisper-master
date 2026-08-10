@@ -68,6 +68,11 @@ struct NotchAgentReplyExpanded: View {
             columns
                 .frame(height: bodyHeight, alignment: .top)
                 .padding(.top, Metrics.bodyTopGap)
+            // The rule sits *inside* the gap the padding opens, not above it.
+            // `.overlay(alignment: .top)` aligns to the top of the **padded** bounds
+            // — which is already the body's bottom edge — so a negative offset here
+            // pushed the hairline back up through the last line of the answer. That
+            // was the line drawn across the text.
             foot
                 .frame(height: Metrics.foot)
                 .padding(.top, Metrics.footGap)
@@ -75,7 +80,7 @@ struct NotchAgentReplyExpanded: View {
                     Rectangle()
                         .fill(Theme.Notch.hairline)
                         .frame(height: 1)
-                        .offset(y: -Metrics.footGap / 2)
+                        .offset(y: Metrics.footGap / 2)
                 }
         }
         .padding(.horizontal, Metrics.horizontalPadding)
