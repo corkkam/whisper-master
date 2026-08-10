@@ -63,6 +63,13 @@ targets:
     platform: macOS
     sources:
       - path: Sources/WhisperMaster
+        # ⚠️ Every non-source file under here is copied into
+        # Contents/Resources/ with its basename, so the per-directory CLAUDE.md
+        # files all target the same destination and xcodebuild fails the build
+        # with "duplicate output file" (exit 65). They are agent documentation,
+        # not app resources — a shipped bundle should not carry them either.
+        excludes:
+          - "**/CLAUDE.md"
       - path: Resources/AppIcon.icns
         buildPhase: resources
     dependencies:
