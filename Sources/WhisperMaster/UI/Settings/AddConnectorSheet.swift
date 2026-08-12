@@ -172,18 +172,11 @@ struct AddConnectorSheet: View {
         .disabled(!isAvailable)
     }
 
-    /// Say *why* it isn't available, rather than a bare "soon". Most of these are
-    /// blocked on a provider's OAuth requiring a client secret we won't ship, so the
-    /// honest answer is "we're not done", not "it's your setup".
+    /// Say *why* it isn't available, rather than a bare "soon". Kept for kinds that
+    /// lose their provider later (a deliberate withhold); every catalogued kind is
+    /// connectable today, so this is a safety net rather than a living list.
     private func comingSoonReason(_ descriptor: ConnectorDescriptor) -> String {
-        switch descriptor.kind {
-        case .gmail:
-            return "Gmail's read scope needs a Google security review we haven't finished."
-        case .googleDrive, .zoom:
-            return "Reading isn't built yet."
-        default:
-            return "Not available yet."
-        }
+        "Not available in this build."
     }
 }
 

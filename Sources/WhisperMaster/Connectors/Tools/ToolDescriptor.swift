@@ -102,9 +102,29 @@ enum ToolCatalog {
 
         ToolDescriptor(
             name: "list_messages",
-            summary: "List recent chat channels and conversations.",
+            summary: "List recent chat messages and conversations.",
             access: .read,
             capability: .messages,
+            targetArg: nil,
+            parameters: []),
+
+        // Mail and files are first-class on Grok and Claude (Gmail / Drive built-ins).
+        // The router already fans `.mail` and `.files` through `recentItems`, but
+        // without a catalog entry the model has nothing to call — so a connected
+        // Gmail sat readable and unused. Same shape as `list_tasks` / `list_messages`.
+        ToolDescriptor(
+            name: "list_mail",
+            summary: "List recent or unread email in the user's mailbox.",
+            access: .read,
+            capability: .mail,
+            targetArg: nil,
+            parameters: []),
+
+        ToolDescriptor(
+            name: "list_files",
+            summary: "List recent files in cloud storage.",
+            access: .read,
+            capability: .files,
             targetArg: nil,
             parameters: []),
 

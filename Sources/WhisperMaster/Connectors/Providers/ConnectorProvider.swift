@@ -95,6 +95,15 @@ protocol EventReadingProvider: ConnectorProvider {
     func todaysEvents(for instance: ConnectorInstance, now: Date) -> ProviderReadOutcome<[DayEvent]>
 }
 
+/// Network-backed event reads. Same shape as `EventReadingProvider`, but async —
+/// Google Calendar API and Zoom meetings both need a round-trip, and a sync protocol
+/// would force them to return empty forever (which is what happened for any
+/// non-Google network calendar before this existed).
+@MainActor
+protocol AsyncEventReadingProvider: ConnectorProvider {
+    func todaysEventsAsync(for instance: ConnectorInstance, now: Date) async -> ProviderReadOutcome<[DayEvent]>
+}
+
 /// Which kinds actually have an implementation behind them.
 ///
 /// This is the honesty gate for the whole catalog. `ConnectorCatalog` describes every
@@ -110,6 +119,9 @@ enum ProviderRegistry {
     private static let github = GitHubProvider()
     private static let notion = NotionProvider()
     private static let asana = AsanaProvider()
+    private static let gmail = GmailProvider()
+    private static let googleDrive = GoogleDriveProvider()
+    private static let zoom = ZoomProvider()
 
     /// Providers keyed by kind.
     ///
@@ -125,9 +137,9 @@ enum ProviderRegistry {
         case .github: return github
         case .notion: return notion
         case .asana: return asana
-        // Gmail, Drive and Zoom are catalogued but have no read implementation yet, so
-        // they stay unconnectable rather than offering a connection that reads nothing.
-        case .gmail, .googleDrive, .zoom: return nil
+        case .gmail: return gmail
+        case .googleDrive: return googleDrive
+        case .zoom: return zoom
         }
     }
 
@@ -146,6 +158,10 @@ enum ProviderRegistry {
 
     static func eventProvider(for instance: ConnectorInstance) -> (any EventReadingProvider)? {
         provider(for: instance) as? any EventReadingProvider
+    }
+
+    static func asyncEventProvider(for instance: ConnectorInstance) -> (any AsyncEventReadingProvider)? {
+        provider(for: instance) as? any AsyncEventReadingProvider
     }
 
     static func itemProvider(for instance: ConnectorInstance) -> (any ItemReadingProvider)? {

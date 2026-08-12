@@ -146,10 +146,14 @@ enum DaySummaryService {
                            now: Date = Date()) async -> DaySummary {
         var collector = Collector()
         for instance in instances {
-            if instance.config.isNetworkBacked {
-                guard let provider = ProviderRegistry.googleCalendarAPI,
-                      instance.kind == .googleCalendar else { continue }
-                collector.absorb(await provider.todaysEventsAsync(for: instance, now: now),
+            // Prefer the async path when the provider has one (Google API, Zoom,
+            // anything else over the network). The previous hard-code to Google alone
+            // meant a Zoom meetings connector — catalogued as `.events` — was
+            // connected, readable on paper, and then silently skipped in "what's my
+            // day", which is the same class of cosmetic connection this redesign
+            // exists to remove.
+            if let asyncProvider = ProviderRegistry.asyncEventProvider(for: instance) {
+                collector.absorb(await asyncProvider.todaysEventsAsync(for: instance, now: now),
                                  instance: instance, store: store)
             } else if let provider = ProviderRegistry.eventProvider(for: instance) {
                 collector.absorb(provider.todaysEvents(for: instance, now: now),
