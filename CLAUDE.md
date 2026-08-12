@@ -453,8 +453,9 @@ shortcut at all**.
 - **The other sessions get one line, once — never a notification centre**
   (`AgentAttention`, `NotchAgentNudgeBanner`). The band watches one session, so a
   second agent could block on a permission nobody would ever be asked about, or
-  finish unseen. kunai's poll already reports every session's state, so the
-  transitions are read from it and **no second socket exists**. The whole design is
+  finish unseen. The **fleet push** (`/ws/fleet`) reports every session's state, so
+  the transitions are read from it rather than from a poll, and the only additional
+  socket is the permissions-only one a blocked neighbour gets. The whole design is
   the restraint: the watched session is never announced (its own surfaces already
   speak for it); **only transitions**, so a session already blocked at launch is not
   news; **once per event**, remembered until the session leaves that state, so a
@@ -462,10 +463,14 @@ shortcut at all**.
   queueing, because a queue on this surface is a stack of bands waiting to take the
   menu bar. A permission outranks a finish — one is a stopped machine, the other is
   only news.
-  - **It is a pointer, not the card.** With one socket we do not *have* the other
-    session's question, and rendering a guess at it would be worse than silence. Tap
-    → `focus(sessionID:)` moves the one socket there and the real card follows. The
-    tap is the consent; nothing ever yanks you to another agent on its own.
+  - **For a finish it is a pointer, not the card.** A finished neighbour's answer
+    lives only on its own stream, and rendering a guess at it would be worse than
+    silence. Tap → `focus(sessionID:)` moves there and the real thing follows. The tap
+    is the consent; nothing ever yanks you to another agent on its own. A **blocked**
+    neighbour is the exception the second socket buys: its question is real, carried
+    on its own permissions-only stream, so the card can be answered in place — and
+    `askOwner` records which socket raised it, because the answer has to go back down
+    that one.
   - It sits near the **bottom** of the ladder, below everything carrying consent, a
     schedule, or unrecoverable text, and is suppressed entirely while dictating. Its
     clock is **paused while the band is busy** and it is **dropped once shown**
