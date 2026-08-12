@@ -12,11 +12,13 @@ import Observation
 /// - **It starts dormant.** `start()` is explicit, so `swift test` and the headless
 ///   snapshot renderer can build an `AppState` without opening a socket or polling a
 ///   port. Same posture as `UsageStore(load: false)`.
-/// - **It attaches to one session, and only when there is a reason to.** The poll
-///   already knows which sessions are waiting, because kunai reports
-///   `awaiting_permission` in the session list. The socket is opened for the session
-///   that is *asking*, or the one the user opened to read. Attaching to everything
-///   would mean N sockets to render one band.
+/// - **Two sockets, never N — the shape kunai's own web app uses.** `/ws/fleet`
+///   carries every session's state, pushed and coalesced, so knowing about all of
+///   them costs one connection. `/ws/app/{id}` carries the conversation you are
+///   reading. A *second* per-session socket opens only for a neighbour blocked on a
+///   permission, because the fleet push says which session is asking but not what it
+///   asked. The REST poll survives underneath as the fallback that notices a server
+///   coming back.
 /// - **Absence is normal.** kunai may never be installed. Nothing here throws or
 ///   surfaces an error state; the surface is simply dark.
 @MainActor
@@ -121,7 +123,12 @@ final class AgentSurfaceController {
     /// This is what stops a spoken prompt from disappearing: the words are suppressed
     /// from the paste, so without a surface the user has no evidence they went
     /// anywhere at all.
-    func reveal(sessionID: String) {
+    /// `adoptExistingReply` decides whether the replay kunai sends on attach may
+    /// populate the reply band. It is **false for a send** — the previous turn's
+    /// answer replaying as though it were this one's is exactly the ghost that used
+    /// to flash up — and **true when you deliberately open a session**, which is the
+    /// only way to see what an agent said while you were looking elsewhere.
+    func reveal(sessionID: String, adoptExistingReply: Bool = false) {
         // The previous turn's answer must not flash up as though it were this one's.
         lastReply = nil
         lastReplyRaw = nil
@@ -132,8 +139,13 @@ final class AgentSurfaceController {
         isGlanceOpen = true
         revealedAt = Date()
         openSessionID = sessionID
+        adoptReplayedReply = adoptExistingReply
         reconcileAttachment()
     }
+
+    /// Set while a deliberately-opened session's replay is still arriving. Cleared by
+    /// the first live frame, so it can only ever colour the history.
+    private var adoptReplayedReply = false
 
     /// Whether a revealed band has outstayed its welcome: the turn is over and the
     /// hold has elapsed. A tap-opened glance never expires this way.
@@ -191,8 +203,10 @@ final class AgentSurfaceController {
     /// affordance. kunai routes a bare `/<sessionID>` path to that session, against
     /// whichever server actually answered discovery.
     var openSessionURL: URL? {
-        guard let endpoint, let id = openSessionID ?? attachedSessionID else { return nil }
-        return endpoint.baseURL.appendingPathComponent(id)
+        guard let id = openSessionID ?? attachedSessionID else { return nil }
+        // The web app for a remote session lives on *its* machine.
+        guard let base = fleet.endpoint(forSession: id) ?? endpoint else { return nil }
+        return base.baseURL.appendingPathComponent(id)
     }
 
     /// The session that is asking, for the banner's second line.
@@ -213,7 +227,18 @@ final class AgentSurfaceController {
     /// AppDelegate's 0.5s UI tick: this is a network call, the answer changes on
     /// human timescales, and an idle Mac should not be making two requests a second
     /// for the life of the process.
-    var pollInterval: Duration = .seconds(3)
+    /// How often the REST list is polled. It starts fast and **drops to a slow
+    /// heartbeat as soon as the fleet socket delivers**, because the push is then
+    /// the real source and the poll is only there to notice the server coming back.
+    var pollInterval: Duration = KunaiPollCadence.live
+    static let livePollInterval = KunaiPollCadence.live
+    static let backgroundPollInterval = KunaiPollCadence.background
+
+    /// Every machine's sessions, merged. One fleet socket per machine, which is
+    /// kunai's own design — sessions live on the machine that runs them, so a client
+    /// that talks only to its own Mac sees only its own Mac.
+    private let fleet = AgentFleet()
+    private var fleetWired = false
 
     /// Missed polls in a row. See `refresh` — one miss is routine, several is a
     /// server that is actually gone.
@@ -256,6 +281,7 @@ final class AgentSurfaceController {
     func stop() {
         pollTask?.cancel()
         pollTask = nil
+        fleet.stop()
         detach()
         sessions = []
         isAvailable = false
@@ -286,23 +312,39 @@ final class AgentSurfaceController {
         consecutivePollFailures = 0
         endpoint = await rest.active
         isAvailable = true
+        // Machines first: sessions live on the machine that runs them, so this is
+        // what turns "the agents on this Mac" into "the agents you are running".
+        let machines = await rest.machines()
+        reconcileFleet(machines: machines)
 
-        // Preserve the mode we already learned from each session's socket: the list
-        // endpoint does not carry it, and dropping it would flip the mode control
-        // back to Ask on every poll.
+        // The poll's own list is the *local* machine's, and it is only the fallback:
+        // once any fleet socket is pushing, applying it here would delete every
+        // remote machine's sessions on every pass. An older kunai with no
+        // `/api/machines` lands here too, and still works, as one machine.
+        if !fleet.isPushing {
+            applySessions(metas.map { AgentSession(meta: $0) })
+        }
+    }
+
+    /// Fold a merged session list into state.
+    ///
+    /// The fleet push and the REST poll both arrive here, so the two can never grow
+    /// different behaviour. Everything the list endpoint does not carry — the mode we
+    /// learned from a socket, the activity, the live state of the session we are
+    /// attached to — is re-applied on top.
+    private func applySessions(_ incoming: [AgentSession]) {
         let knownModes = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0.mode) })
         let knownActivity = Dictionary(
             uniqueKeysWithValues: sessions.map { ($0.id, $0.activity) })
-        sessions = metas
-            .map { meta in
-                var session = AgentSession(
-                    meta: meta, mode: knownModes[meta.id] ?? .ask,
-                    activity: knownActivity[meta.id] ?? nil)
-                // The socket is live and this list is up to three seconds old, so on
-                // the attached session the socket wins. Letting the poll overwrite it
-                // flipped a finished turn back to `running`, which took the reply off
-                // the band until the next poll — half of the reported flicker.
-                if let live = socketStates[meta.id] {
+        sessions = incoming
+            .map { session in
+                var session = session
+                session.mode = knownModes[session.id] ?? session.mode
+                session.activity = session.activity ?? knownActivity[session.id] ?? nil
+                // The attached socket is still the authority on its own session: the
+                // fleet push coalesces, so it can land a hair behind a state frame we
+                // already have.
+                if let live = socketStates[session.id] {
                     session.state = live
                     if live == .idle { session.turnStartedAt = nil }
                 }
@@ -312,19 +354,119 @@ final class AgentSurfaceController {
 
         // Remembered so a first spoken prompt on a Mac with a *closed* session still
         // has somewhere sensible to open, rather than demanding a setting first.
-        if let directory = metas.first(where: { !$0.cwd.isEmpty })?.cwd {
-            lastKnownDirectory = directory
+        if let local = sessions.first(where: { !$0.isRemote && !$0.cwd.isEmpty })?.cwd {
+            lastKnownDirectory = local
         }
 
-        // What the sessions we are *not* watching have been doing. Read from the poll
-        // we already make, so noticing a second agent costs nothing.
+        // What the sessions we are *not* watching have been doing.
         if let event = attention.update(sessions: sessions, watching: attendedSessionID) {
             nudge = event
             nudgeAt = Date()
         }
 
         reconcileAttachment()
+        reconcileAskAttachment()
     }
+
+    // MARK: The fleet
+
+    /// Wire the fleet up once, then keep its machine list current. Both are cheap and
+    /// idempotent, so the poll can just call this every pass.
+    private func reconcileFleet(machines: [KunaiMachine]) {
+        if !fleetWired {
+            fleetWired = true
+            fleet.onSessions = { [weak self] merged in
+                self?.receiveFleet(merged)
+            }
+        }
+        fleet.reconcile(machines: machines, local: endpoint)
+        // A push is proof the server is up, so the poll can go back to sleep.
+        pollInterval = fleet.isPushing ? Self.backgroundPollInterval : Self.livePollInterval
+    }
+
+    private func receiveFleet(_ merged: [AgentSession]) {
+        isAvailable = true
+        consecutivePollFailures = 0
+        applySessions(merged)
+    }
+
+    // MARK: The asking session's socket
+
+    /// A **second** socket, opened only for a session that is blocked on a permission
+    /// while you are reading a different one.
+    ///
+    /// This is the one place more than one socket earns its keep, and it is two, not
+    /// N. The fleet push says *which* session is asking, but not what it is asking —
+    /// the question and its arguments only exist on that session's own stream. Without
+    /// this the card could not be raised at all until you tapped across, which is a
+    /// blocked machine waiting on a person who has to notice a hint first.
+    ///
+    /// It carries **permissions only**. The transcript, the reply, the change set and
+    /// the mode all stay with the focused session, so nothing here can make the band
+    /// show two conversations at once.
+    private var askStream: KunaiEventStream?
+    private var askPumpTask: Task<Void, Never>?
+    private(set) var askSessionID: String?
+
+    /// Open, move, or close the second socket to match who is actually asking.
+    private func reconcileAskAttachment() {
+        // Whoever is blocked and is *not* the session we already have a socket on.
+        let wanted = sessions.first {
+            $0.state == .awaitingPermission && $0.id != attachedSessionID
+        }?.id
+        guard wanted != askSessionID else { return }
+        detachAsk()
+        guard let wanted else { return }
+
+        let askEndpoint = fleet.endpoint(forSession: wanted) ?? endpoint
+        guard let askEndpoint else { return }
+        let stream = KunaiEventStream(endpoint: askEndpoint, sessionID: wanted)
+        askStream = stream
+        askSessionID = wanted
+        askPumpTask = Task { [weak self] in
+            let frames = await stream.connect()
+            for await frame in frames {
+                guard let self else { return }
+                await self.handleAsk(frame, from: wanted)
+            }
+        }
+    }
+
+    private func detachAsk() {
+        askPumpTask?.cancel()
+        askPumpTask = nil
+        let closing = askStream
+        askStream = nil
+        // Only clear the card if it is the one this socket raised — the focused
+        // session's own question must survive its neighbour going away.
+        if ask != nil, askOwner == askSessionID { ask = nil; askOwner = nil }
+        askSessionID = nil
+        Task { await closing?.disconnect() }
+    }
+
+    /// Which session raised the card currently on screen. The answer has to go back
+    /// down the socket it came from, and with two open that is no longer implied.
+    private(set) var askOwner: String?
+
+    private func handleAsk(_ frame: KunaiEventStream.Frame, from sessionID: String) {
+        guard case .event(let event) = frame else { return }
+        switch event.kind {
+        case .hello:
+            // Only what is *still* outstanding. A replayed permission from this
+            // session's history was answered long ago.
+            for pending in event.pending ?? [] { raiseAsk(from: pending, owner: sessionID) }
+        case .permission:
+            raiseAsk(from: event, owner: sessionID)
+        case .permissionResolved:
+            // Answered somewhere else — kunai's web app, another client, a timeout.
+            if ask?.requestID == event.requestID { ask = nil; askOwner = nil }
+        default:
+            return
+        }
+    }
+
+    /// The machines kunai knows about. Read by Settings to say what the notch can see.
+    var machines: [KunaiMachine] { fleet.machines }
 
     // MARK: Other sessions
 
@@ -370,7 +512,7 @@ final class AgentSurfaceController {
     /// work.
     func focus(sessionID: String) {
         dismissNudge()
-        reveal(sessionID: sessionID)
+        reveal(sessionID: sessionID, adoptExistingReply: true)
     }
 
     /// Attach to the session that most deserves the socket: the one the user opened,
@@ -386,7 +528,10 @@ final class AgentSurfaceController {
     // MARK: Attachment
 
     private func attach(to sessionID: String) {
-        guard let endpoint else { return }
+        // **A session's socket belongs to its machine.** Attaching everything to this
+        // Mac's kunai worked only while every session was on this Mac; a session on
+        // another box has to be reached at that box's own address.
+        guard let endpoint = fleet.endpoint(forSession: sessionID) ?? endpoint else { return }
         let stream = KunaiEventStream(endpoint: endpoint, sessionID: sessionID)
         self.stream = stream
         attachedSessionID = sessionID
@@ -445,6 +590,11 @@ final class AgentSurfaceController {
         // anything below. `seq == 0` (a frame kunai didn't sequence) counts as
         // live rather than being silently swallowed.
         let isLive = event.seq > liveSince || event.seq == 0
+        if isLive {
+            adoptReplayedReply = false
+        } else {
+            adoptReplayFromLogIfWanted()
+        }
 
         switch event.kind {
         case .hello:
@@ -521,13 +671,35 @@ final class AgentSurfaceController {
         }
     }
 
-    private func raiseAsk(from event: KunaiWire.Event) {
+    /// Show what this session already said, from the replay rather than from a live
+    /// frame. Only for a session opened on purpose, and only while it is idle — doing
+    /// it for a running session would put a finished reply on the band beside an agent
+    /// that is still working.
+    private func adoptReplayFromLogIfWanted() {
+        guard adoptReplayedReply, lastReply == nil else { return }
+        guard openSession?.state == .idle else { return }
+        guard let raw = log.lastAssistantText else { return }
+        lastReplyRaw = raw
+        lastReply = AgentReplyLine.compact(raw) ?? raw
+        // The clock starts when *you* opened it: this is reading time for something
+        // that finished a while ago, not a fresh announcement.
+        lastReplyAt = Date()
+        replyExpanded = expandRepliesByDefault
+    }
+
+    /// `owner` is the session the question came from. With a second socket open for
+    /// a blocked neighbour, "which session is this card from" stops being implied by
+    /// the one attachment — and the answer has to go back down the socket that asked.
+    private func raiseAsk(from event: KunaiWire.Event, owner: String? = nil) {
         guard event.kind == .permission || event.requestID != nil else { return }
-        let title = askingSession?.repo ?? ""
+        let from = owner ?? attachedSessionID
+        let title = sessions.first { $0.id == from }?.repo ?? askingSession?.repo ?? ""
         guard let built = AgentAsk.make(from: event, sessionTitle: title) else { return }
         // First question wins. A second card stacked on the first would hide which
         // one the buttons answer.
-        if ask == nil { ask = built }
+        guard ask == nil else { return }
+        ask = built
+        askOwner = from
     }
 
     /// The caption the working row shows: what the agent is doing, learned from its
@@ -583,22 +755,25 @@ final class AgentSurfaceController {
 
     /// Answer an approval card.
     func resolve(_ ask: AgentAsk, allow: Bool, always: Bool = false) {
-        send(.permission(requestID: ask.requestID, allow: allow, always: always))
+        sendToAskOwner(.permission(requestID: ask.requestID, allow: allow, always: always))
         self.ask = nil
+        askOwner = nil
     }
 
     /// Answer a choice card. Denying is still an allow-with-no-answer in kunai's
     /// model only when the user picked something; a dismissal is a deny.
     func answer(_ choice: AgentChoice, question: AgentChoice.Question, selected: [String]) {
         guard !selected.isEmpty else {
-            send(.permission(requestID: choice.requestID, allow: false))
+            sendToAskOwner(.permission(requestID: choice.requestID, allow: false))
             ask = nil
+            askOwner = nil
             return
         }
-        send(.permission(
+        sendToAskOwner(.permission(
             requestID: choice.requestID, allow: true,
             answers: AgentChoice.answers(for: question, selected: selected)))
         ask = nil
+        askOwner = nil
     }
 
     /// Send a dictated prompt to the session the panel is pointed at.
@@ -720,6 +895,17 @@ final class AgentSurfaceController {
     private func send(_ command: KunaiWire.Command) {
         guard let stream else { return }
         Task { await stream.send(command) }
+    }
+
+    /// Answer the card down whichever socket raised it. Sending every answer on the
+    /// focused stream would resolve a request id the focused session has never heard
+    /// of, and leave the blocked one blocked.
+    private func sendToAskOwner(_ command: KunaiWire.Command) {
+        if let askOwner, askOwner == askSessionID, let askStream {
+            Task { await askStream.send(command) }
+            return
+        }
+        send(command)
     }
 
     // MARK: Snapshots

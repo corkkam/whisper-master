@@ -22,10 +22,24 @@ struct AgentSession: Sendable, Equatable, Identifiable {
     /// Set while this session is the one holding a question.
     var isWaiting: Bool { state == .awaitingPermission }
 
+    /// Which machine this session runs on, and its short name. Empty label means
+    /// *this* Mac — the common case, and the one the band must not clutter with a
+    /// hostname nobody needs told.
+    var machineID: String = ""
+    var machineLabel: String = ""
+    /// The working directory kunai reported, kept so a first spoken prompt has
+    /// somewhere sensible to open a new session.
+    var cwd: String = ""
+
+    /// Whether this session is somewhere else. What the surfaces test before naming
+    /// a machine.
+    var isRemote: Bool { !machineLabel.isEmpty }
+
     init(meta: KunaiWire.SessionMeta,
          mode: KunaiWire.PermissionMode = .ask,
          activity: String? = nil) {
         id = meta.id
+        cwd = meta.cwd
         repo = AgentSession.repoName(fromPath: meta.cwd)
         title = meta.title
         state = KunaiWire.SessionState(wire: meta.state)

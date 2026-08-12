@@ -927,7 +927,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The elapsed stamp changes every second, so compare on the *state* rather
         // than the label — otherwise this rebuilds the menu twice a second forever,
         // which is exactly what the change guard exists to prevent.
-        let signature = sessions.map { "\($0.id)|\($0.repo)|\($0.state.rawValue)" }
+        let signature = sessions.map {
+            "\($0.id)|\($0.repo)|\($0.machineLabel)|\($0.state.rawValue)"
+        }
         guard signature != renderedAgentRows else { return }
         renderedAgentRows = signature
         _ = rows
@@ -935,7 +937,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         agentsMenu.removeAllItems()
         for session in sessions {
             let item = NSMenuItem(
-                title: "\(session.repo.isEmpty ? "agent" : session.repo) — \(session.statusLabel(now: now))",
+                title: Self.agentMenuTitle(for: session, now: now),
                 action: #selector(openAgentSession(_:)),
                 keyEquivalent: "")
             item.target = self
@@ -946,6 +948,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             agentsMenu.addItem(item)
         }
+    }
+
+    /// "whisper-master — Working 12s", or "kunai (linux) — Needs you" when the
+    /// session is on another machine. The machine only appears when it is not this
+    /// one, so the common case stays uncluttered.
+    private static func agentMenuTitle(for session: AgentSession, now: Date) -> String {
+        let name = session.repo.isEmpty ? "agent" : session.repo
+        let where_ = session.isRemote ? " (\(session.machineLabel))" : ""
+        return "\(name)\(where_) — \(session.statusLabel(now: now))"
     }
 
     /// Open one session on the band from the tray. Same door the nudge uses, so

@@ -115,6 +115,17 @@ struct KunaiEndpoint: Sendable, Equatable {
         return components.url
     }
 
+    /// The fleet socket: every session's state, pushed. kunai's own web app pairs
+    /// this with the per-session socket below rather than opening one per session,
+    /// and so do we.
+    func fleetSocket() -> URL? {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("ws/fleet"), resolvingAgainstBaseURL: false)
+        else { return nil }
+        components.scheme = baseURL.scheme?.lowercased() == "https" ? "wss" : "ws"
+        return components.url
+    }
+
     /// The event socket for one session. `since` is the resume mark: kunai keeps a
     /// per-session ring buffer, so reattaching asks for everything after the last
     /// sequence seen instead of replaying the conversation.

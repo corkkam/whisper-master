@@ -99,6 +99,17 @@ actor KunaiRESTClient {
     ///
     /// kunai blocks on the CLI init handshake here, so this is the one call with a
     /// long timeout. It is never on a path where the user is waiting on a keystroke.
+    /// The fleet's machines. Sessions are per machine, so this is what turns "the
+    /// agents on this Mac" into "the agents you are running".
+    func machines() async -> [KunaiMachine] {
+        guard let endpoint = active,
+              let url = endpoint.api("api/machines"),
+              let data = await get(url),
+              let machines = try? JSONDecoder().decode([KunaiMachine].self, from: data)
+        else { return [] }
+        return machines
+    }
+
     func createSession(cwd: String, mode: KunaiWire.PermissionMode) async -> String? {
         guard let endpoint = active ?? candidates.first,
               let url = endpoint.api("api/sessions")

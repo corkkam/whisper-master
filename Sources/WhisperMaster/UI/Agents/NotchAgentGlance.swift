@@ -65,9 +65,24 @@ struct NotchAgentGlance: View {
                     .fill(dotColor(for: session))
                     .frame(width: 6, height: 6)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(session.repo)
-                        .font(Typography.notchTitle)
-                        .foregroundStyle(Theme.Notch.text)
+                    HStack(spacing: 6) {
+                        Text(session.repo)
+                            .font(Typography.notchTitle)
+                            .foregroundStyle(Theme.Notch.text)
+                        // Only a session that is somewhere else is labelled. Every
+                        // row carrying "this Mac" would be a column of noise on the
+                        // common case.
+                        if session.isRemote {
+                            Text(session.machineLabel)
+                                .font(.system(size: 9, weight: .bold))
+                                .tracking(0.4)
+                                .foregroundStyle(Theme.Notch.textTertiary)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1.5)
+                                .background(
+                                    Capsule().fill(Theme.Notch.text.opacity(0.10)))
+                        }
+                    }
                     Text(session.subtitle)
                         .font(Typography.notchCaption)
                         .foregroundStyle(Theme.Notch.textSecondary)
@@ -84,7 +99,9 @@ struct NotchAgentGlance: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .accessibilityLabel(
-            "\(session.repo), \(session.subtitle), \(session.statusLabel(now: now))")
+            session.isRemote
+                ? "\(session.repo) on \(session.machineLabel), \(session.subtitle), \(session.statusLabel(now: now))"
+                : "\(session.repo), \(session.subtitle), \(session.statusLabel(now: now))")
     }
 
     private func dotColor(for session: AgentSession) -> Color {

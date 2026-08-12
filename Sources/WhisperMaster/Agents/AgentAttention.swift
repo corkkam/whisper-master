@@ -35,6 +35,9 @@ struct AgentAttention: Equatable {
         let sessionID: String
         let repo: String
         let kind: Kind
+        /// The machine it is on, when that is not this one. "kunai needs you" means
+        /// something different when kunai is on the box in the other room.
+        var machine: String = ""
         var id: String { "\(sessionID)-\(kind.rawValue)" }
 
         /// One line, in the band's voice. Never the tool name, never the raw state.
@@ -54,7 +57,10 @@ struct AgentAttention: Equatable {
             }
         }
 
-        private var name: String { repo.isEmpty ? "An agent" : repo }
+        private var name: String {
+            let base = repo.isEmpty ? "An agent" : repo
+            return machine.isEmpty ? base : "\(base) on \(machine)"
+        }
     }
 
     /// Each session's state as of the previous pass. A session with no entry has
@@ -110,7 +116,9 @@ struct AgentAttention: Equatable {
             }
             guard let kind else { continue }
 
-            let event = Event(sessionID: session.id, repo: session.repo, kind: kind)
+            let event = Event(
+                sessionID: session.id, repo: session.repo, kind: kind,
+                machine: session.machineLabel)
             guard announced.insert(event.id).inserted else { continue }
             // Newest wins: a permission outranks a finish, because one is blocking a
             // machine and the other is only news.

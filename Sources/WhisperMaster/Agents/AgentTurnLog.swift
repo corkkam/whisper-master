@@ -81,6 +81,15 @@ struct AgentTurnLog: Sendable, Equatable {
         }
     }
 
+    /// The newest thing the agent said, whether it arrived live or in the replay
+    /// kunai sends on attach. What "show me what this session did" reads.
+    var lastAssistantText: String? {
+        for entry in entries.reversed() {
+            if case .assistant(_, let text) = entry, !text.isEmpty { return text }
+        }
+        return nil
+    }
+
     /// The newest thing the user said — the question the expanded reply answers.
     /// Shown above the reply, because an answer with no visible question is "old
     /// history, missing".
