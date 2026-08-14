@@ -11,6 +11,18 @@ struct ToolResult: Equatable, Sendable {
     let text: String
     /// Labels of the connections that contributed.
     let instanceLabels: [String]
+    /// How a write was permitted. nil for a read, and for a write refused before any
+    /// card could be raised — there was nothing to authorize.
+    var authorization: ToolAuthorization?
+    /// How long the call spent waiting on the approval card. Reported separately so
+    /// the journal can take it back out of the call's own duration: the user's
+    /// thinking time is not the connector's latency.
+    var approvalMilliseconds: Int = 0
+    /// Connections that were asked and couldn't answer. Named here as well as in the
+    /// text so the answer's provenance can state the gap without re-reading the model's
+    /// prose — "couldn't look" and "nothing scheduled" mean opposite things, and only
+    /// one of them is safe to report as "Nothing to report".
+    var unreadable: [String] = []
 
     static func failure(_ text: String) -> ToolResult {
         ToolResult(ok: false, text: text, instanceLabels: [])
@@ -107,11 +119,13 @@ struct ToolRouter {
             let served = instances
                 .filter { instance in !summary.gaps.contains { $0.instanceLabel == instance.displayLabel } }
                 .map(\.displayLabel)
-            return ToolResult(ok: true, text: text, instanceLabels: served)
+            return ToolResult(ok: true, text: text, instanceLabels: served,
+                              unreadable: summary.gaps.map(\.instanceLabel))
 
         case .messages, .tasks, .files, .mail:
             var lines: [String] = []
             var served: [String] = []
+            var unreadable: [String] = []
             for instance in instances {
                 guard let provider = ProviderRegistry.itemProvider(for: instance) else { continue }
                 let outcome = await provider.recentItems(for: instance, limit: 15)
@@ -119,6 +133,7 @@ struct ToolRouter {
                     store.setError(instance.id, error)
                     // Named, not swallowed — a partial answer must admit what's missing.
                     lines.append("[\(instance.displayLabel)] couldn't be read: \(error.message)")
+                    unreadable.append(instance.displayLabel)
                     continue
                 }
                 store.setError(instance.id, nil)
@@ -129,7 +144,8 @@ struct ToolRouter {
                 }
             }
             let text = lines.isEmpty ? "Nothing to report." : lines.joined(separator: "\n")
-            return ToolResult(ok: true, text: text, instanceLabels: served)
+            return ToolResult(ok: true, text: text, instanceLabels: served,
+                              unreadable: unreadable)
         }
     }
 
@@ -158,6 +174,11 @@ struct ToolRouter {
         case .success(let resolved): arguments = resolved
         }
 
+        let authorization: ToolAuthorization
+        /// The card's own wall time, kept out of the call's. Measured on the injected
+        /// clock like every other duration here, so a test can wind it forward.
+        var waited = 0
+
         switch WriteAuthorizer.authorize(tool: descriptor,
                                          instanceID: instance.id,
                                          target: target,
@@ -173,25 +194,43 @@ struct ToolRouter {
                 instanceLabel: instance.displayLabel,
                 target: target,
                 arguments: arguments)
-            switch await requestApproval(approval) {
+            let askedAt = now()
+            let outcome = await requestApproval(approval)
+            waited = Int(now().timeIntervalSince(askedAt) * 1000)
+            switch outcome {
             case .denied:
                 // Not an error — the user answered. Saying so plainly keeps the model
                 // from retrying the same write.
-                return ToolResult(ok: false, text: "The user declined that.", instanceLabels: [])
+                return ToolResult(ok: false, text: "The user declined that.",
+                                  instanceLabels: [], authorization: .denied,
+                                  approvalMilliseconds: waited)
+            case .timedOut:
+                // Worded apart from a denial because nobody said no: the card was up
+                // and went unanswered. Reporting the user's decision here would be the
+                // app answering for them, and it hides a card shown where nobody
+                // looked.
+                return ToolResult(ok: false,
+                                  text: "Nobody answered the approval card in time, "
+                                      + "so nothing was sent.",
+                                  instanceLabels: [], authorization: .timedOut,
+                                  approvalMilliseconds: waited)
             case .allowedAlways:
                 store.addGrant(Grant(tool: call.tool, instanceID: instance.id, target: target))
+                authorization = .allowedAlways
             case .allowedOnce:
-                break
+                authorization = .allowedOnce
             }
 
         case .granted:
-            break
+            authorization = .standingGrant
         }
 
         let result = await provider.performWrite(
             tool: call.tool, arguments: arguments, instance: instance)
         return ToolResult(ok: result.ok, text: result.summary,
-                          instanceLabels: [instance.displayLabel])
+                          instanceLabels: [instance.displayLabel],
+                          authorization: authorization,
+                          approvalMilliseconds: waited)
     }
 
     /// Turn a write tool's spoken `when` into concrete `start`/`end` ISO-8601 times.

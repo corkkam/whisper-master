@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connector flow mocks</title>
+<style>
+  :root{
+    --bg:#f4f4f2; --panel:#ffffff; --ink:#1a1a17; --sub:#6b6b64; --line:#e3e3de;
+    --teal:#0f9b8e; --teal-soft:#e0f3f0; --danger:#c0392b; --danger-soft:#fbeae7;
+    --amber:#b9770a; --amber-soft:#f8efdc; --notch:#0e0e10; --notch-ink:#f2f2f0;
+    --notch-sub:#9a9aa2; --chip:#efefe9; --ok:#1f8a4c;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#131315; --panel:#1c1c1f; --ink:#ececea; --sub:#9a9a94; --line:#2c2c30;
+      --teal:#38c9b9; --teal-soft:#123230; --danger:#e0705f; --danger-soft:#3a201c;
+      --amber:#e0a437; --amber-soft:#372c14; --notch:#050506; --notch-ink:#f2f2f0;
+      --notch-sub:#8f8f97; --chip:#262629; --ok:#4bbd78;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#131315; --panel:#1c1c1f; --ink:#ececea; --sub:#9a9a94; --line:#2c2c30;
+    --teal:#38c9b9; --teal-soft:#123230; --danger:#e0705f; --danger-soft:#3a201c;
+    --amber:#e0a437; --amber-soft:#372c14; --notch:#050506; --notch-ink:#f2f2f0;
+    --notch-sub:#8f8f97; --chip:#262629; --ok:#4bbd78;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+  .wrap{max-width:1040px;margin:0 auto;padding:32px 20px 80px}
+  h1{font-size:26px;letter-spacing:-.02em;margin:0 0 6px}
+  h2{font-size:19px;letter-spacing:-.01em;margin:40px 0 4px}
+  h3{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--sub);margin:22px 0 10px;font-weight:600}
+  p{margin:6px 0;color:var(--ink)}
+  .lede{color:var(--sub);max-width:70ch}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+  @media(max-width:720px){.cols{grid-template-columns:1fr}}
+  .tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;
+    padding:2px 8px;border-radius:999px;text-transform:uppercase}
+  .tag.before{background:var(--danger-soft);color:var(--danger)}
+  .tag.after{background:var(--teal-soft);color:var(--teal)}
+  .tag.a{background:var(--chip);color:var(--sub)}
+  .caption{font-size:12.5px;color:var(--sub);margin:8px 2px 0}
+  /* macOS settings panel */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:14px;box-shadow:0 1px 0 rgba(0,0,0,.02)}
+  .row{display:flex;align-items:center;gap:12px;padding:11px 10px;border-radius:10px}
+  .row + .row{border-top:1px solid var(--line)}
+  .ic{width:30px;height:30px;border-radius:8px;flex:0 0 auto;display:grid;place-items:center;
+    background:var(--chip);font-size:15px}
+  .grow{flex:1;min-width:0}
+  .name{font-weight:600;font-size:14.5px}
+  .meta{font-size:12.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pill{font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+  .pill.ok{background:var(--teal-soft);color:var(--teal)}
+  .pill.err{background:var(--danger-soft);color:var(--danger)}
+  .btn{font:inherit;font-size:12.5px;font-weight:600;border:1px solid var(--line);
+    background:var(--panel);color:var(--ink);border-radius:8px;padding:5px 11px;cursor:default}
+  .btn.primary{background:var(--teal);border-color:var(--teal);color:#fff}
+  .btn.ghost{border-color:transparent;color:var(--teal);background:transparent;padding-left:2px}
+  .strip{margin-top:10px;background:var(--danger-soft);border-radius:10px;padding:10px 12px;
+    display:flex;gap:10px;align-items:center;font-size:13px;color:var(--danger)}
+  .strip.amber{background:var(--amber-soft);color:var(--amber)}
+  .enable{margin-top:10px;background:var(--teal-soft);border:1px solid transparent;border-radius:12px;
+    padding:13px 14px;display:flex;gap:12px;align-items:flex-start}
+  .toggle{width:38px;height:22px;border-radius:999px;background:var(--teal);flex:0 0 auto;position:relative;margin-top:2px}
+  .toggle::after{content:"";position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#fff}
+  .toggle.off{background:#c9c9c2}.toggle.off::after{left:2px;right:auto}
+  /* notch band */
+  .band{background:var(--notch);color:var(--notch-ink);border-radius:16px;padding:16px 18px;
+    box-shadow:0 8px 30px rgba(0,0,0,.25)}
+  .band .k{font-size:12px;color:var(--notch-sub);letter-spacing:.02em}
+  .band .q{font-size:16px;font-weight:600;margin:4px 0 12px}
+  .band .acts{display:flex;gap:8px}
+  .cap{background:#26262b;color:var(--notch-ink);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600}
+  .cap.teal{background:var(--teal);color:#04201d}
+  .dots{display:flex;gap:6px;align-items:center;color:var(--notch-sub);font-size:12.5px;margin-top:10px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--notch-sub)}
+  .dot.on{background:var(--teal)}
+  .note{background:var(--chip);border-radius:10px;padding:10px 12px;font-size:12.5px;color:var(--sub);margin-top:8px}
+  code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--chip);padding:1px 5px;border-radius:5px}
+  .switch{position:fixed;top:12px;right:14px;font-size:12px;color:var(--sub);cursor:pointer;
+    border:1px solid var(--line);border-radius:8px;padding:4px 9px;background:var(--panel);user-select:none}
+  ul{margin:8px 0;padding-left:18px}li{margin:3px 0;color:var(--sub)}
+</style>
+</head>
+<body>
+<div class="switch" onclick="var r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'">toggle theme</div>
+<div class="wrap">
+
+  <h1>Connector flow: three fixes</h1>
+  <p class="lede">Mocks for the connector user-flow gaps the audit found. Each is shown as it is now versus proposed. Fix 2 has a real placement choice (A or B) to pick. Nothing is built yet. Approve, reject, or adjust each; I implement only what you pick.</p>
+
+  <!-- FIX 1 -->
+  <h2>1. Repair an expired connector</h2>
+  <p class="lede">Today an expired Google sign-in has no working repair: the only exit is Remove and re-add, which loses the label, the default, and every standing permission. The row shows an error with no route out.</p>
+  <div class="cols">
+    <div>
+      <span class="tag before">Now</span>
+      <div class="panel" style="margin-top:8px">
+        <div class="row">
+          <div class="ic">📅</div>
+          <div class="grow"><div class="name">Work calendar</div><div class="meta">Google · sruthi@corkkam.com</div></div>
+          <span class="pill err">Needs attention</span>
+        </div>
+        <div class="strip">⚠ Access expired and couldn't be renewed.</div>
+      </div>
+      <p class="caption">Tapping the row opens the Add sheet, where signing in with the same account is refused as a duplicate. Dead end.</p>
+    </div>
+    <div>
+      <span class="tag after">Proposed</span>
+      <div class="panel" style="margin-top:8px">
+        <div class="row">
+          <div class="ic">📅</div>
+          <div class="grow"><div class="name">Work calendar</div><div class="meta">Google · sruthi@corkkam.com</div></div>
+          <span class="pill err">Expired</span>
+        </div>
+        <div class="strip">
+          <span style="flex:1">Access expired. Sign in again to restore it, keeping this connector's name and permissions.</span>
+          <button class="btn primary">Sign in again</button>
+        </div>
+      </div>
+      <p class="caption">"Sign in again" re-runs the browser flow for this same account and saves over the same connector id (skips the duplicate check when repairing). Label, default, and grants survive.</p>
+    </div>
+  </div>
+
+  <!-- FIX 2 -->
+  <h2>2. The assistant opt-in is invisible when it bites</h2>
+  <p class="lede">You add Gmail, then ask the assistant about your mail, and nothing useful happens: "Let it use your connectors" is off by default and lives on a different page. Only the Traces page explains it, after the fact. Two placements, pick one.</p>
+
+  <div class="cols">
+    <div>
+      <span class="tag a">A</span> <span style="font-size:12.5px;color:var(--sub)">Inline enable card on the Connectors page</span>
+      <div class="panel" style="margin-top:8px">
+        <div class="row">
+          <div class="ic">✉️</div>
+          <div class="grow"><div class="name">Gmail</div><div class="meta">sruthi@corkkam.com · read</div></div>
+          <span class="pill ok">Connected</span>
+        </div>
+        <div class="enable">
+          <div class="toggle off"></div>
+          <div>
+            <div class="name" style="font-size:13.5px">Let the assistant use your connectors</div>
+            <div class="meta" style="white-space:normal">Off. Hold fn+control and ask "what's in my inbox" once this is on. Runs on-device; connectors are only read when you ask.</div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">Appears only while the first connector exists and the toggle is still off. Disappears once enabled. The toggle here is the same setting as the Assistant page, mirrored.</p>
+    </div>
+    <div>
+      <span class="tag a">B</span> <span style="font-size:12.5px;color:var(--sub)">Fold it into the ask bar</span>
+      <div class="panel" style="margin-top:8px">
+        <div class="row">
+          <div class="ic">✉️</div>
+          <div class="grow"><div class="name">Gmail</div><div class="meta">sruthi@corkkam.com · read</div></div>
+          <span class="pill ok">Connected</span>
+        </div>
+        <div class="note" style="display:flex;gap:10px;align-items:center;background:var(--teal-soft)">
+          <span style="flex:1;color:var(--teal)">Hold <code>fn</code>+<code>control</code> and ask about your day. Turn this on first:</span>
+          <button class="btn primary">Enable</button>
+        </div>
+      </div>
+      <p class="caption">The existing ask-bar teaching line gains the enable action inline, so the instruction and the switch are the same place. Less new chrome than A; also less explanatory.</p>
+    </div>
+  </div>
+
+  <!-- FIX 3 -->
+  <h2>3. Teach the assistant chord in onboarding</h2>
+  <p class="lede">Onboarding's four beats never mention the fn+control chord or connectors, so a user who never opens the Connectors tab never learns the assistant exists. One line on the final "ready" beat, and the notch surface it points to.</p>
+  <div class="cols">
+    <div>
+      <span class="tag after">Onboarding, final beat</span>
+      <div class="band" style="margin-top:8px">
+        <div class="k">You're set</div>
+        <div class="q">Hold <span style="color:var(--teal)">fn</span> and talk to dictate anywhere.</div>
+        <div class="note" style="background:#26262b;color:var(--notch-sub);margin:0">
+          New: hold <span style="color:var(--notch-ink)">fn+control</span> instead and ask about your day, calendar, or mail. Answers are spoken back.
+        </div>
+        <div class="acts" style="margin-top:14px"><span class="cap teal">Done</span></div>
+      </div>
+      <p class="caption">One added line, not a new beat, so existing users are not re-onboarded. Copy avoids naming any model or provider.</p>
+    </div>
+    <div>
+      <span class="tag after">What the chord opens</span>
+      <div class="band" style="margin-top:8px">
+        <div class="k">On-device assistant</div>
+        <div class="q">What's on my work calendar tomorrow?</div>
+        <div class="dots"><span class="dot on"></span><span class="dot on"></span><span class="dot"></span> reading Work calendar</div>
+        <div class="acts" style="margin-top:14px"><span class="cap">Working on it</span></div>
+      </div>
+      <p class="caption">Shown here only for context; no change to this surface is proposed in this pass.</p>
+    </div>
+  </div>
+
+  <h3>What implementing the picked options touches</h3>
+  <ul>
+    <li><b>Fix 1</b> (repair): <code>ConnectorsSettingsView</code> (config-aware <code>canReconnect</code> + a "sign in again" action), the Google sign-in step (skip the duplicate check when repairing the same id), <code>GoogleAccounts</code>. Logic + a small row affordance.</li>
+    <li><b>Fix 2A/2B</b> (opt-in): <code>ConnectorsSettingsView</code> and a read of <code>connectorAgentEnabled</code> on <code>AppState</code>. Pure UI, no new setting.</li>
+    <li><b>Fix 3</b> (onboarding): one line in <code>NotchOnboardingView</code> / <code>NotchOnboardingStep</code> (the ready beat). Copy only.</li>
+  </ul>
+  <p class="caption">Fix 1 is the highest-value: it turns a dead end into a one-tap recovery. Tell me A or B for Fix 2, and thumbs up/down on 1 and 3.</p>
+
+</div>
+</body>
+</html>

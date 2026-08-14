@@ -51,16 +51,77 @@ enum CleanupFaithfulnessGuard {
     static let rephraseMaxExpansionRatio = 2.0
     static let rephraseMaxNovelContentFraction = 0.5
 
+    /// Why a rewrite was refused — or that it wasn't.
+    ///
+    /// The guard used to answer only `Bool`, and the reason died at the `return
+    /// false`. That was fine while the only consumer was "keep the deterministic
+    /// text", and it is not fine now that the Traces surface has to tell a user *why*
+    /// their Smart cleanup appears to do nothing: "the model rewrote it and we threw
+    /// the rewrite away because it invented a word you never said" is the answer, and
+    /// it was being computed and discarded.
+    ///
+    /// `accept` is the same predicate it always was, expressed over this.
+    enum Verdict: Equatable, Sendable {
+        case accepted
+        case empty
+        case codeFence
+        /// Longer than a faithful cleanup ever is — the tell for a model that started
+        /// answering. Carries the observed ratio and the ceiling it broke.
+        case tooLong(ratio: Double, ceiling: Double)
+        case tooShort(ratio: Double, floor: Double)
+        /// Words in, only numbers and symbols out: the model computed the utterance.
+        case computed
+        /// A named entity the input never had (polish mode's anti-answer rule).
+        case inventedEntity
+        /// Most of the output is content the input never had (polish mode).
+        case mostlyNovel(fraction: Double, ceiling: Double)
+        /// A content word that traces to nothing in the input, or one repeated more
+        /// often than it was said (strict mode).
+        case inventedWord(String)
+
+        var isAccepted: Bool { self == .accepted }
+
+        /// One line for a person, not a log. Read on the Traces surface.
+        var reason: String {
+            switch self {
+            case .accepted: return "The rewrite was faithful, so it was used."
+            case .empty: return "The model returned nothing."
+            case .codeFence: return "The model returned a code block, not a sentence."
+            case .tooLong(let ratio, let ceiling):
+                return String(format: "The rewrite was %.1f× longer than what you said (limit %.1f×) — the model started answering rather than cleaning.", ratio, ceiling)
+            case .tooShort(let ratio, let floor):
+                return String(format: "The rewrite kept only %.0f%% of what you said (floor %.0f%%) — too much was dropped.", ratio * 100, floor * 100)
+            case .computed:
+                return "The rewrite was only numbers and symbols — the model worked the sentence out instead of cleaning it."
+            case .inventedEntity:
+                return "The rewrite introduced a name you didn't say — the tell for answering a question."
+            case .mostlyNovel(let fraction, let ceiling):
+                return String(format: "%.0f%% of the rewrite was content you never said (limit %.0f%%) — the model expanded rather than polished.", fraction * 100, ceiling * 100)
+            case .inventedWord(let word):
+                return "The rewrite added a word you didn't say (\u{201C}\(word)\u{201D})."
+            }
+        }
+    }
+
     /// Returns `true` when `cleaned` is a plausibly faithful cleanup of
     /// `original`, `false` when the caller should discard it and keep `original`.
     /// `allowRephrase` loosens the content check for the "Polish my English" mode,
     /// which legitimately rewrites wording rather than only trimming disfluencies.
     static func accept(original: String, cleaned: String, allowRephrase: Bool = false) -> Bool {
+        verdict(original: original, cleaned: cleaned, allowRephrase: allowRephrase).isAccepted
+    }
+
+    /// The same decision as `accept`, with the reason kept. Checks run in the same
+    /// order they always did, so the verdict a given pair produces is the branch that
+    /// used to `return false`.
+    static func verdict(original: String,
+                        cleaned: String,
+                        allowRephrase: Bool = false) -> Verdict {
         let out = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !out.isEmpty else { return false }
+        guard !out.isEmpty else { return .empty }
 
         // Code fences / obvious code blocks are never a cleaned sentence.
-        if out.contains("```") { return false }
+        if out.contains("```") { return .codeFence }
 
         let inputWords = wordCount(original)
         let outputWords = wordCount(out)
@@ -69,15 +130,17 @@ enum CleanupFaithfulnessGuard {
         if inputWords > 0 {
             let ratio = Double(outputWords) / Double(inputWords)
             let ceiling = allowRephrase ? rephraseMaxExpansionRatio : maxExpansionRatio
-            if ratio > ceiling { return false }
-            if inputWords >= truncationFloorMinWords, ratio < minRetentionRatio { return false }
+            if ratio > ceiling { return .tooLong(ratio: ratio, ceiling: ceiling) }
+            if inputWords >= truncationFloorMinWords, ratio < minRetentionRatio {
+                return .tooShort(ratio: ratio, floor: minRetentionRatio)
+            }
         }
 
         // A cleanup of a sentence with real (non-number) words always yields
         // words. If the input has content words but the output is only numbers /
         // symbols — "15 * 12 = 180", "1 2 3 4 5" — the model computed or executed
         // the utterance instead of cleaning it.
-        if !contentTokens(original).isEmpty, contentTokens(out).isEmpty { return false }
+        if !contentTokens(original).isEmpty, contentTokens(out).isEmpty { return .computed }
 
         let outputStems = contentTokens(out).map(stem)
 
@@ -88,14 +151,17 @@ enum CleanupFaithfulnessGuard {
             // question ("capital of france" → "…is Paris"). Sentence-initial caps
             // are exempt (legitimate). This catches the short answers the
             // novel-fraction cap below can't (1 new word out of 3 slips under it).
-            if introducesForeignEntity(output: out, inputStems: inputStems) { return false }
+            if introducesForeignEntity(output: out, inputStems: inputStems) { return .inventedEntity }
 
             // Rephrasing adds synonyms/connectives, so exact containment is too
             // strict. Reject only when MOST of the output is content the input
             // never had — the tell for expanding rather than polishing.
-            guard !outputStems.isEmpty else { return true }
+            guard !outputStems.isEmpty else { return .accepted }
             let novel = outputStems.filter { !inputStems.contains($0) }.count
-            return Double(novel) / Double(outputStems.count) <= rephraseMaxNovelContentFraction
+            let fraction = Double(novel) / Double(outputStems.count)
+            return fraction <= rephraseMaxNovelContentFraction
+                ? .accepted
+                : .mostlyNovel(fraction: fraction, ceiling: rephraseMaxNovelContentFraction)
         }
 
         // Strict mode: a faithful cleanup only removes / reorders / reformats — it
@@ -107,10 +173,14 @@ enum CleanupFaithfulnessGuard {
         for stemmed in alphabeticTokens(original).map(stem) { inputCounts[stemmed, default: 0] += 1 }
         var outputCounts: [String: Int] = [:]
         for token in outputStems { outputCounts[token, default: 0] += 1 }
-        for (word, count) in outputCounts where count > (inputCounts[word] ?? 0) {
-            return false
+        // Sorted so the word named in the verdict is stable rather than whichever one
+        // the dictionary happened to iterate first — a reason that changes between
+        // runs for the same pair is not a reason.
+        for (word, count) in outputCounts.sorted(by: { $0.key < $1.key })
+        where count > (inputCounts[word] ?? 0) {
+            return .inventedWord(word)
         }
-        return true
+        return .accepted
     }
 
     // MARK: - Anti-answer

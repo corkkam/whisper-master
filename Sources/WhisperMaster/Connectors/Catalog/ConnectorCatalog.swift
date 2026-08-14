@@ -79,12 +79,19 @@ enum ConnectorCatalog {
                                 placeholder: "you@gmail.com"),
             ],
             instructions: [
-                "Gmail's read scope is a Google *restricted* scope, so one-click sign-in needs a CASA security assessment we haven't completed.",
-                "Until then, paste a token you've minted yourself (Google OAuth Playground with gmail.readonly, or your own Cloud project).",
+                "Signing in with Google is the quicker path — this form is here for an account Google won't grant the read scope to.",
+                "Paste a token you've minted yourself (Google OAuth Playground with gmail.readonly, or your own Cloud project).",
                 "Optional: put the mailbox address in the account field so the connection is labelled clearly.",
             ],
             aliases: ["mail", "email", "google", "inbox"],
-            supportsManagedOAuth: false),
+            // `GmailSignInStep` is the card people see, gated at runtime on
+            // `GoogleOAuthConfig.isGmailOAuthAvailable` — the client id *and* the Gmail
+            // flag, because gmail.readonly is a *restricted* scope: until this client
+            // clears CASA, only accounts listed as test users on the Cloud project can
+            // grant it. The fields below stay as that path's escape hatch rather than
+            // being the whole card, since a refusal is not something the sign-in screen
+            // can fix from its own side.
+            supportsManagedOAuth: true),
 
         ConnectorDescriptor(
             kind: .slack,

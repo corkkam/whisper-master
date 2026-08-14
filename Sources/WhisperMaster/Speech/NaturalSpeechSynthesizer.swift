@@ -7,7 +7,7 @@ import Foundation
 /// The models come from **FluidAudio**, which the app already depends on for ASR, so this
 /// adds no new package and no version bump. `KokoroAneManager` splits the 7-stage chain
 /// so the heavy layers (Albert / PostAlbert / Alignment / Vocoder) run on the **ANE**
-/// rather than Metal — which is why it can coexist with the 1.8 GB MLX qwen without
+/// rather than Metal — which is why it can coexist with the 2.3 GB MLX qwen without
 /// fighting it for GPU memory.
 ///
 /// Three things keep the memory cost honest and the experience non-janky:

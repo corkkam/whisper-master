@@ -274,6 +274,64 @@ final class CommandAgentTests: XCTestCase {
         XCTAssertFalse(result.ok)
     }
 
+    // MARK: - What the run records
+
+    /// The run that looks like "the model answered without calling a tool" is very
+    /// often a model that tried ten times and never emitted valid JSON. Nothing was
+    /// journalled for those attempts — no call was ever made — so without the turns
+    /// the trace describes the wrong failure.
+    func testTheModelsOwnTurnsAreKeptWhenItNeverReachedATool() async {
+        let run = await service(notes: notesStore(), connectors: emptyConnectors()).run(
+            "buy milk",
+            generate: scripted(Array(repeating: "{tool: create_note}", count: 3)))
+
+        XCTAssertNil(run.result)
+        XCTAssertTrue(run.calls.isEmpty, "nothing was ever called")
+        XCTAssertEqual(run.turns.map(\.role), ["model", "system", "model", "system",
+                                               "model", "system"],
+                       "each malformed attempt and the correction it earned")
+        XCTAssertEqual(run.turns.first?.text, "{tool: create_note}")
+    }
+
+    /// A tool's own output is already in `calls`; keeping it in the turns as well
+    /// would store every result twice in a list that is read whole at launch.
+    func testTurnsAreClampedAndLeaveTheToolResultsToTheJournal() async {
+        let long = String(repeating: "x", count: TraceText.limit + 200)
+        let run = await service(notes: notesStore(), connectors: emptyConnectors()).run(
+            "note this",
+            generate: scripted([
+                long,
+                #"{"tool":"create_note","args":{"body":"the right one"}}"#,
+                #"{"answer":"Saved."}"#,
+            ]))
+
+        XCTAssertFalse(run.turns.contains { $0.role == "tool" })
+        XCTAssertEqual(run.calls.count, 1, "the tool result lives in the journal")
+        XCTAssertTrue(run.turns[0].text.hasSuffix("(truncated)"))
+        XCTAssertLessThan(run.turns[0].text.count, long.count)
+    }
+
+    /// The chord suppresses the paste, so the band is the whole answer. A connector
+    /// that couldn't be read has to be stated by us — a 3B asked to summarise "couldn't
+    /// be read" alongside two real results will drop it, and "Nothing to report" then
+    /// reads as a quiet day. Same tail the deterministic day summary uses.
+    func testAConnectorThatCouldNotBeReadIsNamedInTheProvenance() {
+        XCTAssertEqual(
+            CommandAgentService.detailLine(effects: [], served: ["corkkam"],
+                                           unreadable: ["Work"]),
+            "From corkkam  ·  couldn't read Work")
+        XCTAssertEqual(
+            CommandAgentService.detailLine(effects: [], served: [], unreadable: []),
+            "On-device assistant",
+            "nothing to admit, nothing appended")
+        XCTAssertEqual(
+            CommandAgentService.detailLine(
+                effects: [.connectorWrite(tool: "send_message", instanceLabels: ["Work chat"])],
+                served: [], unreadable: ["Personal", "Work"]),
+            "Sent to Work chat  ·  couldn't read Personal, Work",
+            "a write still names where it went first")
+    }
+
     // MARK: - What the band shows
 
     func testTheBandLineIsClampedAtAWordBoundary() {

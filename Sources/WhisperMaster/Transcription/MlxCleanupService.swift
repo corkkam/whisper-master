@@ -4,7 +4,7 @@ import MLXLLM
 import MLXLMCommon
 import Tokenizers
 
-/// On-device transcript cleanup using qwen2.5-3B via MLX.
+/// On-device transcript cleanup using Qwen3-4B-Instruct-2507 via MLX.
 ///
 /// An `actor` so the (large, single) model loads once and is shared without
 /// races. It is deliberately dumb: given a loaded model it cleans a string; it
@@ -120,7 +120,7 @@ actor MlxCleanupService {
     ///
     /// Dropping the container releases the weight arrays, but MLX pools freed
     /// Metal buffers for reuse instead of returning them to the OS — so the
-    /// ~1.8 GB stays resident until we explicitly clear that pool. Order matters:
+    /// ~2.3 GB stays resident until we explicitly clear that pool. Order matters:
     /// release the container first, then clear the cache so the just-freed
     /// buffers are actually handed back.
     func release() {
@@ -147,6 +147,63 @@ actor MlxCleanupService {
                 try Self.generateCached(
                     context: context, box: box, user: trimmed,
                     maxTokens: maxTokens, systemPrompt: systemPrompt)
+            }
+            return Self.sanitize(raw)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Generate against the model's **native** tool-calling posture: structured
+    /// messages plus function schemas rendered through the chat template's `tools`
+    /// mechanism, so Qwen3 emits its own `<tool_call>{"name":…,"arguments":…}</tool_call>`
+    /// format rather than the hand-rolled `{"tool":…}` shape.
+    ///
+    /// Deliberately separate from `clean`, and it must stay that way: **no KV-cache
+    /// reuse.** The prompt — messages *and* tools — differs every turn, so there is no
+    /// stable prefix to reuse, and touching `box` here would corrupt the cleanup
+    /// path's primed system-prompt cache. A fresh cache is built per call.
+    ///
+    /// Returns `nil` on any problem, exactly like `clean`, so the loop can fall back
+    /// to the hand-rolled path. `messages` is `[role, content]` pairs; `toolSchemasJSON`
+    /// is one JSON function schema per tool. Both are plain value types so they cross
+    /// the actor boundary without a Sendable escape hatch — the `[String: Any]`
+    /// `ToolSpec` the tokenizer wants is rebuilt here, inside the actor.
+    func generateWithTools(
+        messages: [[String: String]],
+        toolSchemasJSON: [String],
+        maxTokens: Int = 512
+    ) async -> String? {
+        guard case .ready(let container) = state else { return nil }
+        guard !messages.isEmpty else { return nil }
+
+        let tools: [ToolSpec] = toolSchemasJSON.compactMap {
+            (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any]
+        }
+        let chatMessages: [Message] = messages.map { message -> Message in
+            ["role": message["role"] ?? "user", "content": message["content"] ?? ""]
+        }
+
+        do {
+            let raw = try await container.perform { (context: ModelContext) -> String in
+                let tokens = try context.tokenizer.applyChatTemplate(
+                    messages: chatMessages, chatTemplate: nil, addGenerationPrompt: true,
+                    truncation: false, maxLength: nil,
+                    tools: tools.isEmpty ? nil : tools)
+                let input = LMInput(tokens: MLXArray(tokens.map { Int32($0) }))
+                // A fresh cache, never the primed cleanup one.
+                let cache = context.model.newCache(parameters: nil)
+                let params = GenerateParameters(maxTokens: maxTokens, temperature: 0)
+                let iterator = try TokenIterator(
+                    input: input, model: context.model, cache: cache, parameters: params)
+                let start = Date()
+                let result = MLXLMCommon.generate(
+                    input: input, context: context, iterator: iterator
+                ) { (_: [Int]) in
+                    Date().timeIntervalSince(start) > Self.timeoutSeconds ? .stop : .more
+                }
+                Stream.gpu.synchronize()
+                return result.output
             }
             return Self.sanitize(raw)
         } catch {

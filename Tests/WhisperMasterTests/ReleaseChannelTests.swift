@@ -43,12 +43,21 @@ final class ReleaseChannelTests: XCTestCase {
 
     /// Gating those two must not take anything else down with it — Today and
     /// Settings in particular, since Today is the fallback the redirect uses.
+    /// Nearby Macs is the one section held back on its own (it is on hold).
     func testEveryOtherSectionStaysAvailableWhenTheFeatureIsUnreleased() {
-        for section in SettingsSection.allCases where section != .connectors && section != .notes {
+        let gated: Set<SettingsSection> = [.connectors, .notes, .mesh]
+        for section in SettingsSection.allCases where !gated.contains(section) {
             XCTAssertTrue(
                 section.isAvailable(connectorsAndNotes: false),
                 "\(section.rawValue) must stay reachable on stable")
         }
+    }
+
+    /// Nearby Macs is closed on every channel, not only stable — it does not ride
+    /// on the connectors/notes flag.
+    func testNearbyMacsIsOnHoldOnEveryChannel() {
+        XCTAssertFalse(SettingsSection.mesh.isAvailable(connectorsAndNotes: false))
+        XCTAssertFalse(SettingsSection.mesh.isAvailable(connectorsAndNotes: true))
     }
 
     /// The sidebar keeps listing all four primaries either way — the gated ones

@@ -43,6 +43,8 @@
 	<string>$(GA_API_SECRET)</string>
 	<key>GAMeasurementID</key>
 	<string>$(GA_MEASUREMENT_ID)</string>
+	<key>GoogleGmailOAuthEnabled</key>
+	<true/>
 	<key>GoogleOAuthClientID</key>
 	<string>140047576864-ev40jmg8f2ju19j39qj1u761vse6ddhl.apps.googleusercontent.com</string>
 	<key>LSMinimumSystemVersion</key>

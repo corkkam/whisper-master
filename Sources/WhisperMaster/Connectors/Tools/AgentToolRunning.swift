@@ -39,11 +39,29 @@ final class CommandToolRouter: AgentToolRunning {
 
     private let local: LocalToolRunner
     private let connectors: (any AgentToolRunning)?
+    /// Injected so a call's duration is fixed under test rather than measured against
+    /// the wall clock.
+    private let now: () -> Date
 
     /// Tool names that reached a runner, in call order.
     private(set) var executed: [String] = []
     /// Side effects the calls reported, in call order.
     private(set) var effects: [Effect] = []
+    /// The full record of every call — arguments, the connections that served it, what
+    /// came back, how long it took.
+    ///
+    /// `executed` answers "did it act", which is all the *routing* decision needs.
+    /// This answers "what did it actually do", which is what the Traces surface needs,
+    /// and it lives here for the same reason `executed` does: this is the one point
+    /// every call funnels through, so a journal kept anywhere else could drift from it.
+    private(set) var journal: [ToolCallTrace] = []
+    /// Connections that were asked and couldn't answer, in call order and named once.
+    ///
+    /// The gap is already in the text the model read, but the model is exactly the
+    /// component that can decide not to mention it — and with the paste suppressed, a
+    /// run whose only source failed would otherwise report an empty day. The caller
+    /// states it in the provenance line instead of trusting the summary.
+    private(set) var unreadable: [String] = []
     /// The last thing a tool said it did. Stands in for the model's report when the
     /// loop acts and then runs out of budget before it can summarise — the action
     /// happened, so the band has to say so rather than pretend the command didn't run.
@@ -52,13 +70,17 @@ final class CommandToolRouter: AgentToolRunning {
     /// - Parameter connectors: the connector router, or nil when the assistant isn't
     ///   opted into them. Taken as the protocol rather than `ToolRouter` so a test can
     ///   stand in for it — no provider can complete a real write under `swift test`.
-    init(local: LocalToolRunner, connectors: (any AgentToolRunning)?) {
+    init(local: LocalToolRunner,
+         connectors: (any AgentToolRunning)?,
+         now: @escaping () -> Date = Date.init) {
         self.local = local
         self.connectors = connectors
+        self.now = now
     }
 
     func run(_ call: ToolCall) async -> ToolResult {
         executed.append(call.tool)
+        let started = now()
         let result: ToolResult
         if LocalToolCatalog.names.contains(call.tool) {
             let (local, effect) = await local.run(call)
@@ -75,6 +97,22 @@ final class CommandToolRouter: AgentToolRunning {
         } else {
             result = .failure("No connector is set up for that yet.")
         }
+        for label in result.unreadable where !unreadable.contains(label) {
+            unreadable.append(label)
+        }
+        // The approval wait is taken out of the call's own duration rather than left
+        // in it: a write that sat a minute on the consent card reads as a minute of
+        // provider latency otherwise, which is the wrong thing to go and investigate.
+        let elapsed = Int((now().timeIntervalSince(started) * 1000).rounded())
+        journal.append(ToolCallTrace(
+            tool: call.tool,
+            arguments: call.arguments,
+            connectors: result.instanceLabels,
+            ok: result.ok,
+            result: TraceText.clamp(result.text),
+            milliseconds: max(elapsed - result.approvalMilliseconds, 0),
+            approvalMilliseconds: result.approvalMilliseconds,
+            authorization: result.authorization))
         if result.ok { lastResult = result.text }
         return result
     }

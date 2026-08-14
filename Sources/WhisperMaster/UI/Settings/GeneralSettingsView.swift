@@ -63,47 +63,19 @@ struct GeneralSettingsView: View {
             }
             .onAppear { LaunchAtLogin.shared.refresh() }
 
-            // ── Regulated Mode ───────────────────────────────────────────────
-            // Shown only when active. A permanently-visible compliance section
-            // would be noise for the individual users who are most of the
-            // audience, and the people who need it have had it switched on for
-            // them.
-            if RegulatedMode.isActive {
-                SectionLabel("Compliance")
-                SettingsCard {
-                    SettingsRow("Regulated Mode is on",
-                                subtitle: "\(RegulatedMode.source.rawValue). Analytics, stats backup, notes sync and Nearby Macs are disabled by policy — not by the switches below. Dictation is unaffected.") {
-                        EmptyView()
-                    }
-                }
-            }
-
             SectionLabel("Backup")
             SettingsCard {
                 SettingsRow("Back up my stats",
-                            subtitle: RegulatedMode.allowsUsageSync
-                                ? "Sync your Insights (words, speed, streaks) to your account so they're safe and follow you across Macs. Never your transcripts."
-                                : "Disabled by Regulated Mode. Your Insights are still tracked locally — they just aren't sent anywhere.") {
-                    // Bound to a constant when policy forbids it, rather than
-                    // merely `.disabled()`. A greyed-out switch still stuck in
-                    // the "on" position tells the user the opposite of what the
-                    // software is doing, which is exactly the impression a
-                    // compliance review must not be left with.
-                    ThemeToggle(isOn: RegulatedMode.allowsUsageSync ? $state.usageSyncEnabled : .constant(false),
-                                label: "Back up my stats")
-                        .disabled(!RegulatedMode.allowsUsageSync)
+                            subtitle: "Sync your Insights (words, speed, streaks) to your account so they're safe and follow you across Macs. Never your transcripts.") {
+                    ThemeToggle(isOn: $state.usageSyncEnabled, label: "Back up my stats")
                 }
             }
 
             SectionLabel("Analytics")
             SettingsCard {
                 SettingsRow("Share usage data",
-                            subtitle: RegulatedMode.allowsTelemetry
-                                ? "Which features you use, your app version, and macOS — linked to your account, never your transcripts or recordings."
-                                : "Disabled by Regulated Mode. Nothing is sent to us, including feature counts.") {
-                    ThemeToggle(isOn: RegulatedMode.allowsTelemetry ? $state.analyticsEnabled : .constant(false),
-                                label: "Share usage data")
-                        .disabled(!RegulatedMode.allowsTelemetry)
+                            subtitle: "Which features you use, your app version, and macOS — linked to your account, never your transcripts or recordings.") {
+                    ThemeToggle(isOn: $state.analyticsEnabled, label: "Share usage data")
                 }
             }
 
@@ -112,31 +84,43 @@ struct GeneralSettingsView: View {
             SettingsCard {
                 ForEach(Array(SettingsSection.secondary.enumerated()), id: \.element) { index, section in
                     if index > 0 { RowDivider() }
-                    Button { openSubPage(section) } label: {
+                    // An unreleased page keeps its row and reads as a roadmap
+                    // entry — dimmed, tagged, and inert. Dropping it instead would
+                    // make the feature look cancelled rather than pending, and the
+                    // sidebar's own rows already answer this way.
+                    let isAvailable = section.isAvailable
+                    Button { if isAvailable { openSubPage(section) } } label: {
                         HStack(spacing: 13) {
                             Image(systemName: section.icon)
                                 .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(Theme.accentText)
+                                .foregroundStyle(isAvailable ? Theme.accentText : Theme.textTertiary)
                                 .frame(width: 24, alignment: .center)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(section.title)
-                                    .font(Typography.headline).tracking(Typography.headlineTracking)
-                                    .foregroundStyle(Theme.textPrimary)
+                                HStack(spacing: 8) {
+                                    Text(section.title)
+                                        .font(Typography.headline).tracking(Typography.headlineTracking)
+                                        .foregroundStyle(isAvailable ? Theme.textPrimary : Theme.textTertiary)
+                                    if !isAvailable { RowTag("Soon") }
+                                }
                                 Text(section.subtitle)
                                     .font(Typography.subheadline)
                                     .foregroundStyle(Theme.textSecondary)
                                     .lineLimit(1)
                             }
                             Spacer(minLength: 12)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Theme.textTertiary)
+                            if isAvailable {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Theme.textTertiary)
+                            }
                         }
                         .padding(.vertical, 14)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(isAvailable ? section.title : "\(section.title), coming soon")
                     .pointerCursor()
+                    .disabled(!isAvailable)
                 }
             }
         }

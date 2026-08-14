@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// Recording section: push-to-talk key + the behavior toggles.
+/// Dictation section: the push-to-talk key + the behavior toggles. The coding
+/// agents controls that used to sit under this moved to their own sub-page
+/// (`AgentSettingsView`); the notch toggles moved into the General card.
 struct RecordingSettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
@@ -8,11 +10,11 @@ struct RecordingSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
-            SectionLabel("Recording")
+            SectionLabel("Dictation")
             SettingsCard {
                 SettingsRow("Push-to-talk key",
-                            subtitle: "Press and hold to dictate from anywhere on your Mac. "
-                                + "Double-tap to keep dictating hands-free; double-tap again to stop.") {
+                            subtitle: "Press and hold to dictate anywhere on your Mac. "
+                                + "Double-tap to keep dictating hands-free.") {
                     hotkeyMenu
                 }
                 if showsFnConflictHint {
@@ -29,60 +31,6 @@ struct RecordingSettingsView: View {
                 SettingsRow("Play start / stop sound",
                             subtitle: "Subtle click when recording begins or ends.") {
                     ThemeToggle(isOn: $state.soundEnabled, label: "Play start / stop sound")
-                }
-            }
-
-            SectionLabel("Coding agents")
-
-            SettingsCard {
-                SettingsRow(
-                    "Talk to a coding agent",
-                    subtitle: agentKeySubtitle
-                ) {
-                    agentHotkeyMenu
-                }
-                if state.agentHotkey != nil, state.agentHotkey == state.hotkey {
-                    agentKeyCollisionHint
-                }
-                RowDivider()
-                SettingsRow(
-                    "Show full replies",
-                    subtitle: "When a turn finishes, drop the whole reply out of the notch "
-                        + "instead of one line. Click a reply to expand it either way."
-                ) {
-                    ThemeToggle(
-                        isOn: $state.agentExpandedRepliesEnabled, label: "Show full replies")
-                }
-                RowDivider()
-                SettingsRow(
-                    "Tell me about other sessions",
-                    subtitle: "When an agent you aren't watching needs a permission or "
-                        + "finishes, the notch says so once. Tap it to go there."
-                ) {
-                    ThemeToggle(
-                        isOn: $state.agentNudgesEnabled, label: "Tell me about other sessions")
-                }
-                RowDivider()
-                SettingsRow(
-                    "Project folder",
-                    subtitle: "Where a new session opens when nothing is running. "
-                        + "Leave empty to reuse the folder of a session you already have."
-                ) {
-                    agentDirectoryField
-                }
-            }
-
-            SectionLabel("Notch")
-
-            SettingsCard {
-                SettingsRow("Quick actions on hover",
-                            subtitle: "Rest the pointer on the notch to see what's due and the notes you touched last. Never while you're dictating.") {
-                    ThemeToggle(isOn: $state.quickActionsEnabled, label: "Quick actions on hover")
-                }
-                RowDivider()
-                SettingsRow("Gentle reminders",
-                            subtitle: "A quiet nudge in the notch if you haven't dictated in a while.") {
-                    ThemeToggle(isOn: $state.remindersEnabled, label: "Gentle reminders")
                 }
             }
         }
@@ -203,69 +151,6 @@ struct RecordingSettingsView: View {
             .pickerStyle(.menu)
             .tint(Theme.accent)
             .fixedSize()
-        }
-    }
-
-    /// Two monitors on one physical key would fight, so the agent key stands down and
-    /// dictation keeps it. Said out loud, because a picker showing a key that quietly
-    /// does nothing is worse than one that admits it.
-    private var agentKeyCollisionHint: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.warning)
-            Text("That's already your push-to-talk key, so the agent key is off. "
-                + "Pick a different one.")
-                .font(Typography.subheadline)
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// Says what the key does, and what is on the other end of it, because "talk to
-    /// a coding agent" means nothing on a Mac with no agent running.
-    private var agentKeySubtitle: String {
-        let base = "Hold it and speak. Your words go to a Claude Code session on this Mac "
-            + "instead of being typed."
-        return state.agents.isAvailable
-            ? base
-            : base + " Nothing is running right now, so this stays quiet until there is."
-    }
-
-    @ViewBuilder
-    private var agentHotkeyMenu: some View {
-        if isSnapshot {
-            hotkeyLabel
-        } else {
-            Picker("", selection: Binding(
-                get: { state.agentHotkey },
-                set: { state.agentHotkey = $0 }
-            )) {
-                // Off is a real choice, and the default: reserving a modifier on
-                // every Mac for a server almost nobody runs would be an imposition.
-                Text("Off").tag(HotkeyManager.HotkeyOption?.none)
-                ForEach(HotkeyManager.HotkeyOption.allCases) { option in
-                    Text(option.displayName).tag(HotkeyManager.HotkeyOption?.some(option))
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .tint(Theme.accent)
-            .fixedSize()
-        }
-    }
-
-    @ViewBuilder
-    private var agentDirectoryField: some View {
-        if isSnapshot {
-            Text(state.agentDefaultDirectory.isEmpty ? "—" : state.agentDefaultDirectory)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(Theme.textSecondary)
-        } else {
-            TextField("~/code/my-project", text: $state.agentDefaultDirectory)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12, design: .monospaced))
-                .frame(width: 260)
         }
     }
 

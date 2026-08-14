@@ -26,10 +26,24 @@ final class ConnectorProviderRegistryTests: XCTestCase {
         }
     }
 
-    func testConnectableKindsCoverTheWholeCatalog() {
+    /// The offer is narrowed to four, deliberately — see `ProviderRegistry.shippedKinds`.
+    /// The rest keep their providers; they are just not offered yet.
+    func testOnlyTheShippedFourCanBeConnected() {
         XCTAssertEqual(
             Set(ProviderRegistry.connectableKinds),
-            Set(ConnectorKind.allCases))
+            [.appleCalendar, .googleCalendar, .gmail, .slack])
+        for kind in ConnectorKind.allCases where !ProviderRegistry.shippedKinds.contains(kind) {
+            XCTAssertFalse(
+                ProviderRegistry.isConnectable(kind),
+                "\(kind.rawValue) is not in the shipped set and must read as coming soon")
+        }
+    }
+
+    /// Narrowing the offer must not break a connection a beta user already made:
+    /// the instance path never consults `shippedKinds`.
+    func testAnExistingInstanceOfAnUnofferedKindStillResolvesItsProvider() {
+        let notion = ConnectorInstance(kind: .notion, label: "Team wiki", identity: "team")
+        XCTAssertNotNil(ProviderRegistry.provider(for: notion))
     }
 
     /// Mail and files are first-class capabilities on Grok (Gmail / Drive built-ins).

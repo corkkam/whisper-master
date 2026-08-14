@@ -47,11 +47,19 @@ enum WriteAuthorization: Equatable, Sendable {
     case refused(reason: String)
 }
 
-/// What the user chose on an approval card.
+/// How an approval card ended.
+///
+/// `timedOut` is not a fourth button — the card offers three — it is the card nobody
+/// answered. It is still **not an authorization**, so every caller must treat it the
+/// way it treats `denied`; what it must not do is *word* it the same way. "The user
+/// declined that" about a card the user never saw is the app inventing an answer on
+/// their behalf, and it hides the only thing worth knowing: the question was put
+/// somewhere nobody was looking.
 enum ApprovalOutcome: Equatable, Sendable {
     case allowedOnce
     case allowedAlways
     case denied
+    case timedOut
 }
 
 /// A write waiting on the user. Held by `ApprovalCoordinator` and rendered in the notch.

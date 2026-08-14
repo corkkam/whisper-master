@@ -1,8 +1,26 @@
 <script lang="ts">
   import type { RunSummary } from '$lib/types';
 
-  // Runs oldest -> newest. Plots light & polish pass-rate over runs.
+  // Runs oldest -> newest. Plots pass-rate per target that appears in the data.
   let { runs }: { runs: RunSummary[] } = $props();
+
+  const known = ['light', 'polish', 'slack', 'email', 'code'] as const;
+  const targetMeta: Record<string, { label: string; klass: string }> = {
+    light: { label: 'light (default cleanup)', klass: 'light' },
+    polish: { label: 'polish (experimental)', klass: 'polish' },
+    slack: { label: 'slack / chat', klass: 'slack' },
+    email: { label: 'email', klass: 'email' },
+    code: { label: 'code / editor', klass: 'code' }
+  };
+  const targets = $derived.by(() => {
+    const seen = new Set<string>();
+    for (const r of runs) {
+      for (const t of Object.keys(r.aggregate?.byTarget ?? {})) seen.add(t);
+    }
+    const ordered = known.filter((t) => seen.has(t));
+    for (const t of seen) if (!known.includes(t as (typeof known)[number])) ordered.push(t);
+    return ordered.length ? ordered : ['light', 'polish'];
+  });
 
   const W = 640;
   const H = 170;
@@ -25,8 +43,6 @@
       })
       .join(' ');
   }
-  const light = $derived(path('light'));
-  const polish = $derived(path('polish'));
 </script>
 
 {#if runs.length >= 2}
@@ -37,16 +53,18 @@
         <line class="grid" x1={PAD} x2={W - PAD} y1={y} y2={y} />
         <text class="axis" x={PAD - 6} {y} dy="3" text-anchor="end">{g * 100}%</text>
       {/each}
-      <path class="polish" d={polish} />
-      <path class="light" d={light} />
+      {#each targets as t (t)}
+        <path class={targetMeta[t]?.klass ?? 'extra'} d={path(t)} />
+      {/each}
       {#each runs as r, i (r.id)}
-        {@const [x, y] = xy(i, rate(r, 'light'))}
+        {@const [x, y] = xy(i, rate(r, targets[0]))}
         <circle class="pt" cx={x} cy={y} r="3" />
       {/each}
     </svg>
     <div class="legend">
-      <span><i class="l"></i> light (default cleanup)</span>
-      <span><i class="p"></i> polish (experimental)</span>
+      {#each targets as t (t)}
+        <span><i class={targetMeta[t]?.klass ?? 'extra'}></i> {targetMeta[t]?.label ?? t}</span>
+      {/each}
       <span class="muted">· {runs.length} runs, oldest → newest. Higher is better.</span>
     </div>
   </div>
@@ -81,6 +99,17 @@
     stroke: var(--muted);
     stroke-dasharray: 4 3;
   }
+  path.slack {
+    stroke: #3f6f5a;
+  }
+  path.email {
+    stroke: #8a5a32;
+  }
+  path.code,
+  path.extra {
+    stroke: #4a5a8a;
+    stroke-dasharray: 2 3;
+  }
   .pt {
     fill: var(--pen);
   }
@@ -99,10 +128,20 @@
     vertical-align: middle;
     margin-right: 5px;
   }
-  .legend i.l {
+  .legend i.light {
     background: var(--pen);
   }
-  .legend i.p {
+  .legend i.polish {
     background: var(--muted);
+  }
+  .legend i.slack {
+    background: #3f6f5a;
+  }
+  .legend i.email {
+    background: #8a5a32;
+  }
+  .legend i.code,
+  .legend i.extra {
+    background: #4a5a8a;
   }
 </style>

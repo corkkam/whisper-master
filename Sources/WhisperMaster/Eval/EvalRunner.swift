@@ -41,19 +41,20 @@ enum EvalRunner {
         // LLM stage grouped by target so the system-prompt KV cache stays primed
         // within a target (alternating modes re-primes every call → wrong latency).
         var rows: [[String: Any]] = []
-        for target in ["light", "polish"] {
-            let polish = target == "polish"
-            let prompt = CleanupPrompt.resolved(grammarPolish: polish)
-            for item in items where item.targets.contains(target) {
+        let requested = Set(items.flatMap(\.targets))
+        let targets = CleanupTarget.allCases.filter { requested.contains($0.rawValue) }
+        for target in targets {
+            let prompt = target.prompt
+            for item in items where item.targets.contains(target.rawValue) {
                 let start = Date()
                 let llm = await MlxCleanupService.shared.clean(item.det, systemPrompt: prompt) ?? item.det
                 let llmMs = Int(Date().timeIntervalSince(start) * 1000)
                 let accepted = CleanupFaithfulnessGuard.accept(
-                    original: item.det, cleaned: llm, allowRephrase: polish)
+                    original: item.det, cleaned: llm, allowRephrase: target.allowsRephrase)
                 var latency: [String: Int] = ["deterministic": 0, "llm": llmMs, "total": llmMs]
                 if let asrMs = item.asrMs { latency["asr"] = asrMs; latency["total"] = asrMs + llmMs }
                 var row: [String: Any] = [
-                    "id": item.id, "target": target, "input_kind": item.inputKind,
+                    "id": item.id, "target": target.rawValue, "input_kind": item.inputKind,
                     "deterministic": item.det, "llm_output": accepted ? llm : item.det,
                     "guard": ["accepted": accepted], "wer": NSNull(), "latency_ms": latency,
                 ]

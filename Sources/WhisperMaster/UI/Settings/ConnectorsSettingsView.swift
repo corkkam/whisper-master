@@ -40,6 +40,9 @@ struct ConnectorsSettingsView: View {
     @State private var renaming: ConnectorInstance?
     @State private var editingCalendars: ConnectorInstance?
     @State private var reconnecting: ConnectorInstance?
+    /// The instance whose browser re-sign-in is in flight, so its repair buttons
+    /// read "Waiting for your browser…" and a second flow can't start under it.
+    @State private var reSigningIn: UUID?
     /// The connection currently being checked, and the last result per connection —
     /// so "Test connection" reports something rather than appearing to do nothing.
     @State private var testing: UUID?
@@ -336,10 +339,10 @@ struct ConnectorsSettingsView: View {
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 10)
-            if let repair = error.repairTitle {
+            if let repair = repairButtonTitle(instance, error) {
                 Button(repair) { repairAction(instance, error) }
                     .textButton()
-                    .disabled(isSnapshot)
+                    .disabled(isSnapshot || reSigningIn != nil)
             }
         }
         .padding(.horizontal, 12)
@@ -379,12 +382,22 @@ struct ConnectorsSettingsView: View {
                         .disabled(isSnapshot)
                 }
                 // A credential-bearing connection can have its secret replaced in
-                // place. Without this the only fix for a rotated token was Remove +
-                // add again.
-                if canReconnect(instance) {
+                // place, and a managed Google grant re-signed in place. Without this
+                // the only fix for a rotated token was Remove + add again.
+                switch Self.repairRoute(for: instance,
+                                        oauthConfigured: GoogleOAuthConfig.isConfigured) {
+                case .signInAgain:
+                    Button(reSigningIn == instance.id
+                           ? "Waiting for your browser\u{2026}"
+                           : "Sign in again\u{2026}") { reSignIn(instance) }
+                        .textButton()
+                        .disabled(isSnapshot || reSigningIn != nil)
+                case .replaceSecret:
                     Button("Reconnect\u{2026}") { reconnecting = instance }
                         .textButton()
                         .disabled(isSnapshot)
+                case .addSheet:
+                    EmptyView()
                 }
                 Button("Rename\u{2026}") { renaming = instance }
                     .textButton()
@@ -511,24 +524,126 @@ struct ConnectorsSettingsView: View {
         case .credentialInvalid, .tokenExpired:
             // Repair *this* connection rather than opening the add sheet, which built
             // a second one and left the broken original in the list beside it.
-            if canReconnect(instance) {
-                reconnecting = instance
-            } else {
-                isAddingConnector = true
+            switch Self.repairRoute(for: instance, oauthConfigured: GoogleOAuthConfig.isConfigured) {
+            case .signInAgain: reSignIn(instance)
+            case .replaceSecret: reconnecting = instance
+            case .addSheet: isAddingConnector = true
             }
         case .rateLimited, .unreachable:
             break
         }
     }
 
-    /// Whether the credential can be replaced in place: the kind has fields to fill
-    /// and an implementation to check them against. A system-backed calendar has no
-    /// credential, and a signed-in Google instance is repaired by signing in again,
-    /// not by pasting anything.
-    private func canReconnect(_ instance: ConnectorInstance) -> Bool {
-        !instance.descriptor.isSystemBacked
+    /// The failure strip's repair title. A managed Google grant is healed by
+    /// signing in again, and the button must say so — "Reconnect" reads as the
+    /// paste sheet it would not open.
+    private func repairButtonTitle(_ instance: ConnectorInstance,
+                                   _ error: ConnectorError) -> String? {
+        guard let base = error.repairTitle else { return nil }
+        switch error {
+        case .credentialInvalid, .tokenExpired:
+            guard case .signInAgain = Self.repairRoute(
+                for: instance, oauthConfigured: GoogleOAuthConfig.isConfigured)
+            else { return base }
+            return reSigningIn == instance.id ? "Waiting for your browser\u{2026}" : "Sign in again"
+        default:
+            return base
+        }
+    }
+
+    /// Where the repair for an auth failure leads. A managed Google grant has no
+    /// secret to paste, so its only honest repair is the same browser sign-in that
+    /// made it, run over the same instance — the old fields-based rule sent an
+    /// expired Google Calendar to the Add sheet (where the same account is refused
+    /// as a duplicate, so the only exit was Remove + re-add, losing the label and
+    /// every standing grant) and a signed-in Gmail to the paste sheet (whose saved
+    /// plain token the config then treated as a refreshable grant, dying an hour
+    /// later). Pure, so `ConnectorRepairRouteTests` pins the routing.
+    enum RepairRoute: Equatable {
+        /// Managed Google grant: re-run the browser sign-in over this instance.
+        case signInAgain
+        /// Pasted credential: replace the secret in place (`ReconnectConnectorSheet`).
+        case replaceSecret
+        /// Nothing better to offer: the catalog sheet.
+        case addSheet
+    }
+
+    static func repairRoute(for instance: ConnectorInstance,
+                            oauthConfigured: Bool) -> RepairRoute {
+        if instance.config.isManagedGoogleGrant {
+            // Without a client id in the build there is no browser flow to re-run.
+            return oauthConfigured && Self.reSignInScopes(for: instance.kind) != nil
+                ? .signInAgain : .addSheet
+        }
+        return !instance.descriptor.isSystemBacked
             && !instance.descriptor.fields.isEmpty
             && ProviderRegistry.hasProvider(for: instance.kind)
+            ? .replaceSecret : .addSheet
+    }
+
+    /// The scopes a repair re-requests — the same set the original connect asked
+    /// for, so the healed grant can do everything the old one could.
+    nonisolated static func reSignInScopes(for kind: ConnectorKind) -> [String]? {
+        switch kind {
+        case .googleCalendar: return GoogleOAuthConfig.Scope.calendarConnect
+        case .gmail: return GoogleOAuthConfig.Scope.gmailConnect
+        default: return nil
+        }
+    }
+
+    /// Case-insensitive, because Google reports the address in the account's own
+    /// casing while the stored identity may differ.
+    nonisolated static func identityMatches(_ new: String, existing: String) -> Bool {
+        new.compare(existing, options: .caseInsensitive) == .orderedSame
+    }
+
+    /// Heal an expired managed Google grant by running the same browser sign-in
+    /// that created it, saving over the same instance id — label, default flag,
+    /// and standing grants all survive because nothing is removed or re-added.
+    /// The account is pinned: a sign-in that comes back as a different mailbox is
+    /// refused, because this connector's permission grants name *this* account
+    /// and must not silently rebind to another one (`login_hint` only prefills;
+    /// the browser can still switch).
+    private func reSignIn(_ instance: ConnectorInstance) {
+        guard let scopes = Self.reSignInScopes(for: instance.kind) else { return }
+        reSigningIn = instance.id
+        testResults[instance.id] = nil
+        Task { @MainActor in
+            defer { reSigningIn = nil }
+            do {
+                let tokens = try await OAuthPKCEFlow().authorize(
+                    scopes: scopes, account: .reuse(email: instance.identity))
+                // Merged over the stored credential, so a response that omits the
+                // refresh token keeps the old one — same as every refresh path.
+                let credential = tokens.merged(
+                    into: ConnectorCredentials.load(for: instance.id) ?? ConnectorCredential())
+                guard let provider = ProviderRegistry.provider(for: instance) else {
+                    testResults[instance.id] = "No implementation for this connector yet."
+                    return
+                }
+                let result = await provider.validate(credential, config: instance.config)
+                guard result.isValid else {
+                    testResults[instance.id] = result.failure ?? "Google rejected the sign-in."
+                    return
+                }
+                guard Self.identityMatches(result.identity, existing: instance.identity) else {
+                    testResults[instance.id] = "That signed in as \(result.identity), but this "
+                        + "connector is \(instance.identity). Use that account, or add a new "
+                        + "connector for the other one."
+                    return
+                }
+                _ = ConnectorCredentials.save(credential, for: instance.id)
+                store.recordReconnection(instance.id,
+                                         identity: result.identity,
+                                         config: result.config)
+                testResults[instance.id] = "Signed in just now \u{2014} working."
+                refreshToday()
+            } catch OAuthFlowError.userCancelled {
+                // Backing out of the browser isn't an error; the row keeps its strip.
+            } catch {
+                testResults[instance.id] = "Sign-in failed: \(error.localizedDescription)"
+            }
+        }
     }
 
     /// Check a saved connection against the real provider, now.

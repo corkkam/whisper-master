@@ -15,7 +15,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     // Folded under Settings ("More"):
     case insights
     case engine
-    case history
+    case agents
+    case traces
     case permissions
     case mesh
     case about
@@ -25,7 +26,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// The four items shown in the sidebar.
     static let primary: [SettingsSection] = [.today, .notes, .connectors, .settings]
     /// The pages folded into the Settings screen's "More" list.
-    static let secondary: [SettingsSection] = [.insights, .engine, .history, .permissions, .mesh, .about]
+    static let secondary: [SettingsSection] = [.insights, .engine, .agents, .traces, .permissions, .mesh, .about]
 
     var isPrimary: Bool { SettingsSection.primary.contains(self) }
 
@@ -35,6 +36,12 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     func isAvailable(connectorsAndNotes: Bool) -> Bool {
         switch self {
         case .notes, .connectors: return connectorsAndNotes
+        // Nearby Macs is on hold: peer discovery, the proximity beacons and the
+        // remote-transcription listener all work, but none of it is finished
+        // enough to hand to a user, so the page reads "Coming soon" on every
+        // channel rather than shipping a half-built network surface. Nothing is
+        // deleted — flip this back to `true` to bring the panel out again.
+        case .mesh: return false
         default: return true
         }
     }
@@ -42,8 +49,9 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// Whether this section can be opened in *this* build.
     ///
     /// Connectors and Notes & Reminders are not yet released on stable (see
-    /// `FeatureFlags`) — they stay listed in the sidebar but read "Coming soon"
-    /// and don't respond. Everything else is always available.
+    /// `FeatureFlags`), and Nearby Macs is not released anywhere — they stay
+    /// listed but read "Coming soon" and don't respond. Everything else is
+    /// always available.
     var isAvailable: Bool {
         isAvailable(connectorsAndNotes: FeatureFlags.connectorsAndNotesAvailable)
     }
@@ -60,7 +68,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .settings: return "Settings"
         case .insights: return "Insights"
         case .engine: return "Voice engine"
-        case .history: return "History"
+        case .agents: return "Coding agents"
+        case .traces: return "Traces"
         case .permissions: return "Permissions"
         case .mesh: return "Nearby Macs"
         case .about: return "About"
@@ -87,7 +96,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .settings: return "Everything you can tune, in one warm place."
         case .insights: return "Your dictation at a glance — words, speed, and streaks."
         case .engine: return "Everything runs on-device. Your audio never leaves this Mac."
-        case .history: return "Your recent transcriptions, kept locally."
+        case .agents: return "Dictate straight to a Claude Code session on this Mac."
+        case .traces: return "What actually happened to the last few things you said."
         case .permissions: return "Whisper Master only asks for what it needs to work."
         case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
         case .about: return "Voice dictation that stays on your Mac."
@@ -102,7 +112,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .settings: return "Preferences"
         case .insights: return "Overview"
         case .engine: return "On-device"
-        case .history: return "Activity"
+        case .agents: return "On this Mac"
+        case .traces: return "Activity"
         case .permissions: return "Privacy"
         case .mesh: return "Mesh"
         case .about: return "Whisper Master"
@@ -118,7 +129,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .settings: return "slider.horizontal.3"
         case .insights: return "chart.bar"
         case .engine: return "waveform"
-        case .history: return "clock"
+        case .agents: return "terminal"
+        case .traces: return "list.bullet.indent"
         case .permissions: return "lock.shield"
         case .mesh: return "laptopcomputer"
         case .about: return "info.circle"
@@ -302,17 +314,7 @@ struct SettingsView: View {
                     .layoutPriority(1)
                 Spacer(minLength: 4)
                 if !isAvailable {
-                    Text("Soon")
-                        .font(Typography.sans(10.5, .bold))
-                        .tracking(0.4)
-                        .foregroundStyle(Theme.textTertiary)
-                        .lineLimit(1)
-                        .fixedSize()
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule(style: .continuous).fill(Theme.textTertiary.opacity(0.12))
-                        )
+                    RowTag("Soon")
                 } else if section == .notes {
                     // A chevron rather than a second button: the row's own tap goes
                     // to the page, and this rotates to say the group underneath it
@@ -509,10 +511,16 @@ struct SettingsView: View {
             GeneralSettingsView(viewModel: viewModel, state: state, openSubPage: { selection = $0 })
         case .engine:
             EngineSettingsView(viewModel: viewModel, state: state)
+        case .agents:
+            AgentSettingsView(state: state)
         case .mesh:
-            MeshSettingsView(viewModel: viewModel, state: state)
-        case .history:
-            HistorySettingsView(viewModel: viewModel, state: state)
+            if selection.isAvailable {
+                MeshSettingsView(viewModel: viewModel, state: state)
+            } else {
+                ComingSoonPanel(section: .mesh)
+            }
+        case .traces:
+            TracesSettingsView(viewModel: viewModel, state: state)
         case .insights:
             InsightsSettingsView(viewModel: viewModel, state: state)
         case .permissions:

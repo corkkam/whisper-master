@@ -212,7 +212,7 @@ actor RemoteTranscriptionSession {
 
     // MARK: - Helpers
 
-    private static func detail(for snapshot: DownloadUtils.DownloadProgress) -> String {
+    private static func detail(for snapshot: DownloadProgress) -> String {
         switch snapshot.phase {
         case .listing:
             return "Checking voice engine…"

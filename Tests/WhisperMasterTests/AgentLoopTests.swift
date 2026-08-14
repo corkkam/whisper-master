@@ -34,6 +34,33 @@ final class AgentLoopTests: XCTestCase {
                          maxIterations: maxIterations)
     }
 
+    // MARK: - Native tool-calling path
+
+    /// With `generateNative` set, the loop drives the native branch: it hands the
+    /// generator tool **schemas** (not the plain-line list), and parses the reply with
+    /// `NativeToolCallParser`. Same control flow, different render + parse — proven
+    /// here with no MLX.
+    func testNativePathCallsAToolThenAnswers() async {
+        let store = makeStore()
+        let model = ScriptedNativeModel([
+            "<tool_call>\n{\"name\": \"list_connectors\", \"arguments\": {}}\n</tool_call>",
+            "You have one calendar, Work.",
+        ])
+        let router = ToolRouter(store: store, requestApproval: { _ in .denied })
+        var loop = AgentLoop(tools: ToolRegistry.available(store: store),
+                             router: router, generate: { _, _ in nil }, maxIterations: 4)
+        loop.generateNative = model.generate
+        let outcome = await loop.run(question: "what's connected")
+
+        XCTAssertFalse(outcome.exhausted)
+        XCTAssertEqual(outcome.answer, "You have one calendar, Work.")
+        XCTAssertEqual(model.calls, 2)
+        XCTAssertEqual(outcome.turns.map(\.role), [.model, .tool, .model])
+        // The native branch renders JSON function schemas, not the plain-line list.
+        XCTAssertTrue(model.schemas.contains { $0.contains("\"list_connectors\"") },
+                      "the native path must hand the generator tool schemas")
+    }
+
     // MARK: - Happy paths
 
     func testAnswersImmediately() async {

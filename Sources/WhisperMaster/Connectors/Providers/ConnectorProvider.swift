@@ -146,8 +146,13 @@ enum ProviderRegistry {
     /// The provider for a specific instance, honouring its config. This is the one to
     /// use for reads; `provider(for kind:)` is for the pre-connection catalog.
     static func provider(for instance: ConnectorInstance) -> (any ConnectorProvider)? {
+        // An instance made by the app's Google sign-in can only be refreshed while that
+        // client id is still in the build — the refresh call is made *with* it. Without
+        // one the connection can't be served at all, and saying so here is what turns it
+        // into a visible failure state rather than reads that quietly return nothing.
+        if instance.config.isManagedGoogleGrant, !GoogleOAuthConfig.isConfigured { return nil }
         if instance.kind == .googleCalendar, instance.config.googleCalendarIDs != nil {
-            return GoogleOAuthConfig.isConfigured ? googleCalendar : nil
+            return googleCalendar
         }
         return provider(for: instance.kind)
     }
@@ -174,8 +179,35 @@ enum ProviderRegistry {
         GoogleOAuthConfig.isConfigured ? googleCalendar : nil
     }
 
+    /// The Gmail provider, on the same gate as `googleCalendarAPI`: a mailbox is only
+    /// reachable through a managed Google grant, so without a client id in the build
+    /// the sign-in step stays out of the UI rather than failing mid-flow.
+    static var gmailAPI: GmailProvider? {
+        GoogleOAuthConfig.isConfigured ? gmail : nil
+    }
+
+    /// The kinds this build offers to connect: **Apple Calendar, Google Calendar,
+    /// Gmail, Slack**, and nothing else for now.
+    ///
+    /// Every other catalogued kind keeps its descriptor, its provider and its tests —
+    /// it is the *offer* that is narrowed, not the code deleted. Four connectors that
+    /// are each worth trusting beat eleven where most are a token-paste form nobody
+    /// has used end to end, and the catalog still shows the rest under "Coming soon"
+    /// so the roadmap stays visible.
+    ///
+    /// This gate governs **new** connections only. `provider(for instance:)`
+    /// deliberately does not consult it, so a connection a beta user already made
+    /// keeps reading instead of going quietly dead.
+    static let shippedKinds: Set<ConnectorKind> = [.appleCalendar, .googleCalendar, .gmail, .slack]
+
+    /// Whether the catalog may offer this kind today — it has a working provider
+    /// *and* it is in the shipped set. This is what the Add-connector sheet asks.
+    static func isConnectable(_ kind: ConnectorKind) -> Bool {
+        shippedKinds.contains(kind) && hasProvider(for: kind)
+    }
+
     /// Catalog entries the user can actually connect right now.
     static var connectableKinds: [ConnectorKind] {
-        ConnectorKind.allCases.filter(hasProvider(for:))
+        ConnectorKind.allCases.filter(isConnectable)
     }
 }

@@ -37,6 +37,54 @@ final class ScriptedModel: @unchecked Sendable {
     }
 }
 
+/// The native twin of `ScriptedModel`: scripts the model's **native** tool-calling
+/// generator (`AgentLoop.GenerateNative`), so the loop's native branch is testable
+/// with no MLX — the same reason `ScriptedModel` exists for the hand-rolled branch.
+///
+/// It also records the tool schemas it was handed on the last call, so a test can
+/// assert the loop rendered schemas rather than the plain-line tool list.
+final class ScriptedNativeModel: @unchecked Sendable {
+    private let lock = NSLock()
+    private let replies: [String]
+    private var index = 0
+    private var lastSchemas: [String] = []
+
+    init(_ replies: [String]) {
+        self.replies = replies
+    }
+
+    /// The native generator to hand the loop.
+    var generate: AgentLoop.GenerateNative {
+        { [self] _, schemas in record(schemas); return next() }
+    }
+
+    var calls: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return index
+    }
+
+    var schemas: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastSchemas
+    }
+
+    private func record(_ schemas: [String]) {
+        lock.lock()
+        defer { lock.unlock() }
+        lastSchemas = schemas
+    }
+
+    private func next() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        let reply = index < replies.count ? replies[index] : nil
+        index += 1
+        return reply
+    }
+}
+
 /// A hand-wound clock: the loop reads it through `now`, a scripted generation advances
 /// it. Locked for the same reason `ScriptedModel` is.
 final class TestClock: @unchecked Sendable {
@@ -65,14 +113,19 @@ final class TestClock: @unchecked Sendable {
 @MainActor
 final class StubConnectorRouter: AgentToolRunning {
     private let result: ToolResult
+    /// Runs before the result is handed back — where a test winds a `TestClock`
+    /// forward to give the call a duration it can then assert on.
+    private let whileRunning: () -> Void
     private(set) var calls: [ToolCall] = []
 
-    init(_ result: ToolResult) {
+    init(_ result: ToolResult, whileRunning: @escaping () -> Void = {}) {
         self.result = result
+        self.whileRunning = whileRunning
     }
 
     func run(_ call: ToolCall) async -> ToolResult {
         calls.append(call)
+        whileRunning()
         return result
     }
 }

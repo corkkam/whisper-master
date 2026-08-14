@@ -18,7 +18,8 @@ struct AssistantSettingsView: View {
     @Environment(\.isSnapshot) private var isSnapshot
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 26) {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionLabel("Assistant")
             assistantSection
             speechSection
         }
@@ -30,15 +31,14 @@ struct AssistantSettingsView: View {
     ///
     /// This used to be the first row of a six-row card that ran on into the whole
     /// speech stack — so the single most consequential switch here (a model touching
-    /// your calendar) sat visually level with "which voice". They're two sections,
-    /// because they are two decisions.
+    /// your calendar) sat visually level with "which voice". They stay two *cards*,
+    /// because they are two decisions, but share the one "Assistant" label: two
+    /// headers for three visible rows made the page longer, not clearer.
     private var assistantSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionLabel("Assistant")
             SettingsCard {
                 SettingsRow(
                     "Let it use your connectors",
-                    subtitle: "Answers run on the same on-device model as Smart cleanup. Nothing leaves this Mac. Off by default."
+                    subtitle: "The assistant can read anything you have connected. Runs on-device; writes still ask you first."
                 ) {
                     ThemeToggle(isOn: $state.connectorAgentEnabled, label: "Connector assistant")
                         .disabled(isSnapshot)
@@ -75,7 +75,6 @@ struct AssistantSettingsView: View {
                     .padding(.vertical, 12)
                 }
             }
-        }
     }
 
     // MARK: - Reading answers aloud

@@ -1,26 +1,30 @@
 import SwiftUI
 
-/// Settings home for the optional on-device "smart cleanup" model: the opt-in
-/// toggle plus its download / readiness status.
+/// Settings rows for the optional on-device "smart cleanup" model: the opt-in
+/// toggle plus its download / readiness status. Emits rows, not a card — it
+/// lives inside `TranscriptSettingsView`'s single "Text" card.
 ///
 /// This is the **only** surface that shows the model's download progress — by
 /// design it never appears in the notch or the tray (the notch gets a single
-/// "ready" banner on completion, nothing more). Kept as its own small view so
-/// `EngineSettingsView` stays focused.
+/// "ready" banner on completion, nothing more).
 struct SmartCleanupSettingsSection: View {
     @Bindable var state: AppState
 
     var body: some View {
-        SettingsCard {
+        Group {
             SettingsRow("Smart cleanup",
-                        subtitle: "Uses a local model to clean up how you talk. \u{201C}three no wait four\u{201D} becomes \u{201C}four\u{201D}. About 1.8 GB, downloads in the background. Dictation works right away, and nothing leaves your Mac.") {
+                        subtitle: "A local model tidies how you talk. \"three no wait four\" becomes \"four\". About 2.3 GB; nothing leaves your Mac.") {
                 ThemeToggle(isOn: $state.llmCleanupEnabled)
             }
 
             if state.llmCleanupEnabled {
                 RowDivider()
+                // The tag, not a word at the end of the subtitle: "Experimental."
+                // as the last sentence of four lines was read by nobody, and this
+                // is the one toggle here that can drop a word.
                 SettingsRow("Polish my English",
-                            subtitle: "Rewrites your dictation into clear, grammatical English instead of only removing fillers. Your facts, names, and numbers stay exact. Experimental.") {
+                            tag: "Experimental",
+                            subtitle: "Rewrites your dictation into clear English. Facts, names, and numbers stay exact.") {
                     ThemeToggle(isOn: $state.llmGrammarPolishEnabled)
                 }
                 RowDivider()

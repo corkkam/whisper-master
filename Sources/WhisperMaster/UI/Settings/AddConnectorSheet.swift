@@ -3,10 +3,11 @@ import SwiftUI
 /// "Add connector" — pick a kind, configure it, name it.
 ///
 /// The catalog lives here rather than on the Connectors page so the page only ever
-/// shows connections that exist. A kind with no implementation behind it
-/// (`ProviderRegistry.hasProvider`) is shown as **Coming soon** and can't be tapped —
-/// the alternative is what this redesign replaced, where eight tiles offered a
-/// Connect affordance that led to a connection which could never read anything.
+/// shows connections that exist. A kind this build doesn't offer
+/// (`ProviderRegistry.isConnectable` — no provider behind it, or not in the shipped
+/// four) is shown as **Coming soon** and can't be tapped — the alternative is what
+/// this redesign replaced, where eight tiles offered a Connect affordance that led to
+/// a connection which could never read anything.
 struct AddConnectorSheet: View {
     let store: ConnectorInstanceStore
     let onAdded: () -> Void
@@ -14,13 +15,25 @@ struct AddConnectorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var search = ""
     @State private var chosen: ConnectorKind? {
-        didSet { googlePath = nil }
+        didSet { googlePath = nil; pastesToken = false }
     }
     /// Which Google Calendar route the user picked, once they've chosen. nil = still on
     /// the fork.
     @State private var googlePath: GooglePath?
+    /// Gmail only, and the *escape hatch* rather than a fork: sign-in is the whole card
+    /// unless the user asks for the paste form, which is what an account Google won't
+    /// grant the restricted scope to still has.
+    @State private var pastesToken = false
 
     private enum GooglePath { case signIn, eventKit }
+
+    /// Whether this kind opens on its one-click sign-in rather than a credential form.
+    /// Gmail and Google Calendar both have one; the calendar's sits behind a fork
+    /// because reading through macOS is a genuinely different connection, while a
+    /// mailbox has only the one route.
+    private func offersManagedSignIn(_ kind: ConnectorKind) -> Bool {
+        kind == .gmail && GoogleOAuthConfig.isGmailOAuthAvailable && !pastesToken
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -39,6 +52,15 @@ struct AddConnectorSheet: View {
                     } onBack: {
                         googlePath = nil
                     }
+                } else if offersManagedSignIn(chosen) {
+                    GmailSignInStep(store: store) {
+                        onAdded()
+                        dismiss()
+                    } onBack: {
+                        self.chosen = nil
+                    } onUseToken: {
+                        pastesToken = true
+                    }
                 } else if ConnectorCatalog.descriptor(for: chosen).isSystemBacked {
                     ConfigureConnectorStep(kind: chosen, store: store) {
                         onAdded()
@@ -51,7 +73,7 @@ struct AddConnectorSheet: View {
                         onAdded()
                         dismiss()
                     } onBack: {
-                        self.chosen = nil
+                        goBack()
                     }
                 }
             } else {
@@ -66,7 +88,7 @@ struct AddConnectorSheet: View {
         HStack(spacing: 10) {
             if chosen != nil {
                 Button {
-                    if googlePath != nil { googlePath = nil } else { chosen = nil }
+                    goBack()
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 13, weight: .semibold))
@@ -85,6 +107,16 @@ struct AddConnectorSheet: View {
         .padding(.vertical, 16)
     }
 
+    /// One step back, whichever detour we're on: the paste form returns to the sign-in
+    /// it was reached from, a Google fork route returns to the fork, everything else to
+    /// the catalog. Header chevron and the steps' own Back share it so the two can't
+    /// disagree about where "back" is.
+    private func goBack() {
+        if pastesToken { pastesToken = false }
+        else if googlePath != nil { googlePath = nil }
+        else { chosen = nil }
+    }
+
     private var catalogList: some View {
         VStack(alignment: .leading, spacing: 0) {
             TextField("Search connectors", text: $search)
@@ -100,8 +132,8 @@ struct AddConnectorSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     let results = ConnectorCatalog.search(search)
-                    let available = results.filter { ProviderRegistry.hasProvider(for: $0.kind) }
-                    let soon = results.filter { !ProviderRegistry.hasProvider(for: $0.kind) }
+                    let available = results.filter { ProviderRegistry.isConnectable($0.kind) }
+                    let soon = results.filter { !ProviderRegistry.isConnectable($0.kind) }
 
                     if !available.isEmpty {
                         SectionLabel("Available now")

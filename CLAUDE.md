@@ -124,7 +124,11 @@ is not loaded:
   editing all four together **and** copying `models/` to the new bucket first; an
   empty `models/` prefix silently degrades every user to the slow HuggingFace path.
 - **Never commit directly to `main`** — it only receives merges from `release/*`
-  and `hotfix/*`, and every production release is tagged `vX.Y.Z`.
+  and `hotfix/*`, and every production release is tagged `vX.Y.Z` (CI pushes the
+  tag; don't add a second one by hand). Nothing on the server enforces this: the
+  repo is private on a free plan, so branch protection and rulesets are
+  unavailable. Feature branches are `feature/<slug>` off `dev` — no ticket id —
+  and **a branch is deleted in the same step it is merged**.
 - **Non-stable channels must carry the channel marker in the version** (`-beta.N`,
   `-dev.N`); `release.sh` aborts otherwise, which is what stops a beta/dev upload
   from colliding with a stable archive.
@@ -155,7 +159,18 @@ Single `@Observable` source of truth, `@MainActor`-bound. The view model mutates
 
 - `phase: PrototypePhase` (idle/preparingModels/recording/stopping/failed)
 - Engine selection state — `selectedEngine`, `preparedEngine`, `preparingEngine` are three distinct slots (do not collapse them; the UI distinguishes "user has chosen X" from "X is currently being downloaded" from "X is ready to use").
-- `history: [TranscriptHistoryEntry]` — persisted in `UserDefaults` under `WhisperMaster.transcriptHistory.v1`, capped at 50 entries (newest first). `appendHistory` is the only entry point; bypassing it skips persistence.
+- `history: [TranscriptHistoryEntry]` — persisted in `UserDefaults` under `WhisperMaster.transcriptHistory.v1`, capped at 50 entries (newest first). `appendHistory` is the only entry point; bypassing it skips persistence. It still backs the **tray's** recent-transcripts submenu (paste-it-again), which is all it is for now that the History *page* is gone — see Traces below.
+- `traces: TraceStore` — what actually happened to the last 40 dictations and assistant captures. Written only from the view model, like `usageStore`.
+
+### Traces (`Traces/`, `TracesSettingsView`)
+
+The page where "why did it do that" is answerable: a **Dictation** tab (raw ASR →
+each pass → the polish verdict → where the words were delivered) and an
+**Assistant** tab (which tier took the words *and why the others didn't*, the tools
+the model was offered, and every connector call). It **replaced the History page**,
+which listed final transcripts — the least interesting artifact of the run, and
+already sitting in the app you dictated into. Details:
+**`Sources/WhisperMaster/Traces/CLAUDE.md`**.
 
 ### Usage & Insights (`Usage/`, `InsightsSettingsView`)
 
@@ -166,8 +181,8 @@ opt-out cloud sync. Details: **`Sources/WhisperMaster/Usage/CLAUDE.md`**.
 ### Transcription engine (`Transcription/`)
 
 One engine (`slidingWindow`, NVIDIA Parakeet) behind
-`FluidAudioStreamingTranscriber`, with a second short-window manager driving the
-notch's live preview text, plus the opt-in on-device MLX qwen cleanup and the
+`FluidAudioStreamingTranscriber` — a **single** window track, with no live
+preview of it on the notch — plus the opt-in on-device MLX qwen cleanup and the
 mirror-first model install. Details:
 **`Sources/WhisperMaster/Transcription/CLAUDE.md`**.
 
@@ -175,9 +190,11 @@ mirror-first model install. Details:
 `configureVocabularyBoosting` "to improve accuracy" — FluidAudio's streaming CTC
 vocabulary rescorer corrupts transcripts, so custom vocabulary is post-processing;
 don't let a run of bare unit words fall through to `SpokenNumber.value`'s additive
-sum ("one two three" is a spoken sequence, not 6); and don't lower the accurate
-track's `chunkSeconds` to "simplify" the preview track — `finish()` reconstructs
-the text that actually gets pasted from those same windows.
+sum ("one two three" is a spoken sequence, not 6); and don't lower the track's
+`chunkSeconds` to put live words on the notch sooner — `finish()` reconstructs
+the text that actually gets pasted from those same windows. The second
+short-window "preview" manager that used to paint the notch was **removed on
+purpose**; don't reintroduce it.
 
 ### Reading answers aloud (`Speech/`)
 

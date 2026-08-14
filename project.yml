@@ -10,13 +10,18 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    # Inert — Resources/Info.plist is the authority (INFOPLIST_FILE below, with
-    # GENERATE_INFOPLIST_FILE: NO, and literal version keys rather than
-    # $(MARKETING_VERSION)). Kept in step with the plist anyway so nobody reads
-    # 0.1.0 here and believes it, and so this stays harmless if a future target
-    # ever does interpolate it.
-    MARKETING_VERSION: "1.2.10"
-    CURRENT_PROJECT_VERSION: "1"
+    # There is deliberately NO MARKETING_VERSION / CURRENT_PROJECT_VERSION here.
+    # Resources/Info.plist is the single version authority (INFOPLIST_FILE below,
+    # with GENERATE_INFOPLIST_FILE: NO and literal version keys, never
+    # $(MARKETING_VERSION)) — it is what the CI gate diffs, what release.sh reads,
+    # and what the release tag is cut from. These two keys used to sit here as
+    # inert copies "kept in step so nobody reads the wrong number", and they drifted
+    # exactly as you would expect: they still said 1.2.10 long after versioning
+    # restarted at 1.0.0 and the plist had moved to 1.1.0-beta.6, so the stale copy
+    # was the *higher* number and read as the newer one. A second version source
+    # that must be hand-synced is the bug; deleting it is the fix. Nothing reads
+    # them — release.sh passes its own MARKETING_VERSION/CURRENT_PROJECT_VERSION
+    # to the PostHog symbol uploader as environment variables, from the plist.
     # arm64-only (Apple Silicon). Matches the vendored arm64 ITN xcframework and
     # how Scripts/bundle.sh already builds (-destination arch=arm64).
     ARCHS: arm64
@@ -34,11 +39,14 @@ settings:
       DEBUG_INFORMATION_FORMAT: dwarf
 
 packages:
-  # Pinned exactly: 0.15.x changed sliding-window finish()/splicing behavior and
-  # coincided with vanished transcripts + cut-off sentences in the field.
+  # Pinned exactly. Was 0.14.7 because 0.15.0's sliding-window finish()/splicing
+  # rewrite coincided with vanished transcripts + cut-off sentences in the field.
+  # Bumped to 0.15.5, which carries the long-form splice fixes (#688, #689) and
+  # re-tested clean against the audio bench (see Package.swift for detail). Keep
+  # in step with Package.swift.
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio.git
-    exactVersion: "0.14.7"
+    exactVersion: "0.15.5"
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: "2.6.0"

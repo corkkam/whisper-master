@@ -56,12 +56,14 @@ struct NotchApprovalBanner: View {
             .pointerCursor()
     }
 
+    /// `.timedOut` is not on the card — it is what happens when nobody touches it —
+    /// so it has no button and no label of its own.
     private func accessibilityLabel(for outcome: ApprovalOutcome) -> String {
         switch outcome {
         case .allowedOnce: return "Allow once"
         case .allowedAlways:
             return "Always allow \(approval.tool) to \(approval.target) on \(approval.instanceLabel)"
-        case .denied: return "Don't allow"
+        case .denied, .timedOut: return "Don't allow"
         }
     }
 }

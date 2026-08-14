@@ -30,7 +30,7 @@ enum SnapshotMode {
 
         // Full window (top-tab masthead + body). The detail ScrollView may
         // collapse in ImageRenderer, so the per-section panels below carry the body.
-        for section in [SettingsSection.settings, .history, .engine] {
+        for section in [SettingsSection.settings, .traces, .engine] {
             render(
                 SettingsView(viewModel: viewModel, state: state, initialSection: section)
                     .frame(width: 900, height: 700),
@@ -65,6 +65,23 @@ enum SnapshotMode {
             render(
                 detailContainer(section: .notes, viewModel: viewModel, state: state, notesTab: tab),
                 to: dir.appendingPathComponent("panel-notes-\(tab.rawValue).png")
+            )
+        }
+
+        // Traces is two tabs, and its whole content is in the *expanded* row — the
+        // stage chain, the rejected rewrite, the decision ladder, the tool calls. The
+        // `panel-traces` render above shows two collapsed rows and none of that, so
+        // each tab gets a render with its first row open.
+        for (tab, open) in [
+            // The rejected-polish row, which is the dictation tab's whole reason to
+            // exist; and *both* assistant rows, since the calls block only appears on
+            // the one that actually reached a connector.
+            (TraceTab.dictation, Set(state.traces.dictation.dropFirst().map(\.id))),
+            (TraceTab.assistant, Set(state.traces.assistant.map(\.id))),
+        ] {
+            render(
+                tracesContainer(state: state, viewModel: viewModel, tab: tab, expanded: open),
+                to: dir.appendingPathComponent("panel-traces-\(tab.rawValue)-open.png")
             )
         }
 
@@ -116,6 +133,18 @@ enum SnapshotMode {
                 accessibilityGranted: true,
                 launchAtLoginEnabled: true)
         }
+        // The finished form of the last beat: engine ready, so the sub-line hands
+        // off to the assistant chord instead of reporting download progress.
+        let engineBefore = state.preparedEngine
+        state.preparedEngine = state.selectedEngine
+        renderOnboarding(dir, name: "onboarding-4b-ready-engine-done", state: state) {
+            .snapshot(
+                step: .ready,
+                micGranted: true,
+                accessibilityGranted: true,
+                launchAtLoginEnabled: true)
+        }
+        state.preparedEngine = engineBefore
 
         // The hover quick-actions band: what the notch holds when the pointer rests
         // on it. Both states, since the empty one is what a fresh account sees.
@@ -697,12 +726,49 @@ enum SnapshotMode {
         case .connectors: ConnectorsSettingsView(state: state)
         case .settings: GeneralSettingsView(viewModel: viewModel, state: state)
         case .engine: EngineSettingsView(viewModel: viewModel, state: state)
-        case .mesh: MeshSettingsView(viewModel: viewModel, state: state)
-        case .history: HistorySettingsView(viewModel: viewModel, state: state)
+        case .agents: AgentSettingsView(state: state)
+        // Renders what a user actually reaches. Nearby Macs is on hold, so its
+        // page is the coming-soon panel — a snapshot of the real mesh view would
+        // show a surface no build opens.
+        case .mesh:
+            if SettingsSection.mesh.isAvailable {
+                MeshSettingsView(viewModel: viewModel, state: state)
+            } else {
+                ComingSoonPanel(section: .mesh)
+            }
+        case .traces: TracesSettingsView(viewModel: viewModel, state: state)
         case .permissions:
             PermissionsSettingsView(permissions: PermissionsManager(), micGranted: true, micDenied: false, accessibilityGranted: false)
         case .about: AboutSettingsView(state: state)
         }
+    }
+
+    /// The Traces page in the same chrome `detailContainer` gives every section, but
+    /// with the tab and the open row chosen — neither of which is reachable from
+    /// `sectionView`, since both are view state a person would click into.
+    private static func tracesContainer(
+        state: AppState,
+        viewModel: DictationViewModel,
+        tab: TraceTab,
+        expanded: Set<UUID>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 7) {
+                KickerLabel(SettingsSection.traces.kicker)
+                Text(SettingsSection.traces.title)
+                    .font(Typography.largeTitle).tracking(Typography.largeTitleTracking)
+                    .foregroundStyle(Theme.textPrimary)
+                Text(SettingsSection.traces.subtitle)
+                    .font(Typography.body).foregroundStyle(Theme.textSecondary)
+            }
+            TracesSettingsView(viewModel: viewModel, state: state,
+                               initialTab: tab, initiallyExpanded: expanded)
+        }
+        .frame(width: 680, alignment: .leading)
+        .padding(.horizontal, 44)
+        .padding(.vertical, 40)
+        .frame(width: 768, alignment: .topLeading)
+        .background(WarmBackground())
     }
 
     private static func detailContainer(
@@ -753,6 +819,7 @@ enum SnapshotMode {
                 answer: "Two things need you today: the release notes, and Friday's demo script.",
                 askedAt: Date(timeIntervalSinceNow: -9000)),
         ]
+        seedTraces(state.traces)
         seedUsage(state.usageStore)
         seedNotes(state.notesStore)
         // Two *differently named* Google Calendar instances plus an iCal one, so the
@@ -777,6 +844,9 @@ enum SnapshotMode {
         // headlessly rather than only their empty states.
         state.connectorAgentEnabled = true
         state.cleanupModelReady = true
+        // Smart cleanup on, so the card renders expanded — the "Polish my English"
+        // row and its Experimental tag only exist inside that branch.
+        state.llmCleanupEnabled = true
         let mockSlack = state.connectorStore.add(ConnectorInstance(
             kind: .slack, label: "Work chat", identity: "Acme / whisper"))
         state.connectorStore.addGrant(
@@ -785,6 +855,122 @@ enum SnapshotMode {
 
     /// A couple of believable notes + reminders so the Notes & Reminders panel
     /// renders with real-looking content (never touches a real per-account file).
+    /// Traces worth *looking* at: one dictation whose polish was accepted, one whose
+    /// rewrite the guard threw away (the case the surface exists for), and two
+    /// assistant captures — one that read a connector, one that was filed as a note
+    /// because the model was never loaded. A seed of three happy rows would render a
+    /// page that never shows the states worth designing for.
+    private static func seedTraces(_ store: TraceStore) {
+        let engine = TranscriberEngine.slidingWindow.rawValue
+        let polished = DictationTrace(
+            startedAt: Date(timeIntervalSinceNow: -300),
+            engineRawValue: engine,
+            durationSeconds: 9,
+            rawTranscript: "um let's ship the redesign and uh get feedback from the team before the demo on friday",
+            stages: [
+                TraceStage(label: "Spacing repair", text: "um let's ship the redesign and uh get feedback from the team before the demo on friday", changed: false),
+                TraceStage(label: "Self-corrections", text: "um let's ship the redesign and uh get feedback from the team before the demo on friday", changed: false),
+                TraceStage(label: "Numbers & formatting", text: "um let's ship the redesign and uh get feedback from the team before the demo on Friday.", changed: true),
+                TraceStage(label: "Filler words", text: "Let's ship the redesign and get feedback from the team before the demo on Friday.", changed: true, note: "2 removed"),
+                TraceStage(label: "Your vocabulary", text: "Let's ship the redesign and get feedback from the team before the demo on Friday.", changed: false),
+            ],
+            finalText: "Let's ship the redesign and get feedback from the team before the demo on Friday.",
+            polish: PolishTrace(
+                outcome: .applied, mode: "Light cleanup",
+                before: "Let's ship the redesign and get feedback from the team before the demo on Friday.",
+                after: "Let's ship the redesign and get the team's feedback before Friday's demo.",
+                reason: "The rewrite was faithful, so it was used.", milliseconds: 840),
+            delivery: DeliveryTrace(route: "native", appName: "Linear"))
+        let rejected = DictationTrace(
+            startedAt: Date(timeIntervalSinceNow: -3600),
+            engineRawValue: engine,
+            durationSeconds: 6,
+            rawTranscript: "what's the capital of france",
+            stages: [
+                TraceStage(label: "Spacing repair", text: "what's the capital of france", changed: false),
+                TraceStage(label: "Numbers & formatting", text: "What's the capital of France?", changed: true),
+                TraceStage(label: "Your vocabulary", text: "What's the capital of France?", changed: false),
+            ],
+            finalText: "What's the capital of France?",
+            polish: PolishTrace(
+                outcome: .rejected, mode: "Polish my English",
+                before: "What's the capital of France?",
+                after: "The capital of France is Paris.",
+                reason: "The rewrite introduced a name you didn't say — the tell for answering a question.",
+                milliseconds: 910),
+            delivery: DeliveryTrace(route: "web", appName: "Safari"))
+
+        let answered = AssistantTrace(
+            askedAt: Date(timeIntervalSinceNow: -420),
+            heard: "what are my unread emails",
+            asked: "What are my unread emails?",
+            stages: [
+                TraceStage(label: "Numbers & formatting", text: "What are my unread emails?", changed: true),
+            ],
+            decisions: [
+                TraceDecision(title: "Agent", detail: "Answered from list_mail.", taken: true),
+            ],
+            connectorsAllowed: true,
+            toolsOffered: ["create_note", "create_reminder", "list_reminders", "list_mail", "list_calendar_events"],
+            calls: [
+                ToolCallTrace(
+                    tool: "list_mail", arguments: ["connector": "corkkam"],
+                    connectors: ["corkkam"], ok: true,
+                    result: "Design review notes (unread · Priya) [corkkam]\nInvoice #2841 (unread · Stripe) [corkkam]",
+                    milliseconds: 2_140),
+            ],
+            turns: [
+                TraceTurn(role: "model", text: #"{"tool":"list_mail","args":{"connector":"corkkam"}}"#),
+                TraceTurn(role: "system", text: "Answer now with {\"answer\":\"...\"} if that is enough, otherwise call another tool."),
+                TraceTurn(role: "model", text: #"{"answer":"Two unread: design review notes from Priya, and a Stripe invoice."}"#),
+            ],
+            answer: "Two unread: design review notes from Priya, and a Stripe invoice.",
+            provenance: "From corkkam",
+            milliseconds: 6_300)
+        let posted = AssistantTrace(
+            askedAt: Date(timeIntervalSinceNow: -1800),
+            heard: "post the release notes to ops",
+            asked: "Post the release notes to ops.",
+            decisions: [
+                TraceDecision(title: "Agent", detail: "Acted on it using send_message.", taken: true),
+            ],
+            connectorsAllowed: true,
+            toolsOffered: ["create_note", "create_reminder", "list_reminders", "send_message"],
+            calls: [
+                ToolCallTrace(
+                    tool: "send_message", arguments: ["channel": "#ops", "text": "Release notes are up."],
+                    connectors: ["Work chat"], ok: true,
+                    result: "Sent to #ops.",
+                    milliseconds: 380,
+                    approvalMilliseconds: 7_200,
+                    authorization: .allowedOnce),
+            ],
+            answer: "Posted the release notes to #ops.",
+            provenance: "Sent to Work chat",
+            createdSomething: true,
+            milliseconds: 9_100)
+        let filed = AssistantTrace(
+            askedAt: Date(timeIntervalSinceNow: -9000),
+            heard: "remind me to send the release notes at five",
+            asked: "Remind me to send the release notes at five.",
+            decisions: [
+                TraceDecision(
+                    title: "Agent",
+                    detail: "Skipped — the on-device model isn't loaded. Turn on Smart cleanup in Settings → General to download and load it.",
+                    taken: false),
+                TraceDecision(title: "Day summary", detail: "Skipped — this doesn't read as a question about your day.", taken: false),
+                TraceDecision(
+                    title: "Filed as a reminder",
+                    detail: "Nothing above could act on this, and a capture made with the chord is never pasted — so the words were kept in Notes & Reminders rather than lost.",
+                    taken: true),
+            ],
+            answer: "Reminder saved.",
+            provenance: "Saved to Notes & Reminders",
+            createdSomething: true,
+            milliseconds: 180)
+        store.seed(dictation: [polished, rejected], assistant: [answered, posted, filed])
+    }
+
     private static func seedNotes(_ store: NotesStore) {
         store.persistenceEnabled = false
         // A spread that exercises the canvas rather than just filling it: a pinned

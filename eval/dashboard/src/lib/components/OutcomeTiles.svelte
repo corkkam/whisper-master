@@ -4,8 +4,14 @@
   let { aggregate }: { aggregate: Aggregate } = $props();
   const targets = $derived(Object.keys(aggregate.byTarget));
 
-  const label = (t: string) =>
-    t === 'light' ? 'Light, ships by default' : t === 'polish' ? 'Polish, experimental' : t;
+  const labels: Record<string, string> = {
+    light: 'Light, ships by default',
+    polish: 'Polish, experimental',
+    slack: 'Slack / chat',
+    email: 'Email',
+    code: 'Code / editor'
+  };
+  const label = (t: string) => labels[t] ?? t;
 </script>
 
 <div class="tiles">
