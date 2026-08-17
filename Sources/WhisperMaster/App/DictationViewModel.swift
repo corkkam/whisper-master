@@ -787,6 +787,26 @@ final class DictationViewModel {
             headline: summary.headline, detail: summary.detail)
     }
 
+    /// The notch line for a transport command.
+    ///
+    /// Deliberately **not spoken**, unlike every other assistant answer: the result
+    /// is already audible — the room goes quiet, or the music comes back — and a
+    /// voice saying "Paused" over the silence it just made is the app talking to
+    /// hear itself. The one case worth a second line is the command that changed
+    /// nothing, which would otherwise look like it was never heard.
+    private func presentMediaConfirmation(_ command: MediaCommand, acted: Bool, question: String) {
+        state.activeDaySummary = DaySummary(
+            headline: command.confirmation,
+            detail: acted ? "" : "It was already.",
+            events: [],
+            gaps: [],
+            scopedTo: nil)
+        state.daySummaryAt = Date()
+        state.daySummaryWasSpoken = false
+        state.appendAnswer(question: question, answer: command.confirmation)
+        Feedback.delivered(soundEnabled: state.soundEnabled)
+    }
+
     // MARK: - Reading answers aloud
 
     /// Read an answer out loud, if the user wants that for this kind of answer.
@@ -1162,9 +1182,37 @@ final class DictationViewModel {
         // The denominator for every assistant number below: how often the chord
         // was actually used, before any tier has had a chance to take it.
         Analytics.shared.send(.assistantInvoked)
-        await requestCalendarAccessIfNeeded()
         let startedAt = Date()
         var trace = spoken.trace(at: startedAt)
+
+        // Transport commands come first, ahead of the calendar prompt and the model.
+        // "Pause the music" is an instruction about the machine the user is holding,
+        // it is exact, and making it wait on a 1.5 GB model to load — or answering it
+        // by filing a note called "pause" — is the kind of miss that makes people stop
+        // using the chord.
+        if let command = MediaCommandDetector.detect(text) {
+            let sent = await MediaController.perform(command)
+            // A spoken "pause" almost always arrives at music this app already
+            // silenced when the chord went down, so `sent` is false and the honest
+            // answer is still "Paused" rather than "it was already".
+            let wasHoldingPause = mediaPauser.yieldToUser()
+            let acted = sent || (command == .pause && wasHoldingPause)
+            presentMediaConfirmation(command, acted: acted, question: text)
+            trace.decisions.append(TraceDecision(
+                title: command.confirmation,
+                detail: acted
+                    ? "It reads as a transport command, so it went straight to whatever "
+                        + "is playing — no model, no connector."
+                    : "It reads as a transport command, and playback was already in "
+                        + "that state, so nothing was sent.",
+                taken: true))
+            trace.answer = command.confirmation
+            trace.provenance = "Media controls"
+            finish(trace, since: startedAt)
+            return true
+        }
+
+        await requestCalendarAccessIfNeeded()
 
         let attempt = await runCommandAgent(text)
         trace.decisions.append(attempt.decision)

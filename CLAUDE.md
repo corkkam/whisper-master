@@ -221,12 +221,20 @@ released once the whole exchange is over — including an answer read aloud. On 
 default (`AppState.pauseMediaWhileListening`). Details:
 **`Sources/WhisperMaster/Media/CLAUDE.md`**.
 
-**⚠️ Two rules from that file hold everywhere.** The play/pause key is a *toggle*
+Saying "pause the music" or "next song" **through the assistant chord** does it
+directly, ahead of the model — and takes the wheel, so the automatic hold does not
+re-pause what the user just started.
+
+**⚠️ Three rules from that file hold everywhere.** The play/pause key is a *toggle*
 sent to whichever app macOS calls "now playing", so pressing it blind can **start**
 music rather than stop it — `MediaPlaybackPolicy` is therefore an allowlist of apps
-known to answer the key, and must never be inverted into a blocklist. And reading
-the Core Audio process list is **not** the device juggling prohibited below: it
-sets no HAL property and names no device, and it always runs off the main actor.
+known to answer the key, and must never be inverted into a blocklist. **A player
+holds its audio stream open ~3.5 s after it stops**, so "is it playing" is
+answerable only late: press **once per hold** and confirm afterwards, never re-check
+and press again (that shipped once, and toggled the music on and off for as long as
+the key was held). And reading the Core Audio process list is **not** the device
+juggling prohibited below: it sets no HAL property and names no device, and it
+always runs off the main actor.
 
 **⚠️ Do NOT add code that programmatically juggles audio devices** to "auto-fix"
 Bluetooth or input routing. It was tried three times (0.3.5–0.3.6) and every
@@ -600,7 +608,10 @@ question" eats the transcript whenever it guesses wrong. Two such rules —
 `voiceCommandsEnabled`, and `DayQueryDetector.matches` running over every finished
 transcript — were removed for exactly this reason and are not coming back.
 `DayQueryDetector` is legal **only** inside `routeCommandCapture`, downstream of
-the chord, where the paste has already been ruled out.
+the chord, where the paste has already been ruled out. **`MediaCommandDetector`
+("pause the music") is under the same restriction** and matches the whole capture
+rather than a word inside it — run over an ordinary dictation it would eat the
+sentence and type nothing.
 
 **⚠️ "Answered without any tool having executed" counts as not acting.** With the
 paste suppressed, a model that talks instead of acting has thrown the user's words

@@ -13,6 +13,33 @@ people that no cleanup pass can unpick. So the media playing on this Mac is paus
 for the length of the exchange and released afterwards. On by default;
 `AppState.pauseMediaWhileListening` (Settings → Dictation) is the off switch.
 
+### ⚠️ Read this before changing anything here: the linger
+
+**A player keeps its Core Audio output stream alive for about 3.5 seconds after it
+stops.** Measured on this machine: pause a player, and `IsRunningOutput` stays true
+for ~3.5 s. A browser is worse — Chrome opens a silent output stream of its own
+whenever *another* app plays, and holds it for as long as that lasts.
+
+So "is media playing" cannot be answered instantly, and **there is no public API
+that answers it exactly**:
+
+- MediaRemote would (an explicit pause, and a true now-playing state) and is
+  **dead**: dlopened on macOS 26 it reports "not playing" while a player is audibly
+  running, and `MRMediaRemoteSendCommand` returns true and does nothing. Apple gated
+  it behind an entitlement in 15.4. Don't reach for it.
+- Power assertions (`pmset -g assertions`) linger identically and are held by
+  `coreaudiod`, not the player.
+- AppleScript would answer exactly for Music and Spotify, but not for a browser or
+  a Chrome PWA — which is what a YouTube Music user actually has — and it costs an
+  Automation prompt per app.
+
+**This shipped as a bug once, and it is the reason for the press-once rule.** The
+first version pressed the key, re-checked 400 ms later, saw the lingering stream,
+concluded the press had failed, and let the next 0.5 s tick press again. Held for a
+few seconds, the music went off, on, off, on, and whichever phase the release landed
+in is what the user was left with. `MediaPauserTests` is the lock; do not remove the
+`pressedForHold` guard or shorten `confirmWindow` below the linger.
+
 ### The pieces
 
 - **`AudioOutputActivity`** — read-only Core Audio: the bundle identifier of every
@@ -25,13 +52,24 @@ for the length of the exchange and released afterwards. On by default;
   never on the key-press path that also has to start the microphone.
 - **`MediaPlaybackPolicy`** — pure, tested (`MediaPlaybackPolicyTests`), and the
   only part that can be wrong in a way a user notices.
-- **`MediaKey`** — presses play/pause via a `.systemDefined` `CGEvent`. Needs
-  Accessibility, which the app already requires for `TextInjector`.
+- **`MediaPlaybackState`** — the one place the Core Audio read and the allowlist are
+  joined, always off the main actor (a sample costs ~1.8 ms of IPC).
+- **`MediaKey`** — presses play/pause, next or previous via a `.systemDefined`
+  `CGEvent`. Needs Accessibility, which the app already requires for `TextInjector`.
 - **`MediaPauser`** — the `@MainActor` coordinator. Pauses from the key press
   (`DictationViewModel.startRecording`) so the first word is never over music, and
   releases from the 0.5 s tick (`reconcileMediaPlayback` →
   `AppState.holdsMediaPlayback`) so one condition in one place covers every exit
-  instead of a call at each of the finalize's four returns.
+  instead of a call at each of the finalize's four returns. Its `Environment` is
+  injectable so the press-once rule is testable without a speaker.
+- **`MediaCommandDetector` + `MediaController`** — the spoken "pause the music".
+  **⚠️ The detector is legal only inside `routeCommandCapture`**, downstream of the
+  assistant chord where the paste is already suppressed, for exactly the reason
+  `DayQueryDetector` is restricted to the same place. It matches the **whole**
+  capture, never a word inside a sentence, so "pause the deploy until I have looked
+  at it" stays a note. `MediaController` re-checks the world before play or pause,
+  because sending a toggle for an explicit instruction can do the opposite of what
+  was asked.
 
 ### ⚠️ The rules, and what each one is protecting against
 
@@ -46,10 +84,16 @@ for the length of the exchange and released afterwards. On by default;
   helper — a YouTube tab is `com.google.Chrome.helper`, and every WKWebView player
   (Safari included) is the shared `com.apple.WebKit.GPU`. An exact-match list would
   miss the commonest case there is.
-- **Only resume what was actually paused.** `didPause` is set from what the
-  speakers did after the press, not from having sent it. A player that ignored the
-  key therefore never earns a second press later — that press would have started
-  something instead of restoring it.
+- **One press per hold, in and out.** `pressedForHold` is not an optimisation; see
+  the linger section above. Anything that presses on a timer or a re-check will
+  oscillate.
+- **Only resume what was actually paused.** After the press, `confirmPause` waits
+  for the speakers to go quiet — which a real pause always does once the linger runs
+  out. If they never do, the press started something instead of stopping it, so it
+  is undone once and nothing is owed at release.
+- **A spoken command outranks the automatic hold.** `yieldToUser()` makes the pauser
+  stop having an opinion for the rest of the hold, so saying "play" does not get
+  quietly re-paused when the dictation ends.
 - **Never resume over something else.** If a recognised player is running output at
   release time, the user started it themselves; the press is dropped rather than
   pausing them a second time.
