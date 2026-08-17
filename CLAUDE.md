@@ -213,6 +213,21 @@ deliberate `releaseTailNanoseconds` flush on stop — don't remove it. Details
 (Bluetooth "call mode", `AVAudioEngineConfigurationChange` recovery and its two
 loop guards, mic warm-start): **`Sources/WhisperMaster/Audio/CLAUDE.md`**.
 
+### Pausing what is already playing (`Media/`)
+
+The microphone hears the speakers, so dictating over a podcast transcribes the
+podcast too. Music and video on this Mac are paused from the key press and
+released once the whole exchange is over — including an answer read aloud. On by
+default (`AppState.pauseMediaWhileListening`). Details:
+**`Sources/WhisperMaster/Media/CLAUDE.md`**.
+
+**⚠️ Two rules from that file hold everywhere.** The play/pause key is a *toggle*
+sent to whichever app macOS calls "now playing", so pressing it blind can **start**
+music rather than stop it — `MediaPlaybackPolicy` is therefore an allowlist of apps
+known to answer the key, and must never be inverted into a blocklist. And reading
+the Core Audio process list is **not** the device juggling prohibited below: it
+sets no HAL property and names no device, and it always runs off the main actor.
+
 **⚠️ Do NOT add code that programmatically juggles audio devices** to "auto-fix"
 Bluetooth or input routing. It was tried three times (0.3.5–0.3.6) and every
 variant broke something, up to hanging in Core Audio with the app unresponsive.

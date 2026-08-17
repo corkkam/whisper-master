@@ -28,6 +28,13 @@ struct RecordingSettingsView: View {
                     ThemeToggle(isOn: $state.holdToTalkEnabled, label: "Hold-to-talk")
                 }
                 RowDivider()
+                SettingsRow("Pause music while you speak",
+                            subtitle: "Music and video stop when you start dictating, "
+                                + "and play again when you are done.") {
+                    ThemeToggle(isOn: $state.pauseMediaWhileListening,
+                                label: "Pause music while you speak")
+                }
+                RowDivider()
                 SettingsRow("Play start / stop sound",
                             subtitle: "Subtle click when recording begins or ends.") {
                     ThemeToggle(isOn: $state.soundEnabled, label: "Play start / stop sound")

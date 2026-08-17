@@ -462,6 +462,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// gone — with nothing left on screen to explain it or any way to stop it.
     func applicationWillTerminate(_ notification: Notification) {
         viewModel.stopSpeaking()
+        // Whatever we paused for a dictation goes back to playing — otherwise
+        // quitting mid-session leaves the speakers silent with nothing left running
+        // to explain why.
+        viewModel.releaseHeldMedia()
         // The other half of crash detection. macOS calls this for ⌘Q, the tray
         // Quit item, and logout — but never for a crash, which is precisely the
         // discrimination `CrashReporter` relies on. A Force Quit skips it too and
@@ -778,6 +782,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
+
+        // Hand the user's music back once the whole exchange is over (the pause
+        // itself happens on the key press, in `startRecording`).
+        viewModel.reconcileMediaPlayback()
 
         // Reconcile the optional cleanup model with its toggle (edge-triggered
         // inside, so this is a no-op unless the user just flipped it).
