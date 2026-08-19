@@ -94,9 +94,22 @@ in is what the user was left with. `MediaPauserTests` is the lock; do not remove
 - **A spoken command outranks the automatic hold.** `yieldToUser()` makes the pauser
   stop having an opinion for the rest of the hold, so saying "play" does not get
   quietly re-paused when the dictation ends.
-- **Never resume over something else.** If a recognised player is running output at
-  release time, the user started it themselves; the press is dropped rather than
-  pausing them a second time.
+- **⚠️ The release presses back unconditionally — do not put a check in front of
+  it again.** This shipped as the second bug in this file: the music paused and never
+  came back. Two causes, one shape. The confirmation below watches for up to 6 s, and
+  it used to hold the "one Core Audio conversation at a time" flag for its whole run,
+  so a release arriving inside that window found the pauser busy and dropped the press
+  — which is every dictation shorter than about five seconds. And the release then
+  asked "is anything playing?" first, meaning not to resume over something the user
+  had started; that question is unanswerable here, because the player we paused a
+  second ago still reads as running (the linger), and Chrome opens a silent output
+  stream of its own whenever anything else plays — including this app reading an
+  answer out loud, which is every assistant question. So: `working` is scoped to the
+  one read that raises it, `release()` cancels the confirmation and presses, and
+  `MediaPauserTests`' "the music never came back" section is the lock. A spoken "play"
+  is the one thing that must not be re-paused, and `yieldToUser()` already owns it.
+  Silent speakers with no explanation is a far worse failure than a player paused once
+  more than it asked for.
 - **The release grace (`resumeGrace`, 1.2 s) is not tuning, it is correctness.** An
   assistant question is a held chord, then an agent run, then an answer read out
   loud, and the busy flags hand over between those stages with a tick or two of

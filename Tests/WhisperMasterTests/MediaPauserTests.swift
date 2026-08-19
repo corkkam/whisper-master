@@ -26,13 +26,20 @@ final class MediaPauserTests: XCTestCase {
         }
     }
 
-    private func makePauser(_ world: World) -> MediaPauser {
+    /// `confirmWindow` is the interesting knob. The default here is short so most
+    /// tests do not wait, but the real one is 6 s — it has to outlast the output-stream
+    /// linger — so the tests that matter for the release path pass a long window and
+    /// let the release land *inside* the confirmation, which is what happens on every
+    /// real dictation.
+    private func makePauser(_ world: World, confirmWindow: TimeInterval = 0.05)
+        -> MediaPauser
+    {
         var env = MediaPauser.Environment()
         env.ownBundleID = "app.whispermaster.mac"
         env.playingApps = { _ in world.take() }
         env.press = { world.presses.append($0) }
         env.confirmInterval = 5_000_000       // 5 ms, so a test is not a 6 s wait
-        env.confirmWindow = 0.05
+        env.confirmWindow = confirmWindow
         return MediaPauser(environment: env)
     }
 
@@ -165,5 +172,109 @@ final class MediaPauserTests: XCTestCase {
         await settle()
 
         XCTAssertEqual(world.presses.count, 2)
+    }
+
+    // MARK: - The second regression: the music never came back
+
+    /// **The shipped bug this pins.** The confirmation watches for up to six seconds,
+    /// because it has to outlast the ~3.5 s output-stream linger — and a dictation is
+    /// normally over long before that. The confirmation used to hold the "one Core
+    /// Audio conversation at a time" flag for its whole run, so the release found the
+    /// pauser busy, dropped the press, and the music stayed off for good. Every short
+    /// dictation and every assistant question ended in silence.
+    func testReleaseInsideTheConfirmationStillHandsTheMusicBack() async {
+        // Never goes quiet, so the confirmation is still watching at release — the same
+        // reading a player gives for the first ~3.5 s after a pause that worked.
+        let world = World(samples: [["com.spotify.client"]])
+        let pauser = makePauser(world, confirmWindow: 60)
+
+        pauser.update(enabled: true, busy: true)
+        await settle()
+        XCTAssertEqual(world.presses.count, 1, "one press to pause")
+
+        pauser.update(
+            enabled: true, busy: false,
+            now: Date().addingTimeInterval(MediaPauser.resumeGrace + 1))
+        await settle()
+
+        XCTAssertEqual(world.presses, [.playPause, .playPause], "the music comes back")
+    }
+
+    /// The release must not ask the speakers for permission first. Our own paused
+    /// player is still lingering, and Chrome opens a silent output stream of its own
+    /// whenever anything else plays — including this app reading an answer aloud. Both
+    /// read as "something is playing", and both used to swallow the resume.
+    func testAStreamPlayingAtReleaseDoesNotSwallowTheResume() async {
+        // Playing → quiet (the pause takes) → a courtesy stream appears while the
+        // answer is spoken, and is still there when the exchange ends.
+        let world = World(samples: [["com.apple.Music"], [], ["com.google.Chrome.helper"]])
+        let pauser = makePauser(world)
+
+        pauser.update(enabled: true, busy: true)
+        await settle()
+
+        pauser.update(
+            enabled: true, busy: false,
+            now: Date().addingTimeInterval(MediaPauser.resumeGrace + 1))
+        await settle()
+
+        XCTAssertEqual(world.presses, [.playPause, .playPause])
+    }
+
+    /// The whole assistant exchange, stage by stage: the chord goes down, recording
+    /// ends, the agent runs, the answer is read aloud, and only then is the music owed
+    /// back — once, at the end, with the confirmation still in flight throughout.
+    func testAWholeAssistantExchangeResumesOnceAtTheEnd() async {
+        let world = World(samples: [["com.apple.Music"]])
+        let pauser = makePauser(world, confirmWindow: 60)
+        let start = Date()
+
+        pauser.update(enabled: true, busy: true, now: start)   // chord down
+        await settle()
+        // Recording, the agent run, then the answer being spoken: the tick reports busy
+        // throughout, with the sub-second idle gaps the grace exists to cover.
+        for step in stride(from: 0.5, through: 6.0, by: 0.5) {
+            pauser.update(
+                enabled: true, busy: true, now: start.addingTimeInterval(step))
+            await settle(2)
+        }
+        XCTAssertEqual(world.presses.count, 1, "still held for the whole exchange")
+
+        pauser.update(
+            enabled: true, busy: false,
+            now: start.addingTimeInterval(6.0 + MediaPauser.resumeGrace + 0.5))
+        await settle()
+        XCTAssertEqual(world.presses, [.playPause, .playPause])
+    }
+
+    /// A second dictation right after the first pauses and resumes again — the release
+    /// has to leave the pauser able to press, not just able to decide.
+    func testASecondHoldPausesAndResumesAgain() async {
+        let world = World(samples: [["com.apple.Music"]])
+        let pauser = makePauser(world, confirmWindow: 60)
+
+        for round in 0..<2 {
+            pauser.update(enabled: true, busy: true)
+            await settle()
+            pauser.update(
+                enabled: true, busy: false,
+                now: Date().addingTimeInterval(MediaPauser.resumeGrace + 1))
+            await settle()
+            XCTAssertEqual(world.presses.count, (round + 1) * 2, "round \(round)")
+        }
+    }
+
+    /// Quitting mid-hold gives the music back even though the tick will never run
+    /// again, and the cancelled confirmation must not press after it.
+    func testTerminationReleasesOnceWhileConfirming() async {
+        let world = World(samples: [["com.apple.Music"]])
+        let pauser = makePauser(world, confirmWindow: 60)
+
+        pauser.update(enabled: true, busy: true)
+        await settle()
+        pauser.releaseForTermination()
+        await settle()
+
+        XCTAssertEqual(world.presses, [.playPause, .playPause])
     }
 }

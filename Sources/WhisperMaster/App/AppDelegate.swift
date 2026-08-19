@@ -715,6 +715,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // AppState below.
         reconcileAuthGate()
 
+        // Hand the user's music back once the whole exchange is over (the pause itself
+        // happens on the key press, in `startRecording`). **Above the tray guard on
+        // purpose:** giving the speakers back cannot depend on the menu bar having a
+        // status item — an early return there would leave the Mac silent with no way
+        // to explain it.
+        viewModel.reconcileMediaPlayback()
+
         guard let item = statusItem, let button = item.button else { return }
         let state = viewModel.state
 
@@ -782,10 +789,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
-
-        // Hand the user's music back once the whole exchange is over (the pause
-        // itself happens on the key press, in `startRecording`).
-        viewModel.reconcileMediaPlayback()
 
         // Reconcile the optional cleanup model with its toggle (edge-triggered
         // inside, so this is a no-op unless the user just flipped it).

@@ -23,9 +23,11 @@ import Foundation
 /// - **Only resume what we paused.** `didPause` is cleared the moment the
 ///   confirmation below shows we pressed the wrong way, so a press that reached
 ///   nothing never earns a second press later.
-/// - **Never resume over something else.** If the user started playing again
-///   themselves while we were listening, the release is dropped rather than
-///   pausing them a second time.
+/// - **The release presses back unconditionally.** It used to check first whether
+///   anything was playing, so as not to pause something the user had started — and
+///   that check is unanswerable, because our own lingering player and the silent
+///   stream Chrome opens while we read the answer aloud both read as "playing". It
+///   swallowed the resume after every short exchange. See `release()`.
 /// - **A spoken "play" or "pause" takes the wheel** (`yieldToUser`): after the user
 ///   says it, this stops having an opinion for the rest of the hold.
 @MainActor
@@ -54,9 +56,15 @@ final class MediaPauser {
     /// session that ended while we were looking does not get a pointless pause.
     private var wantsHold = false
     private var lastBusyAt: Date?
-    /// One Core Audio conversation at a time; the 0.5 s tick would otherwise start a
-    /// second one on top of the first.
+    /// A Core Audio look is in flight; the 0.5 s tick would otherwise start a second
+    /// one on top of the first. **Scoped to that one read only** — it used to stay
+    /// raised for the whole confirmation below, which is what made every short
+    /// dictation forget to give the music back.
     private var working = false
+    /// Watches the speakers after the press, to catch a press that went the wrong
+    /// way. Cancelled at release, because by then the release has pressed for itself
+    /// and a confirmation outliving the hold would press a second time.
+    private var confirmTask: Task<Void, Never>?
 
     /// The world, injectable so `MediaPauserTests` can drive the press-once rule
     /// without a speaker, a key press, or a six-second wait. The defaults are the
@@ -130,13 +138,15 @@ final class MediaPauser {
         guard !pressedForHold, !working else { return }
         working = true
         Task { [env] in
-            defer { working = false }
             let playing = await env.playingApps(env.ownBundleID)
-            guard wantsHold, !playing.isEmpty else { return }
+            // Lowered before the confirmation starts, not after it. Holding it for the
+            // whole six-second watch is what stopped `release()` from pressing back.
+            working = false
+            guard wantsHold, !pressedForHold, !playing.isEmpty else { return }
             pressedForHold = true
             didPause = true
             env.press(.playPause)
-            await confirmPause()
+            confirmTask = Task { await confirmPause() }
         }
     }
 
@@ -150,33 +160,40 @@ final class MediaPauser {
         let deadline = Date().addingTimeInterval(env.confirmWindow)
         while Date() < deadline {
             try? await Task.sleep(nanoseconds: env.confirmInterval)
-            // The hold ended while we watched. `release()` owes the press back, and
-            // pressing here as well would cancel it out.
+            // The hold ended while we watched, and `release()` has already pressed
+            // back. Pressing here as well would cancel it out. (A cancelled sleep
+            // returns straight away, so this is also the loop's exit.)
+            if Task.isCancelled { return }
             guard wantsHold, didPause else { return }
             if await env.playingApps(env.ownBundleID).isEmpty {
                 return  // Quiet. The pause took.
             }
         }
+        guard wantsHold, didPause else { return }
         // Still playing well past the linger: we started something rather than
         // stopping it. Put it back and remember there is nothing to resume.
         didPause = false
         env.press(.playPause)
     }
 
+    /// One press in, one press out — and the press out asks nobody's permission.
+    ///
+    /// **⚠️ It deliberately does not look at the speakers first, and that is the fix
+    /// for "the music never came back".** A Core Audio read here cannot tell the three
+    /// things apart: the player we paused a second ago, still lingering; a courtesy
+    /// stream another app opened because *we* were reading the answer aloud (Chrome
+    /// does this whenever anything else plays); and the user starting something
+    /// themselves. The first two are the common case and both want the press. Guarding
+    /// on "is anything playing" therefore swallowed the resume, and a Mac left silent
+    /// with no explanation is a far worse failure than a player paused once more than
+    /// it asked for. A spoken "play" is the one case that must not be re-paused, and
+    /// `yieldToUser()` already owns it.
     private func release() {
         pressedForHold = false
-        guard didPause, !working else {
-            didPause = false
-            return
-        }
+        confirmTask?.cancel()
+        confirmTask = nil
+        guard didPause else { return }
         didPause = false
-        working = true
-        Task { [env] in
-            defer { working = false }
-            // Something is playing again without us — the user pressed play, or another
-            // app started. Pressing now would pause *that*.
-            let playing = await env.playingApps(env.ownBundleID)
-            if playing.isEmpty { env.press(.playPause) }
-        }
+        env.press(.playPause)
     }
 }
