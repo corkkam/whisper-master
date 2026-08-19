@@ -213,6 +213,31 @@ deliberate `releaseTailNanoseconds` flush on stop — don't remove it. Details
 (Bluetooth "call mode", `AVAudioEngineConfigurationChange` recovery and its two
 loop guards, mic warm-start): **`Sources/WhisperMaster/Audio/CLAUDE.md`**.
 
+### Pausing what is already playing (`Media/`)
+
+The microphone hears the speakers, so dictating over a podcast transcribes the
+podcast too. Music and video on this Mac are paused from the key press and
+released once the whole exchange is over — including an answer read aloud. On by
+default (`AppState.pauseMediaWhileListening`). Details:
+**`Sources/WhisperMaster/Media/CLAUDE.md`**.
+
+Saying "pause the music" or "next song" **through the assistant chord** does it
+directly, ahead of the model — and takes the wheel, so the automatic hold does not
+re-pause what the user just started.
+
+**⚠️ Three rules from that file hold everywhere.** The play/pause key is a *toggle*
+sent to whichever app macOS calls "now playing", so pressing it blind can **start**
+music rather than stop it — `MediaPlaybackPolicy` is therefore an allowlist of apps
+known to answer the key, and must never be inverted into a blocklist. **Exactly two
+presses leave per hold, one down and one up, and nothing may press in between**: a
+player holds its audio stream open after it stops (~3.5 s for Music, far longer for a
+browser), so any mid-hold press acts on a guess, and both bugs this feature shipped
+were that press — one oscillated the music for as long as the key was held, the other
+undid a *correct* pause a few seconds into every dictation. A press that went the
+wrong way is corrected by the release press, which has to happen anyway. And reading
+the Core Audio process list is **not** the device juggling prohibited below: it sets
+no HAL property and names no device, and it always runs off the main actor.
+
 **⚠️ Do NOT add code that programmatically juggles audio devices** to "auto-fix"
 Bluetooth or input routing. It was tried three times (0.3.5–0.3.6) and every
 variant broke something, up to hanging in Core Audio with the app unresponsive.
@@ -585,7 +610,10 @@ question" eats the transcript whenever it guesses wrong. Two such rules —
 `voiceCommandsEnabled`, and `DayQueryDetector.matches` running over every finished
 transcript — were removed for exactly this reason and are not coming back.
 `DayQueryDetector` is legal **only** inside `routeCommandCapture`, downstream of
-the chord, where the paste has already been ruled out.
+the chord, where the paste has already been ruled out. **`MediaCommandDetector`
+("pause the music") is under the same restriction** and matches the whole capture
+rather than a word inside it — run over an ordinary dictation it would eat the
+sentence and type nothing.
 
 **⚠️ "Answered without any tool having executed" counts as not acting.** With the
 paste suppressed, a model that talks instead of acting has thrown the user's words

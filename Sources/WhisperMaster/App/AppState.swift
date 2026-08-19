@@ -65,6 +65,7 @@ final class AppState {
     // Left on disk rather than migrated away — it is never read, and deleting a key
     // buys nothing. Don't reuse the name for something else.
     static let holdToTalkDefaultsKey = "WhisperMaster.holdToTalk.v1"
+    static let pauseMediaDefaultsKey = "WhisperMaster.pauseMediaWhileListening.v1"
     static let remindersEnabledDefaultsKey = "WhisperMaster.remindersEnabled.v1"
     static let quickActionsDefaultsKey = "WhisperMaster.quickActions.v1"
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
@@ -160,6 +161,13 @@ final class AppState {
     }
     var holdToTalkEnabled: Bool = true {
         didSet { UserDefaults.standard.set(holdToTalkEnabled, forKey: Self.holdToTalkDefaultsKey) }
+    }
+
+    /// Pause whatever is playing while the app is listening or answering. On by
+    /// default: the microphone hears the speakers, so dictating over a podcast
+    /// transcribes the podcast as well as the user. See `Media/MediaPauser`.
+    var pauseMediaWhileListening: Bool = true {
+        didSet { UserDefaults.standard.set(pauseMediaWhileListening, forKey: Self.pauseMediaDefaultsKey) }
     }
 
     /// The key that talks to a coding agent, or nil for off.
@@ -754,6 +762,8 @@ final class AppState {
             UserDefaults.standard.object(forKey: Self.agentNudgesDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         holdToTalkEnabled = UserDefaults.standard.object(forKey: Self.holdToTalkDefaultsKey) as? Bool ?? true
+        pauseMediaWhileListening =
+            UserDefaults.standard.object(forKey: Self.pauseMediaDefaultsKey) as? Bool ?? true
         // Opt-out: a connected connector is used unless the user turns this off.
         connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? true
         // Opt-out: you asked out loud, so an answer you can hear is the default.
@@ -805,6 +815,23 @@ final class AppState {
 
     var canStop: Bool {
         phase == .recording
+    }
+
+    /// The app is either listening or talking, so the user's own media should be
+    /// out of the way (`MediaPauser`).
+    ///
+    /// It deliberately spans the *whole* exchange rather than the recording alone:
+    /// an assistant question is a held chord, then an agent run, then an answer read
+    /// out loud, and music coming back between those stages is worse than music that
+    /// never stopped. A `.failed` phase counts as finished — the band is showing an
+    /// error, nobody is speaking.
+    var holdsMediaPlayback: Bool {
+        switch phase {
+        case .preparingModels, .recording, .stopping:
+            return true
+        case .idle, .failed:
+            return commandAgentRunning || isSpeakingAnswer
+        }
     }
 
     /// Show the interactive "when should this reminder be?" quick-prompt. Highest

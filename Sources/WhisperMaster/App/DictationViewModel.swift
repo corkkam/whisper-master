@@ -80,6 +80,10 @@ final class DictationViewModel {
     private var answerSpeaker: AnswerSpeaker?
     /// Watches pasted text for the user's fix-ups and grows the vocabulary.
     private let correctionLearner = CorrectionLearner()
+    /// Holds the user's music while we listen or talk, and hands it back after.
+    /// Inert until `update` is called with a busy state, so `swift test` and the
+    /// headless snapshot renderer never look at Core Audio or press a key.
+    private let mediaPauser = MediaPauser()
     /// The in-flight background polish for the last dictation (qwen cleanup +
     /// in-place refine). Cancelled when a new recording starts so a stale refine
     /// never edits the next session's field.
@@ -141,12 +145,34 @@ final class DictationViewModel {
         reminderScheduler.tick()
     }
 
+    /// Give the user's music back once the exchange is over — and cover the two
+    /// entrances `startRecording` doesn't own (a session started by the remote
+    /// server, an answer spoken from the Today card). Driven by the same 0.5 s tick
+    /// as the tray, so the release is one condition evaluated in one place rather
+    /// than a call at each of the finalize's four exits.
+    func reconcileMediaPlayback() {
+        mediaPauser.update(
+            enabled: state.pauseMediaWhileListening, busy: state.holdsMediaPlayback)
+    }
+
+    /// The app is quitting. Anything we paused is released now — a Mac left with
+    /// silent speakers by an app that is no longer running is not debuggable.
+    func releaseHeldMedia() {
+        mediaPauser.releaseForTermination()
+    }
+
     func startRecording(command: Bool = false) {
         // Whatever agent band was lingering — a pinned reply, an open glance — a
         // new recording outranks it, and letting it pop back up mid- or
         // post-dictation is the "shows during normal dictation" bug.
         state.agents.closeGlance()
         guard state.canStart else { return }
+        // Get the speakers out of the microphone's way from the key press itself,
+        // rather than waiting for the 0.5 s tick below to notice: the first words are
+        // spoken immediately, and they are the ones a podcast would be mixed into.
+        // The Core Audio look-up behind this runs off the main actor, so it costs the
+        // start path nothing.
+        mediaPauser.update(enabled: state.pauseMediaWhileListening, busy: true)
         // Every session begins as a normal dictation unless the command chord armed
         // it — reset here so a stale arm can't leak into the next one.
         setCommandArmed(command)
@@ -761,6 +787,26 @@ final class DictationViewModel {
             headline: summary.headline, detail: summary.detail)
     }
 
+    /// The notch line for a transport command.
+    ///
+    /// Deliberately **not spoken**, unlike every other assistant answer: the result
+    /// is already audible — the room goes quiet, or the music comes back — and a
+    /// voice saying "Paused" over the silence it just made is the app talking to
+    /// hear itself. The one case worth a second line is the command that changed
+    /// nothing, which would otherwise look like it was never heard.
+    private func presentMediaConfirmation(_ command: MediaCommand, acted: Bool, question: String) {
+        state.activeDaySummary = DaySummary(
+            headline: command.confirmation,
+            detail: acted ? "" : "It was already.",
+            events: [],
+            gaps: [],
+            scopedTo: nil)
+        state.daySummaryAt = Date()
+        state.daySummaryWasSpoken = false
+        state.appendAnswer(question: question, answer: command.confirmation)
+        Feedback.delivered(soundEnabled: state.soundEnabled)
+    }
+
     // MARK: - Reading answers aloud
 
     /// Read an answer out loud, if the user wants that for this kind of answer.
@@ -1136,9 +1182,37 @@ final class DictationViewModel {
         // The denominator for every assistant number below: how often the chord
         // was actually used, before any tier has had a chance to take it.
         Analytics.shared.send(.assistantInvoked)
-        await requestCalendarAccessIfNeeded()
         let startedAt = Date()
         var trace = spoken.trace(at: startedAt)
+
+        // Transport commands come first, ahead of the calendar prompt and the model.
+        // "Pause the music" is an instruction about the machine the user is holding,
+        // it is exact, and making it wait on a 1.5 GB model to load — or answering it
+        // by filing a note called "pause" — is the kind of miss that makes people stop
+        // using the chord.
+        if let command = MediaCommandDetector.detect(text) {
+            let sent = await MediaController.perform(command)
+            // A spoken "pause" almost always arrives at music this app already
+            // silenced when the chord went down, so `sent` is false and the honest
+            // answer is still "Paused" rather than "it was already".
+            let wasHoldingPause = mediaPauser.yieldToUser()
+            let acted = sent || (command == .pause && wasHoldingPause)
+            presentMediaConfirmation(command, acted: acted, question: text)
+            trace.decisions.append(TraceDecision(
+                title: command.confirmation,
+                detail: acted
+                    ? "It reads as a transport command, so it went straight to whatever "
+                        + "is playing — no model, no connector."
+                    : "It reads as a transport command, and playback was already in "
+                        + "that state, so nothing was sent.",
+                taken: true))
+            trace.answer = command.confirmation
+            trace.provenance = "Media controls"
+            finish(trace, since: startedAt)
+            return true
+        }
+
+        await requestCalendarAccessIfNeeded()
 
         let attempt = await runCommandAgent(text)
         trace.decisions.append(attempt.decision)
