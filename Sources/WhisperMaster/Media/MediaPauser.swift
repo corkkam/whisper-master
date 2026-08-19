@@ -9,25 +9,39 @@ import Foundation
 /// media playing on this Mac is paused, and it resumes once the whole exchange is
 /// over, including the answer being read aloud.
 ///
-/// **⚠️ The one rule that everything else here defends: press the key once per
-/// hold, and never again.** The play/pause key is a toggle, and a player keeps its
-/// Core Audio output stream alive for about 3.5 seconds after it stops — so a
-/// press that worked still reads as "audio is playing" for seconds afterwards.
-/// The first version re-checked 400 ms after pressing, concluded it had failed,
-/// and let the next 0.5 s tick press again: the music went off, on, off, on for as
-/// long as the key was held, and whichever phase it landed in is what the user was
-/// left with. `pressedForHold` is what makes that impossible.
+/// **⚠️ Exactly two key presses leave this class per hold: one down, one up. Nothing
+/// presses in between, and nothing may be added that does.** The play/pause key is a
+/// toggle, and the only signal we have for "is media playing" is whether a process is
+/// running a Core Audio output stream — which stays true for seconds after playback
+/// actually stops, and for a browser longer still. So a mid-hold press is always
+/// acting on a guess, and a wrong guess here is not quiet: it starts the user's music
+/// in the middle of the sentence they are dictating.
 ///
-/// The remaining rules:
+/// Two shipped bugs, both of them a mid-hold press:
 ///
-/// - **Only resume what we paused.** `didPause` is cleared the moment the
-///   confirmation below shows we pressed the wrong way, so a press that reached
-///   nothing never earns a second press later.
-/// - **The release presses back unconditionally.** It used to check first whether
-///   anything was playing, so as not to pause something the user had started — and
-///   that check is unanswerable, because our own lingering player and the silent
-///   stream Chrome opens while we read the answer aloud both read as "playing". It
-///   swallowed the resume after every short exchange. See `release()`.
+/// 1. The first version pressed, re-checked 400 ms later, saw the stream still alive,
+///    concluded the press had failed, and pressed again on the next tick — off, on,
+///    off, on for as long as the key was held.
+/// 2. The second version pressed once and then watched for up to six seconds for the
+///    speakers to go quiet, pressing back if they never did. A browser holds its
+///    output stream open longer than that window, so on a machine playing YouTube the
+///    pause was *correct* and then undone a few seconds into every dictation. The
+///    music came back mid-sentence and was never handed over again, because the
+///    press-back had cleared the debt.
+///
+/// What replaced it is not a better watcher, it is no watcher. A press that went the
+/// wrong way — the stream we saw was the tail of playback the user had already paused
+/// by hand, so the press *started* the music — is corrected by the release press,
+/// which has to happen anyway and needs no inference to be right. The user's media
+/// therefore always ends the exchange in the state they left it in; the only cost of a
+/// wrong guess is that it plays for the length of the dictation, instead of being
+/// silenced at a moment we picked by reading tea leaves.
+///
+/// The two remaining rules:
+///
+/// - **Only press when a recognised player is running output** — `MediaPlaybackPolicy`
+///   is an allowlist, because the key is a toggle and pressing it at silence starts
+///   whatever was paused.
 /// - **A spoken "play" or "pause" takes the wheel** (`yieldToUser`): after the user
 ///   says it, this stops having an opinion for the rest of the hold.
 @MainActor
@@ -39,44 +53,31 @@ final class MediaPauser {
     /// between the stages of a single question.
     static let resumeGrace: TimeInterval = 1.2
 
-    /// How long to keep watching after the press before deciding it went the wrong
-    /// way. **Must stay comfortably above the ~3.5 s output-stream linger**, or a
-    /// successful pause is read as a failure. Measured on this machine with a player
-    /// paused by hand; the confirmation below wants the stream to go quiet *once*,
-    /// which it does within the linger.
-    static let confirmWindow: TimeInterval = 6
-
     /// We have pressed for the current hold. One press in, one press out — no matter
     /// what the speakers appear to be doing in between.
     private var pressedForHold = false
-    /// The press is believed to have paused something, so the release owes a press
-    /// back. Optimistic at the press, withdrawn if the confirmation disagrees.
+    /// The press is owed back at release. Set at the press and cleared only by the
+    /// release itself or by the user taking the wheel — never by anything that has
+    /// looked at the speakers and drawn a conclusion.
     private var didPause = false
     /// The app still wants silence. Read after the off-main Core Audio look, so a
     /// session that ended while we were looking does not get a pointless pause.
     private var wantsHold = false
     private var lastBusyAt: Date?
     /// A Core Audio look is in flight; the 0.5 s tick would otherwise start a second
-    /// one on top of the first. **Scoped to that one read only** — it used to stay
-    /// raised for the whole confirmation below, which is what made every short
-    /// dictation forget to give the music back.
+    /// one on top of the first. It is raised for that one read and lowered again as
+    /// soon as it returns — never held across a wait, which is how a release once
+    /// found the pauser busy and dropped the press that hands the music back.
     private var working = false
-    /// Watches the speakers after the press, to catch a press that went the wrong
-    /// way. Cancelled at release, because by then the release has pressed for itself
-    /// and a confirmation outliving the hold would press a second time.
-    private var confirmTask: Task<Void, Never>?
 
     /// The world, injectable so `MediaPauserTests` can drive the press-once rule
-    /// without a speaker, a key press, or a six-second wait. The defaults are the
-    /// real thing.
+    /// without a speaker and without a key press. The defaults are the real thing.
     struct Environment {
         var ownBundleID: String = Bundle.main.bundleIdentifier ?? ""
         var playingApps: (String) async -> [String] = {
             await MediaPlaybackState.playingApps(ownBundleID: $0)
         }
         var press: @MainActor (MediaKey.Key) -> Void = { MediaKey.send($0) }
-        var confirmInterval: UInt64 = 500_000_000
-        var confirmWindow: TimeInterval = MediaPauser.confirmWindow
     }
 
     private let env: Environment
@@ -139,59 +140,32 @@ final class MediaPauser {
         working = true
         Task { [env] in
             let playing = await env.playingApps(env.ownBundleID)
-            // Lowered before the confirmation starts, not after it. Holding it for the
-            // whole six-second watch is what stopped `release()` from pressing back.
             working = false
+            // Re-read after the await: the hold can have ended, or another look can
+            // have pressed already, while this one was in flight.
             guard wantsHold, !pressedForHold, !playing.isEmpty else { return }
             pressedForHold = true
             didPause = true
             env.press(.playPause)
-            confirmTask = Task { await confirmPause() }
         }
     }
 
-    /// Watch until the speakers go quiet, which is what a working pause looks like
-    /// once the stream linger has run out. If they never do, the press went the wrong
-    /// way — it started something that was sitting paused — so undo it, once.
+    /// The press out, and it asks nobody's permission.
     ///
-    /// This is the whole reason a wrong press costs a few seconds of music instead of
-    /// a whole dictation.
-    private func confirmPause() async {
-        let deadline = Date().addingTimeInterval(env.confirmWindow)
-        while Date() < deadline {
-            try? await Task.sleep(nanoseconds: env.confirmInterval)
-            // The hold ended while we watched, and `release()` has already pressed
-            // back. Pressing here as well would cancel it out. (A cancelled sleep
-            // returns straight away, so this is also the loop's exit.)
-            if Task.isCancelled { return }
-            guard wantsHold, didPause else { return }
-            if await env.playingApps(env.ownBundleID).isEmpty {
-                return  // Quiet. The pause took.
-            }
-        }
-        guard wantsHold, didPause else { return }
-        // Still playing well past the linger: we started something rather than
-        // stopping it. Put it back and remember there is nothing to resume.
-        didPause = false
-        env.press(.playPause)
-    }
-
-    /// One press in, one press out — and the press out asks nobody's permission.
+    /// **⚠️ It deliberately does not look at the speakers first.** A Core Audio read
+    /// here cannot tell three things apart: the player we paused a second ago, still
+    /// lingering; a courtesy stream another app opened because *we* were reading the
+    /// answer aloud (a browser does this whenever anything else plays); and the user
+    /// starting something themselves. Guarding on "is anything playing" swallowed the
+    /// resume after every short exchange, and left the Mac silent with no explanation.
     ///
-    /// **⚠️ It deliberately does not look at the speakers first, and that is the fix
-    /// for "the music never came back".** A Core Audio read here cannot tell the three
-    /// things apart: the player we paused a second ago, still lingering; a courtesy
-    /// stream another app opened because *we* were reading the answer aloud (Chrome
-    /// does this whenever anything else plays); and the user starting something
-    /// themselves. The first two are the common case and both want the press. Guarding
-    /// on "is anything playing" therefore swallowed the resume, and a Mac left silent
-    /// with no explanation is a far worse failure than a player paused once more than
-    /// it asked for. A spoken "play" is the one case that must not be re-paused, and
-    /// `yieldToUser()` already owns it.
+    /// It is also the correction for a press that went the wrong way. If the stream we
+    /// saw at the key press was the tail of playback the user had already stopped, the
+    /// press started their music — and this press stops it again. Either way the media
+    /// ends the exchange in the state the user left it in, which is why nothing in
+    /// between needs to work out which of the two happened.
     private func release() {
         pressedForHold = false
-        confirmTask?.cancel()
-        confirmTask = nil
         guard didPause else { return }
         didPause = false
         env.press(.playPause)

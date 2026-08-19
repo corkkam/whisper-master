@@ -228,13 +228,15 @@ re-pause what the user just started.
 **⚠️ Three rules from that file hold everywhere.** The play/pause key is a *toggle*
 sent to whichever app macOS calls "now playing", so pressing it blind can **start**
 music rather than stop it — `MediaPlaybackPolicy` is therefore an allowlist of apps
-known to answer the key, and must never be inverted into a blocklist. **A player
-holds its audio stream open ~3.5 s after it stops**, so "is it playing" is
-answerable only late: press **once per hold** and confirm afterwards, never re-check
-and press again (that shipped once, and toggled the music on and off for as long as
-the key was held). And reading the Core Audio process list is **not** the device
-juggling prohibited below: it sets no HAL property and names no device, and it
-always runs off the main actor.
+known to answer the key, and must never be inverted into a blocklist. **Exactly two
+presses leave per hold, one down and one up, and nothing may press in between**: a
+player holds its audio stream open after it stops (~3.5 s for Music, far longer for a
+browser), so any mid-hold press acts on a guess, and both bugs this feature shipped
+were that press — one oscillated the music for as long as the key was held, the other
+undid a *correct* pause a few seconds into every dictation. A press that went the
+wrong way is corrected by the release press, which has to happen anyway. And reading
+the Core Audio process list is **not** the device juggling prohibited below: it sets
+no HAL property and names no device, and it always runs off the main actor.
 
 **⚠️ Do NOT add code that programmatically juggles audio devices** to "auto-fix"
 Bluetooth or input routing. It was tried three times (0.3.5–0.3.6) and every

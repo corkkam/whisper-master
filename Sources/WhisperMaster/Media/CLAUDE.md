@@ -15,10 +15,13 @@ for the length of the exchange and released afterwards. On by default;
 
 ### ⚠️ Read this before changing anything here: the linger
 
-**A player keeps its Core Audio output stream alive for about 3.5 seconds after it
-stops.** Measured on this machine: pause a player, and `IsRunningOutput` stays true
-for ~3.5 s. A browser is worse — Chrome opens a silent output stream of its own
-whenever *another* app plays, and holds it for as long as that lasts.
+**A player keeps its Core Audio output stream alive after it stops, and how long is
+not a number you can rely on.** Measured with Music on this machine: pause it, and
+`IsRunningOutput` stays true for ~3.5 s. **A browser holds it far longer than that** —
+long enough that a six-second window mistook a *working* pause for a failed one on a
+machine playing YouTube in Brave, which is the second bug below. A browser also opens
+a silent output stream of its own whenever *another* app plays, this app reading an
+answer aloud included.
 
 So "is media playing" cannot be answered instantly, and **there is no public API
 that answers it exactly**:
@@ -27,18 +30,40 @@ that answers it exactly**:
   **dead**: dlopened on macOS 26 it reports "not playing" while a player is audibly
   running, and `MRMediaRemoteSendCommand` returns true and does nothing. Apple gated
   it behind an entitlement in 15.4. Don't reach for it.
-- Power assertions (`pmset -g assertions`) linger identically and are held by
-  `coreaudiod`, not the player.
 - AppleScript would answer exactly for Music and Spotify, but not for a browser or
   a Chrome PWA — which is what a YouTube Music user actually has — and it costs an
   Automation prompt per app.
+- **Power assertions are the one candidate not yet ruled out, and the earlier note
+  here was wrong.** It said they linger identically and are held by `coreaudiod`; on
+  this machine `pmset -g assertions` shows the *browser itself* holding
+  `NoIdleSleepAssertion named: "Playing audio"` (Brave, its own pid) for exactly as
+  long as it plays, next to the `coreaudiod` ones that do linger. Chromium drives that
+  from its own audible-tab monitor, so it may well drop it promptly on pause — which
+  would be a sharper signal than the output stream for the commonest player there is.
+  **Unverified**: confirming it needs somebody to pause playback by hand while the
+  assertion list is sampled, and neither a test nor an agent shell can press a media
+  key (no Accessibility grant, so `AXIsProcessTrusted()` is false and the event is
+  dropped). Measure it before building on it.
 
-**This shipped as a bug once, and it is the reason for the press-once rule.** The
-first version pressed the key, re-checked 400 ms later, saw the lingering stream,
-concluded the press had failed, and let the next 0.5 s tick press again. Held for a
-few seconds, the music went off, on, off, on, and whichever phase the release landed
-in is what the user was left with. `MediaPauserTests` is the lock; do not remove the
-`pressedForHold` guard or shorten `confirmWindow` below the linger.
+### ⚠️ Two bugs shipped here, and both were a press in the middle of a hold
+
+1. The first version pressed, re-checked 400 ms later, saw the lingering stream,
+   concluded the press had failed, and let the next 0.5 s tick press again. Held for a
+   few seconds the music went off, on, off, on, and whichever phase the release landed
+   in is what the user was left with.
+2. The second pressed once and then watched for up to six seconds for the speakers to
+   go quiet, pressing back if they never did. A browser keeps its stream open past that
+   window, so on a real machine the pause was **correct and then undone** a few seconds
+   into every dictation — and never handed back, because the press-back had cleared the
+   debt. This is "it pauses for a bit and then the music comes back by itself".
+
+The lesson is not "use a better window". It is that **a mid-hold press is always acting
+on a guess, and the loud failure mode is the user's own music starting in the middle of
+the sentence they are dictating.** So there is no watcher any more: press once when the
+hold starts, once when it ends, and let the release press be the correction for a press
+that went the wrong way. `MediaPauserTests` is the lock —
+`testNothingIsPressedMidHoldHoweverLongTheHold` is bug 2 and the `pressedForHold` guard
+is bug 1.
 
 ### The pieces
 
@@ -56,12 +81,13 @@ in is what the user was left with. `MediaPauserTests` is the lock; do not remove
   joined, always off the main actor (a sample costs ~1.8 ms of IPC).
 - **`MediaKey`** — presses play/pause, next or previous via a `.systemDefined`
   `CGEvent`. Needs Accessibility, which the app already requires for `TextInjector`.
-- **`MediaPauser`** — the `@MainActor` coordinator. Pauses from the key press
-  (`DictationViewModel.startRecording`) so the first word is never over music, and
-  releases from the 0.5 s tick (`reconcileMediaPlayback` →
+- **`MediaPauser`** — the `@MainActor` coordinator, and deliberately small: it presses
+  once from the key press (`DictationViewModel.startRecording`) so the first word is
+  never over music, and once from the 0.5 s tick (`reconcileMediaPlayback` →
   `AppState.holdsMediaPlayback`) so one condition in one place covers every exit
-  instead of a call at each of the finalize's four returns. Its `Environment` is
-  injectable so the press-once rule is testable without a speaker.
+  instead of a call at each of the finalize's four returns. It owns no timer and no
+  watching task, which is the property that keeps a press out of the middle of a hold.
+  Its `Environment` is injectable so the press-once rule is testable without a speaker.
 - **`MediaCommandDetector` + `MediaController`** — the spoken "pause the music".
   **⚠️ The detector is legal only inside `routeCommandCapture`**, downstream of the
   assistant chord where the paste is already suppressed, for exactly the reason
@@ -84,13 +110,16 @@ in is what the user was left with. `MediaPauserTests` is the lock; do not remove
   helper — a YouTube tab is `com.google.Chrome.helper`, and every WKWebView player
   (Safari included) is the shared `com.apple.WebKit.GPU`. An exact-match list would
   miss the commonest case there is.
-- **One press per hold, in and out.** `pressedForHold` is not an optimisation; see
-  the linger section above. Anything that presses on a timer or a re-check will
-  oscillate.
-- **Only resume what was actually paused.** After the press, `confirmPause` waits
-  for the speakers to go quiet — which a real pause always does once the linger runs
-  out. If they never do, the press started something instead of stopping it, so it
-  is undone once and nothing is owed at release.
+- **⚠️ Two presses per hold, one down and one up, and nothing in between.** Both
+  shipped bugs were a third press; see the section above. Anything that presses on a
+  timer, a re-check or a confirmation is that bug again.
+- **A wrong press is corrected at the release, not mid-hold.** If the stream we saw at
+  the key press was the tail of playback the user had already stopped by hand, the
+  press *started* their music — and the release press stops it again. The media
+  therefore always ends the exchange in the state the user left it in. The residual
+  cost is real and is the accepted trade: dictate within the linger of your own manual
+  pause and the music plays for the length of that dictation. Shortening that means
+  answering "is it audible right now", which nothing above can do yet.
 - **A spoken command outranks the automatic hold.** `yieldToUser()` makes the pauser
   stop having an opinion for the rest of the hold, so saying "play" does not get
   quietly re-paused when the dictation ends.
@@ -105,8 +134,8 @@ in is what the user was left with. `MediaPauserTests` is the lock; do not remove
   second ago still reads as running (the linger), and Chrome opens a silent output
   stream of its own whenever anything else plays — including this app reading an
   answer out loud, which is every assistant question. So: `working` is scoped to the
-  one read that raises it, `release()` cancels the confirmation and presses, and
-  `MediaPauserTests`' "the music never came back" section is the lock. A spoken "play"
+  one read that raises it, `release()` just presses, and `MediaPauserTests`' "the
+  release always presses back" section is the lock. A spoken "play"
   is the one thing that must not be re-paused, and `yieldToUser()` already owns it.
   Silent speakers with no explanation is a far worse failure than a player paused once
   more than it asked for.
