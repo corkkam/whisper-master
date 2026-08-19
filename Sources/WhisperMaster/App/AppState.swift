@@ -274,6 +274,16 @@ final class AppState {
     /// reminder's default time is one click from adjustable. Transient; consumed
     /// (and cleared) by `SettingsView` the moment it flips.
     var requestedSettingsSection: SettingsSection?
+    /// The version string of an update Sparkle has found and the user has not
+    /// installed yet, or nil when this build is current. Written **only** by the
+    /// AppDelegate's `SPUUpdaterDelegate` callbacks; read by the sidebar's update
+    /// card and the account popup, so the two entry points can never disagree
+    /// about whether there is something to install.
+    ///
+    /// Transient on purpose — never persisted. A marker written to disk would
+    /// outlive the update that answered it and light the sidebar on a build that
+    /// is already current, and Sparkle re-checks on every launch anyway.
+    var availableUpdateVersion: String?
     /// One-shot request to open a *fresh* note / reminder editor once the Notes &
     /// Reminders page is on screen — set by the notch quick-actions panel, which
     /// sits on the bezel as a non-activating panel and so can't host a text field

@@ -86,19 +86,26 @@ enum SnapshotMode {
         }
 
         // The account popup that hangs off the sidebar profile row (it replaced
-        // the Account page, so it has no section panel of its own).
-        let accountPopover = AccountPopoverCard(
-            displayName: "Alex Rivera",
-            email: "alex@whispermaster.app",
-            accountID: "user_2aBcDeFgHiJkLmN",
-            memberSince: "Joined June 2026",
-            imageURL: nil,
-            signOut: {}
-        )
-        .background(Theme.surface)
-        .padding(20)
-        .background(Color(white: 0.9))
-        render(accountPopover, to: dir.appendingPathComponent("panel-account-popover.png"))
+        // the Account page, so it has no section panel of its own). Rendered
+        // twice: the ordinary "Check for updates" button, and the state it takes
+        // once Sparkle has found something — the two are one control and the
+        // whole point of the second render is that they stay a pair.
+        for (name, version) in [("panel-account-popover", String?.none),
+                                ("panel-account-popover-update", "1.2.0")] {
+            let accountPopover = AccountPopoverCard(
+                displayName: "Alex Rivera",
+                email: "alex@whispermaster.app",
+                accountID: "user_2aBcDeFgHiJkLmN",
+                memberSince: "Joined June 2026",
+                imageURL: nil,
+                signOut: {},
+                updateVersion: version
+            )
+            .background(Theme.surface)
+            .padding(20)
+            .background(Color(white: 0.9))
+            render(accountPopover, to: dir.appendingPathComponent("\(name).png"))
+        }
 
         // Onboarding, in the notch — one render per beat, plus the two states
         // inside the microphone beat that the orb is doing the work in.
@@ -799,6 +806,11 @@ enum SnapshotMode {
     private static func seedMockData(_ state: AppState) {
         state.phase = .idle
         state.audioLevel = 0
+        // Mock, so the sidebar's update card is in every window render. On a real
+        // build this is nil until Sparkle's silent check finds something, and the
+        // card is absent — the snapshots deliberately show the loud state, which
+        // is the one worth reviewing.
+        state.availableUpdateVersion = "1.2.0"
         state.customVocabulary = ["RAG", "Parakeet", "Lyzr"]
         state.history = [
             TranscriptHistoryEntry(text: "Let's ship the redesign and get feedback from the team before the demo on Friday.", createdAt: Date(timeIntervalSinceNow: -300), engineRawValue: TranscriberEngine.slidingWindow.rawValue),
