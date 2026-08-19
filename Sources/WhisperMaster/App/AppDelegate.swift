@@ -362,6 +362,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // outcome on almost every install.
         viewModel.state.agents.start()
 
+        // Ask the appcast whether there is an update, without showing anything.
+        // `checkForUpdateInformation()` is the one Sparkle entry point that has no
+        // user driver behind it: it only fires the delegate callbacks below, which
+        // set `availableUpdateVersion` and light the sidebar card. Held behind the
+        // gate with the rest of the bring-up because `feedURLString` reads the
+        // signed-in user's channel, so a check made before the session loads would
+        // poll the wrong feed.
+        updaterController.updater.checkForUpdateInformation()
+
         let userID = currentOnboardingUserID()
 
         // Migration for existing installs: they have no per-user onboarding
@@ -1511,6 +1520,22 @@ extension AppDelegate: SPUUpdaterDelegate {
     /// return a concrete channel so the two never drift.
     nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
         MainActor.assumeIsolated { BetaAccess.currentChannel.feedURLString }
+    }
+
+    /// Light the sidebar's update card. Sparkle calls this for **every** kind of
+    /// check — the silent `checkForUpdateInformation()` below, the scheduled
+    /// background check, and a manual one — so the card appears without any
+    /// window being thrown at the user, which is the whole point of it.
+    nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        MainActor.assumeIsolated {
+            viewModel.state.availableUpdateVersion = item.displayVersionString
+        }
+    }
+
+    /// Put the card away again when the feed says this build is current — the
+    /// user updated from somewhere else, or the release was pulled.
+    nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        MainActor.assumeIsolated { viewModel.state.availableUpdateVersion = nil }
     }
 }
 

@@ -269,8 +269,18 @@ struct SettingsView: View {
             Spacer(minLength: 16)
 
             VStack(spacing: 12) {
+                // Only present when Sparkle has actually found something, so the
+                // sidebar says nothing at all on a current build.
+                if let version = state.availableUpdateVersion {
+                    SidebarUpdateCard(version: version, install: checkForUpdates)
+                }
                 SidebarMicCard(state: state, viewModel: viewModel)
-                SidebarAccountRow(isSnapshot: isSnapshot, signOut: signOut)
+                SidebarAccountRow(
+                    isSnapshot: isSnapshot,
+                    updateVersion: state.availableUpdateVersion,
+                    signOut: signOut,
+                    checkForUpdates: checkForUpdates
+                )
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 16)
@@ -561,6 +571,76 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - Sidebar update card
+
+/// "There is a new version" in the sidebar, and the one click that installs it.
+///
+/// It is drawn only while `AppState.availableUpdateVersion` is set, which the
+/// AppDelegate's Sparkle delegate writes from a **silent** check
+/// (`checkForUpdateInformation()`), so a waiting update announces itself in the
+/// window without a Sparkle panel appearing over whatever the user was doing.
+/// The tap runs the ordinary `checkForUpdates` action — Sparkle then shows its
+/// own release notes and Install button, which is the surface that owns the
+/// download, the signature check and the relaunch.
+///
+/// Accent-tinted rather than a plain glass card: it is news, and it sits beside
+/// the mic card, which must stay the loudest thing at the foot of the sidebar —
+/// hence the smaller glyph and the two tight lines.
+private struct SidebarUpdateCard: View {
+    let version: String
+    var install: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: install) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle().fill(Theme.accentFill)
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.accentOn)
+                }
+                .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Update ready")
+                        .font(Typography.heading(13, relativeTo: .callout))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("Version \(version)")
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 4)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Theme.accentText)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 10)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Theme.accentSoft)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(
+                                Theme.accent.opacity(hovering ? 0.42 : 0.22), lineWidth: 1)
+                    )
+                    .shadow(color: Theme.Ember.base.opacity(0.18), radius: 10, x: 0, y: 4)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel("Update ready, version \(version)")
+        .accessibilityHint("Installs the update")
+        .pointerCursor()
+    }
+}
+
 // MARK: - Sidebar mic card
 
 /// The sidebar's push-to-talk affordance: idle names the bound key, recording
@@ -650,7 +730,9 @@ private struct SidebarMicCard: View {
 /// stable stand-in.
 private struct SidebarAccountRow: View {
     let isSnapshot: Bool
+    var updateVersion: String?
     var signOut: () -> Void = {}
+    var checkForUpdates: () -> Void = {}
 
     @State private var showAccount = false
 
@@ -658,7 +740,16 @@ private struct SidebarAccountRow: View {
         row
             // Anchored above the row (it lives at the sidebar's bottom edge).
             .popover(isPresented: $showAccount, arrowEdge: .top) {
-                AccountPopover(signOut: signOut)
+                AccountPopover(
+                    updateVersion: updateVersion,
+                    signOut: signOut,
+                    checkForUpdates: {
+                        // Sparkle's window is app-modal-ish and this popover sits
+                        // above it, so close ours before handing over.
+                        showAccount = false
+                        checkForUpdates()
+                    }
+                )
             }
     }
 
