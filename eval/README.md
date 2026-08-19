@@ -46,7 +46,7 @@ results.json          (per case × target: outputs, guard, latency)
     │
     ├─ Claude reads results.json → judgment.md   (subjective quality)
     │
-    └─ push-run → eval dashboard                 (history over time)
+    └─ push-run → whisper.corkkam.com/eval       (history over time)
 ```
 
 **Grade the real pipeline, never a stand-in.** `EvalRunner` calls
@@ -70,7 +70,9 @@ the **real** `CleanupFaithfulnessGuard`. The scorer does not re-run the model.
 | Destination cases | `eval/text-cleanup/flow-cases.jsonl` | Slack / email / code suite. |
 | One-shot driver | `eval/text-cleanup/run-eval.sh` | Quit app → `launchctl setenv` → `open` → wait → optional push. |
 | Audio glue | `make_audio.sh`, `fetch_librispeech.sh` | TTS + HFP/noise aug + LibriSpeech slice → `.eval-scratch/` (git-ignored). |
-| Dashboard | `eval/dashboard/` | SvelteKit. Public reads, token-gated ingest. Scoring is a TS port of `EvalScoreKit`. |
+| Pusher | `eval/text-cleanup/push-run.mjs` | `POST /api/eval/ingest`. Needs `EVAL_INGEST_TOKEN`. |
+| History page | landing repo, `app/eval/` + `lib/eval/` | Public reads, token-gated ingest. `lib/eval/scoring.ts` is a TS port of `EvalScoreKit`. |
+| Retired dashboard | `eval/dashboard/` | The old SvelteKit + MongoDB deploy. Still serving `/api/usage` and `/api/notes` for shipped Mac builds; its eval half is dead. |
 | Historical Ollama harness | `run.py`, `guard.py` | Left as history. Do not extend. Do not use for ship decisions. |
 
 `AudioReplayTests` is a **separate** regression bench (committed `paragraph-N.m4a`
@@ -167,7 +169,7 @@ What that script does:
 3. `open`s the app. **Do not exec the bundle’s Mach-O** — TCC can’t find the
    Info.plist usage strings and the mesh CoreBluetooth scan hard-crashes.
 4. Waits until `results.json` appears and its size holds steady (default 20 min).
-5. Pushes to the dashboard unless `NO_PUSH=1`.
+5. Pushes to `whisper.corkkam.com/eval` unless `NO_PUSH=1`.
 
 Useful env:
 
@@ -175,9 +177,10 @@ Useful env:
 |---|---|---|
 | `APP` | `/Applications/Whisper Master.app` | Which bundle to launch |
 | `OUT` | `eval/text-cleanup/.eval-scratch/results.json` | Where `results.json` lands |
-| `DASHBOARD_URL` | `http://localhost:5173` | Ingest target |
+| `DASHBOARD_URL` | `https://whisper.corkkam.com` | Ingest target (`http://localhost:3000` for a local landing site) |
+| `EVAL_INGEST_TOKEN` | unset | Required by the ingest route, which fails closed |
 | `TIMEOUT` | `1200` | Seconds to wait for the write |
-| `NO_PUSH=1` | off | Skip the dashboard |
+| `NO_PUSH=1` | off | Skip the push |
 
 ```bash
 # grade the just-built bundle, keep results local
@@ -257,32 +260,28 @@ If you see a CoreBluetooth crash at launch: you exec’d the binary. Use `open`.
 
 ---
 
-## Dashboard
+## Where the history lives
 
-Public history: [whisper-eval-dashboard.vercel.app](https://whisper-eval-dashboard.vercel.app)
-(auto-deploys from `dev` when `eval/dashboard/` changes).
+Public history: **[whisper.corkkam.com/eval](https://whisper.corkkam.com/eval)**, served by
+the landing site (`../whisper-master-landing-page`, route `app/eval/`, data in
+`lib/eval/` on Supabase). It used to be its own SvelteKit deploy on a separate
+Vercel account backed by MongoDB Atlas; that app still exists at
+`eval/dashboard/` and is still up, because shipped Mac builds hardcode it as
+the sync base URL for `/api/usage` and `/api/notes`. **Its eval half is
+retired** — do not push runs to it, and do not add features to it.
 
-Local:
-
-```bash
-cd eval/dashboard
-cp .env.example .env          # DATABASE_URL (must include /dbname in the path) + INGEST_TOKEN
-npm install
-npm run db:push
-npm run dev                   # http://localhost:5173
-```
-
-Reads are public. `POST /api/ingest` needs `x-ingest-token`. `push-run.mjs`
-sends it. Re-push a finished run:
+A run is published by `run-eval.sh`, or by hand:
 
 ```bash
-cd eval/dashboard
-npm run push-run -- ../text-cleanup/.eval-scratch/results.json \
-  ../text-cleanup/cases.jsonl "light+polish"
+EVAL_INGEST_TOKEN=… node eval/text-cleanup/push-run.mjs \
+  eval/text-cleanup/.eval-scratch/results.json \
+  eval/text-cleanup/cases.jsonl "light+polish"
 ```
 
-`src/lib/scoring.ts` is a port of `EvalScoreKit` — keep them in sync if you
-change a scoring rule.
+Reads are public; `POST /api/eval/ingest` needs a matching `x-ingest-token` and
+refuses every upload when the token is unset. `lib/eval/scoring.ts` in the
+landing repo is a port of `EvalScoreKit` — keep them in sync if you change a
+scoring rule, or the published number stops matching `eval-score`.
 
 ---
 
