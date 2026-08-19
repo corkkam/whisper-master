@@ -71,4 +71,14 @@ if (!response.ok) {
 }
 const out = await response.json();
 console.log(`stored run ${out.id} — ${out.totalRuns} rows, ${out.totalCases} cases`);
+// A case the rules file does not cover can only fail on word error, so the
+// wrong cases.jsonl scores higher instead of erroring. Audio ids live only in
+// the generated .eval-scratch/audio_cases.jsonl.
+if (out.unmatchedCases > 0) {
+  console.warn(
+    `⚠ ${out.unmatchedCases} of ${out.totalCases} cases have no keyword rule in ` +
+      `${casesPath ?? "(no cases file sent)"} — this run is graded on word error alone for those. ` +
+      `For an audio run, pass .eval-scratch/audio_cases.jsonl.`
+  );
+}
 console.log(`view: ${base}/eval/${out.id}`);
