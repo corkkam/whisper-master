@@ -179,6 +179,8 @@ Useful env:
 | `OUT` | `eval/text-cleanup/.eval-scratch/results.json` | Where `results.json` lands |
 | `DASHBOARD_URL` | `https://whisper.corkkam.com` | Ingest target (`http://localhost:3000` for a local landing site) |
 | `EVAL_INGEST_TOKEN` | unset | Required by the ingest route, which fails closed |
+| `EVAL_VERSION` | unset | Marketing version this run grades (release.sh sets it) |
+| `EVAL_CHANNEL` | unset | stable / beta / dev (release.sh sets it) |
 | `TIMEOUT` | `1200` | Seconds to wait for the write |
 | `NO_PUSH=1` | off | Skip the push |
 
@@ -269,6 +271,14 @@ Vercel account backed by MongoDB Atlas; that app still exists at
 `eval/dashboard/` and is still up, because shipped Mac builds hardcode it as
 the sync base URL for `/api/usage` and `/api/notes`. **Its eval half is
 retired** — do not push runs to it, and do not add features to it.
+
+**Every stable and beta release grades itself.** `Scripts/release.sh` runs the
+text suite against the bundle it just built and publishes the scores tagged with
+the version and channel, so `/eval` can answer "how did 1.1.0-beta.9 score". It
+runs last and never fails the release; `RUN_EVAL=0` skips it, `EVAL_REQUIRED=1`
+makes it a gate, and the `dev` channel is off by default. Note that it quits and
+relaunches the app it grades — on a local stable release that is your daily
+driver. See the `releasing` skill.
 
 A run is published by `run-eval.sh`, or by hand:
 

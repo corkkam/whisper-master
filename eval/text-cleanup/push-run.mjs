@@ -9,6 +9,10 @@
 // out or running.
 //
 //   DASHBOARD_URL      where to post   (default: https://whisper.corkkam.com)
+//   EVAL_VERSION       marketing version this run grades, e.g. 1.1.0-beta.9
+//   EVAL_CHANNEL       stable | beta | dev
+//                      Both are set by Scripts/release.sh. Without them the run
+//                      still stores, it just is not attributed to a release.
 //   EVAL_INGEST_TOKEN  the shared secret the route checks. Required: the route
 //                      fails closed, so without it every upload is refused.
 //                      Also read from this repo's .env if not in the
@@ -61,6 +65,8 @@ const response = await fetch(`${base}/api/eval/ingest`, {
     label: label ?? null,
     gitCommit: git("git rev-parse HEAD"),
     branch: git("git rev-parse --abbrev-ref HEAD"),
+    version: process.env.EVAL_VERSION || null,
+    channel: process.env.EVAL_CHANNEL || null,
   }),
 });
 
@@ -70,7 +76,10 @@ if (!response.ok) {
   process.exit(1);
 }
 const out = await response.json();
-console.log(`stored run ${out.id} — ${out.totalRuns} rows, ${out.totalCases} cases`);
+const attribution = process.env.EVAL_VERSION
+  ? ` for ${process.env.EVAL_VERSION}${process.env.EVAL_CHANNEL ? ` (${process.env.EVAL_CHANNEL})` : ""}`
+  : "";
+console.log(`stored run ${out.id}${attribution} — ${out.totalRuns} rows, ${out.totalCases} cases`);
 // A case the rules file does not cover can only fail on word error, so the
 // wrong cases.jsonl scores higher instead of erroring. Audio ids live only in
 // the generated .eval-scratch/audio_cases.jsonl.

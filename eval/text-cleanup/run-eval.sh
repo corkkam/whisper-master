@@ -14,9 +14,15 @@
 #   DASHBOARD_URL  where to POST the run    (default: https://whisper.corkkam.com)
 #   TIMEOUT        seconds to wait for the run to finish (default: 1200)
 #   NO_PUSH=1      run the eval but skip the push (just write results.json)
+#   EVAL_VERSION   marketing version this run grades (Scripts/release.sh sets it)
+#   EVAL_CHANNEL   stable | beta | dev            (Scripts/release.sh sets it)
 #
 # The push needs EVAL_INGEST_TOKEN, in the environment or in this repo's .env.
 # The route fails closed, so without it the upload is refused.
+#
+# This QUITS AND RELAUNCHES the app it is about to grade, because the runner
+# reads its config from the environment at launch. If that app is your daily
+# driver, it goes away for the length of the run.
 #
 # Why the launchctl/open dance: the eval runs *inside the app* and reads its
 # config from env at launch. A directly-exec'd bundle fails TCC's Info.plist
@@ -52,7 +58,12 @@ if [ "${NO_PUSH:-0}" != "1" ] && ! curl -sf -o /dev/null "$dashboard_url"; then
 fi
 
 # The runner reads env at launch, so quit any running instance and start clean.
-osascript -e 'quit app "Whisper Master"' 2>/dev/null || true
+# Quit the bundle we are about to launch, by its own name — a beta or dev build
+# is "Whisper Master Beta" / "Whisper Master Dev" and side-by-side with stable,
+# so a hardcoded "Whisper Master" here quit the wrong app and left the one being
+# graded running with stale env.
+app_name="$(basename "$app" .app)"
+osascript -e "quit app \"$app_name\"" 2>/dev/null || true
 sleep 1
 
 # Remove any stale results so we can detect *this* run's write.
@@ -77,6 +88,12 @@ while [ "$waited" -lt "$timeout" ]; do
   fi
   sleep 3; waited=$((waited + 3))
 done
+
+# The app has nothing left to do; it was launched only to be graded. Leaving a
+# second, env-poisoned instance running is how the next run picks up stale
+# WM_EVAL_* values.
+quit_app() { osascript -e "quit app \"$app_name\"" 2>/dev/null || true; }
+trap 'cleanup; quit_app' EXIT
 
 [ -f "$out" ] || { echo "✗ timed out after ${timeout}s — no results.json written" >&2; exit 1; }
 rows="$(grep -c '"id"' "$out" 2>/dev/null || true)"
