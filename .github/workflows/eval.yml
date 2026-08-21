@@ -149,12 +149,15 @@ jobs:
 
       - name: Grade the cleanup pipeline
         if: >-
+          github.event_name == 'push' ||
           inputs.suite == 'cleanup' || inputs.suite == 'all'
         # This one does need LaunchServices: the runner starts from
-        # `applicationDidFinishLaunching`, so the app has to come up properly.
-        # It is the part of CI viability that was never proven, which is why it
-        # is `continue-on-error` for now — a failure here should report itself,
-        # not fail a job whose other half worked.
+        # `applicationDidFinishLaunching`, so the app has to come up properly on
+        # a machine with no logged-in Mac user in the usual sense. That is the
+        # part nobody had ever tested, which is why a `feature/eval-**` push
+        # runs it too — the branch exists to find out — and why it is
+        # `continue-on-error`: a failure here should report itself, not fail a
+        # job whose other half worked.
         continue-on-error: true
         env:
           APP: ${{ github.workspace }}/build/Whisper Master.app
