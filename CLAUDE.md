@@ -221,9 +221,12 @@ wherever it is used it keeps the name "S1-mini by Superwhisper" with that exact
 capitalization, which is why it appears verbatim in `CleanupPrompt`, the Settings copy
 and the archive's `NOTICE.txt`. It replaced qwen2.5-3B-Instruct, which was a general
 instruct model doing this job badly enough that the pass had to be off by default:
-measured on `eval/text-cleanup/cases.jsonl`, the 3B scored **85/89 at ~250 ms and
-1.5 GB**, and S1-mini scores **85/89 at ~130 ms and 335 MB** — same quality, a
-quarter the size, half the latency. **Three format rules are load-bearing and every
+measured end to end through the app on `eval/text-cleanup/cases.jsonl` (shipped
+output, i.e. the guard's verdict applied), the 3B scored **85/89 at ~250 ms and
+1.5 GB**, and S1-mini scores **87/89 at ~100 ms and 335 MB** — better, a quarter the
+size, and well under half the latency. The two it still misses are `vocab-acronym`
+and `corr-name-chain`, both of which the 3B missed too, and the second of which is
+already documented above as a known limitation. **Three format rules are load-bearing and every
 integration bug traces to one**: the system prompt is the exact trained string (not a
 prompt to tune), the user turn opens with a `[Styling: …] [Structure: …] [Context: …]`
 control line, and **`enable_thinking` must be false** — it is a Qwen3 template, so
