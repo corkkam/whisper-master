@@ -64,12 +64,19 @@ enum AgentToolEval {
     static func run() async {
         print("=== Agent tool-calling bench (real Qwen3-4B-Instruct-2507) ===")
 
-        await MlxCleanupService.shared.prepare(configuration: .init(directory: CleanupModel.directory))
-        guard await MlxCleanupService.shared.isReady else {
-            print("ABORT: cleanup model not ready (is it fully downloaded at \(CleanupModel.directory.path)?)")
+        // **The general model, not the cleanup slot.** This bench measures tool
+        // calling, and the cleanup slot holds S1-mini — a text normalizer that
+        // cannot emit a tool call. Pointed there it returns prose, nothing parses,
+        // and the bench reports every path as failing to call a tool while its own
+        // banner claims it is running the 4B. Same mistake as `AgentLoop`, which is
+        // why both now go through `.general`.
+        await MlxCleanupService.prepareGeneralIfInstalled()
+        guard await MlxCleanupService.general.isReady else {
+            print("ABORT: assistant model not installed at \(CleanupModel.General.directory.path)")
+            print("Settings -> Assistant -> Download now, or use the chord once.")
             return
         }
-        print("Model loaded from \(CleanupModel.directory.lastPathComponent)\n")
+        print("Model loaded from \(CleanupModel.General.directory.lastPathComponent)\n")
 
         let tools = buildTools()
         print("Tools offered (\(tools.count)): \(tools.map(\.name).joined(separator: ", "))\n")
@@ -114,7 +121,7 @@ enum AgentToolEval {
     private static func handRolled(_ spoken: String, system: String,
                                    tools: [ToolDescriptor]) async -> Verdict {
         let user = AgentLoop.render([.init(role: .user, text: spoken)])
-        let raw = await MlxCleanupService.shared.clean(user, systemPrompt: system) ?? ""
+        let raw = await MlxCleanupService.general.clean(user, systemPrompt: system) ?? ""
         return verdict(from: ToolCallParser.parse(raw, tools: tools), raw: raw)
     }
 
@@ -123,7 +130,7 @@ enum AgentToolEval {
     private static func nativePath(_ spoken: String, system: String,
                                    schemas: [String], tools: [ToolDescriptor]) async -> Verdict {
         let messages = AgentLoop.wireMessages(system: system, [.init(role: .user, text: spoken)])
-        let raw = await MlxCleanupService.shared.generateWithTools(
+        let raw = await MlxCleanupService.general.generateWithTools(
             messages: messages, toolSchemasJSON: schemas) ?? ""
         return verdict(from: NativeToolCallParser.parse(raw, tools: tools), raw: raw)
     }
