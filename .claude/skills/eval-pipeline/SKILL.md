@@ -72,6 +72,14 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
   - Eval reads are pinned to the Supabase `public` schema in every environment,
     unlike the rest of that app, which reads `dev` on preview. There is no such
     thing as the preview's eval history.
+  - **CI runs the suites** (`.github/workflows/eval.yml`, `workflow_dispatch`, or
+    a push to a `feature/eval-**` branch that touches the workflow, the runner
+    or the cases). Proven on macos-26 on 2026-08-21: model downloaded and
+    checksum-verified, app built with xcodebuild, **both** the headless
+    assistant suite and the LaunchServices-dependent cleanup suite completed —
+    13 minutes with a warm model cache, about 25 cold. The model is cached on
+    the checksum the app itself verifies, so a model bump invalidates it rather
+    than serving old weights.
   - **Every release grades itself.** `Scripts/release.sh` runs the text suite
     against the bundle it just built and pushes the scores tagged with
     `EVAL_VERSION` and `EVAL_CHANNEL`, so `/eval` can answer "how did
