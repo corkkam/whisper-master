@@ -46,7 +46,8 @@ enum EvalRunner {
             let prompt = CleanupPrompt.resolved(grammarPolish: polish)
             for item in items where item.targets.contains(target) {
                 let start = Date()
-                let llm = await MlxCleanupService.shared.clean(item.det, systemPrompt: prompt) ?? item.det
+                let llm = await MlxCleanupService.shared.clean(
+                    item.det, systemPrompt: prompt, grammarPolish: polish) ?? item.det
                 let llmMs = Int(Date().timeIntervalSince(start) * 1000)
                 let accepted = CleanupFaithfulnessGuard.accept(
                     original: item.det, cleaned: llm, allowRephrase: polish)

@@ -22,7 +22,23 @@ import Tokenizers
 /// the caller falls straight back to the deterministic text — cleanup can only
 /// ever help, never block.
 actor MlxCleanupService {
+    /// The **cleanup** model: S1-mini, on the dictation hot path.
     static let shared = MlxCleanupService()
+
+    /// The **general instruct** model, for the two callers that need one — the
+    /// connector agent and the intent classifier. A separate instance because it is
+    /// a separate model with a separate KV cache; sharing one would thrash the cache
+    /// between two system prompts on every chord.
+    static let general = MlxCleanupService()
+
+    /// Load the general model **only if it is already on disk**. Never downloads:
+    /// see `CleanupModel.General`. Cheap and idempotent, so the assistant paths can
+    /// just call it before they generate.
+    static func prepareGeneralIfInstalled() async {
+        guard CleanupModel.General.isInstalled else { return }
+        await general.prepare(
+            configuration: ModelConfiguration(directory: CleanupModel.General.directory))
+    }
 
     /// Safety net against a runaway decode, not a normal-path limit. Generous so
     /// a merely-slow generation still cleans rather than silently falling back.
@@ -133,7 +149,11 @@ actor MlxCleanupService {
     /// Clean one transcript. Returns `nil` (→ caller keeps original) if the model
     /// isn't ready, input is empty, or generation times out / throws. Output is
     /// *not* trusted here — `CleanupFaithfulnessGuard` vets it upstream.
-    func clean(_ text: String, systemPrompt: String = CleanupPrompt.system) async -> String? {
+    /// `grammarPolish` selects S1-mini's *styling* axis rather than a second system
+    /// prompt, so both modes share one primed KV cache.
+    func clean(
+        _ text: String, systemPrompt: String = CleanupPrompt.system, grammarPolish: Bool = false
+    ) async -> String? {
         guard case .ready(let container) = state else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -143,9 +163,12 @@ actor MlxCleanupService {
 
         let box = self.box
         do {
+            // The control line is part of the input format, not decoration: without
+            // it the model has no styling/structure/context to normalise against.
+            let user = CleanupPrompt.userTurn(trimmed, grammarPolish: grammarPolish)
             let raw = try await container.perform { (context: ModelContext) in
                 try Self.generateCached(
-                    context: context, box: box, user: trimmed,
+                    context: context, box: box, user: user,
                     maxTokens: maxTokens, systemPrompt: systemPrompt)
             }
             return Self.sanitize(raw)
@@ -173,7 +196,8 @@ actor MlxCleanupService {
         let sysTokens = try context.tokenizer.applyChatTemplate(
             messages: [["role": "system", "content": systemPrompt]],
             chatTemplate: nil, addGenerationPrompt: false,
-            truncation: false, maxLength: nil, tools: nil)
+            truncation: false, maxLength: nil, tools: nil,
+            additionalContext: Self.templateContext)
         box.systemOffset = sysTokens.count
         box.cache = context.model.newCache(parameters: nil)
 
@@ -202,7 +226,8 @@ actor MlxCleanupService {
                 ["role": "user", "content": user],
             ],
             chatTemplate: nil, addGenerationPrompt: true,
-            truncation: false, maxLength: nil, tools: nil)
+            truncation: false, maxLength: nil, tools: nil,
+            additionalContext: Self.templateContext)
         guard full.count > box.systemOffset else { return "" }
         let delta = Array(full[box.systemOffset...])
 
@@ -226,12 +251,25 @@ actor MlxCleanupService {
         return result.output
     }
 
+    /// **`enable_thinking: false`.** S1-mini carries a Qwen3 chat template, which
+    /// defaults to emitting a `<think>` block. Left on, every cleaned transcript
+    /// arrives wrapped in reasoning the guard correctly refuses, so the pass looks
+    /// broken rather than off. The model card names this as the single commonest
+    /// integration bug, and it is invisible until you read the raw output.
+    private static let templateContext: [String: Any] = ["enable_thinking": false]
+
     // MARK: - Helpers
 
     /// Trim whitespace and strip a wrapping pair of quotes the model sometimes
     /// adds despite the prompt. Returns `nil` for an empty result.
     private static func sanitize(_ raw: String) -> String? {
         var out = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Second line of defence for the thinking block: if a template ever ignores
+        // `enable_thinking`, keep what follows the block rather than pasting the
+        // model's reasoning into someone's message.
+        if let close = out.range(of: "</think>") {
+            out = String(out[close.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if out.count >= 2, let first = out.first, let last = out.last,
            (first == "\"" && last == "\"") || (first == "\u{201C}" && last == "\u{201D}") {
             out = String(out.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)

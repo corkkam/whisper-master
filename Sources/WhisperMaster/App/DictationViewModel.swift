@@ -632,7 +632,8 @@ final class DictationViewModel {
         let polish = state.llmGrammarPolishEnabled
         let prompt = CleanupPrompt.resolved(grammarPolish: polish)
         let start = Date()
-        let cleaned = await MlxCleanupService.shared.clean(input, systemPrompt: prompt)
+        let cleaned = await MlxCleanupService.shared.clean(
+            input, systemPrompt: prompt, grammarPolish: polish)
         let ms = Int(Date().timeIntervalSince(start) * 1000)
         let accepted = cleaned.map {
             CleanupFaithfulnessGuard.accept(original: input, cleaned: $0, allowRephrase: polish)
@@ -1122,8 +1123,11 @@ final class DictationViewModel {
     /// deterministic reading otherwise (so a reminder still lands, just with no
     /// extracted time → the default-time path asks).
     private func classifyIntent(_ text: String, fallback: ClassifiedIntent) async -> ClassifiedIntent {
-        guard await MlxCleanupService.shared.isReady else { return fallback }
-        guard let raw = await MlxCleanupService.shared.clean(text, systemPrompt: IntentPrompt.system),
+        // The general model: the classifier parses a structured answer back, which
+        // a text normalizer cannot produce.
+        await MlxCleanupService.prepareGeneralIfInstalled()
+        guard await MlxCleanupService.general.isReady else { return fallback }
+        guard let raw = await MlxCleanupService.general.clean(text, systemPrompt: IntentPrompt.system),
               let parsed = IntentClassifier.parse(raw)
         else { return fallback }
         return parsed

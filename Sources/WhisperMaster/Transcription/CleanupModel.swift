@@ -1,19 +1,56 @@
 import Foundation
 
-/// Where the on-device qwen cleanup model lives on disk and how we know it's a
+/// Where the on-device cleanup model lives on disk and how we know it's a
 /// *complete* install. Mirrors `TranscriberEngine`'s convention (same
 /// Application Support root) so the cleanup model sits beside the voice engine.
 enum CleanupModel {
     /// R2 archive base name (`<archiveName>.zip` on the mirror) and the unpacked
     /// directory name — identical so the zip's top-level folder matches on disk.
-    static let archiveName = "Qwen2.5-3B-Instruct-4bit"
+    static let archiveName = "s1-mini-4bit"
 
     /// Hugging Face id, used only as the dev / first-run fallback when the R2
     /// mirror is unavailable (see `CleanupModelManager`).
-    static let huggingFaceId = "mlx-community/Qwen2.5-3B-Instruct-4bit"
+    /// The upstream weights are BF16 safetensors; the shipped build is our own
+    /// 4-bit MLX conversion, mirrored on R2. This id is the last-resort fallback
+    /// only — a failed load costs nothing, because the deterministic text has
+    /// already been pasted by then.
+    static let huggingFaceId = "superwhisper/s1-mini"
 
     /// Human label used in progress/log text.
     static let label = "smart cleanup model"
+
+    /// **The general instruct model, which is a different job.**
+    ///
+    /// S1-mini is a text *normalizer*: the model card is explicit that it is not a
+    /// chat model and will not follow general instructions. Two paths in this app
+    /// need one that does — `AgentLoop` (the connector assistant behind the chord)
+    /// and the intent classifier — because they pass their own tool-calling prompts
+    /// and parse structured answers back.
+    ///
+    /// So they keep qwen. Swapping them onto S1-mini would not fail loudly: the
+    /// agent would return normalised prose, no tool would execute,
+    /// `CommandAgentService` would correctly read that as "did not act", and the
+    /// whole assistant would quietly fall back to the keyword gate forever.
+    ///
+    /// **Nothing downloads this on its own.** It is loaded only when it is already
+    /// on disk, so an existing install keeps its assistant and a new one is not made
+    /// to fetch 1.5 GB for a feature it may never touch. Giving this its own
+    /// download affordance is the obvious follow-up.
+    enum General {
+        static let archiveName = "Qwen2.5-3B-Instruct-4bit"
+        static let huggingFaceId = "mlx-community/Qwen2.5-3B-Instruct-4bit"
+        static let label = "assistant model"
+
+        static var directory: URL {
+            CleanupModel.modelsRoot.appendingPathComponent(archiveName, isDirectory: true)
+        }
+
+        static var isInstalled: Bool {
+            let fm = FileManager.default
+            return fm.fileExists(atPath: directory.appendingPathComponent("config.json").path)
+                && fm.fileExists(atPath: directory.appendingPathComponent("tokenizer.json").path)
+        }
+    }
 
     static var modelsRoot: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!

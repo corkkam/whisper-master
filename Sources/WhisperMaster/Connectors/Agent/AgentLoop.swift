@@ -130,7 +130,12 @@ struct AgentLoop {
     /// with them and the one piece worth keeping moved here.
     static func liveGenerator() -> Generate {
         { text, systemPrompt in
-            await MlxCleanupService.shared.clean(text, systemPrompt: systemPrompt)
+            // The **general** model, not the cleanup one. S1-mini normalises
+            // transcripts and will not follow a tool-calling prompt, so pointing the
+            // loop at it would mean no tool ever executes and the assistant silently
+            // becoming the keyword gate.
+            await MlxCleanupService.prepareGeneralIfInstalled()
+            return await MlxCleanupService.general.clean(text, systemPrompt: systemPrompt)
         }
     }
 

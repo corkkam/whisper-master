@@ -38,7 +38,7 @@ struct AssistantSettingsView: View {
             SettingsCard {
                 SettingsRow(
                     "Let it use your connectors",
-                    subtitle: "Answers run on the same on-device model as Smart cleanup. Nothing leaves this Mac. Off by default."
+                    subtitle: "Answers run on a larger on-device model than Smart cleanup uses. Nothing leaves this Mac. Off by default."
                 ) {
                     ThemeToggle(isOn: $state.connectorAgentEnabled, label: "Connector assistant")
                         .disabled(isSnapshot)
@@ -58,7 +58,7 @@ struct AssistantSettingsView: View {
                                 Image(systemName: "exclamationmark.triangle.fill")
                                     .font(.system(size: 11.5, weight: .semibold))
                                     .foregroundStyle(Theme.warning)
-                                Text("The model isn't downloaded yet — turn on Smart cleanup to fetch it.")
+                                Text("The assistant model isn\u{2019}t on this Mac yet.")
                                     .font(Typography.caption)
                                     .foregroundStyle(Theme.textSecondary)
                                     .fixedSize(horizontal: false, vertical: true)

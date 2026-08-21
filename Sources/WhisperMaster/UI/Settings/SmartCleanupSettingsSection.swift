@@ -12,15 +12,21 @@ struct SmartCleanupSettingsSection: View {
 
     var body: some View {
         SettingsCard {
+            // **The name is a licence term, not a flourish.** S1-mini is Apache 2.0
+            // plus one condition: wherever it is used it keeps the name "S1-mini by
+            // Superwhisper", with that capitalization. Don't shorten it here.
             SettingsRow("Smart cleanup",
-                        subtitle: "Uses a local model to clean up how you talk. \u{201C}three no wait four\u{201D} becomes \u{201C}four\u{201D}. About 1.8 GB, downloads in the background. Dictation works right away, and nothing leaves your Mac.") {
+                        subtitle: "Cleans up how you talk, using S1-mini by Superwhisper running on this Mac. \u{201C}three no wait four\u{201D} becomes \u{201C}four\u{201D}. About 300 MB, downloads in the background. Dictation works right away, and nothing leaves your Mac.") {
                 ThemeToggle(isOn: $state.llmCleanupEnabled)
             }
 
             if state.llmCleanupEnabled {
                 RowDivider()
-                SettingsRow("Polish my English",
-                            subtitle: "Rewrites your dictation into clear, grammatical English instead of only removing fillers. Your facts, names, and numbers stay exact. Experimental.") {
+                // No longer promises a rewrite: S1-mini normalises, it does not
+                // restructure sentences the way the old 3B tried to. Claiming a
+                // rewrite it will not perform is worse than the smaller promise.
+                SettingsRow("Formal styling",
+                            subtitle: "Cleans up towards formal writing rather than everyday speech. Your words, facts, names, and numbers stay exact.") {
                     ThemeToggle(isOn: $state.llmGrammarPolishEnabled)
                 }
                 RowDivider()

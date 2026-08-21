@@ -212,9 +212,38 @@ The Insights settings tab is a **real analytics dashboard, not mock data** — W
 - **`TranscriptMerger.tidiedPreview`** repairs the preview's per-window seams for display (orphan punctuation-only tokens, window-final periods disproved by a following lowercase word). Preview only — never run it on the accurate transcript, where stripping a real sentence-final period would corrupt what gets pasted.
 - **Do not "simplify" this by lowering the accurate track's `chunkSeconds`.** `finish()` reconstructs the final transcript from those same windows, so shorter windows mean less acoustic context and a worse transcript — the one thing that actually gets pasted. `AudioReplayTests.testPreviewTrackStreamsTextOnAClipTooShortForTheAccurateTrack` locks the split in: on a ~5 s clip, replayed **in real time**, the preview streams 3 updates while the accurate track streams 0, and `stop()` still returns the full accurate transcript. Models download on demand into `~/Library/Application Support/FluidAudio/Models/<cacheDirectoryName>`; `TranscriberEngine.isInstalled` is a filesystem check, so callers must not cache it. (The removed cleanup pass above was the *Apple Foundation Models* one; a separate **opt-in MLX qwen cleanup** was later added — see below.)
 
-### On-device Smart cleanup (MLX qwen — opt-in, off by default)
+### On-device Smart cleanup (MLX — opt-in, off by default)
 
-Optional post-ASR cleanup by **qwen2.5-3B-Instruct-4bit via MLX** (`mlx-swift-examples`). Two Settings toggles: **Smart cleanup** (`llmCleanupEnabled` — light: fix self-corrections/false starts) and **Polish my English** (`llmGrammarPolishEnabled` — heavier rephrase to grammatical English). Dictation **never waits** on it: the deterministic text pastes instantly and, on the **native** path, the qwen polish refines it *in place* a beat later (`scheduleRefinement`); on the **web/Electron** path (no safe in-place edit) polish is computed *before* the ⌘V. Pieces:
+Optional post-ASR cleanup by **S1-mini by Superwhisper** via MLX — a 0.6B text
+normalizer fine-tuned from Qwen3-0.6B, converted here to 4-bit (335 MB on disk,
+~293 MB archive). **The name is a licence term**: Apache 2.0 plus one condition, that
+wherever it is used it keeps the name "S1-mini by Superwhisper" with that exact
+capitalization, which is why it appears verbatim in `CleanupPrompt`, the Settings copy
+and the archive's `NOTICE.txt`. It replaced qwen2.5-3B-Instruct, which was a general
+instruct model doing this job badly enough that the pass had to be off by default:
+measured on `eval/text-cleanup/cases.jsonl`, the 3B scored **85/89 at ~250 ms and
+1.5 GB**, and S1-mini scores **85/89 at ~130 ms and 335 MB** — same quality, a
+quarter the size, half the latency. **Three format rules are load-bearing and every
+integration bug traces to one**: the system prompt is the exact trained string (not a
+prompt to tune), the user turn opens with a `[Styling: …] [Structure: …] [Context: …]`
+control line, and **`enable_thinking` must be false** — it is a Qwen3 template, so
+left on, every reply arrives wrapped in `<think>` and the guard rightly rejects all of
+it (`MlxCleanupService.templateContext`, plus a stripping fallback in `sanitize`).
+**"Polish my English" became "Formal styling"**: S1-mini normalises and does not
+restructure sentences, so the copy no longer promises a rewrite it will not perform.
+
+**⚠️ The agent and the intent classifier keep a general instruct model, deliberately.**
+`AgentLoop.liveGenerator()` and `classifyIntent` pass their own tool-calling prompts
+and parse structured answers back; S1-mini's card is explicit that it is not a chat
+model and will not follow general instructions. Pointing them at it **fails silently,
+not loudly** — the agent returns normalised prose, no tool executes,
+`CommandAgentService` correctly reads that as "did not act", and the whole assistant
+degrades to the keyword gate forever. So they use `MlxCleanupService.general`
+(`CleanupModel.General`, still the qwen archive) via `prepareGeneralIfInstalled()`,
+which **loads it only when it is already on disk and never downloads it** — an
+existing install keeps its assistant, and a new one is not made to fetch 1.5 GB for a
+feature it may never touch. Giving that its own download affordance is the obvious
+follow-up. Two Settings toggles: **Smart cleanup** (`llmCleanupEnabled` — light: fix self-corrections/false starts) and **Polish my English** (`llmGrammarPolishEnabled` — heavier rephrase to grammatical English). Dictation **never waits** on it: the deterministic text pastes instantly and, on the **native** path, the qwen polish refines it *in place* a beat later (`scheduleRefinement`); on the **web/Electron** path (no safe in-place edit) polish is computed *before* the ⌘V. Pieces:
 - **`MlxCleanupService`** (`actor`) — loads the model once and reuses a persistent system-prompt **KV cache** (feeds only the per-call delta). `clean()` returns `nil` on any problem so the caller keeps the deterministic text — cleanup can only ever help, never block. The load is **timeout-bounded (`loadTimeoutSeconds` 60 s) and retried** by the manager: a stalled MLX/Metal init (seen under launch-time GPU contention) used to wedge the state `.loading` forever, so Settings showed "Preparing…" indefinitely while polish silently no-op'd. Load/prime timing is logged.
 - **`CleanupModelManager`** (`@MainActor`, owned by `DictationViewModel`) — reconciles the toggle each refresh tick, drives the **mirror-first background download** (`ModelInstaller`, R2 archive `Qwen2.5-3B-Instruct-4bit`, HF fallback), retries the load up to 3×, and surfaces status to `AppState`: `cleanupModelReady` / `cleanupModelFailed` (→ Settings shows **"Couldn't load — Retry"**, `cleanupRetryRequested` re-attempts) / `cleanupModelReadyAt` (one notch banner). Progress shows **only in Settings**.
 - **`CleanupFaithfulnessGuard`** (pure, `CleanupFaithfulnessGuardTests`) — rejects the LLM output (→ keep deterministic) when it **invents** content (answers/translates/codes/injects), balloons, or grossly truncates; `allowRephrase` loosens it for polish mode. **Known limitation, do not "fix":** it catches *added* content but not a *dropped* content word ("meant to be born" → "meant to be"). A deterministic word-counter can't tell that from a legitimate self-correction ("john i mean jane" → "Jane") or compression ("gonna go" → "going") — a content-retention rule was tried and **reverted** because it rejected those. So polish occasionally drops a word; that's why "Polish my English" is **experimental/off-by-default**. Verify any cleanup change against the real pipeline via `eval/text-cleanup/run-eval.sh` (it grades the shipped passes + both LLM modes + the real guard).
