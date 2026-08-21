@@ -2,11 +2,15 @@ import Foundation
 
 /// The catalog: one `ConnectorDescriptor` per `ConnectorKind`.
 ///
-/// Every kind here is connectable **today**, by hand. That's the deliberate shape
-/// borrowed from openworker: a manual credential-paste path with a real `validate()`
-/// always exists, so no connector is gated behind an OAuth verification queue we
-/// don't control. One-click OAuth (`supportsManagedOAuth`) is an *extra* path for
-/// the one provider family where a secret-free public client is actually possible.
+/// Shape borrowed from openworker and aligned with how Grok / Claude ship
+/// connectors: every entry has a real `validate()` + read path (or it isn't in the
+/// registry), manual credential paste always works, and one-click OAuth
+/// (`supportsManagedOAuth`) is an *extra* path only where a secret-free public
+/// client is actually possible.
+///
+/// Connectability is gated by `ProviderRegistry`, not by this catalog alone — a
+/// kind with fields but no provider would be the cosmetic-tile bug this redesign
+/// removed. Today every catalogued kind has a provider.
 ///
 /// Why so few managed-OAuth entries: Slack, Notion, Zoom, Asana and Linear all
 /// require a `client_secret` at token exchange and offer no public PKCE client. A
@@ -70,16 +74,24 @@ enum ConnectorCatalog {
             fields: [
                 CredentialField("access_token", "OAuth access token",
                                 help: "A Google OAuth token carrying a Gmail read scope."),
-                CredentialField("account", "Email address", isSecret: false,
-                                help: "Which mailbox this token belongs to.",
+                CredentialField("account", "Email address", isSecret: false, isRequired: false,
+                                help: "Optional. Which mailbox this token belongs to — prefills the label.",
                                 placeholder: "you@gmail.com"),
             ],
             instructions: [
-                "Gmail's read scope is a Google *restricted* scope, so one-click sign-in needs a CASA security assessment we haven't completed.",
-                "Until then, paste a token you've minted yourself (OAuth Playground or your own Cloud project).",
+                "Signing in with Google is the quicker path — this form is here for an account Google won't grant the read scope to.",
+                "Paste a token you've minted yourself (Google OAuth Playground with gmail.readonly, or your own Cloud project).",
+                "Optional: put the mailbox address in the account field so the connection is labelled clearly.",
             ],
             aliases: ["mail", "email", "google", "inbox"],
-            supportsManagedOAuth: false),
+            // `GmailSignInStep` is the card people see, gated at runtime on
+            // `GoogleOAuthConfig.isGmailOAuthAvailable` — the client id *and* the Gmail
+            // flag, because gmail.readonly is a *restricted* scope: until this client
+            // clears CASA, only accounts listed as test users on the Cloud project can
+            // grant it. The fields below stay as that path's escape hatch rather than
+            // being the whole card, since a refusal is not something the sign-in screen
+            // can fix from its own side.
+            supportsManagedOAuth: true),
 
         ConnectorDescriptor(
             kind: .slack,
@@ -156,12 +168,13 @@ enum ConnectorCatalog {
             fields: [
                 CredentialField("access_token", "OAuth access token",
                                 help: "A Google OAuth token carrying a Drive read scope."),
-                CredentialField("account", "Email address", isSecret: false,
-                                help: "Which Google account this token belongs to.",
+                CredentialField("account", "Email address", isSecret: false, isRequired: false,
+                                help: "Optional. Which Google account this token belongs to.",
                                 placeholder: "you@gmail.com"),
             ],
             instructions: [
                 "Paste a Google OAuth token with drive.readonly (or drive.metadata.readonly).",
+                "Mint one in OAuth Playground or your own Cloud project — same shape as Gmail, different scope.",
             ],
             aliases: ["drive", "files", "docs", "sheets", "google"],
             supportsManagedOAuth: false),

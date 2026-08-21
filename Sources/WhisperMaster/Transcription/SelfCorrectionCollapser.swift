@@ -7,17 +7,23 @@ import Foundation
 ///
 /// Deterministic and pure — runs before `DeterministicITN` (on spoken words, not
 /// digits) so the survivor is what gets formatted. It fires **only** when a
-/// correction marker is flanked by a number run on both sides, which is what
-/// makes it safe: ordinary "no"/"actually" in running speech ("there were no
-/// results", "i actually think") is never touched. Name/word corrections
-/// ("call john no jane") aren't number-typed and are left to the LLM prompt.
+/// correction is flanked by a number run on both sides, which is what makes it
+/// safe: ordinary "no"/"actually" in running speech ("there were no results",
+/// "i actually think") is never touched. Name/word corrections ("call john no
+/// jane") aren't number-typed and are left to the LLM prompt.
+///
+/// The correction itself is matched as a **run** of markers and fillers, not as
+/// one fixed phrase, because that is how people actually correct themselves:
+/// "twenty no no thirty no no forty" and "three no um no wait four" collapse the
+/// same way "twenty no thirty" does.
 enum SelfCorrectionCollapser {
     /// Two-word markers, checked before one-word so "no wait" isn't read as a
     /// bare "no" (which would strand "wait").
     private static let markers2: Set<[String]> = [
-        ["no", "wait"], ["no", "actually"], ["i", "mean"], ["scratch", "that"], ["or", "rather"],
+        ["no", "wait"], ["no", "actually"], ["i", "mean"], ["i", "meant"],
+        ["scratch", "that"], ["or", "rather"], ["make", "that"],
     ]
-    private static let markers1: Set<String> = ["no", "actually"]
+    private static let markers1: Set<String> = ["no", "nope", "actually", "sorry", "rather"]
 
     static func collapse(_ text: String) -> String {
         collapseCounting(text).text
@@ -36,12 +42,12 @@ enum SelfCorrectionCollapser {
             let run = numericRun(toks, at: i)
             guard run > 0 else { out.append(toks[i]); i += 1; continue }
 
-            // Extend a correction chain: run (marker run)+ — track the last run.
+            // Extend a correction chain: run (correction run)+ — track the last run.
             var lastStart = i, lastLen = run
             var j = i + run
             var chained = false
             while true {
-                let m = markerLen(toks, at: j)
+                let m = correctionRunLen(toks, at: j)
                 guard m > 0 else { break }
                 let r = numericRun(toks, at: j + m)
                 guard r > 0 else { break }
@@ -65,12 +71,32 @@ enum SelfCorrectionCollapser {
         return n
     }
 
-    /// Token length (1 or 2) of a correction marker at `i`, else 0.
-    private static func markerLen(_ toks: [String], at i: Int) -> Int {
-        guard i < toks.count else { return 0 }
-        if i + 1 < toks.count, markers2.contains([clean(toks[i]), clean(toks[i + 1])]) { return 2 }
-        if markers1.contains(clean(toks[i])) { return 1 }
-        return 0
+    /// Length of the whole correction the speaker uttered at `i`, else 0.
+    ///
+    /// A correction is rarely one tidy marker. People stack them ("twenty no no
+    /// thirty", "three no no wait four") and put fillers in the middle ("twenty um
+    /// no thirty"), so this consumes a *run* of markers and fillers rather than a
+    /// single hard-coded phrase — the earlier one-marker rule left the stacked form
+    /// uncollapsed, and ITN then digitised every value in it ("20 no no 30 no no
+    /// 40"). Fillers alone are not a correction, so the run must carry at least one
+    /// real marker.
+    private static func correctionRunLen(_ toks: [String], at i: Int) -> Int {
+        var n = 0
+        var sawMarker = false
+        while i + n < toks.count {
+            if i + n + 1 < toks.count, markers2.contains([clean(toks[i + n]), clean(toks[i + n + 1])]) {
+                sawMarker = true
+                n += 2
+            } else if markers1.contains(clean(toks[i + n])) {
+                sawMarker = true
+                n += 1
+            } else if FillerWordFilter.isFillerWord(toks[i + n]) {
+                n += 1
+            } else {
+                break
+            }
+        }
+        return sawMarker ? n : 0
     }
 
     /// Lowercased core, stripped of surrounding punctuation, for matching.

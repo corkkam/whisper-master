@@ -3,8 +3,18 @@
   import type { CaseGroup } from '$lib/types';
 
   let { c }: { c: CaseGroup } = $props();
-  const order = ['light', 'polish'];
-  const roleLabel: Record<string, string> = { light: 'Light', polish: 'Polish' };
+  const order = ['light', 'polish', 'slack', 'email', 'code'];
+  const roleLabel: Record<string, string> = {
+    light: 'Light',
+    polish: 'Polish',
+    slack: 'Slack',
+    email: 'Email',
+    code: 'Code'
+  };
+  const extraTargets = $derived(
+    Object.keys(c.targets).filter((t) => !order.includes(t))
+  );
+  const shown = $derived([...order, ...extraTargets]);
 
   function werColor(w: number): string {
     if (w < 0.05) return 'var(--approve)';
@@ -45,11 +55,11 @@
       <span class="txt"><DiffText text={c.deterministic} /></span>
     </div>
 
-    {#each order as t (t)}
+    {#each shown as t (t)}
       {#if c.targets[t]}
         {@const r = c.targets[t]}
         <div class="line">
-          <span class="role">{roleLabel[t]}</span>
+          <span class="role">{roleLabel[t] ?? t}</span>
           <span class="txt">
             <DiffText base={c.deterministic} text={r.llmOutput} />
             {#if r.latencyMs?.llm != null}<span class="lat muted"> · {r.latencyMs.llm}ms</span>{/if}
@@ -60,11 +70,11 @@
       {/if}
     {/each}
 
-    {#each order as t (t)}
+    {#each shown as t (t)}
       {#if c.targets[t] && !c.targets[t].mechanicalPass}
         {@const r = c.targets[t]}
         <div class="line why">
-          <span class="role fail">Why {roleLabel[t]}?</span>
+          <span class="role fail">Why {roleLabel[t] ?? t}?</span>
           <span class="txt muted">{r.reasons.join('; ')}</span>
         </div>
       {/if}

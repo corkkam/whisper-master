@@ -51,13 +51,27 @@ final class NotesSyncClient {
         Task { await push(ids: ids) }
     }
 
-    private func push(ids: Set<UUID>) async {
+    func push(ids: Set<UUID>) async {
         defer { pushInFlight = false; lastSyncAt = Date() }
         guard let endpoint, let id = await identity() else { return }
+        // The account must still be the one we resolved an identity for. On a shared
+        // Mac the reconcile tick can repoint `NotesStore` during the `await` above, and
+        // pushing one account's notes under another's id is a cross-account leak — the
+        // same guard `pull` (below) and `UsageSyncClient` already make.
+        guard id.userId == store.currentUserID else { return }
         let dirty = store.dirtyItems()
         guard !dirty.notes.isEmpty || !dirty.reminders.isEmpty else { store.clearDirty(ids); return }
 
-        let payload = Payload(userId: id.userId, notes: dirty.notes, reminders: dirty.reminders)
+        // Only the fields the dashboard stores. A note's verbatim `transcript` and its
+        // `audio` are on-device-only (the recording stays on the Mac that made it — see
+        // Notes/CLAUDE.md), so they must never cross the network; sending the whole
+        // `Note` shipped the transcript for nothing, since the server discards everything
+        // but title/body/timestamps. `NoteWire` makes the wire contract explicit so a new
+        // field on `Note` can't silently start uploading.
+        let payload = Payload(
+            userId: id.userId,
+            notes: dirty.notes.map(NoteWire.init),
+            reminders: dirty.reminders)
         do {
             var request = URLRequest(url: endpoint)
             request.httpMethod = "POST"
@@ -70,12 +84,16 @@ final class NotesSyncClient {
             }
             request.httpBody = try Self.encoder.encode(payload)
 
+            // Re-check right before sending and once more before clearing dirty: an
+            // account switch mid-flight must neither send nor clear the new account's items.
+            guard store.currentUserID == id.userId else { return }
             let (_, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 let code = (response as? HTTPURLResponse)?.statusCode ?? -1
                 Log.notes.error("notes sync rejected (HTTP \(code, privacy: .public)) — leaving \(ids.count) item(s) dirty")
                 return
             }
+            guard store.currentUserID == id.userId else { return }
             store.clearDirty(ids)
             Log.notes.notice("notes sync pushed \(dirty.notes.count + dirty.reminders.count, privacy: .public) item(s)")
         } catch {
@@ -130,8 +148,31 @@ final class NotesSyncClient {
 
     private struct Payload: Encodable {
         let userId: String
-        let notes: [Note]
+        let notes: [NoteWire]
         let reminders: [ReminderItem]
+    }
+
+    /// The note fields the dashboard actually stores. Deliberately excludes
+    /// `transcript`, `audio`, `isPinned`, and `colorIndex`: the first two are the
+    /// on-device-only record of what was said (a content leak if synced), the last
+    /// two are local presentation the server never reads. An explicit wire struct —
+    /// not the `Note` model — so adding a field to `Note` can't silently upload it.
+    private struct NoteWire: Encodable {
+        let id: UUID
+        let title: String
+        let body: String
+        let createdAt: Date
+        let updatedAt: Date
+        let deletedAt: Date?
+
+        init(_ note: Note) {
+            id = note.id
+            title = note.title
+            body = note.body
+            createdAt = note.createdAt
+            updatedAt = note.updatedAt
+            deletedAt = note.deletedAt
+        }
     }
 
     private struct PullResponse: Decodable {

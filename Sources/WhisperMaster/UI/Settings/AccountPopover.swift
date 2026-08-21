@@ -12,7 +12,12 @@ import SwiftUI
 /// `.environment(Clerk.shared)`; the headless snapshot renderer does not, so the
 /// snapshot path uses a static placeholder and never resolves that environment.
 struct AccountPopover: View {
+    /// The version Sparkle has found and not installed yet, or nil on a current
+    /// build. Same value the sidebar's update card reads, so the popup's button
+    /// and the card can never disagree about whether something is waiting.
+    var updateVersion: String?
     var signOut: () -> Void = {}
+    var checkForUpdates: () -> Void = {}
 
     @Environment(\.isSnapshot) private var isSnapshot
 
@@ -27,10 +32,16 @@ struct AccountPopover: View {
                 accountID: "user_2aBcDeFgHiJkLmN",
                 memberSince: "Joined June 2026",
                 imageURL: nil,
-                signOut: {}
+                signOut: {},
+                updateVersion: updateVersion,
+                checkForUpdates: {}
             )
         } else {
-            LiveAccountPopover(signOut: signOut)
+            LiveAccountPopover(
+                updateVersion: updateVersion,
+                signOut: signOut,
+                checkForUpdates: checkForUpdates
+            )
         }
     }
 }
@@ -39,7 +50,9 @@ struct AccountPopover: View {
 /// `@Environment(Clerk.self)` is only ever resolved off the live (non-snapshot)
 /// path — resolving a missing observable environment would trap.
 private struct LiveAccountPopover: View {
+    var updateVersion: String?
     var signOut: () -> Void
+    var checkForUpdates: () -> Void
     @Environment(Clerk.self) private var clerk
 
     var body: some View {
@@ -50,7 +63,9 @@ private struct LiveAccountPopover: View {
                 accountID: user.id,
                 memberSince: AccountIdentity.memberSince(for: user),
                 imageURL: AccountIdentity.imageURL(for: user),
-                signOut: signOut
+                signOut: signOut,
+                updateVersion: updateVersion,
+                checkForUpdates: checkForUpdates
             )
         } else {
             // No live Clerk user. The sign-in gate always holds until a real
@@ -123,6 +138,10 @@ struct AccountPopoverCard: View {
     var memberSince: String?
     var imageURL: URL?
     var signOut: () -> Void
+    /// Set while an update is waiting — the button below then offers to install
+    /// it rather than to go looking for one.
+    var updateVersion: String?
+    var checkForUpdates: () -> Void = {}
 
     /// Sign out asks once, inline. A `confirmationDialog` would fight the popover
     /// (the window-level sheet dismisses it), so the confirm lives in the card.
@@ -163,6 +182,8 @@ struct AccountPopoverCard: View {
             }
 
             Divider().overlay(Theme.stroke)
+
+            updatesButton
 
             if confirmingSignOut {
                 VStack(alignment: .leading, spacing: 9) {
@@ -225,6 +246,64 @@ struct AccountPopoverCard: View {
         }
         .padding(16)
         .frame(width: 272, alignment: .leading)
+    }
+
+    /// "Check for updates", and the version this Mac is running.
+    ///
+    /// The popup is where the account lives, and "which build am I on, and is
+    /// there a newer one" is the same kind of question — so the manual check sits
+    /// here rather than only on the About page, which is two clicks deeper.
+    /// Once Sparkle has found something the button stops asking and offers to
+    /// install, matching the sidebar card.
+    @ViewBuilder
+    private var updatesButton: some View {
+        let waiting = updateVersion != nil
+        Button(action: checkForUpdates) {
+            HStack(spacing: 8) {
+                Image(systemName: waiting ? "arrow.down.circle" : "arrow.triangle.2.circlepath")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(waiting ? "Install update" : "Check for updates")
+                    .font(Typography.sans(12.5, .medium))
+                Spacer(minLength: 6)
+                // The build in the user's hands when there is nothing to install,
+                // the one on offer when there is. Nothing at all when the bundle
+                // has no version to report (the headless renderer), rather than
+                // the placeholder dash `AppInfo` falls back to.
+                if let trailing = trailingVersion {
+                    Text(trailing)
+                        .font(Typography.monoSmall)
+                        .opacity(waiting ? 0.85 : 1)
+                        .foregroundStyle(waiting ? Theme.accentOn : Theme.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            // A waiting update takes the solid ember fill rather than a tint: the
+            // sign-out button directly under it is danger-red on a pale wash, and
+            // an ember-on-pale-wash button beside it read as a second warning.
+            .foregroundStyle(waiting ? Theme.accentOn : Theme.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
+                    .fill(waiting ? Theme.accentFill : Theme.surfaceGlass)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
+                            .strokeBorder(waiting ? Color.clear : Theme.stroke, lineWidth: 1)
+                    )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .accessibilityLabel(
+            waiting ? "Install update, version \(updateVersion ?? "")" : "Check for updates")
+    }
+
+    private var trailingVersion: String? {
+        if let updateVersion { return updateVersion }
+        let current = AppInfo.version
+        return current == "\u{2014}" ? nil : current
     }
 }
 

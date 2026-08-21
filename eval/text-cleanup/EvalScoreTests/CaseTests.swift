@@ -26,4 +26,9 @@ final class CaseTests: XCTestCase {
         XCTAssertEqual(c.inputAudio, "f.m4a")
         XCTAssertEqual(c.asrReference, "hello there")
     }
+
+    func testDestinationTargetsPassthrough() throws {
+        let c = try EvalCase.decode(#"{"id":"e","category":"slack","input":{"text":"hey"},"targets":["slack","email","code"]}"#)
+        XCTAssertEqual(c.targets, ["slack", "email", "code"])
+    }
 }

@@ -65,6 +65,7 @@ final class AppState {
     // Left on disk rather than migrated away — it is never read, and deleting a key
     // buys nothing. Don't reuse the name for something else.
     static let holdToTalkDefaultsKey = "WhisperMaster.holdToTalk.v1"
+    static let pauseMediaDefaultsKey = "WhisperMaster.pauseMediaWhileListening.v1"
     static let remindersEnabledDefaultsKey = "WhisperMaster.remindersEnabled.v1"
     static let quickActionsDefaultsKey = "WhisperMaster.quickActions.v1"
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
@@ -160,6 +161,13 @@ final class AppState {
     }
     var holdToTalkEnabled: Bool = true {
         didSet { UserDefaults.standard.set(holdToTalkEnabled, forKey: Self.holdToTalkDefaultsKey) }
+    }
+
+    /// Pause whatever is playing while the app is listening or answering. On by
+    /// default: the microphone hears the speakers, so dictating over a podcast
+    /// transcribes the podcast as well as the user. See `Media/MediaPauser`.
+    var pauseMediaWhileListening: Bool = true {
+        didSet { UserDefaults.standard.set(pauseMediaWhileListening, forKey: Self.pauseMediaDefaultsKey) }
     }
 
     /// The key that talks to a coding agent, or nil for off.
@@ -266,6 +274,16 @@ final class AppState {
     /// reminder's default time is one click from adjustable. Transient; consumed
     /// (and cleared) by `SettingsView` the moment it flips.
     var requestedSettingsSection: SettingsSection?
+    /// The version string of an update Sparkle has found and the user has not
+    /// installed yet, or nil when this build is current. Written **only** by the
+    /// AppDelegate's `SPUUpdaterDelegate` callbacks; read by the sidebar's update
+    /// card and the account popup, so the two entry points can never disagree
+    /// about whether there is something to install.
+    ///
+    /// Transient on purpose — never persisted. A marker written to disk would
+    /// outlive the update that answered it and light the sidebar on a build that
+    /// is already current, and Sparkle re-checks on every launch anyway.
+    var availableUpdateVersion: String?
     /// One-shot request to open a *fresh* note / reminder editor once the Notes &
     /// Reminders page is on screen — set by the notch quick-actions panel, which
     /// sits on the bezel as a non-activating panel and so can't host a text field
@@ -372,7 +390,7 @@ final class AppState {
     /// Run the finished transcript through the on-device qwen "smart cleanup"
     /// pass (fixes self-corrections/false starts). Persisted; **opt-in** — off
     /// until the user turns it on (onboarding or Settings), since it downloads a
-    /// ~1.8 GB model. Dictation works normally whether or not it's ready.
+    /// ~2.3 GB model. Dictation works normally whether or not it's ready.
     var llmCleanupEnabled: Bool = false {
         didSet { UserDefaults.standard.set(llmCleanupEnabled, forKey: Self.llmCleanupDefaultsKey) }
     }
@@ -411,8 +429,9 @@ final class AppState {
     ///
     /// The on-by-default posture predates that change and is worth revisiting: an
     /// opt-out default is a much easier argument for anonymous counts than for
-    /// account-linked ones. `RegulatedMode` still overrides it outright, and the
-    /// Settings copy no longer claims anonymity. Toggling starts/stops the SDK live.
+    /// account-linked ones. This switch is now the only thing standing between the
+    /// sinks and the network, and the Settings copy no longer claims anonymity.
+    /// Toggling starts/stops the SDK live.
     var analyticsEnabled: Bool = true {
         didSet {
             UserDefaults.standard.set(analyticsEnabled, forKey: Self.analyticsEnabledDefaultsKey)
@@ -537,6 +556,17 @@ final class AppState {
     /// second note's audio stops the first. Playback only — it never touches the
     /// capture graph (see `NoteAudioPlayer`).
     let noteAudioPlayer = NoteAudioPlayer()
+
+    /// What actually happened to the last few dictations and assistant captures,
+    /// behind the Traces page. Written only from the view model, like `usageStore`.
+    ///
+    /// Device-wide rather than per-account, deliberately, and unlike the three stores
+    /// above: a trace describes *this machine's* pipeline — which model was loaded,
+    /// which app took the paste, whether Accessibility answered — and none of that
+    /// follows a person to another Mac. It also has to survive being read while
+    /// signed out, since "it stopped working" is a thing people investigate before
+    /// they think to check who they're signed in as.
+    let traces = TraceStore(load: true)
 
     /// The user's connector **instances** behind the Connectors tab — many named
     /// connections per kind ("Google Calendar Work"). Like `usageStore` and
@@ -663,10 +693,15 @@ final class AppState {
             && phase == .idle && !agentCaptureArmed
     }
 
-    /// Opt-in, off by default — same posture as `llmCleanupEnabled`. When off, a day
-    /// query answers from the deterministic `DaySummaryService` and no tool is ever
-    /// called.
-    var connectorAgentEnabled: Bool = false {
+    /// **On by default.** A connector the user went and connected is one they want
+    /// used — walling the assistant off from it was the commonest "the assistant
+    /// ignores me" cause, and the toggle is the way out for anyone who wants the
+    /// connection for the app but not for the model. When off, a day query answers
+    /// from the deterministic `DaySummaryService` and no tool is ever called.
+    ///
+    /// It gates the *tool set*, not the connection: with nothing connected it
+    /// changes nothing, and writes still go through the approval card either way.
+    var connectorAgentEnabled: Bool = true {
         didSet { UserDefaults.standard.set(connectorAgentEnabled, forKey: Self.connectorAgentDefaultsKey) }
     }
 
@@ -737,8 +772,10 @@ final class AppState {
             UserDefaults.standard.object(forKey: Self.agentNudgesDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         holdToTalkEnabled = UserDefaults.standard.object(forKey: Self.holdToTalkDefaultsKey) as? Bool ?? true
-        // Opt-in: off until the user has explicitly turned it on.
-        connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? false
+        pauseMediaWhileListening =
+            UserDefaults.standard.object(forKey: Self.pauseMediaDefaultsKey) as? Bool ?? true
+        // Opt-out: a connected connector is used unless the user turns this off.
+        connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? true
         // Opt-out: you asked out loud, so an answer you can hear is the default.
         speakAnswersEnabled = UserDefaults.standard.object(forKey: Self.speakAnswersDefaultsKey) as? Bool ?? true
         answerVoiceEngine = (UserDefaults.standard.string(forKey: Self.answerVoiceEngineDefaultsKey))
@@ -768,7 +805,7 @@ final class AppState {
         removeFillerWordsEnabled = UserDefaults.standard.object(forKey: Self.removeFillerWordsDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         learnCorrectionsEnabled = UserDefaults.standard.object(forKey: Self.learnCorrectionsDefaultsKey) as? Bool ?? true
-        // Opt-in: off until the user has explicitly turned it on (~1.8 GB model).
+        // Opt-in: off until the user has explicitly turned it on (~2.3 GB model).
         llmCleanupEnabled = UserDefaults.standard.object(forKey: Self.llmCleanupDefaultsKey) as? Bool ?? false
         llmGrammarPolishEnabled = UserDefaults.standard.object(forKey: Self.llmGrammarPolishDefaultsKey) as? Bool ?? false
         // On by default; absent key means a fresh install → enabled.
@@ -788,6 +825,23 @@ final class AppState {
 
     var canStop: Bool {
         phase == .recording
+    }
+
+    /// The app is either listening or talking, so the user's own media should be
+    /// out of the way (`MediaPauser`).
+    ///
+    /// It deliberately spans the *whole* exchange rather than the recording alone:
+    /// an assistant question is a held chord, then an agent run, then an answer read
+    /// out loud, and music coming back between those stages is worse than music that
+    /// never stopped. A `.failed` phase counts as finished — the band is showing an
+    /// error, nobody is speaking.
+    var holdsMediaPlayback: Bool {
+        switch phase {
+        case .preparingModels, .recording, .stopping:
+            return true
+        case .idle, .failed:
+            return commandAgentRunning || isSpeakingAnswer
+        }
     }
 
     /// Show the interactive "when should this reminder be?" quick-prompt. Highest
@@ -1072,11 +1126,6 @@ final class AppState {
     func clearAnswerLog() {
         answerLog = []
         AnswerLog.persist([])
-    }
-
-    func removeHistoryEntry(_ id: UUID) {
-        history.removeAll { $0.id == id }
-        Self.persistHistory(history)
     }
 
     private static func loadHistory() -> [TranscriptHistoryEntry] {

@@ -57,6 +57,12 @@ echo ">> Building $SCHEME ($CONFIG) with xcodebuild"
 # errors/warnings to the console (and CI logs) so a compile failure is
 # actually diagnosable. `PIPESTATUS[0]` preserves xcodebuild's real exit code
 # through the filter pipe.
+#
+# xcodebuild echoes its own invocation (build settings incl. POSTHOG_API_KEY /
+# GA_API_SECRET) into the stream, so redact those two values with `sed` BEFORE
+# they reach the on-disk log or the console — the analytics credentials must not
+# land in build/xcodebuild-$CONFIG.log. `sed` sits after xcodebuild in the pipe,
+# so PIPESTATUS[0] is still xcodebuild's real exit code.
 set +e
 xcodebuild \
     -project WhisperMaster.xcodeproj \
@@ -72,7 +78,7 @@ xcodebuild \
     GA_API_SECRET="${GA_API_SECRET:-}" \
     ${SIGN_FLAGS[@]+"${SIGN_FLAGS[@]}"} \
     ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} \
-    clean build 2>&1 | tee "$BUILD_LOG" | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)"
+    clean build 2>&1 | sed -E 's/(GA_API_SECRET|POSTHOG_API_KEY)=[^ ]*/\1=***/g' | tee "$BUILD_LOG" | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)"
 # PIPESTATUS[0] is xcodebuild's real exit code. (Do NOT append `|| true` to the
 # pipeline — that runs a new command and resets PIPESTATUS, masking failures.)
 xc_status=${PIPESTATUS[0]}

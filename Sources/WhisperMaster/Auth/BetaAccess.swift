@@ -27,6 +27,23 @@ enum UpdateChannel: String {
         case .dev: return "https://dl.corkkam.com/appcast-dev.xml"
         }
     }
+
+    /// How the build names itself beside the version, or `nil` when it should
+    /// say nothing.
+    ///
+    /// Stable is unlabelled on purpose: the plain product name *is* the shipping
+    /// build, so a "Stable" badge would put a word on the surface every ordinary
+    /// user sees in order to tell them nothing. The label exists to mark a build
+    /// as **not** the shipping one. `dev` reads "Nightly" rather than "Dev" —
+    /// it names the cadence the build arrives on, which is what a tester needs
+    /// to know, and it isn't jargon to someone outside the repo.
+    var buildLabel: String? {
+        switch self {
+        case .stable: return nil
+        case .beta: return "Beta"
+        case .dev: return "Nightly"
+        }
+    }
 }
 
 enum BetaAccess {

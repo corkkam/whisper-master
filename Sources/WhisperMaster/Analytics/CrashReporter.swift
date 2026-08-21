@@ -22,7 +22,7 @@ import Foundation
 /// inflated crash rate.
 ///
 /// Nothing here bypasses the opt-in: every send goes through `Analytics.send`,
-/// which is gated on the user's preference and on `RegulatedMode`.
+/// which is gated on the user's preference.
 enum CrashReporter {
     private static let cleanExitKey = "WhisperMaster.cleanExit.v1"
     private static let lastIncidentKey = "WhisperMaster.lastCrashIncident.v1"

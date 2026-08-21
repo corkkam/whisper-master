@@ -126,13 +126,39 @@ struct IconButton: View {
 }
 
 /// A labeled row: title (+ optional subtitle) on the left, a control on the right.
+/// A small capsule beside a row or nav label — "Soon", "Experimental".
+///
+/// Deliberately quiet: tertiary ink on a wash of itself, never the accent. It
+/// reports a row's *status*, so it must not compete with the row's own control.
+/// One definition for every such tag — the sidebar's "Soon" and a settings row's
+/// "Experimental" are the same object and must not drift apart.
+struct RowTag: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(Typography.sans(10.5, .bold))
+            .tracking(0.4)
+            .foregroundStyle(Theme.textTertiary)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Capsule(style: .continuous).fill(Theme.textTertiary.opacity(0.12)))
+    }
+}
+
 struct SettingsRow<Control: View>: View {
     let title: String
+    var tag: String?
     var subtitle: String?
     @ViewBuilder var control: Control
 
-    init(_ title: String, subtitle: String? = nil, @ViewBuilder control: () -> Control) {
+    init(_ title: String, tag: String? = nil, subtitle: String? = nil, @ViewBuilder control: () -> Control) {
         self.title = title
+        self.tag = tag
         self.subtitle = subtitle
         self.control = control()
     }
@@ -140,9 +166,12 @@ struct SettingsRow<Control: View>: View {
     var body: some View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(Typography.headline).tracking(Typography.headlineTracking)
-                    .foregroundStyle(Theme.textPrimary)
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(Typography.headline).tracking(Typography.headlineTracking)
+                        .foregroundStyle(Theme.textPrimary)
+                    if let tag { RowTag(tag) }
+                }
                 if let subtitle {
                     Text(subtitle)
                         .font(Typography.subheadline)

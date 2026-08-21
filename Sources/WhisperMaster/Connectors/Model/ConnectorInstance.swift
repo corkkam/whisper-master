@@ -22,6 +22,15 @@ enum ConnectorConfig: Codable, Equatable, Sendable {
     /// what macOS already syncs, another reading the API directly — which is exactly
     /// why config is typed rather than a string map.
     case googleAPI(calendarIDs: [String])
+    /// Connected through the app's own Google sign-in, with nothing else to configure
+    /// (Gmail: the grant *is* the whole connection — there's one mailbox behind it).
+    ///
+    /// Carries no payload but is not `.empty`, because it is what distinguishes a
+    /// refreshable grant from a pasted token on a kind whose descriptor says
+    /// `.staticSecret` — see `ConnectorInstance.authKind`. Resolving one as a static
+    /// secret would hand the provider a token nothing ever refreshes, and the
+    /// connection would stop reading an hour after it was made.
+    case googleOAuth
     /// Slack: the workspace this instance is bound to.
     case workspace(teamID: String)
     /// Zoom: the account whose token we mint per request.
@@ -45,7 +54,19 @@ enum ConnectorConfig: Codable, Equatable, Sendable {
     var isNetworkBacked: Bool {
         switch self {
         case .calendars, .empty: return false
-        case .googleAPI, .workspace, .account: return true
+        case .googleAPI, .googleOAuth, .workspace, .account: return true
+        }
+    }
+
+    /// Whether this instance was connected by the app's own Google sign-in, and so
+    /// holds a refreshable grant this app minted rather than a secret the user pasted.
+    ///
+    /// Both cases qualify: `.googleAPI` is the Calendar shape (it also names calendars),
+    /// `.googleOAuth` the shape for a kind with nothing else to configure.
+    var isManagedGoogleGrant: Bool {
+        switch self {
+        case .googleAPI, .googleOAuth: return true
+        case .calendars, .workspace, .account, .empty: return false
         }
     }
 }
@@ -159,8 +180,15 @@ struct ConnectorInstance: Identifiable, Codable, Equatable, Sendable {
     /// `Authorization` header entirely, and Google answers 403 "Method doesn't allow
     /// unregistered callers". That reads on the row as a rejected credential, when in
     /// fact the credential was never sent.
+    ///
+    /// `gmail` is the mirror-image case: its descriptor says `.staticSecret` (the
+    /// pasted-token path, which is what an unverified build still offers), but an
+    /// instance made by the Google sign-in holds a grant that must be refreshed. So a
+    /// managed grant is decided *first* — deriving it from the descriptor alone gets
+    /// one of the two shapes wrong whichever way the descriptor is written.
     var authKind: ConnectorAuthKind {
-        config.isNetworkBacked && descriptor.authKind == .none
+        if config.isManagedGoogleGrant { return .refreshableGrant }
+        return config.isNetworkBacked && descriptor.authKind == .none
             ? .refreshableGrant
             : descriptor.authKind
     }

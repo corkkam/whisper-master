@@ -362,6 +362,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // outcome on almost every install.
         viewModel.state.agents.start()
 
+        // Ask the appcast whether there is an update, without showing anything.
+        // `checkForUpdateInformation()` is the one Sparkle entry point that has no
+        // user driver behind it: it only fires the delegate callbacks below, which
+        // set `availableUpdateVersion` and light the sidebar card. Held behind the
+        // gate with the rest of the bring-up because `feedURLString` reads the
+        // signed-in user's channel, so a check made before the session loads would
+        // poll the wrong feed.
+        updaterController.updater.checkForUpdateInformation()
+
         let userID = currentOnboardingUserID()
 
         // Migration for existing installs: they have no per-user onboarding
@@ -462,6 +471,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// gone — with nothing left on screen to explain it or any way to stop it.
     func applicationWillTerminate(_ notification: Notification) {
         viewModel.stopSpeaking()
+        // Whatever we paused for a dictation goes back to playing — otherwise
+        // quitting mid-session leaves the speakers silent with nothing left running
+        // to explain why.
+        viewModel.releaseHeldMedia()
         // The other half of crash detection. macOS calls this for ⌘Q, the tray
         // Quit item, and logout — but never for a crash, which is precisely the
         // discrimination `CrashReporter` relies on. A Force Quit skips it too and
@@ -711,6 +724,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // AppState below.
         reconcileAuthGate()
 
+        // Hand the user's music back once the whole exchange is over (the pause itself
+        // happens on the key press, in `startRecording`). **Above the tray guard on
+        // purpose:** giving the speakers back cannot depend on the menu bar having a
+        // status item — an early return there would leave the Mac silent with no way
+        // to explain it.
+        viewModel.reconcileMediaPlayback()
+
         guard let item = statusItem, let button = item.button else { return }
         let state = viewModel.state
 
@@ -786,21 +806,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Mirror any changed usage rollups to the cloud (debounced + single-
         // flight inside; no-ops when the toggle is off, offline, or nothing
         // changed). The local store already has the data — this is just backup.
-        //
-        // Both sync calls are additionally gated on Regulated Mode. `&&` rather
-        // than relying on the preference alone: a Mac that had sync on before an
-        // MDM profile arrived would otherwise keep pushing until the user
-        // happened to open Settings. Notes sync matters most of the three
-        // egresses — a note is dictated text, so this is the one that would
-        // actually carry client content off the machine.
-        usageSync.syncIfNeeded(enabled: state.usageSyncEnabled && RegulatedMode.allowsUsageSync)
+        usageSync.syncIfNeeded(enabled: state.usageSyncEnabled)
 
         // Notes & reminders: pull the account's items once per activation (so a
         // second Mac catches up), then mirror local changes up. Both are debounced
         // + single-flight inside; no-ops when the toggle is off or nothing changed.
-        let notesSyncAllowed = state.notesSyncEnabled && RegulatedMode.allowsNotesSync
-        notesSync.pullIfNeeded(enabled: notesSyncAllowed)
-        notesSync.syncIfNeeded(enabled: notesSyncAllowed)
+        notesSync.pullIfNeeded(enabled: state.notesSyncEnabled)
+        notesSync.syncIfNeeded(enabled: state.notesSyncEnabled)
 
         // Fire any reminders that have come due (poll-driven — the app is a
         // persistent menu-bar process, so this is the reliable path).
@@ -1243,6 +1255,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.hotkeyManager?.resetGesture()
         }
 
+        // **The assistant chord: hold fn + control.** This is the single way in to
+        // every agent action and connector conversation — file a note or a reminder,
+        // read the calendar, run a connector write, or just ask a question — and the
+        // transcript is handled instead of typed. A chord rather than a key of its
+        // own, because with the default fn push-to-talk it reads as "dictate, plus
+        // control" — and it can therefore arm a recording that fn has *already*
+        // started (the two presses are never simultaneous), which is why the view
+        // model handles the edges rather than this closure. Same sign-in gate as
+        // dictation.
+        //
+        // ⚠️ It is installed **here**, unconditionally, and must stay that way. It
+        // spent a release nested inside `reconcileAgentHotkey()` below, downstream of
+        // that function's two early returns — and since the coding-agent key is off by
+        // default, the guard fired on every fresh install and the chord was never
+        // created at all. fn + control simply dictated. The assistant does not depend
+        // on the agent key, so nothing about its installation may.
+        commandChordMonitor = ModifierChordMonitor(chord: .command) { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .engaged:
+                guard self.ensureCanDictate() else { return }
+                self.viewModel.handleCommandChordEngaged()
+            case .released:
+                self.viewModel.handleCommandChordReleased()
+            }
+        }
+
         // The agent key is optional and user-chosen, so it is installed by the same
         // reconcile the refresh loop runs rather than once here.
         reconcileAgentHotkey()
@@ -1316,26 +1355,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.viewModel.handleAgentKeyStop()
             case .handsFree, .toggle:
                 break
-            }
-        }
-
-        // **The assistant chord: hold fn + control.** This is the single way in to
-        // every agent action and connector conversation — file a note or a reminder,
-        // read the calendar, run a connector write, or just ask a question — and the
-        // transcript is handled instead of typed. A chord rather than a key of its
-        // own, because with the default fn push-to-talk it reads as "dictate, plus
-        // control" — and it can therefore arm a recording that fn has *already*
-        // started (the two presses are never simultaneous), which is why the view
-        // model handles the edges rather than this closure. Same sign-in gate as
-        // dictation.
-        commandChordMonitor = ModifierChordMonitor(chord: .command) { [weak self] event in
-            guard let self else { return }
-            switch event {
-            case .engaged:
-                guard self.ensureCanDictate() else { return }
-                self.viewModel.handleCommandChordEngaged()
-            case .released:
-                self.viewModel.handleCommandChordReleased()
             }
         }
     }
@@ -1501,6 +1520,22 @@ extension AppDelegate: SPUUpdaterDelegate {
     /// return a concrete channel so the two never drift.
     nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
         MainActor.assumeIsolated { BetaAccess.currentChannel.feedURLString }
+    }
+
+    /// Light the sidebar's update card. Sparkle calls this for **every** kind of
+    /// check — the silent `checkForUpdateInformation()` below, the scheduled
+    /// background check, and a manual one — so the card appears without any
+    /// window being thrown at the user, which is the whole point of it.
+    nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        MainActor.assumeIsolated {
+            viewModel.state.availableUpdateVersion = item.displayVersionString
+        }
+    }
+
+    /// Put the card away again when the feed says this build is current — the
+    /// user updated from somewhere else, or the release was pulled.
+    nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        MainActor.assumeIsolated { viewModel.state.availableUpdateVersion = nil }
     }
 }
 

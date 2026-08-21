@@ -15,7 +15,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     // Folded under Settings ("More"):
     case insights
     case engine
-    case history
+    case agents
+    case traces
     case permissions
     case mesh
     case about
@@ -25,7 +26,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// The four items shown in the sidebar.
     static let primary: [SettingsSection] = [.today, .notes, .connectors, .settings]
     /// The pages folded into the Settings screen's "More" list.
-    static let secondary: [SettingsSection] = [.insights, .engine, .history, .permissions, .mesh, .about]
+    static let secondary: [SettingsSection] = [.insights, .engine, .agents, .traces, .permissions, .mesh, .about]
 
     var isPrimary: Bool { SettingsSection.primary.contains(self) }
 
@@ -35,6 +36,12 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     func isAvailable(connectorsAndNotes: Bool) -> Bool {
         switch self {
         case .notes, .connectors: return connectorsAndNotes
+        // Nearby Macs is on hold: peer discovery, the proximity beacons and the
+        // remote-transcription listener all work, but none of it is finished
+        // enough to hand to a user, so the page reads "Coming soon" on every
+        // channel rather than shipping a half-built network surface. Nothing is
+        // deleted — flip this back to `true` to bring the panel out again.
+        case .mesh: return false
         default: return true
         }
     }
@@ -42,8 +49,9 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// Whether this section can be opened in *this* build.
     ///
     /// Connectors and Notes & Reminders are not yet released on stable (see
-    /// `FeatureFlags`) — they stay listed in the sidebar but read "Coming soon"
-    /// and don't respond. Everything else is always available.
+    /// `FeatureFlags`), and Nearby Macs is not released anywhere — they stay
+    /// listed but read "Coming soon" and don't respond. Everything else is
+    /// always available.
     var isAvailable: Bool {
         isAvailable(connectorsAndNotes: FeatureFlags.connectorsAndNotesAvailable)
     }
@@ -60,7 +68,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .settings: return "Settings"
         case .insights: return "Insights"
         case .engine: return "Voice engine"
-        case .history: return "History"
+        case .agents: return "Coding agents"
+        case .traces: return "Traces"
         case .permissions: return "Permissions"
         case .mesh: return "Nearby Macs"
         case .about: return "About"
@@ -87,7 +96,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .settings: return "Everything you can tune, in one warm place."
         case .insights: return "Your dictation at a glance — words, speed, and streaks."
         case .engine: return "Everything runs on-device. Your audio never leaves this Mac."
-        case .history: return "Your recent transcriptions, kept locally."
+        case .agents: return "Dictate straight to a Claude Code session on this Mac."
+        case .traces: return "What actually happened to the last few things you said."
         case .permissions: return "Whisper Master only asks for what it needs to work."
         case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
         case .about: return "Voice dictation that stays on your Mac."
@@ -102,7 +112,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .settings: return "Preferences"
         case .insights: return "Overview"
         case .engine: return "On-device"
-        case .history: return "Activity"
+        case .agents: return "On this Mac"
+        case .traces: return "Activity"
         case .permissions: return "Privacy"
         case .mesh: return "Mesh"
         case .about: return "Whisper Master"
@@ -118,7 +129,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .settings: return "slider.horizontal.3"
         case .insights: return "chart.bar"
         case .engine: return "waveform"
-        case .history: return "clock"
+        case .agents: return "terminal"
+        case .traces: return "list.bullet.indent"
         case .permissions: return "lock.shield"
         case .mesh: return "laptopcomputer"
         case .about: return "info.circle"
@@ -257,8 +269,18 @@ struct SettingsView: View {
             Spacer(minLength: 16)
 
             VStack(spacing: 12) {
+                // Only present when Sparkle has actually found something, so the
+                // sidebar says nothing at all on a current build.
+                if let version = state.availableUpdateVersion {
+                    SidebarUpdateCard(version: version, install: checkForUpdates)
+                }
                 SidebarMicCard(state: state, viewModel: viewModel)
-                SidebarAccountRow(isSnapshot: isSnapshot, signOut: signOut)
+                SidebarAccountRow(
+                    isSnapshot: isSnapshot,
+                    updateVersion: state.availableUpdateVersion,
+                    signOut: signOut,
+                    checkForUpdates: checkForUpdates
+                )
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 16)
@@ -302,17 +324,7 @@ struct SettingsView: View {
                     .layoutPriority(1)
                 Spacer(minLength: 4)
                 if !isAvailable {
-                    Text("Soon")
-                        .font(Typography.sans(10.5, .bold))
-                        .tracking(0.4)
-                        .foregroundStyle(Theme.textTertiary)
-                        .lineLimit(1)
-                        .fixedSize()
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule(style: .continuous).fill(Theme.textTertiary.opacity(0.12))
-                        )
+                    RowTag("Soon")
                 } else if section == .notes {
                     // A chevron rather than a second button: the row's own tap goes
                     // to the page, and this rotates to say the group underneath it
@@ -509,10 +521,16 @@ struct SettingsView: View {
             GeneralSettingsView(viewModel: viewModel, state: state, openSubPage: { selection = $0 })
         case .engine:
             EngineSettingsView(viewModel: viewModel, state: state)
+        case .agents:
+            AgentSettingsView(state: state)
         case .mesh:
-            MeshSettingsView(viewModel: viewModel, state: state)
-        case .history:
-            HistorySettingsView(viewModel: viewModel, state: state)
+            if selection.isAvailable {
+                MeshSettingsView(viewModel: viewModel, state: state)
+            } else {
+                ComingSoonPanel(section: .mesh)
+            }
+        case .traces:
+            TracesSettingsView(viewModel: viewModel, state: state)
         case .insights:
             InsightsSettingsView(viewModel: viewModel, state: state)
         case .permissions:
@@ -550,6 +568,76 @@ struct SettingsView: View {
         micGranted = micStatus == .granted
         micDenied = micStatus == .denied
         accessibilityGranted = permissions.accessibilityGranted()
+    }
+}
+
+// MARK: - Sidebar update card
+
+/// "There is a new version" in the sidebar, and the one click that installs it.
+///
+/// It is drawn only while `AppState.availableUpdateVersion` is set, which the
+/// AppDelegate's Sparkle delegate writes from a **silent** check
+/// (`checkForUpdateInformation()`), so a waiting update announces itself in the
+/// window without a Sparkle panel appearing over whatever the user was doing.
+/// The tap runs the ordinary `checkForUpdates` action — Sparkle then shows its
+/// own release notes and Install button, which is the surface that owns the
+/// download, the signature check and the relaunch.
+///
+/// Accent-tinted rather than a plain glass card: it is news, and it sits beside
+/// the mic card, which must stay the loudest thing at the foot of the sidebar —
+/// hence the smaller glyph and the two tight lines.
+private struct SidebarUpdateCard: View {
+    let version: String
+    var install: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: install) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle().fill(Theme.accentFill)
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.accentOn)
+                }
+                .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Update ready")
+                        .font(Typography.heading(13, relativeTo: .callout))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("Version \(version)")
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 4)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Theme.accentText)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 10)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Theme.accentSoft)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(
+                                Theme.accent.opacity(hovering ? 0.42 : 0.22), lineWidth: 1)
+                    )
+                    .shadow(color: Theme.Ember.base.opacity(0.18), radius: 10, x: 0, y: 4)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel("Update ready, version \(version)")
+        .accessibilityHint("Installs the update")
+        .pointerCursor()
     }
 }
 
@@ -642,7 +730,9 @@ private struct SidebarMicCard: View {
 /// stable stand-in.
 private struct SidebarAccountRow: View {
     let isSnapshot: Bool
+    var updateVersion: String?
     var signOut: () -> Void = {}
+    var checkForUpdates: () -> Void = {}
 
     @State private var showAccount = false
 
@@ -650,7 +740,16 @@ private struct SidebarAccountRow: View {
         row
             // Anchored above the row (it lives at the sidebar's bottom edge).
             .popover(isPresented: $showAccount, arrowEdge: .top) {
-                AccountPopover(signOut: signOut)
+                AccountPopover(
+                    updateVersion: updateVersion,
+                    signOut: signOut,
+                    checkForUpdates: {
+                        // Sparkle's window is app-modal-ish and this popover sits
+                        // above it, so close ours before handing over.
+                        showAccount = false
+                        checkForUpdates()
+                    }
+                )
             }
     }
 

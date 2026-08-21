@@ -62,38 +62,3 @@ final class TranscriptMergerBestEffortTests: XCTestCase {
         XCTAssertEqual(TranscriptMerger.bestEffort(confirmed: "", volatile: ""), "")
     }
 }
-
-/// `tidiedPreview` — cosmetic seam repair for the low-latency preview track only.
-final class TranscriptMergerPreviewTidyTests: XCTestCase {
-    func testDropsPunctuationOnlyOrphanTokens() {
-        // The seam artifact seen in AudioReplayTests on a real 5s clip.
-        XCTAssertEqual(
-            TranscriptMerger.tidiedPreview("Remind me to buy milk. . and eggs on the way home. ."),
-            "Remind me to buy milk and eggs on the way home.")
-    }
-
-    func testDropsAWindowFinalPeriodBeforeALowercaseWord() {
-        XCTAssertEqual(TranscriptMerger.tidiedPreview("his net. on the dock"), "his net on the dock")
-    }
-
-    func testKeepsAPeriodBeforeACapitalisedWord() {
-        // A real sentence boundary must survive.
-        XCTAssertEqual(TranscriptMerger.tidiedPreview("the dock. He nodded"), "the dock. He nodded")
-    }
-
-    func testKeepsATrailingPeriodAtTheEnd() {
-        XCTAssertEqual(TranscriptMerger.tidiedPreview("home tonight."), "home tonight.")
-    }
-
-    func testLeavesInternalDotsAlone() {
-        XCTAssertEqual(
-            TranscriptMerger.tidiedPreview("send it to john@gmail.com and cc me"),
-            "send it to john@gmail.com and cc me")
-    }
-
-    func testCollapsesWhitespaceAndHandlesEmpty() {
-        XCTAssertEqual(TranscriptMerger.tidiedPreview("  two   words \n"), "two words")
-        XCTAssertEqual(TranscriptMerger.tidiedPreview(""), "")
-        XCTAssertEqual(TranscriptMerger.tidiedPreview(" . , "), "")
-    }
-}

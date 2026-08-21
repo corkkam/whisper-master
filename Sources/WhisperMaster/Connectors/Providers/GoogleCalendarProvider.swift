@@ -12,7 +12,7 @@ import Foundation
 /// subscribed to, returns richer event data, and is the only path to *writing* events
 /// later.
 @MainActor
-struct GoogleCalendarProvider: EventReadingProvider {
+struct GoogleCalendarProvider: EventReadingProvider, AsyncEventReadingProvider {
     static let kind: ConnectorKind = .googleCalendar
 
     private static let base = "https://www.googleapis.com/calendar/v3"

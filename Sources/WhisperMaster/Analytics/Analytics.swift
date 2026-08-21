@@ -50,17 +50,6 @@ final class Analytics {
     /// sink the first time and opts in; disabling opts out so no further events
     /// leave.
     func setEnabled(_ enabled: Bool) {
-        // Regulated Mode overrides the preference outright. Checked here rather
-        // than only where the toggle is drawn, because this method is also
-        // reached from `configure(enabled:)` at launch with a persisted value —
-        // a Mac that had analytics on before the profile was installed must not
-        // send anything on the next launch.
-        guard RegulatedMode.allowsTelemetry else {
-            isEnabled = false
-            if didInitializeSDK { PostHogSDK.shared.optOut() }
-            Log.analytics.notice("Regulated Mode active — analytics disabled by policy.")
-            return
-        }
         isEnabled = enabled
         if enabled {
             initializeSDKIfNeeded()
@@ -91,7 +80,6 @@ final class Analytics {
     /// `user_id`: GA models those as device and person respectively, and
     /// overwriting `client_id` mid-stream would fork the device's session history.
     func identify(_ account: AnalyticsAccount) {
-        guard RegulatedMode.allowsTelemetry else { return }
         guard self.account != account else { return }
         self.account = account
 
@@ -129,7 +117,7 @@ final class Analytics {
     /// means an aggregation across the full event history. Person-scoped only —
     /// GA4 has no equivalent that the Measurement Protocol can write.
     func updatePersonProperties(_ properties: [String: String]) {
-        guard RegulatedMode.allowsTelemetry, isEnabled, didInitializeSDK else { return }
+        guard isEnabled, didInitializeSDK else { return }
         guard !properties.isEmpty else { return }
         PostHogSDK.shared.capture("$set", properties: ["$set": properties])
     }
@@ -137,11 +125,8 @@ final class Analytics {
     /// Emit an event to every enabled, configured sink. No-op unless the user has
     /// opted in.
     func send(_ event: AnalyticsEvent) {
-        // Belt and braces with `setEnabled`. This is the last statement before
-        // bytes reach either sink, so it is the one place where a missed gate
-        // upstream — a future code path that sets `isEnabled` directly, a
-        // profile installed mid-session — still cannot produce a transmission.
-        guard RegulatedMode.allowsTelemetry else { return }
+        // The last statement before bytes reach either sink, so a code path that
+        // sets `isEnabled` directly still cannot produce a transmission.
         guard isEnabled else { return }
 
         if didInitializeSDK {

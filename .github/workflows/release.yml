@@ -19,6 +19,11 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege by default. The release job below re-grants `contents: write`
+# for the release-tag push, so this only narrows the read-only gate job.
+permissions:
+  contents: read
+
 jobs:
   # Cheap gate: did the marketing version change in this push? Runs on Ubuntu
   # (1x billing, seconds) so non-release pushes never spin up a macOS runner.
@@ -117,15 +122,17 @@ jobs:
         # picks it up. release.sh enforces that the dev channel's version carries
         # a `-dev.N` pre-release tag, so a dev build can never overwrite a stable
         # archive at the R2 bucket root.
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          case "${{ github.ref_name }}" in
+          case "$REF_NAME" in
             main) CHANNEL=stable ;;
             dev)  CHANNEL=dev ;;
-            *)    echo "error: release branch '${{ github.ref_name }}' has no channel mapping" >&2; exit 1 ;;
+            *)    echo "error: release branch '$REF_NAME' has no channel mapping" >&2; exit 1 ;;
           esac
           echo "CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
-          echo ">> Releasing on the $CHANNEL channel (branch ${{ github.ref_name }})"
+          echo ">> Releasing on the $CHANNEL channel (branch $REF_NAME)"
 
       - name: Write notary API key
         env:
@@ -145,7 +152,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "${POSTHOG_CLI_API_KEY:-}" ]]; then
-            npm install -g @posthog/cli@latest
+            # Pinned (was @latest): a floating tag pulls whatever version resolves
+            # at release time. Bump deliberately. NOTE: this package's postinstall
+            # (node ./install.js) downloads its platform binary, so --ignore-scripts
+            # is NOT usable here — it would leave `posthog-cli` with no executable.
+            npm install -g @posthog/cli@0.11.1
             posthog-cli --version
           else
             echo "POSTHOG_CLI_API_KEY unset — skipping CLI install; dSYMs will not be uploaded."
@@ -256,3 +267,10 @@ jobs:
           fi
           git tag "v$VER" "${{ github.sha }}"
           git push origin "v$VER"
+
+      - name: Remove notary API key
+        # Mirror the signing-cert cleanup (rm -f "$RUNNER_TEMP/cert.p12") for the
+        # decoded .p8 so no later step on the runner can read it. `if: always()`
+        # so it runs even when an earlier step fails.
+        if: always()
+        run: rm -f "$RUNNER_TEMP/notary_key.p8"

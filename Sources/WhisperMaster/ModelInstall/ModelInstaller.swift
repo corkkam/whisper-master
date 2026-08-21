@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Installs CoreML model archives from the app's R2 mirror: downloads a single
@@ -21,7 +22,43 @@ enum ModelInstaller {
 
     enum InstallError: Error {
         case incompleteAfterUnpack
+        /// The downloaded archive's SHA-256 did not match the pin baked into the
+        /// signed bundle (`ModelChecksums`). Treated as a failed download.
+        case checksumMismatch
     }
+
+    /// The pure verification decision for a downloaded archive, factored out so it
+    /// is testable without the download machinery.
+    enum ChecksumVerdict: Equatable {
+        /// A pin exists and the file's hash matches it.
+        case verified
+        /// No hash is pinned for this archive — install anyway (the safety valve
+        /// so a future archive nobody pinned still installs). Logged by the caller.
+        case unverified
+        /// A pin exists and disagrees — a tampered or corrupt mirror. Never unpack.
+        case mismatch
+    }
+
+    /// Compare a computed lowercase-hex digest to the pin baked into the signed
+    /// bundle. Case-insensitive; `nil` pin is the safety valve (`.unverified`).
+    static func verifyChecksum(archiveName: String, actualHex: String) -> ChecksumVerdict {
+        guard let expected = ModelChecksums.sha256[archiveName] else { return .unverified }
+        return actualHex.caseInsensitiveCompare(expected) == .orderedSame ? .verified : .mismatch
+    }
+
+    /// Streaming SHA-256 of a file, read in bounded 1 MiB chunks so a multi-GB
+    /// archive is never loaded into memory whole. Lowercase hex.
+    static func sha256(ofFileAt url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let chunk = try handle.read(upToCount: sha256ChunkByteCount), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static let sha256ChunkByteCount = 1 << 20  // 1 MiB
 
     /// Backoff between mirror attempts (a transient stall usually clears quickly).
     private static let retryBackoffNanoseconds: UInt64 = 1_500_000_000
@@ -95,6 +132,29 @@ enum ModelInstaller {
             // itself from `fractionCompleted`, so baking it in here duplicated
             // it ("Downloading voice engine… 40% 40%").
             onProgress(Progress(fractionCompleted: fraction, detail: "Downloading \(label)…"))
+        }
+
+        // Verify the bytes against the hash pinned inside the signed bundle before
+        // unpacking anything: the R2 archives are unsigned (unlike the Sparkle
+        // appcast), and CoreML/MLX weights are code-adjacent, so a swapped archive
+        // must never reach `Archive.unzip`.
+        onProgress(Progress(fractionCompleted: 1, detail: "Verifying \(label)…"))
+        let actualHex = try sha256(ofFileAt: archiveZip)
+        switch verifyChecksum(archiveName: archiveName, actualHex: actualHex) {
+        case .verified:
+            break
+        case .unverified:
+            Log.modelPrep.error(
+                "No pinned SHA-256 for archive \(archiveName, privacy: .public) — installing \(label, privacy: .public) UNVERIFIED")
+        case .mismatch:
+            // Tampered or corrupt mirror: drop the bad bytes and the resume token so
+            // a retry re-downloads fresh instead of resuming the same file, then fail
+            // this attempt so the caller retries and ultimately falls back to HF.
+            try? FileManager.default.removeItem(at: archiveZip)
+            BackgroundFileDownloader.shared.forget(url: archiveURL)
+            Log.modelPrep.error(
+                "SHA-256 mismatch for \(label, privacy: .public) archive \(archiveName, privacy: .public): expected \(ModelChecksums.sha256[archiveName] ?? "?", privacy: .public), got \(actualHex, privacy: .public) — refusing to unpack")
+            throw InstallError.checksumMismatch
         }
 
         onProgress(Progress(fractionCompleted: 1, detail: "Unpacking \(label)…"))

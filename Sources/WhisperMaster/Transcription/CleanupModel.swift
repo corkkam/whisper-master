@@ -3,6 +3,23 @@ import Foundation
 /// Where the on-device cleanup model lives on disk and how we know it's a
 /// *complete* install. Mirrors `TranscriberEngine`'s convention (same
 /// Application Support root) so the cleanup model sits beside the voice engine.
+///
+/// **Two models, because these are two jobs.** `dev` and this branch reached the same
+/// conclusion from opposite ends: dev by moving the shared model up to
+/// `Qwen3-4B-Instruct-2507` *for the tool-calling tier*, this branch by measuring that
+/// a 0.6B normalizer beats a general instruct model at cleanup. Both were right about
+/// their own half, so the merge keeps both halves:
+///
+/// - **Cleanup** (`MlxCleanupService.shared`, the dictation hot path) is
+///   **S1-mini** — 335 MB, ~100 ms, and better than the 3B it replaced on
+///   `eval/text-cleanup/cases.jsonl`.
+/// - **Tool calling and intent** (`CleanupModel.General`) is
+///   **Qwen3-4B-Instruct-2507** — dev's choice and dev's reasoning: the 2507 instruct
+///   build carries a real function-calling posture and is non-thinking by default, so
+///   it never emits `<think>` blocks that would break the loop's single-JSON parse.
+///
+/// Any change to either re-runs `eval/text-cleanup/run-eval.sh` and re-checks
+/// `CleanupFaithfulnessGuard`, which is tuned to a model's failure modes.
 enum CleanupModel {
     /// R2 archive base name (`<archiveName>.zip` on the mirror) and the unpacked
     /// directory name — identical so the zip's top-level folder matches on disk.
@@ -37,8 +54,8 @@ enum CleanupModel {
     /// to fetch 1.5 GB for a feature it may never touch. Giving this its own
     /// download affordance is the obvious follow-up.
     enum General {
-        static let archiveName = "Qwen2.5-3B-Instruct-4bit"
-        static let huggingFaceId = "mlx-community/Qwen2.5-3B-Instruct-4bit"
+        static let archiveName = "Qwen3-4B-Instruct-2507-4bit"
+        static let huggingFaceId = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
         static let label = "assistant model"
 
         static var directory: URL {

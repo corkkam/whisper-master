@@ -6,6 +6,7 @@
 #   bash run-eval.sh [cases.jsonl] [label]
 #
 # Defaults: cases = ./cases.jsonl, label = "eval <timestamp>".
+# Destination suite: bash run-eval.sh ./flow-cases.jsonl "flow destinations"
 #
 # Env overrides:
 #   APP            path to the built .app   (default: /Applications/Whisper Master.app)

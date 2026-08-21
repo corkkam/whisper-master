@@ -33,26 +33,22 @@ final class ApprovalCoordinator {
             self.timeoutTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(self?.timeout ?? 60))
                 guard !Task.isCancelled else { return }
-                // Timing out is a *denial*, never an allow — silence can't authorise a
-                // write.
-                self?.resolve(.denied, timedOut: true)
+                // Timing out never authorises — silence can't consent to a write — but
+                // it is reported as itself rather than as a denial, so the tool result
+                // and the trace can say which of the two happened. See
+                // `ApprovalOutcome.timedOut`.
+                self?.resolve(.timedOut)
             }
         }
     }
 
-    /// The user answered on the card.
-    func resolve(_ outcome: ApprovalOutcome) {
-        resolve(outcome, timedOut: false)
-    }
-
-    /// The one place a card ends, so every outcome is counted exactly once.
+    /// The one place a card ends, so every outcome is counted exactly once. Called
+    /// with the user's own choice from the card, and with `.timedOut` by the timer.
     ///
-    /// `timedOut` exists because the timeout resolves as `.denied` — correctly, since
-    /// silence must not authorise a write — which would otherwise make an unanswered
-    /// card indistinguishable from a deliberate "No". They mean opposite things for
-    /// the design: a card nobody answers is a card in the wrong place, while a "No"
-    /// is the consent model working.
-    private func resolve(_ outcome: ApprovalOutcome, timedOut: Bool) {
+    /// The distinction is load-bearing for the design as well as for the copy: a card
+    /// nobody answers is a card in the wrong place, while a "No" is the consent model
+    /// working.
+    func resolve(_ outcome: ApprovalOutcome) {
         timeoutTask?.cancel()
         timeoutTask = nil
         // Read before `pending` is cleared. The tool name is a fixed catalog string,
@@ -65,14 +61,11 @@ final class ApprovalCoordinator {
 
         if let tool {
             let decision: AnalyticsEvent.ApprovalDecision
-            if timedOut {
-                decision = .timedOut
-            } else {
-                switch outcome {
-                case .allowedOnce: decision = .once
-                case .allowedAlways: decision = .always
-                case .denied: decision = .denied
-                }
+            switch outcome {
+            case .allowedOnce: decision = .once
+            case .allowedAlways: decision = .always
+            case .denied: decision = .denied
+            case .timedOut: decision = .timedOut
             }
             Analytics.shared.send(.approvalDecided(tool: tool, decision: decision))
         }

@@ -1,0 +1,2487 @@
+{
+  "Package.swift": {
+    "mtime": 1785855144.4451387,
+    "ast_hash": "ff5b38c9feb872c43987ad4893a3066c",
+    "semantic_hash": ""
+  },
+  "Scripts/bundle.sh": {
+    "mtime": 1785855144.4472291,
+    "ast_hash": "68668148f8b9a3b61895e9fbe02996a0",
+    "semantic_hash": ""
+  },
+  "Scripts/install.sh": {
+    "mtime": 1783366518.9529862,
+    "ast_hash": "899944ad4c9702ce428ddbbd687f9bec",
+    "semantic_hash": ""
+  },
+  "Scripts/make-dmg.sh": {
+    "mtime": 1785855144.4476306,
+    "ast_hash": "0732b49c49d8b0f97893736295d151fb",
+    "semantic_hash": ""
+  },
+  "Scripts/notarize.sh": {
+    "mtime": 1783674088.2717693,
+    "ast_hash": "f010d089eb84e5ce882ed2f99b86626e",
+    "semantic_hash": ""
+  },
+  "Scripts/notify-telegram.py": {
+    "mtime": 1783366518.9539363,
+    "ast_hash": "bf2c1750e7e45323d09ea3ebda4aec26",
+    "semantic_hash": ""
+  },
+  "Scripts/release.sh": {
+    "mtime": 1786281587.3908517,
+    "ast_hash": "1021712d09774002ad07b9c740bf2ac7",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Analytics/Analytics.swift": {
+    "mtime": 1786281587.391325,
+    "ast_hash": "b25fde5dd4d97697fb0f5602ee23589c",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Analytics/AnalyticsConfig.swift": {
+    "mtime": 1786281587.3914614,
+    "ast_hash": "75738df8c460f9d93d06b005102ee5f2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Analytics/AnalyticsEvent.swift": {
+    "mtime": 1786281587.3915794,
+    "ast_hash": "4e39459c78cdce04d19ce23ab832d4ae",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Analytics/AnalyticsIdentity.swift": {
+    "mtime": 1786281587.3919618,
+    "ast_hash": "8e7250478186e8c60b11c77d7e91ed6b",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/AppDelegate.swift": {
+    "mtime": 1786381515.1087954,
+    "ast_hash": "091d85d349d732b8b85d20a13cb7137f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/AppInfo.swift": {
+    "mtime": 1783366518.9559371,
+    "ast_hash": "329da698ad65b3ba71c5c04788b119ee",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/AppMain.swift": {
+    "mtime": 1785855144.4496162,
+    "ast_hash": "f4ee3bb2ce0466a6aa6428a4dabeb02d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/AppState.swift": {
+    "mtime": 1786381361.4363718,
+    "ast_hash": "99c9e6f70faed38461a8eb72762d5611",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/DictationViewModel.swift": {
+    "mtime": 1786353556.4622402,
+    "ast_hash": "483e66b5108f131e3c0bf4ba800d25e7",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/Log.swift": {
+    "mtime": 1786302208.8597257,
+    "ast_hash": "5e9f0391fb261d4545171908f658013e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/SnapshotMode.swift": {
+    "mtime": 1786381620.9035702,
+    "ast_hash": "861473a9033363229be8e96550ae597e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Audio/AudioInputDevices.swift": {
+    "mtime": 1785855144.4515972,
+    "ast_hash": "017be16f2d123b87cc948f535dd3d4d2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Audio/BluetoothInputMonitor.swift": {
+    "mtime": 1785855144.451695,
+    "ast_hash": "889af31326c2e9718c73a0e2c2149911",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Audio/MicrophoneCaptureService.swift": {
+    "mtime": 1786281587.3936462,
+    "ast_hash": "3ad1b5dd9179587b489dff3cb80ccda2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/CorrectionDetector.swift": {
+    "mtime": 1783366518.958491,
+    "ast_hash": "1788ea9d240b62eda260b38a5c220e40",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/CorrectionLearner.swift": {
+    "mtime": 1783366518.9587893,
+    "ast_hash": "7e92c4d920b528dcab074460abe0014f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/FocusedElementInspector.swift": {
+    "mtime": 1783618770.2573278,
+    "ast_hash": "973975f4b9d2643d4bf2bc98f87eeaf5",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/HotkeyManager.swift": {
+    "mtime": 1785855144.4577608,
+    "ast_hash": "bdc774524fbfdc2f93ff46637c782841",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/InPlaceRefiner.swift": {
+    "mtime": 1783366518.9592657,
+    "ast_hash": "a86a71f0d2586631df558bf225c5af99",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/RefinementDiff.swift": {
+    "mtime": 1783366518.9594812,
+    "ast_hash": "e2213165c4842c90f4840606d31d5c9b",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/TextInjector.swift": {
+    "mtime": 1783366518.9597497,
+    "ast_hash": "d760db1408601bfe99702b385613e269",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/LatencyProbe.swift": {
+    "mtime": 1785855144.458029,
+    "ast_hash": "8b3bb5e2f7ed611b62eada3aba94dd25",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/MeshBluetooth.swift": {
+    "mtime": 1783366518.9601848,
+    "ast_hash": "2f817dfd6b5fefb2888e37cce4199f4b",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/MeshCoordinator.swift": {
+    "mtime": 1783366518.9609141,
+    "ast_hash": "da91160e2c1e2a0ad35794e6cea19913",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/MeshPeer.swift": {
+    "mtime": 1783366518.961093,
+    "ast_hash": "20eaa297d930cc3fee617f8e4d6f46fc",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/PeerDiscovery.swift": {
+    "mtime": 1783366518.961453,
+    "ast_hash": "814be30c24d02490c672c4eb4e2d0c20",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/PeerIdentity.swift": {
+    "mtime": 1783366518.961597,
+    "ast_hash": "8b81dcb1375c776eb5dcae2af54577f2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/PeerMetadata.swift": {
+    "mtime": 1783366518.961895,
+    "ast_hash": "c8d81cc3b6085106b71c8efc03309616",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/ProximityBeacon.swift": {
+    "mtime": 1783366518.9623063,
+    "ast_hash": "45c75e9065dd4c4adefe64957731a092",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/ProximityScanner.swift": {
+    "mtime": 1783366518.9625087,
+    "ast_hash": "5b858bdcdad16398bb5c5b7849d3872d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/QRCode.swift": {
+    "mtime": 1783366518.9632416,
+    "ast_hash": "9cbfc3bfc81310e0527bdd93df868be9",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/TailscaleAddress.swift": {
+    "mtime": 1785855144.458188,
+    "ast_hash": "5d7adaf48f8c3110a3b86c42e6f473b8",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/ModelInstall/Archive.swift": {
+    "mtime": 1783366518.9637377,
+    "ast_hash": "a1cdab4126bb35bc6031fadbe627b9ef",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/ModelInstall/ModelInstaller.swift": {
+    "mtime": 1785855144.4583635,
+    "ast_hash": "375bfe2b066e333a94253e34883789ed",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Permissions/PermissionsManager.swift": {
+    "mtime": 1783366518.9648118,
+    "ast_hash": "212593b95810f63234d07fa2604733ad",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Reminders/ReminderBookkeeping.swift": {
+    "mtime": 1783366518.965054,
+    "ast_hash": "11374c1c3b0a119e5395afc916948cd2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Reminders/ReminderCopy.swift": {
+    "mtime": 1783366518.9652328,
+    "ast_hash": "f982d52687a5c53ae8a1c4737e75fe21",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Reminders/ReminderPolicy.swift": {
+    "mtime": 1783366518.9654093,
+    "ast_hash": "021fc56b238a494b884bf268a859ee4e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Reminders/ReminderScheduler.swift": {
+    "mtime": 1783366518.9655926,
+    "ast_hash": "5b28cd4b2cc8bac586b3e954f78a5e23",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Server/MessageChannel.swift": {
+    "mtime": 1785855144.4617672,
+    "ast_hash": "4cbb83c09797926fbb263b90dcecb0e9",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Server/RemoteTranscriptionServer.swift": {
+    "mtime": 1785855144.462111,
+    "ast_hash": "09f66537d4551d6d6ccdfb4ea7001d77",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Server/RemoteTranscriptionSession.swift": {
+    "mtime": 1783366518.966937,
+    "ast_hash": "e562fbb946baa9e674fb8628283336df",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Server/SleepPreventer.swift": {
+    "mtime": 1783366518.9671488,
+    "ast_hash": "37b2c3dbf3b03204e1fea1b60a048c32",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Server/WireProtocol.swift": {
+    "mtime": 1785855144.462265,
+    "ast_hash": "8a78b568cdafa6bcc4eaaeeac615ea69",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/AppleIntelligenceStatus.swift": {
+    "mtime": 1783366518.967661,
+    "ast_hash": "36d4c70f3b123327b0761a78cc1a5afa",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/AppleTextFormatter.swift": {
+    "mtime": 1783366518.9678314,
+    "ast_hash": "c27fc2772c40fe5d9a0934a3910b32f7",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/CleanupFaithfulnessGuard.swift": {
+    "mtime": 1783623112.7978249,
+    "ast_hash": "a9e15fc46c13f70d93d26c6aaf0fafe1",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/CleanupModel.swift": {
+    "mtime": 1783366518.9684803,
+    "ast_hash": "d7f621033faf02935925368d0b8f603e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/CleanupModelManager.swift": {
+    "mtime": 1783694963.822119,
+    "ast_hash": "ff6a0d62a80db2737511e895644979b4",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/CleanupPrompt.swift": {
+    "mtime": 1783366518.969135,
+    "ast_hash": "bee8215ccb9c619d2186dc5657e447f1",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/DeterministicITN.swift": {
+    "mtime": 1783366518.9694312,
+    "ast_hash": "c492fcda8787997aa23a4fe52141b2d1",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/DeterministicTextFormatter.swift": {
+    "mtime": 1783366518.9696562,
+    "ast_hash": "27cda512fb338a85bbc7ac9756abfc4d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/FillerWordFilter.swift": {
+    "mtime": 1785855144.4633124,
+    "ast_hash": "cb0e02f79b6c4e924132e9c819802b1a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/FluidAudioStreamingTranscriber.swift": {
+    "mtime": 1785855144.4634764,
+    "ast_hash": "24c67edc0eac96d90a95dedf013a41bf",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/FormatterPrompt.swift": {
+    "mtime": 1783366518.9703608,
+    "ast_hash": "bdd06dda111f73c59192c88193ed420a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/LocalStreamingTranscriber.swift": {
+    "mtime": 1785855144.4636297,
+    "ast_hash": "fecd178a3e235c97d427498026ee86ce",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/MlxCleanupService.swift": {
+    "mtime": 1783621341.9802437,
+    "ast_hash": "fdca7d4cbfedaef09279bf538c40813d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/SpokenNumber.swift": {
+    "mtime": 1783366518.9715643,
+    "ast_hash": "1e1c60cad098dc3eaffa1afd27ebf4d2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/TextFormatterProvider.swift": {
+    "mtime": 1783366518.9717503,
+    "ast_hash": "dfd80733e025383acf85d1f9c692542f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/TextFormatting.swift": {
+    "mtime": 1783366518.9719625,
+    "ast_hash": "85e08b31e229ae34cbae3ea8d6b905e9",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/TranscriptMerger.swift": {
+    "mtime": 1785855144.4638958,
+    "ast_hash": "b44732104fd7816a629f51cb17169708",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/TranscriptSpacingRepair.swift": {
+    "mtime": 1783366518.9724216,
+    "ast_hash": "2eeb6c4259d76a77b8c69098abffa57a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/VocabularyPostProcessor.swift": {
+    "mtime": 1785855144.4640665,
+    "ast_hash": "762f798548fd7f8a840f64c00dfdd7be",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/VocabularyTermParser.swift": {
+    "mtime": 1783366518.97288,
+    "ast_hash": "8520898827f42974e332c6b53c8ad806",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/DesignTokens.swift": {
+    "mtime": 1785855144.4646528,
+    "ast_hash": "781ef21d202840c82276945a950f26c8",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/DictationPillContent.swift": {
+    "mtime": 1786381402.0773785,
+    "ast_hash": "c35d885e94d96b55d4a0e74b0a8c3ee1",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/DictationPillWindow.swift": {
+    "mtime": 1785855144.4650338,
+    "ast_hash": "db5f2e1f1035b0ea7c76ef832f0bb247",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/DictationStatusView.swift": {
+    "mtime": 1786281587.398362,
+    "ast_hash": "903c87b6ccaaf97a3e31d735e2db3ab6",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchBluetoothBanner.swift": {
+    "mtime": 1786382003.8042347,
+    "ast_hash": "7047cee3e89b6688d9d8bdad9bdd8623",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchCleanupReadyBanner.swift": {
+    "mtime": 1785855144.4657137,
+    "ast_hash": "41f5de5e9c8bd5b4691aed8147353d49",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchGeometry.swift": {
+    "mtime": 1786377707.6683385,
+    "ast_hash": "b5c00bee8ae5efe53fb65308fe68d251",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchLearnedBanner.swift": {
+    "mtime": 1785855144.466365,
+    "ast_hash": "773d545276e5f79632fa73c888150304",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchReminderBanner.swift": {
+    "mtime": 1785855144.4664803,
+    "ast_hash": "dacce1ec9132d1dc462afce7108cb98d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchShape.swift": {
+    "mtime": 1783366518.975195,
+    "ast_hash": "50cc70459814ac418d20d452c15f60e2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchUndeliveredBanner.swift": {
+    "mtime": 1785855144.46696,
+    "ast_hash": "23aced5cac9ba536611c4cb218f31a4e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/OnboardingStep.swift": {
+    "mtime": 1785855144.4677057,
+    "ast_hash": "494a490eee7489365383c7fb14e2a90f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/AboutSettingsView.swift": {
+    "mtime": 1785855144.4686513,
+    "ast_hash": "84e7e8f2a5a7374ccf11e9ac7be77090",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/EngineSettingsView.swift": {
+    "mtime": 1785855144.4694273,
+    "ast_hash": "98f6c72c93bdc24a28f38750048cc13a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/HistorySettingsView.swift": {
+    "mtime": 1785855144.4698277,
+    "ast_hash": "8f882594e15fa11ae2c47a0c1a5532b0",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/MeshSettingsView.swift": {
+    "mtime": 1785855144.4701679,
+    "ast_hash": "5983ce7cdb60deb47d828a1725b6fee1",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/PermissionsSettingsView.swift": {
+    "mtime": 1785855144.4703665,
+    "ast_hash": "1689bddfc0fc6221154214e4704b3203",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/RecordingSettingsView.swift": {
+    "mtime": 1786381539.7153463,
+    "ast_hash": "2112a3f078d33dc7b9b6ff4c48ff24db",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/SettingsComponents.swift": {
+    "mtime": 1786281587.4015613,
+    "ast_hash": "fea8a3905fa6c9a114c2ac4b67e2f75f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/SetupBanner.swift": {
+    "mtime": 1785855144.4712553,
+    "ast_hash": "076b76ab7338fcefadf08dca34f3c537",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/SmartCleanupSettingsSection.swift": {
+    "mtime": 1785855144.4714704,
+    "ast_hash": "868505bd9b3087ca70970e4c9f679c2e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/SettingsView.swift": {
+    "mtime": 1786281587.4019554,
+    "ast_hash": "e15787344bce0cf7a84cb76768d0ec06",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Theme.swift": {
+    "mtime": 1786373456.3442051,
+    "ast_hash": "f04ecc8951b4f61cedc42880adcbdb0a",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AudioReplayTests.swift": {
+    "mtime": 1785855144.4735117,
+    "ast_hash": "3f990341c68b9d28f5f11333dddaac21",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/CleanupFaithfulnessGuardTests.swift": {
+    "mtime": 1783366518.980371,
+    "ast_hash": "60249ea44766212278d34f26269128d7",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/CorrectionDetectorTests.swift": {
+    "mtime": 1783366518.9805954,
+    "ast_hash": "f9cdec270233a0aba7f896638250fca9",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/DeterministicITNTests.swift": {
+    "mtime": 1783366518.9807897,
+    "ast_hash": "b30a69224d908c99d7ae6e159c709421",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/FillerWordFilterTests.swift": {
+    "mtime": 1783366518.9813068,
+    "ast_hash": "ac0ba9e1dc00f56890ad4f03de143c1c",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/RefinementDiffTests.swift": {
+    "mtime": 1783366518.9878752,
+    "ast_hash": "fae351bc767af5a7789baa0e9ce3b7d0",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/TranscriptMergerBestEffortTests.swift": {
+    "mtime": 1785855144.4763687,
+    "ast_hash": "267e8a81610a2479597c9ebedcd7ea30",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/TranscriptSpacingRepairTests.swift": {
+    "mtime": 1783366518.9886155,
+    "ast_hash": "5baf85711dc6bc151a3b81df3a8214d8",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/VocabularyPostProcessorTests.swift": {
+    "mtime": 1783366518.988869,
+    "ast_hash": "e5cdd53898de96dc57b99a9eb4776380",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/VocabularyTermParserTests.swift": {
+    "mtime": 1783366518.989152,
+    "ast_hash": "3d458774292bd1a87d19a133b93608d1",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/guard.py": {
+    "mtime": 1783366519.0047822,
+    "ast_hash": "55172c74f0c677c783edcd3efde55715",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/run.py": {
+    "mtime": 1783366519.006268,
+    "ast_hash": "277280d3d16f731ca20239b0e1e7979c",
+    "semantic_hash": ""
+  },
+  ".context/plans/on-device-llm-transcript-cleanup-qwen2-5-3b-via-ml.md": {
+    "mtime": 1783231687.174485,
+    "ast_hash": "4c5ca0beaeca8b0a427f5732fea896a9",
+    "semantic_hash": ""
+  },
+  ".context/plans/remove-filler-words-improve-accuracy.md": {
+    "mtime": 1783154578.009321,
+    "ast_hash": "120ee7c6aaf764a9604f9b82cef60506",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraphs.md": {
+    "mtime": 1783159639.1731052,
+    "ast_hash": "35e2e639e9f6e2a18a8de0e4acfac57d",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/results-v2-vs-v3.md": {
+    "mtime": 1786385978.9660766,
+    "ast_hash": "c24765081912b4d6efb16f2407daf640",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/results.md": {
+    "mtime": 1786385990.5756333,
+    "ast_hash": "3ff16bcf442909f2fb4fa63257ae58a6",
+    "semantic_hash": ""
+  },
+  ".context/todos.md": {
+    "mtime": 1783087336.142126,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  ".github/workflows/release.yml": {
+    "mtime": 1786281587.3900764,
+    "ast_hash": "6474a93a0daf37368a70bf6f80726cac",
+    "semantic_hash": ""
+  },
+  "CLAUDE.md": {
+    "mtime": 1786385949.7159853,
+    "ast_hash": "aba8ea2e7e4854ebdcc6f25c438c1eb8",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1783366518.9496152,
+    "ast_hash": "ae407fb03c9e5dc6f47b1cb732e84ef5",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraphs.md": {
+    "mtime": 1783366518.98757,
+    "ast_hash": "35e2e639e9f6e2a18a8de0e4acfac57d",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-06-30-gentle-notch-reminders-design.md": {
+    "mtime": 1783366518.9897842,
+    "ast_hash": "f8720390eea5426995611a31558d4abf",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/README.md": {
+    "mtime": 1783366519.0038683,
+    "ast_hash": "895b43a33f8257ce92f72787ea8c3792",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/prompt.txt": {
+    "mtime": 1783366519.0054953,
+    "ast_hash": "0a63a04eb26c9d599205b3b15d3a0f8e",
+    "semantic_hash": ""
+  },
+  "features.md": {
+    "mtime": 1783366519.1562562,
+    "ast_hash": "d8c1b6553f92419294b70f3db63766ac",
+    "semantic_hash": ""
+  },
+  "project.yml": {
+    "mtime": 1786281587.4076653,
+    "ast_hash": "f3ce330c43260b1940440de3f7dc134c",
+    "semantic_hash": ""
+  },
+  ".context/attachments/2e1LID/image.png": {
+    "mtime": 1783179479.7189906,
+    "ast_hash": "6acdc4e0f0f928f558f5bcf5c822ddb2",
+    "semantic_hash": ""
+  },
+  ".context/attachments/KUAA9r/image.png": {
+    "mtime": 1783091135.070169,
+    "ast_hash": "45c352cd4c2e63b905905568035cfef4",
+    "semantic_hash": ""
+  },
+  ".context/attachments/NXptxM/image.png": {
+    "mtime": 1783272744.268626,
+    "ast_hash": "4eb00c0bf4fb81b5be7c3ba9ad1faf22",
+    "semantic_hash": ""
+  },
+  ".context/attachments/WeGlA4/image.png": {
+    "mtime": 1783275743.7092829,
+    "ast_hash": "c46e7715b2655b7e90e79e91ea27c80a",
+    "semantic_hash": ""
+  },
+  ".context/attachments/Xu3h4w/image.png": {
+    "mtime": 1783275544.362669,
+    "ast_hash": "92ae0999eb8c53dd8e7fda0719558b92",
+    "semantic_hash": ""
+  },
+  ".context/attachments/ejf7iT/image.png": {
+    "mtime": 1783274977.3922393,
+    "ast_hash": "12f1c117c013c9b41e9ec7823aadfa4d",
+    "semantic_hash": ""
+  },
+  ".context/attachments/ghqxso/image.png": {
+    "mtime": 1783273376.783276,
+    "ast_hash": "0f86339047347f662f999ef53c8924f0",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Resources/WhisperMasterLogo.png": {
+    "mtime": 1785855144.4615452,
+    "ast_hash": "3af97a5708ee78b0162c87a24e02929d",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-1.m4a": {
+    "mtime": 1783160376.8223717,
+    "ast_hash": "8ce59ca627e8a71fb969f539181cee26",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-2.m4a": {
+    "mtime": 1783160378.3427432,
+    "ast_hash": "e088d861e318e7759a6f59f47be8a2f6",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-3.m4a": {
+    "mtime": 1783160379.514707,
+    "ast_hash": "a9517ff4cca13c83b4d7534bd43c8d3c",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-4.m4a": {
+    "mtime": 1783160380.6573164,
+    "ast_hash": "94a4e87f501c58f504cacf485584f449",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-5.m4a": {
+    "mtime": 1783160381.7828503,
+    "ast_hash": "790f731fd84c9d95c68c4c90b996694f",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-6.m4a": {
+    "mtime": 1783160383.1697788,
+    "ast_hash": "69214cc3856da6170cea1d0772e17c33",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-7.m4a": {
+    "mtime": 1783160384.5159452,
+    "ast_hash": "36254c5702ed0d6a00259af87e925fd0",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-1.m4a": {
+    "mtime": 1783366518.982381,
+    "ast_hash": "8ce59ca627e8a71fb969f539181cee26",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-2.m4a": {
+    "mtime": 1783366518.9833527,
+    "ast_hash": "e088d861e318e7759a6f59f47be8a2f6",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-3.m4a": {
+    "mtime": 1783366518.9837584,
+    "ast_hash": "a9517ff4cca13c83b4d7534bd43c8d3c",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-4.m4a": {
+    "mtime": 1783366518.9842954,
+    "ast_hash": "94a4e87f501c58f504cacf485584f449",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-5.m4a": {
+    "mtime": 1783366518.984782,
+    "ast_hash": "790f731fd84c9d95c68c4c90b996694f",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-6.m4a": {
+    "mtime": 1783366518.9863918,
+    "ast_hash": "69214cc3856da6170cea1d0772e17c33",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-7.m4a": {
+    "mtime": 1783366518.987288,
+    "ast_hash": "36254c5702ed0d6a00259af87e925fd0",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/ModelInstall/BackgroundFileDownloader.swift": {
+    "mtime": 1783366518.9640498,
+    "ast_hash": "1413185f97629c9a23555a5b1ef324fa",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/ModelInstall/DownloadResumeStore.swift": {
+    "mtime": 1783366518.9642637,
+    "ast_hash": "567e384e2a5bbde15e96907b5a9d6d17",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/DownloadResumeStoreTests.swift": {
+    "mtime": 1785855144.4744263,
+    "ast_hash": "2fa3f200f65165e3da294c367431327c",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-07-06-eval-engine-design.md": {
+    "mtime": 1783366518.9902549,
+    "ast_hash": "f189cbe5cce4e418f4aaec5c0402a0b9",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-07-06-eval-engine.md": {
+    "mtime": 1783366518.9895012,
+    "ast_hash": "e7f2e1f00701e3b078a2c5f216d06251",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScore/Case.swift": {
+    "mtime": 1783366519.0018117,
+    "ast_hash": "d0e643e44873a1c0ffc81ee0c93db590",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScore/Scorer.swift": {
+    "mtime": 1783366519.0020518,
+    "ast_hash": "881d39eb6b068ae7bc7c1b0081b0bd4d",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScore/WER.swift": {
+    "mtime": 1783366519.0022962,
+    "ast_hash": "e5ae5aa7a9d87f2603acd297bdb7cdca",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScoreCLI/main.swift": {
+    "mtime": 1783366519.0026534,
+    "ast_hash": "9bc67e5893f431fcca5fb77a58f0fed0",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScoreTests/CaseTests.swift": {
+    "mtime": 1783366519.0029964,
+    "ast_hash": "3ccf8d1aa7b5667601212f11565383f4",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScoreTests/ScorerTests.swift": {
+    "mtime": 1783366519.0032446,
+    "ast_hash": "c3ecb2146d9635a6a10be49438d60fc5",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScoreTests/WERTests.swift": {
+    "mtime": 1783366519.0035174,
+    "ast_hash": "d289c5ebd0a7976226bf52372c617def",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Eval/EvalRunner.swift": {
+    "mtime": 1783366518.9582083,
+    "ast_hash": "292f356c9b9a7f739d6a6a1e2f6c69ed",
+    "semantic_hash": ""
+  },
+  ".context/attachments/UjTceZ/image.png": {
+    "mtime": 1783326580.9996529,
+    "ast_hash": "8075e0e6167caaa1b07e30a5d17e835a",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/judgment.md": {
+    "mtime": 1783366519.0050068,
+    "ast_hash": "434e609c62be56c5d96af3120cff5a94",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/make_audio.sh": {
+    "mtime": 1783366519.0052505,
+    "ast_hash": "cb193aea9e2d67b2fc1e3e9abdbcbedc",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/fetch_librispeech.sh": {
+    "mtime": 1783366519.004472,
+    "ast_hash": "ec2fa7413781f0aff1b6818a6e3fbaa9",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/report.html": {
+    "mtime": 1783366519.0057414,
+    "ast_hash": "9764acffcaa164baec53a2c0182ad660",
+    "semantic_hash": ""
+  },
+  ".context/attachments/DJHVWT/image.png": {
+    "mtime": 1783330351.7727041,
+    "ast_hash": "fbf3edc55e5265909a70223c685d29ff",
+    "semantic_hash": ""
+  },
+  ".context/attachments/h0dtiO/image.png": {
+    "mtime": 1783330412.9824653,
+    "ast_hash": "166be637348d49ca6f3e4d9bdbc54468",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/package.json": {
+    "mtime": 1785855144.4783993,
+    "ast_hash": "486196fed52e329bdf6caa22f4ca4260",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/scripts/push-run.mjs": {
+    "mtime": 1783366518.9923477,
+    "ast_hash": "035b743844e480b419af113f39cba9cb",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/app.d.ts": {
+    "mtime": 1783366518.9928799,
+    "ast_hash": "e31b03538b7f8c4b04839ce14cca76b0",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/CaseCard.svelte": {
+    "mtime": 1783366518.9936993,
+    "ast_hash": "51237b5abfe89b3ad8c05d41905ca3b9",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/DiffText.svelte": {
+    "mtime": 1783366518.993996,
+    "ast_hash": "0e42bab4bb7c0ef7c1e9ef75d1261efe",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/OutcomeTiles.svelte": {
+    "mtime": 1783366518.9944322,
+    "ast_hash": "8a7ab7092cb6de33849f80cc0d24d542",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/TrendChart.svelte": {
+    "mtime": 1783366518.9953716,
+    "ast_hash": "7c028fc91d09002af01071e93570fb9a",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/WerBars.svelte": {
+    "mtime": 1783366518.9955094,
+    "ast_hash": "093e5d6da61aa7dee5fdffba9b8d2358",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/diff.ts": {
+    "mtime": 1783366518.9958475,
+    "ast_hash": "296df7600ee00854cce623602947adb6",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/scoring.ts": {
+    "mtime": 1783366518.9960966,
+    "ast_hash": "6a6d41266ed637fa0e1f01f288448bce",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/server/db.ts": {
+    "mtime": 1783366518.9963446,
+    "ast_hash": "a1ceba9d0c98733a49b39f22ef98f0c6",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/server/ingest.ts": {
+    "mtime": 1783366518.9966207,
+    "ast_hash": "d6ddb51a46e47e029e096faa35d53d68",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/server/runs.ts": {
+    "mtime": 1783366518.9968405,
+    "ast_hash": "a3e810c31ba5d3d3325ff697ffb85ab6",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/types.ts": {
+    "mtime": 1783366518.9970345,
+    "ast_hash": "4b296746acc8bd5cb46990d6c7869699",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/+layout.svelte": {
+    "mtime": 1783366518.9975812,
+    "ast_hash": "07c3030cdf65f4848a0d38813f8f8ceb",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/+page.svelte": {
+    "mtime": 1783366518.9978461,
+    "ast_hash": "d7c0458d79e51068bfb0d9bbcf99447b",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/api/ingest/+server.ts": {
+    "mtime": 1783366518.9983916,
+    "ast_hash": "3c8eee1c1b143d7f6650ee4bf27ab4a0",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/runs/[id]/+page.svelte": {
+    "mtime": 1783366518.9996133,
+    "ast_hash": "fed952a7bb8cdacc4dba616b4ca8adef",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/svelte.config.js": {
+    "mtime": 1783366519.000641,
+    "ast_hash": "72db8b46e413a231ea05c87ef1ab5f4c",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/tsconfig.json": {
+    "mtime": 1783366519.0009372,
+    "ast_hash": "40cafe82106feb1b2c7ab177fdd60406",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/vite.config.ts": {
+    "mtime": 1783366519.0011656,
+    "ast_hash": "3a85a97e4b9112ba46250a127125cf4e",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/README.md": {
+    "mtime": 1783366518.9911838,
+    "ast_hash": "491ecb780928ca0b6de3d1e9fb8a6a55",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/app.html": {
+    "mtime": 1783366518.9931502,
+    "ast_hash": "5d27c927b4de05b4112b50d8d37105b4",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/run-eval.sh": {
+    "mtime": 1783366519.005983,
+    "ast_hash": "71b7d9df9d19598628b5d04e64093173",
+    "semantic_hash": ""
+  },
+  ".context/attachments/7mEarn/image.png": {
+    "mtime": 1783335947.3144,
+    "ast_hash": "456a70bbd0e700ce0cd992e0aea7e0f4",
+    "semantic_hash": ""
+  },
+  ".context/attachments/ORBOK5/image.png": {
+    "mtime": 1783336430.6313913,
+    "ast_hash": "925e8d301d58730c125059fb12922358",
+    "semantic_hash": ""
+  },
+  ".context/attachments/iRpdPy/image.png": {
+    "mtime": 1783334576.504389,
+    "ast_hash": "03baba8411bdeee32238f2036c827630",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/SelfCorrectionCollapser.swift": {
+    "mtime": 1785855144.4637396,
+    "ast_hash": "7b095e46c72571fc68d87f24b6ee523f",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/SelfCorrectionCollapserTests.swift": {
+    "mtime": 1783366518.988132,
+    "ast_hash": "708dc678e2fc6da200de5777eab4250d",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-07-06-eval-dashboard-redesign-design.md": {
+    "mtime": 1783366518.9900315,
+    "ast_hash": "29bfb647f5ca2b4578842df7267fdfe6",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/api.ts": {
+    "mtime": 1783366518.9934175,
+    "ast_hash": "0fb6d4550328fbcbae4a82cab09ccee7",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/Pagination.svelte": {
+    "mtime": 1783366518.9946477,
+    "ast_hash": "c232d93bacc41445e6634b2731a09377",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/RunRow.svelte": {
+    "mtime": 1783366518.995062,
+    "ast_hash": "35923f30cc41fe576c79f72a315fb52f",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/Term.svelte": {
+    "mtime": 1783366518.9952188,
+    "ast_hash": "6cae9e4ee29d96c3ee8085bb505c60b6",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/+page.ts": {
+    "mtime": 1783366518.998037,
+    "ast_hash": "d44ade497f3634d7948f78bbe37ae7cf",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/api/runs/+server.ts": {
+    "mtime": 1783366518.9986672,
+    "ast_hash": "c23fd87f1c27bb6872d0c4f857c415f1",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/api/runs/[id]/+server.ts": {
+    "mtime": 1783366518.9989576,
+    "ast_hash": "def8c3d69fe69075e68d2b6419d208f5",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/api/runs/[id]/cases/+server.ts": {
+    "mtime": 1783366518.9991615,
+    "ast_hash": "26b5ce656b64ff6943128ccc9c496b19",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/runs/[id]/+page.ts": {
+    "mtime": 1783366518.9997594,
+    "ast_hash": "9ab5f5017f4a146822b183a6e02f4e9d",
+    "semantic_hash": ""
+  },
+  ".context/attachments/9k2VCC/image.png": {
+    "mtime": 1783349000.1351833,
+    "ast_hash": "2dbd39865d5ebd276e59e114d2f6bbdb",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/HeroDemo.svelte": {
+    "mtime": 1783366518.994208,
+    "ast_hash": "9e2caeeab1b9cd43b62a070bdf4d61fa",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/Pipeline.svelte": {
+    "mtime": 1783366518.9948957,
+    "ast_hash": "b21a4391766b1fa1ece1f1c44fb2cdea",
+    "semantic_hash": ""
+  },
+  ".context/attachments/kmoPJN/image.png": {
+    "mtime": 1783349113.9718223,
+    "ast_hash": "97062e52b78fd308cb0c06086b1be771",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/static/favicon.png": {
+    "mtime": 1783366519.0000381,
+    "ast_hash": "61c4495270a725238b90a501385d9905",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/static/logo.png": {
+    "mtime": 1783366519.0003946,
+    "ast_hash": "f891cc451bca000755acd53a27fc8511",
+    "semantic_hash": ""
+  },
+  ".context/attachments/wMwNV5/image.png": {
+    "mtime": 1783356052.2747107,
+    "ast_hash": "487d81faf54cfd0565f36df1f0e96a0d",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-07-09-diagnostics-session-tracing-design.md": {
+    "mtime": 1783615703.044127,
+    "ast_hash": "3b5cace98e55400266ddc557a6d562f3",
+    "semantic_hash": ""
+  },
+  "Scripts/diag-to-cases.swift": {
+    "mtime": 1783616495.1355562,
+    "ast_hash": "9a13fec9d079c2a8d01a867b332022ef",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Diagnostics/AudioSignalStats.swift": {
+    "mtime": 1783615832.4065197,
+    "ast_hash": "9f229e30c4e2cd3d9c9456437b041e37",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Diagnostics/Diagnostics.swift": {
+    "mtime": 1783616039.1863236,
+    "ast_hash": "af0f394b1fbfb332fd033326d748eabd",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Diagnostics/DiagnosticsRecorder.swift": {
+    "mtime": 1783622149.6413503,
+    "ast_hash": "9449481dafc13067fc7f1d7c7d654852",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Diagnostics/DiagnosticsStore.swift": {
+    "mtime": 1783618181.239916,
+    "ast_hash": "9ebdde163df2e443df1dc456c2159067",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Diagnostics/SessionAudioWriter.swift": {
+    "mtime": 1783615848.7964025,
+    "ast_hash": "fc394071429222ea19cf3390fbacbcab",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Diagnostics/SessionTrace.swift": {
+    "mtime": 1783622122.2797787,
+    "ast_hash": "2e6549960bd8d32bfaad04e5b44a071d",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/DiagnosticsTests.swift": {
+    "mtime": 1783615875.7342393,
+    "ast_hash": "ab37c10c19a9bbdd64756693eae76d69",
+    "semantic_hash": ""
+  },
+  ".eval-scratch/diag-results.json": {
+    "mtime": 1783620389.3683336,
+    "ast_hash": "7fb0275005234f56c514cd158e79e744",
+    "semantic_hash": ""
+  },
+  ".context/attachments/Oh30l5/image.png": {
+    "mtime": 1783620507.9788778,
+    "ast_hash": "297aff3cdbbab32b3354263b432736f4",
+    "semantic_hash": ""
+  },
+  ".context/attachments/PvW4d4/image.png": {
+    "mtime": 1783622802.4258692,
+    "ast_hash": "796908463fa261c1bf055f49a1ebcf0e",
+    "semantic_hash": ""
+  },
+  ".context/attachments/5isx3l/image.png": {
+    "mtime": 1783624011.0287766,
+    "ast_hash": "a01c1fdec4367f5b2122de83d86ad8b6",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/VocabularyEditor.swift": {
+    "mtime": 1785855144.4718146,
+    "ast_hash": "be3ec3a42c531ff5176ea365f4107a10",
+    "semantic_hash": ""
+  },
+  ".context/attachments/1ETdM9/image.png": {
+    "mtime": 1783656400.5604005,
+    "ast_hash": "2dab0205503d478daa47e448e60304e7",
+    "semantic_hash": ""
+  },
+  ".context/attachments/KSkgVh/image.png": {
+    "mtime": 1783656377.321824,
+    "ast_hash": "799055e768e4f824aa630ea2f44f21ca",
+    "semantic_hash": ""
+  },
+  ".context/attachments/LfkdK3/image.png": {
+    "mtime": 1783654512.245452,
+    "ast_hash": "884ea72c44e0c5ef071fc7fb66664313",
+    "semantic_hash": ""
+  },
+  ".context/attachments/SX8kT4/image.png": {
+    "mtime": 1783656466.2548218,
+    "ast_hash": "3e452b8de01821e87ca963a44f01d80b",
+    "semantic_hash": ""
+  },
+  ".context/attachments/UP5fre/image.png": {
+    "mtime": 1783625077.4528763,
+    "ast_hash": "1139b170a11ca657f68de1592b74660b",
+    "semantic_hash": ""
+  },
+  ".context/attachments/eeSHe4/image.png": {
+    "mtime": 1783656580.5902104,
+    "ast_hash": "18f677b50866f63874b1be61f7d6d550",
+    "semantic_hash": ""
+  },
+  ".context/attachments/xyBxnv/image.png": {
+    "mtime": 1783656431.5274034,
+    "ast_hash": "8e028a4507719aaf38027cba56630073",
+    "semantic_hash": ""
+  },
+  ".context/attachments/byxpRm/image.png": {
+    "mtime": 1783657242.3270245,
+    "ast_hash": "81a5bba16aacb2e48c35ac183f5591bd",
+    "semantic_hash": ""
+  },
+  "Scripts/publish-dmg.sh": {
+    "mtime": 1785855144.448033,
+    "ast_hash": "4c44ed37a6929134fb533027e327755c",
+    "semantic_hash": ""
+  },
+  ".context/attachments/CDBqVR/image.png": {
+    "mtime": 1783694595.2641442,
+    "ast_hash": "65a9506b2cd2efceaf688908d7ee02d3",
+    "semantic_hash": ""
+  },
+  ".context/attachments/3JCQiX/image.png": {
+    "mtime": 1783696427.9303873,
+    "ast_hash": "f48d057f67d0623fb34c5e6e5d957bba",
+    "semantic_hash": ""
+  },
+  ".context/attachments/6uGvtm/image.png": {
+    "mtime": 1783695978.792877,
+    "ast_hash": "11aedbaee39ac396855ab8353a480c77",
+    "semantic_hash": ""
+  },
+  ".context/attachments/gjUrDR/image.png": {
+    "mtime": 1783696564.3238885,
+    "ast_hash": "ae4ed5f558833cbf3bf509a1af4aea54",
+    "semantic_hash": ""
+  },
+  ".context/attachments/kynnKo/image.png": {
+    "mtime": 1783697058.6964655,
+    "ast_hash": "892b77dd4faf4b3147269383b2b970ee",
+    "semantic_hash": ""
+  },
+  ".context/attachments/t84MlA/image.png": {
+    "mtime": 1783696478.576113,
+    "ast_hash": "0d93efcc2b031f4113ccbe0a92300ccb",
+    "semantic_hash": ""
+  },
+  "Scripts/allow-codesign-keychain.sh": {
+    "mtime": 1785855144.4470487,
+    "ast_hash": "2a6bd9b81174d25f0b407e08b87959fc",
+    "semantic_hash": ""
+  },
+  "Scripts/channel.sh": {
+    "mtime": 1785855144.4472904,
+    "ast_hash": "540919d43464d37618486b095f00e6cf",
+    "semantic_hash": ""
+  },
+  "Scripts/dev-install.sh": {
+    "mtime": 1785855144.447421,
+    "ast_hash": "9a7f44aa513ef559ba1897030eae6f69",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Analytics/GoogleAnalyticsClient.swift": {
+    "mtime": 1786281587.3924403,
+    "ast_hash": "5c9fe369fa6d890bb495da89b2213251",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/BuildEnvironment.swift": {
+    "mtime": 1785855144.449904,
+    "ast_hash": "905dc242a29e6bd6f8dbe64c363b4a28",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/LaunchAtLogin.swift": {
+    "mtime": 1785855144.4503684,
+    "ast_hash": "6a195b41b73a513e1b0ff9be0cfc362d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/OnboardingProgress.swift": {
+    "mtime": 1785855144.450841,
+    "ast_hash": "9bf2ddc74c998d6fd35f6f655682b4a8",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/ReleaseChannel.swift": {
+    "mtime": 1785855144.4509065,
+    "ast_hash": "380d4475aa555b3f90fb50d5b2e2cc9a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/SoundFeedback.swift": {
+    "mtime": 1785855144.4512417,
+    "ast_hash": "337e64942b095d8818bd22851f3b8ebe",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Audio/CaptureRecoveryBudget.swift": {
+    "mtime": 1785855144.4517517,
+    "ast_hash": "8ae136e4d4d713521d19e8e7cc6f4bdd",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Audio/LevelEnvelope.swift": {
+    "mtime": 1785855144.4518406,
+    "ast_hash": "21dac3e32724ad775e0b1793cd68a6dc",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Auth/AuthGateTheme.swift": {
+    "mtime": 1786281587.3937924,
+    "ast_hash": "71311e56155a23f3b89fbfb6d4c38609",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Auth/AuthGateView.swift": {
+    "mtime": 1785855144.4523814,
+    "ast_hash": "becd5a363da47e5e40448fda95e3096c",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Auth/AuthGateWindow.swift": {
+    "mtime": 1786281587.3939047,
+    "ast_hash": "3390059f52a44326e105b3217ad032d1",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Auth/BetaAccess.swift": {
+    "mtime": 1785855144.452537,
+    "ast_hash": "d7b09d9171e5332f1e3a220eba7b193c",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Auth/ClerkConfig.swift": {
+    "mtime": 1785855144.4526665,
+    "ast_hash": "f2e7123f20e3d09460243e4c583e6924",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Compliance/RegulatedMode.swift": {
+    "mtime": 1786281587.3940208,
+    "ast_hash": "7300a7bf19aa5fea4a19840e5a5979df",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Agent/AgentLoop.swift": {
+    "mtime": 1786281587.3942263,
+    "ast_hash": "62c6cd4c09868a401d944eb4f15bb7fb",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Agent/CommandAgentService.swift": {
+    "mtime": 1786281587.3943815,
+    "ast_hash": "857491ee2ca6e8aa1321fe2e9f2c5de6",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Agent/ToolCallParser.swift": {
+    "mtime": 1786281587.3944933,
+    "ast_hash": "a545fc7cbb9e93c08251ac0cdfb65a0d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Auth/CredentialStrategy.swift": {
+    "mtime": 1786281587.394615,
+    "ast_hash": "a49313b899f397c2ade14eff974939ac",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Auth/GoogleOAuthConfig.swift": {
+    "mtime": 1785855144.45376,
+    "ast_hash": "80a6eac61d1d050ed1c992dfb5e7f40d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Auth/OAuthPKCEFlow.swift": {
+    "mtime": 1785855144.4539099,
+    "ast_hash": "97d7e9f28ea0d410b69805931a646877",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/CalendarConnector.swift": {
+    "mtime": 1785855144.4544046,
+    "ast_hash": "b22aa8c614998d4dac071563d675eb79",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Catalog/ConnectorCatalog.swift": {
+    "mtime": 1785855144.4545805,
+    "ast_hash": "574d52ae033b6bb53a8272f5e3e18cbe",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Catalog/ConnectorDescriptor.swift": {
+    "mtime": 1785855144.4547107,
+    "ast_hash": "29b4400da70e41ace9dd506327d4193d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Connector.swift": {
+    "mtime": 1785855144.4548361,
+    "ast_hash": "17c717591fbc1d8b77a3c52d03a50d51",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Consent/ApprovalCoordinator.swift": {
+    "mtime": 1786281587.394738,
+    "ast_hash": "45d0fd7ab76b466abae3eaf4996ccdfe",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Consent/Grant.swift": {
+    "mtime": 1786281587.3952067,
+    "ast_hash": "af460fa2c3af9728cd52cb724f669409",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/DayQuery.swift": {
+    "mtime": 1785855144.4552078,
+    "ast_hash": "eefb68d4d7b35f58c561db17f3b8f1c5",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Model/ConnectorCredentials.swift": {
+    "mtime": 1785855144.4553835,
+    "ast_hash": "ee95ce9127108028bdb698f14ea25d2f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Model/ConnectorInstance.swift": {
+    "mtime": 1785855144.455544,
+    "ast_hash": "3c935d32f3101d5b36baa6a75ef9fa74",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Model/ConnectorInstanceStore.swift": {
+    "mtime": 1786281587.3953612,
+    "ast_hash": "e804aabdb97abee5e41425fff1da12ab",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Model/ConnectorLabelMatcher.swift": {
+    "mtime": 1785855144.4557838,
+    "ast_hash": "31f30f82fbb7c6b0e5ee61eddb52aaa6",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Providers/ConnectorHTTP.swift": {
+    "mtime": 1785855144.455971,
+    "ast_hash": "cc2a18b9747154a605178f0ddada0d2e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Providers/ConnectorProvider.swift": {
+    "mtime": 1786281587.3956363,
+    "ast_hash": "8ebdee4d9b39c849c2846a542fe14e07",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Providers/ConnectorWrites.swift": {
+    "mtime": 1786281587.3957717,
+    "ast_hash": "b3ee5a46040a7e1e079a3a97bb631066",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Providers/EventKitCalendarProvider.swift": {
+    "mtime": 1785855144.4563231,
+    "ast_hash": "686b9b8193ec68d3294cc21448b72bcf",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Providers/GoogleCalendarProvider.swift": {
+    "mtime": 1786281587.3959131,
+    "ast_hash": "1f0468da5577d0de59da2968df96f1fd",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Providers/TokenProviders.swift": {
+    "mtime": 1785855144.4565423,
+    "ast_hash": "5af2d88881319d2ea0eafb9766cb54c2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Tools/AgentToolRunning.swift": {
+    "mtime": 1786281587.3961723,
+    "ast_hash": "362fb1dbbe48110106ff1c78073975bf",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Tools/LocalTools.swift": {
+    "mtime": 1786281587.3963099,
+    "ast_hash": "e4d20f7ba96ecde9ef8bc462659b1cf7",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Tools/ToolDescriptor.swift": {
+    "mtime": 1785855144.4569075,
+    "ast_hash": "cb5a64ba3aa79e93ba6c72ac7b7f8647",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Tools/ToolRegistry.swift": {
+    "mtime": 1785855144.4569666,
+    "ast_hash": "b3b46d654ab3f39128514bdb0ffb6e81",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Tools/ToolRouter.swift": {
+    "mtime": 1786281587.39653,
+    "ast_hash": "470805e859f3aaf267d5d030994d5150",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/FnKeyBehavior.swift": {
+    "mtime": 1786281587.3966653,
+    "ast_hash": "cfcf0b73eb129b841ce792abbd7a3d29",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/HotkeyGesture.swift": {
+    "mtime": 1785855144.4573553,
+    "ast_hash": "2393b7c5424424d0a72c7fc50df5995a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/ModifierChordMonitor.swift": {
+    "mtime": 1785855144.4578195,
+    "ast_hash": "72488110c047060ce4216bc16d9edfb6",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/TerminalApps.swift": {
+    "mtime": 1785855144.4578717,
+    "ast_hash": "c5c87a032456abcc0abf210913c7bb47",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Notes/AlarmController.swift": {
+    "mtime": 1786281587.3967857,
+    "ast_hash": "8b5afe87aafd8d2d0f3e1d24229c2c38",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Notes/AlarmWindow.swift": {
+    "mtime": 1785855144.4585173,
+    "ast_hash": "06974a2d2e8d56a4a8505ae60faf142e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Notes/NoteModels.swift": {
+    "mtime": 1786281587.397197,
+    "ast_hash": "62146a8d1eabe0723b705cbea465c742",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Notes/NotesStore.swift": {
+    "mtime": 1786281587.3973534,
+    "ast_hash": "97499bd8912dcf2985d9748d2bc28e42",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Notes/NotesSyncClient.swift": {
+    "mtime": 1785855144.4589145,
+    "ast_hash": "05e453e35d8fd9df38243c4e286030bc",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Notes/NotesSyncConfig.swift": {
+    "mtime": 1785855144.4589694,
+    "ast_hash": "618c28bb2d76cf5e719fb259142f4782",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Notes/RelativeTimeParser.swift": {
+    "mtime": 1785855144.4590924,
+    "ast_hash": "25e0145087d6f462a12569908c7fa8e0",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Notes/VoiceCommand.swift": {
+    "mtime": 1785855144.4592204,
+    "ast_hash": "b6848b4af681268f0da313a39a5e80f5",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Server/RemotePairing.swift": {
+    "mtime": 1785855144.4619153,
+    "ast_hash": "3bb5ea53c4e08cd71b407bbc1d3a2733",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Speech/AnswerLog.swift": {
+    "mtime": 1786281587.3975205,
+    "ast_hash": "fca1de19c998ef07a2679a98f5fc5772",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Speech/AnswerSpeaker.swift": {
+    "mtime": 1785855144.4624825,
+    "ast_hash": "b58082e4d80fc22104faa2b2e8f2eb54",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Speech/NaturalSpeechSynthesizer.swift": {
+    "mtime": 1785855144.4626071,
+    "ast_hash": "eca1d63feb1dabc60e84a393312f1281",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Speech/NaturalVoiceInstaller.swift": {
+    "mtime": 1785855144.4627354,
+    "ast_hash": "d699f26caf40289fb975f09ab549531d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Speech/SpeechSynthesizing.swift": {
+    "mtime": 1785855144.4627912,
+    "ast_hash": "45f2592cb2b05d5056a3284c3c9382a6",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Speech/SpokenAnswer.swift": {
+    "mtime": 1785855144.4628842,
+    "ast_hash": "ab503e31eaaf4977e6459820e493c173",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Speech/SystemSpeechSynthesizer.swift": {
+    "mtime": 1785855144.46301,
+    "ast_hash": "486a910be65a40ec229568b97c601e00",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Speech/SystemVoiceCatalog.swift": {
+    "mtime": 1785855144.4631324,
+    "ast_hash": "3c136072c5baef4749c6b8bef51295fa",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/IntentPrompt.swift": {
+    "mtime": 1785855144.4635398,
+    "ast_hash": "16239a266415b65ecec3775e6230108d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Components/ButtonStyles.swift": {
+    "mtime": 1785855144.4642823,
+    "ast_hash": "3ea18a14b54f1c054bfc393b39622ae1",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Components/ComingSoonPanel.swift": {
+    "mtime": 1785855144.4643474,
+    "ast_hash": "908f4b40551ba02793d48d8dec42ee20",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Components/CursorBridges.swift": {
+    "mtime": 1785855144.4644704,
+    "ast_hash": "723ece4bd2ddfe46224774324881f75c",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchActivity.swift": {
+    "mtime": 1786304521.5972562,
+    "ast_hash": "874f524edb3770d8f2d581a113834fcc",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchApprovalBanner.swift": {
+    "mtime": 1786281587.398721,
+    "ast_hash": "9e61955d6be7ddcba7e8e1cac2928d34",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchBannerRow.swift": {
+    "mtime": 1786281587.3989828,
+    "ast_hash": "25073793dec1ed3c9ee4019617c02f24",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchCommandConfirmationBanner.swift": {
+    "mtime": 1785855144.4657738,
+    "ast_hash": "fba8fe8ac3b9e8009fd33fc4b0e64058",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchDaySummaryBanner.swift": {
+    "mtime": 1785855144.46583,
+    "ast_hash": "5cca4e530740a80dd2789d545300e589",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchDueReminderBanner.swift": {
+    "mtime": 1785855144.4659529,
+    "ast_hash": "f928321322a5bd9d8617ac0cdf834aad",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchGlow.swift": {
+    "mtime": 1785855144.4662762,
+    "ast_hash": "01bcaa98442cf353c41208a8664086fe",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchTranscriptModel.swift": {
+    "mtime": 1785855144.4666164,
+    "ast_hash": "547b765c40841034a3e4adb302ab3906",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchTranscriptRow.swift": {
+    "mtime": 1786281587.399315,
+    "ast_hash": "165b70e1c02bcc4e445c00205bfbd9b0",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/NotchOnboardingLayout.swift": {
+    "mtime": 1785855144.4670765,
+    "ast_hash": "5cb5c44945e16ad82d46e13f75b7ccb5",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/NotchOnboardingModel.swift": {
+    "mtime": 1785855144.4672337,
+    "ast_hash": "ec05c6ee5873b0e78b07a2558ea34718",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/NotchOnboardingStep.swift": {
+    "mtime": 1785855144.4673347,
+    "ast_hash": "8af118e15e08b7e7879a45f176f57fcc",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/NotchOnboardingView.swift": {
+    "mtime": 1785855144.4674542,
+    "ast_hash": "ea640d3b2de48837f8a38fdbaf0e5aba",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/NotchOnboardingWindow.swift": {
+    "mtime": 1785855144.467602,
+    "ast_hash": "53eb5f8f1031782ebe83d933b8aa1391",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/OrbView.swift": {
+    "mtime": 1785855144.4677796,
+    "ast_hash": "8e4e28ee5782f99120a6d7bec5110e42",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/QuickActions/NotchHoverGesture.swift": {
+    "mtime": 1785855144.4678848,
+    "ast_hash": "9b44fe99b6bdc4cf1a2c26c535d24ab0",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/QuickActions/NotchQuickActionsLayout.swift": {
+    "mtime": 1785855144.4680057,
+    "ast_hash": "a9ef05429d6799e2edbb3c1f1bb809c4",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/QuickActions/NotchQuickActionsModel.swift": {
+    "mtime": 1786281587.3995965,
+    "ast_hash": "ec944715477530211f310c044a183125",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/QuickActions/NotchQuickActionsView.swift": {
+    "mtime": 1786281587.399781,
+    "ast_hash": "1387a6caf4d58407dbc2062110c33725",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/QuickActions/NotchQuickActionsWindow.swift": {
+    "mtime": 1785855144.468397,
+    "ast_hash": "0d4cc0b5b45181c8954e99a84c32126c",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/AccountPopover.swift": {
+    "mtime": 1785855144.4687812,
+    "ast_hash": "ac818fe0a0109f2fdee69c3b6d6db6a5",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/AddConnectorSheet.swift": {
+    "mtime": 1786281587.3999774,
+    "ast_hash": "98c89045b3d0429a4a869f651b96149e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/ConnectorsSettingsView.swift": {
+    "mtime": 1786281587.400379,
+    "ast_hash": "cbc352795d3c7df2fca7abb23ac636a1",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/GeneralSettingsView.swift": {
+    "mtime": 1786281587.4006932,
+    "ast_hash": "5f2fd3c8855c488307f9c101aaece2df",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/GoogleSignInStep.swift": {
+    "mtime": 1785855144.4696689,
+    "ast_hash": "7775c7a13285fc4f1741a6ba4750e4ee",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/InsightsSettingsView.swift": {
+    "mtime": 1785855144.4699264,
+    "ast_hash": "0ea6469794451da34958c8a69fffb156",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/NotesSettingsView.swift": {
+    "mtime": 1786281587.4010754,
+    "ast_hash": "66d0701ed1188a4d3df97a40a24ba96b",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/ReconnectConnectorSheet.swift": {
+    "mtime": 1786281587.4012659,
+    "ast_hash": "c6298df9695e337a9c433336273afc60",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/TodayView.swift": {
+    "mtime": 1786281587.4017959,
+    "ast_hash": "a6d789110db63b9d53fcc307d89e2b74",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/TranscriptSettingsView.swift": {
+    "mtime": 1785855144.4716482,
+    "ast_hash": "e6a244d346e9db91126e2b5dfab44d40",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/ThinkingOrb.swift": {
+    "mtime": 1785855144.4722648,
+    "ast_hash": "af7feddeb86bbcf0e23f5b505e2a2eb8",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Usage/StreakCalculator.swift": {
+    "mtime": 1785855144.4723787,
+    "ast_hash": "2c42be9c291eaea36c68f2665a534cd2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Usage/UsageModels.swift": {
+    "mtime": 1786281587.40285,
+    "ast_hash": "37c444ab4511b1f6cc81e8859728ba73",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Usage/UsageStore.swift": {
+    "mtime": 1786281587.4030225,
+    "ast_hash": "2f9f8684cdc51c0d6b210b61f5d0d0bc",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Usage/UsageSyncClient.swift": {
+    "mtime": 1786281587.4032826,
+    "ast_hash": "8b68d801d4000f0943be9e7f2eed6568",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Usage/UsageSyncConfig.swift": {
+    "mtime": 1785855144.4727933,
+    "ast_hash": "16ee3df7cf0ca7e1e56b839c67c79f04",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Usage/WordCount.swift": {
+    "mtime": 1785855144.4728558,
+    "ast_hash": "bfea9a2a6ad531de440acdf916a72e99",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AgentLoopTests.swift": {
+    "mtime": 1786281587.4042146,
+    "ast_hash": "853ec9f26a895d99029734b6ebf29601",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AnswerLogTests.swift": {
+    "mtime": 1786281587.40497,
+    "ast_hash": "7e213aa3afe0f34dd16e1a3c955157d7",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/CaptureRecoveryBudgetTests.swift": {
+    "mtime": 1785855144.473706,
+    "ast_hash": "f704f26a51b8f148d048331f9d90e4f4",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/CommandAgentTests.swift": {
+    "mtime": 1786281587.4053926,
+    "ast_hash": "7e74a5e0af99d429bed26475b3909284",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/ConnectorConsentTests.swift": {
+    "mtime": 1786281587.4055407,
+    "ast_hash": "bd7c25929232cb9f25ca27cef0e760ef",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/ConnectorInstanceStoreTests.swift": {
+    "mtime": 1786281587.4058528,
+    "ast_hash": "ec103d902907e2bf42ab62d72821fb3d",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/ConnectorLabelMatcherTests.swift": {
+    "mtime": 1785855144.4742658,
+    "ast_hash": "f28531efe1a6c5195f996f2dab116bba",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/DayQueryDetectorTests.swift": {
+    "mtime": 1785855144.4743254,
+    "ast_hash": "249d0cbc8ccd6d1c3e27c33cce0e91c2",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/DueReminderBannerTests.swift": {
+    "mtime": 1785855144.474553,
+    "ast_hash": "42552082f7e5127b48cc896a383f00cd",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/FixCountingTests.swift": {
+    "mtime": 1785855144.4747283,
+    "ast_hash": "8f04297930b2ee25d14d11a4a2fa321d",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/GoogleAnalyticsTests.swift": {
+    "mtime": 1786281587.4062977,
+    "ast_hash": "b0b085200c6a1890a3a520152a1cd7a9",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/HotkeyGestureTests.swift": {
+    "mtime": 1785855144.4749796,
+    "ast_hash": "def27a0a9adaa4d3d2dec84e0501d654",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/LevelEnvelopeTests.swift": {
+    "mtime": 1785855144.4751425,
+    "ast_hash": "70f572e0b1c1e3860a26729f396abcbe",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/NotchQuickActionsTests.swift": {
+    "mtime": 1785855144.4752796,
+    "ast_hash": "598982a70707853078505f9b9599b655",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/NotchTranscriptModelTests.swift": {
+    "mtime": 1785855144.475337,
+    "ast_hash": "747bf4637fa5f6c6fe2b61b9279b9006",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/NotesStoreTests.swift": {
+    "mtime": 1786281587.4068768,
+    "ast_hash": "713450b004c7bd77ec844e4fb22b6ae0",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/OAuthPKCETests.swift": {
+    "mtime": 1785855144.4755847,
+    "ast_hash": "5ba07732e4f438107b9312fb1acff362",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/RelativeTimeParserTests.swift": {
+    "mtime": 1785855144.4756472,
+    "ast_hash": "c0595fcf24f19460881d0c3705808a95",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/ReleaseChannelTests.swift": {
+    "mtime": 1785855144.4757073,
+    "ast_hash": "a072515cdc409468cbc07d2b65c35503",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/ReminderModelTests.swift": {
+    "mtime": 1786281587.4069953,
+    "ast_hash": "f6287fc44392b2681a9228ce9363c076",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/RemotePairingTests.swift": {
+    "mtime": 1785855144.4758883,
+    "ast_hash": "4b6c99ab3cb40c7db97a91c41f4a3d41",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/SpokenAnswerTests.swift": {
+    "mtime": 1785855144.4760182,
+    "ast_hash": "b343af6a035c254ecadfd4a6ff1de392",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/StreakCalculatorTests.swift": {
+    "mtime": 1785855144.476087,
+    "ast_hash": "5ccaae146b3cf27fca171946a9750128",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/TerminalAppsTests.swift": {
+    "mtime": 1785855144.4761496,
+    "ast_hash": "62b14fd41ac1e1f6e73df4f436468050",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/ToolCallParserTests.swift": {
+    "mtime": 1786281587.4071314,
+    "ast_hash": "277817b44068272922a851ed2dd35e8b",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/UsageStoreTests.swift": {
+    "mtime": 1785855144.4764977,
+    "ast_hash": "84721cfafb05c52e7576795685b1d6eb",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/VoiceCommandTests.swift": {
+    "mtime": 1785855144.4766388,
+    "ast_hash": "1ff560a4a53aa0e297ec5a24a02caf5e",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/WordCountTests.swift": {
+    "mtime": 1785855144.4766943,
+    "ast_hash": "6ad90d99dc80e5b94a8cebc74eccc3e1",
+    "semantic_hash": ""
+  },
+  "docs/design/_ds/organic-d6cc886b-d3eb-4148-8fd8-294d4120249e/_adherence.oxlintrc.json": {
+    "mtime": 1785855144.4770956,
+    "ast_hash": "b499f086d136833aff97c1892e56ac1c",
+    "semantic_hash": ""
+  },
+  "docs/design/_ds/organic-d6cc886b-d3eb-4148-8fd8-294d4120249e/_ds_bundle.js": {
+    "mtime": 1785855144.4771588,
+    "ast_hash": "78fe0f3dc3f0beb30719baa24393e27a",
+    "semantic_hash": ""
+  },
+  "docs/design/_ds/organic-d6cc886b-d3eb-4148-8fd8-294d4120249e/_ds_manifest.json": {
+    "mtime": 1785855144.4773033,
+    "ast_hash": "6dd447d917895c0a725a556ae4a8e32e",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/scripts/migrate-mongo-to-supabase.mjs": {
+    "mtime": 1785855144.4786315,
+    "ast_hash": "7c706b2b83cba73087f1a46e51966cd8",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/server/resolveUserId.ts": {
+    "mtime": 1785855144.4787157,
+    "ast_hash": "092091cecaa327a06cbff1f0e3c62f56",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/server/supabase.ts": {
+    "mtime": 1785855144.4787722,
+    "ast_hash": "00af3df86224fa21f8fa41eec9b2f4e3",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/api/notes/+server.ts": {
+    "mtime": 1785855144.4789493,
+    "ast_hash": "6a53f205a9b8e3dd983464d9f7436954",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/api/usage/+server.ts": {
+    "mtime": 1785855144.4790974,
+    "ast_hash": "f889a1343078710b2b4bbae6ff23aef7",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/api/usage/[userId]/+server.ts": {
+    "mtime": 1785855144.4791808,
+    "ast_hash": "08b5cee0cd50cbeda2909fd9aef07c19",
+    "semantic_hash": ""
+  },
+  ".claude/skills/eval-pipeline/SKILL.md": {
+    "mtime": 1785855144.442124,
+    "ast_hash": "d8f8338002087772bc2aa1f86e11edd1",
+    "semantic_hash": ""
+  },
+  ".claude/skills/releasing/SKILL.md": {
+    "mtime": 1785855144.4422996,
+    "ast_hash": "d51833d1440f1de86449582b81fb39a9",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/CLAUDE.md": {
+    "mtime": 1786281587.397703,
+    "ast_hash": "973d5c0d4997942cd4f7a7529ac8581f",
+    "semantic_hash": ""
+  },
+  "docs/design/Whisper Master (warm).dc.html": {
+    "mtime": 1785855144.4768598,
+    "ast_hash": "4893eb3ce8561e2187195553b8f904a7",
+    "semantic_hash": ""
+  },
+  "docs/design/Whisper Master.dc.html": {
+    "mtime": 1785855144.47694,
+    "ast_hash": "eb6d3c29fe1793e00ca5997b5630b706",
+    "semantic_hash": ""
+  },
+  "docs/design/_ds/organic-d6cc886b-d3eb-4148-8fd8-294d4120249e/readme.md": {
+    "mtime": 1785855144.4774413,
+    "ast_hash": "ac579dd98d9062b819837502f34d46cc",
+    "semantic_hash": ""
+  },
+  "docs/supabase-clerk-integration.md": {
+    "mtime": 1785855144.4776912,
+    "ast_hash": "70e52de3666383b0212ccac85eb289b4",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-07-28-connectors-redesign-design.md": {
+    "mtime": 1785855144.4777951,
+    "ast_hash": "a8efca1e7a7bf84fe560fa41fc9e7527",
+    "semantic_hash": ""
+  },
+  ".context/attachments/NoNnWe/image.jpg": {
+    "mtime": 1785862137.619855,
+    "ast_hash": "2daf9254753d50859599b33643539b1b",
+    "semantic_hash": ""
+  },
+  ".context/attachments/VVKwit/image.png": {
+    "mtime": 1785862043.1118083,
+    "ast_hash": "f668f28eda153ac9b5a675a7ede61085",
+    "semantic_hash": ""
+  },
+  "Scripts/publish-whats-new.sh": {
+    "mtime": 1786281587.3906796,
+    "ast_hash": "73e64bb7dcafd25a64e3b718d4013cc7",
+    "semantic_hash": ""
+  },
+  "Scripts/upload-whats-new-media.sh": {
+    "mtime": 1786281587.390926,
+    "ast_hash": "36a028a6697b22307c77ddff06a13405",
+    "semantic_hash": ""
+  },
+  "Scripts/whats-new-validate.py": {
+    "mtime": 1786281587.3911462,
+    "ast_hash": "e7389b02cec89686c0f28583bc8ed8c7",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Analytics/CrashReport.swift": {
+    "mtime": 1786281587.3920834,
+    "ast_hash": "17c6ab9f162fa7422a7bfc82a905dd03",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Analytics/CrashReporter.swift": {
+    "mtime": 1786281587.3922856,
+    "ast_hash": "47a9d37ef5c70694c88e4a3c8a19b792",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Agent/AgentActivity.swift": {
+    "mtime": 1786281587.3940961,
+    "ast_hash": "6b9be8ad12efb2b44ad6b9bfbb410b92",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Connectors/Consent/ApprovalCopy.swift": {
+    "mtime": 1786281587.3949437,
+    "ast_hash": "e2fd25ec7eb83131d8e91f690745e86d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Notes/NoteAudioStore.swift": {
+    "mtime": 1786281587.3970113,
+    "ast_hash": "880d5507968b9e9b87382807fbd40565",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Components/SecretField.swift": {
+    "mtime": 1786281587.3979383,
+    "ast_hash": "182c04b8127bbd7784f831b8f02f420d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/AssistantSettingsView.swift": {
+    "mtime": 1786281587.4001396,
+    "ast_hash": "24794695c9d5f7e44705a637e76c6ad4",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/ConnectorPermissionsSection.swift": {
+    "mtime": 1786281587.4002202,
+    "ast_hash": "3f5641f2dc22554e164107f701265857",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/StickyNoteCard.swift": {
+    "mtime": 1786281587.40164,
+    "ast_hash": "17c6051b22bda49ba0b8507e8a7fd96e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/WhatsNew/WhatsNewView.swift": {
+    "mtime": 1786281587.4023979,
+    "ast_hash": "d65ac381a42c3142b1bdb35c0816d728",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/WhatsNew/WhatsNewWindow.swift": {
+    "mtime": 1786281587.4024568,
+    "ast_hash": "15d7c653ca59d8fc14c9794c4921354b",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/WhatsNew/SemanticVersion.swift": {
+    "mtime": 1786281587.4034004,
+    "ast_hash": "1f73d0c569cffc64e28e234b98622a23",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/WhatsNew/WhatsNewController.swift": {
+    "mtime": 1786281587.4036102,
+    "ast_hash": "56847f13c37680b35f65d7fcc47fd11b",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/WhatsNew/WhatsNewFetcher.swift": {
+    "mtime": 1786281587.4036891,
+    "ast_hash": "fb360ca744909db31b2eb56bfe974acd",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/WhatsNew/WhatsNewGate.swift": {
+    "mtime": 1786281587.4037557,
+    "ast_hash": "5c9c62aa7c15157d1f27154888ea1c12",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/WhatsNew/WhatsNewManifest.swift": {
+    "mtime": 1786281587.403835,
+    "ast_hash": "f1b413049fbd67cfea491cded031fcc6",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AgentActivityTests.swift": {
+    "mtime": 1786281587.40406,
+    "ast_hash": "49a0557229f4fcd6f99f4e4dd88e7df3",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AgentTestDoubles.swift": {
+    "mtime": 1786281587.4042885,
+    "ast_hash": "8ff33ed029daaa8aa321666693d85129",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AnalyticsChannelTests.swift": {
+    "mtime": 1786281587.4044995,
+    "ast_hash": "a75366181418e8dc20ed10f8ccb35902",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AnalyticsTaxonomyTests.swift": {
+    "mtime": 1786281587.404713,
+    "ast_hash": "8b6a0018f5d4bc4ce5e64f7d1a2c1632",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/ApprovalCopyTests.swift": {
+    "mtime": 1786281587.4051852,
+    "ast_hash": "29ccc307b7c68b9d14c748ff8f3b99af",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/CrashReportTests.swift": {
+    "mtime": 1786281587.4060671,
+    "ast_hash": "842ce8dab3c4b2b80726f195529d9922",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/NotchSurfaceLayoutTests.swift": {
+    "mtime": 1786281587.4065187,
+    "ast_hash": "369dce3199baf601e3913751d13f6864",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/NoteVoiceModelTests.swift": {
+    "mtime": 1786281587.4067395,
+    "ast_hash": "6cce4d8d211ec36fdeab12ca014b1873",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/UsageAttributionTests.swift": {
+    "mtime": 1786281587.407236,
+    "ast_hash": "5a019ad36909ac3ebfefbb224c5a939f",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/UsageRecordingTests.swift": {
+    "mtime": 1786281587.4073188,
+    "ast_hash": "5263f2d824755c4b48308ccd1ac96906",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/WhatsNewTests.swift": {
+    "mtime": 1786281587.4074018,
+    "ast_hash": "12699381621ad9c3207f80d6a5ac3a7e",
+    "semantic_hash": ""
+  },
+  "whats-new.json": {
+    "mtime": 1786281587.407723,
+    "ast_hash": "8a083e8cb06b90ac97e225d165be8e26",
+    "semantic_hash": ""
+  },
+  ".context/attachments/1TpRxG/image.png": {
+    "mtime": 1786301203.2676833,
+    "ast_hash": "3cc5ace96f8997404f7b1fce5a116a0b",
+    "semantic_hash": ""
+  },
+  ".context/attachments/54epjn/image.png": {
+    "mtime": 1786301041.0419927,
+    "ast_hash": "29b3ae37376f392ff43bb27a29bc0dff",
+    "semantic_hash": ""
+  },
+  ".context/attachments/GzUdGa/image.png": {
+    "mtime": 1786301207.6116698,
+    "ast_hash": "71ff37ce3782c30a8fbd0a4fc57418af",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/AgentAsk.swift": {
+    "mtime": 1786302022.2497616,
+    "ast_hash": "a391fb1063fcca84c6f181e40f39808e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/AgentChangeSet.swift": {
+    "mtime": 1786302155.1265483,
+    "ast_hash": "453c3f7ef5124c4d7da522742d02d430",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/AgentSession.swift": {
+    "mtime": 1786302064.1350694,
+    "ast_hash": "704a50dc2a36370e12ea93eb35e18f28",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/AgentSurfaceController.swift": {
+    "mtime": 1786385949.71523,
+    "ast_hash": "6d1c4fb1120c6515a154f916aeffb5bd",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/AgentTurnLog.swift": {
+    "mtime": 1786385840.314843,
+    "ast_hash": "6f9987f901a7e58a150c3f2a37abda1f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/JSONValue.swift": {
+    "mtime": 1786301983.5773501,
+    "ast_hash": "466f249d665503b6362605675249aeff",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/KunaiEndpoint.swift": {
+    "mtime": 1786385663.153023,
+    "ast_hash": "3d47a800dfdbaf98efab7c6b5f67210b",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/KunaiEventStream.swift": {
+    "mtime": 1786346248.7896855,
+    "ast_hash": "d3b33bf00ef2d88a8cb26e2db561e9fa",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/KunaiRESTClient.swift": {
+    "mtime": 1786304255.150545,
+    "ast_hash": "06f14f0afaaa0cc34ea1eeaf0fa9460b",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/KunaiWire.swift": {
+    "mtime": 1786348348.2573082,
+    "ast_hash": "7b9fb2e9e0fc3a6800e741c3aa0d1bcd",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Agents/AgentModeControl.swift": {
+    "mtime": 1786302687.2120793,
+    "ast_hash": "00fff48dc31db7ce85a3c42faa772504",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Agents/NotchAgentAskBanner.swift": {
+    "mtime": 1786302640.7503557,
+    "ast_hash": "e64c0025ee20291bee870b5aab387970",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Agents/NotchAgentChoiceCard.swift": {
+    "mtime": 1786303011.3353143,
+    "ast_hash": "353367d53a6488816f6e079237e9b42d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Agents/NotchAgentPanel.swift": {
+    "mtime": 1786303028.775499,
+    "ast_hash": "4171dd2e70977732bd6ec6b83b5ad89f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Agents/NotchAgentSessionsRow.swift": {
+    "mtime": 1786302703.0323253,
+    "ast_hash": "5aafdf44f7651b45d2478960c16f8ae4",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AgentAskTests.swift": {
+    "mtime": 1786302428.0064774,
+    "ast_hash": "06cbf4037d52f4364f1cdb6cfddf6ede",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AgentSessionTests.swift": {
+    "mtime": 1786302474.0679798,
+    "ast_hash": "fafc38f9f20bbc541e031f22bc02c614",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AgentTurnLogTests.swift": {
+    "mtime": 1786377774.8150928,
+    "ast_hash": "8d39b99381240b0cc0f9832d5c479eba",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/KunaiEndpointTests.swift": {
+    "mtime": 1786303308.720126,
+    "ast_hash": "402dd1c9add941c7cf4b4d4900280dcc",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/KunaiLiveTests.swift": {
+    "mtime": 1786303378.4377325,
+    "ast_hash": "2265aa13bc096f90a6cb1c8d87f0158b",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/KunaiWireTests.swift": {
+    "mtime": 1786302392.2884593,
+    "ast_hash": "bcbec356fb07e87239d53c287de90d7f",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/NotchAgentPanelTests.swift": {
+    "mtime": 1786346797.6338184,
+    "ast_hash": "082317049d39cee8d412e241ee0a9d2d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Agents/NotchAgentGlance.swift": {
+    "mtime": 1786346782.4901338,
+    "ast_hash": "3a1893bac6e5284fe5b8ec2ee6e81d41",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AgentRevealTests.swift": {
+    "mtime": 1786305858.575124,
+    "ast_hash": "0338b69ea49a99fa9e2af69d848eb17c",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Agents/NotchAgentWorkingRow.swift": {
+    "mtime": 1786377688.5084078,
+    "ast_hash": "6f0e85ed1d872e35094cccbc2d9ce47f",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/KunaiEventStreamTests.swift": {
+    "mtime": 1786346270.0179083,
+    "ast_hash": "3fe034402f646d16023d9c2aeabcb19d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Agents/NotchAgentReplyBanner.swift": {
+    "mtime": 1786346731.6084862,
+    "ast_hash": "0048f728d3de8d7489f7e1d142edf685",
+    "semantic_hash": ""
+  },
+  ".context/attachments/n9rUOo/image.png": {
+    "mtime": 1786347153.2356846,
+    "ast_hash": "1252213e8aaa48810752a25b87b8150f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/AgentReplyLine.swift": {
+    "mtime": 1786348366.8308947,
+    "ast_hash": "5164358f0c822471dbac1ba944b48ad9",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AgentReplyLineTests.swift": {
+    "mtime": 1786378600.4019675,
+    "ast_hash": "ef69dd61bfe0471873be7a370662783b",
+    "semantic_hash": ""
+  },
+  ".context/attachments/35bmEe/image.png": {
+    "mtime": 1786348224.116798,
+    "ast_hash": "418e10758d2f577c311078fad0bce8d6",
+    "semantic_hash": ""
+  },
+  ".context/attachments/L7AJeH/image.png": {
+    "mtime": 1786348217.3785787,
+    "ast_hash": "8e139036a2540c774f929948d9cfb0a2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/AgentReplyDocument.swift": {
+    "mtime": 1786378504.2169807,
+    "ast_hash": "8241e130e4a5527dd2fca8a6293e34e4",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Agents/NotchAgentReplyExpanded.swift": {
+    "mtime": 1786378592.1003644,
+    "ast_hash": "11edaa682f49885868ab218027b53dd8",
+    "semantic_hash": ""
+  },
+  ".context/attachments/in6tT7/image.png": {
+    "mtime": 1786348780.1363916,
+    "ast_hash": "cbcbd6ca4203b3e3690a75be1416a946",
+    "semantic_hash": ""
+  },
+  ".context/attachments/hSDDBC/image.png": {
+    "mtime": 1786349642.533558,
+    "ast_hash": "94116d7092851781d9c65a5c156486d4",
+    "semantic_hash": ""
+  },
+  ".context/attachments/GsMxmZ/image.png": {
+    "mtime": 1786350176.2613778,
+    "ast_hash": "e2432420c960670e47dee3bee1db55a3",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AgentReplayGatingTests.swift": {
+    "mtime": 1786351809.2256405,
+    "ast_hash": "0bde4e2217b80ca892613f96277ae0f0",
+    "semantic_hash": ""
+  },
+  ".context/attachments/5d2a7y/image.png": {
+    "mtime": 1786352224.272947,
+    "ast_hash": "0bf74d2aeec9f7fe64993014f6229074",
+    "semantic_hash": ""
+  },
+  ".context/attachments/XbHWOo/image.png": {
+    "mtime": 1786353415.1217945,
+    "ast_hash": "f388c861774c54fc902a27df587d92e2",
+    "semantic_hash": ""
+  },
+  ".context/attachments/VZFZAZ/image.png": {
+    "mtime": 1786354347.9016984,
+    "ast_hash": "224108aa6ea687d6e66da64448d8b4dc",
+    "semantic_hash": ""
+  },
+  ".context/attachments/u2ZFrt/image.png": {
+    "mtime": 1786354374.4661453,
+    "ast_hash": "41d30e37ccf1bf3bfc0eca00125367c0",
+    "semantic_hash": ""
+  },
+  ".context/attachments/HQAGH8/image.png": {
+    "mtime": 1786354854.6654954,
+    "ast_hash": "008d839671cb97da6b053ea869fbe3a5",
+    "semantic_hash": ""
+  },
+  ".context/attachments/88sgUS/image.png": {
+    "mtime": 1786355387.902274,
+    "ast_hash": "5c355a6d67457ecdd7fcfe86755e4fdb",
+    "semantic_hash": ""
+  },
+  ".context/attachments/c2Vdlv/image.png": {
+    "mtime": 1786355361.2701252,
+    "ast_hash": "cb927212327bbd2cfb1d8852877069d2",
+    "semantic_hash": ""
+  },
+  ".context/attachments/Hasqbw/image.png": {
+    "mtime": 1786356584.2358615,
+    "ast_hash": "a76c058f55198f8c30179dde8ae3c9ca",
+    "semantic_hash": ""
+  },
+  ".context/attachments/ulVNVI/image.png": {
+    "mtime": 1786357240.6654193,
+    "ast_hash": "2b07dbfc5ac29ed9a2c27c7a004fac66",
+    "semantic_hash": ""
+  },
+  ".context/attachments/Tjj0u2/image.png": {
+    "mtime": 1786359968.915059,
+    "ast_hash": "3f877de3bf1dfd0aafc0854860f2ae1d",
+    "semantic_hash": ""
+  },
+  ".context/attachments/gTu0eJ/image.png": {
+    "mtime": 1786370362.924595,
+    "ast_hash": "adb1d03b4c30263e7f3731f279747f9f",
+    "semantic_hash": ""
+  },
+  ".context/attachments/bRkDcl/image.png": {
+    "mtime": 1786371125.680637,
+    "ast_hash": "d3746e4a62878b1df5442f4332525c72",
+    "semantic_hash": ""
+  },
+  ".context/reply-candidates/pill-10f-agent-reply-expanded.png": {
+    "mtime": 1786371777.825465,
+    "ast_hash": "b4d41d2d294a8d6a59d5c375ac340cc5",
+    "semantic_hash": ""
+  },
+  ".context/reply-candidates/pill-10g-agent-reply-answer-only.png": {
+    "mtime": 1786371777.8257298,
+    "ast_hash": "98ec16aaa3abdc4b9d8e77789dbbca93",
+    "semantic_hash": ""
+  },
+  ".context/attachments/M98ZZY/image.png": {
+    "mtime": 1786372512.2404292,
+    "ast_hash": "79e806d9865c0cda7d1029a8939b5084",
+    "semantic_hash": ""
+  },
+  ".context/attachments/SKc0F8/image.png": {
+    "mtime": 1786372514.4749842,
+    "ast_hash": "79e806d9865c0cda7d1029a8939b5084",
+    "semantic_hash": ""
+  },
+  ".context/reply-candidates/candidate-k-verdict.png": {
+    "mtime": 1786373034.498735,
+    "ast_hash": "7e5916eb08cf5da56813abfede003741",
+    "semantic_hash": ""
+  },
+  ".context/reply-candidates/candidate-l-plate.png": {
+    "mtime": 1786373034.4990516,
+    "ast_hash": "db0025835c00385b54ea32988fd8fdf7",
+    "semantic_hash": ""
+  },
+  ".context/reply-candidates/candidate-m-ruled.png": {
+    "mtime": 1786373034.4993138,
+    "ast_hash": "dc2d7aaf69bc881ce81690dbe694a075",
+    "semantic_hash": ""
+  },
+  ".context/reply-candidates/candidate-n-quiet.png": {
+    "mtime": 1786373034.4995809,
+    "ast_hash": "6b1f2c852aa20d4b69102fc087ba2ad6",
+    "semantic_hash": ""
+  },
+  ".context/attachments/cEc8Ht/image.png": {
+    "mtime": 1786373375.624064,
+    "ast_hash": "d1fe09058a289890150ffc4bc9839ff2",
+    "semantic_hash": ""
+  },
+  ".context/attachments/UkSn4d/image.png": {
+    "mtime": 1786374401.036011,
+    "ast_hash": "e6967d6bc76243259bc148318518106e",
+    "semantic_hash": ""
+  },
+  ".context/attachments/z0setw/image.png": {
+    "mtime": 1786374379.945164,
+    "ast_hash": "b9330409ee52f2c82d79faf0a85614bc",
+    "semantic_hash": ""
+  },
+  ".context/attachments/jQL89b/image.png": {
+    "mtime": 1786374995.8908768,
+    "ast_hash": "d714411de956041d46745f13d64a0387",
+    "semantic_hash": ""
+  },
+  ".context/attachments/4dICq8/image.png": {
+    "mtime": 1786375567.1450586,
+    "ast_hash": "229ce12a1ab2f2ea460164df372e9bd1",
+    "semantic_hash": ""
+  },
+  ".context/attachments/OqRV7D/image.png": {
+    "mtime": 1786376780.0415308,
+    "ast_hash": "eb5f3b7305b0c20a60dbc6fdfeadd5dc",
+    "semantic_hash": ""
+  },
+  ".context/attachments/NbZ7ko/image.png": {
+    "mtime": 1786378401.702576,
+    "ast_hash": "40ae814095f8a4e039862fd495beec8e",
+    "semantic_hash": ""
+  },
+  ".context/attachments/Y0mLP9/image.png": {
+    "mtime": 1786378398.1620352,
+    "ast_hash": "df3e5056b5794f92d425035b609c8125",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/AgentAttention.swift": {
+    "mtime": 1786380593.229095,
+    "ast_hash": "7bf5baa8b38c19bf93ed35920086d28a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Agents/NotchAgentNudgeBanner.swift": {
+    "mtime": 1786381385.8959873,
+    "ast_hash": "6ed7ddcc0750c8742f42ae50bdc74c84",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AgentAttentionTests.swift": {
+    "mtime": 1786385868.6375506,
+    "ast_hash": "0c779aea6eaf97a8f7972dd3ec4d2986",
+    "semantic_hash": ""
+  },
+  ".context/attachments/Cz0ExN/image.png": {
+    "mtime": 1786381483.3021357,
+    "ast_hash": "7be5e7904a0c7198235b4f8498bb3521",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Agents/KunaiFleetStream.swift": {
+    "mtime": 1786385732.3908765,
+    "ast_hash": "4d8c77987f7344693d4f76f5b406856a",
+    "semantic_hash": ""
+  }
+}

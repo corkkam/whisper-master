@@ -77,6 +77,14 @@ enum FillerWordFilter {
         return (kept.joined(separator: " "), removed)
     }
 
+    /// Whether a bare token is one of the fillers this filter would drop.
+    /// Exposed so `SelfCorrectionCollapser` can step over an "um" sitting inside a
+    /// correction ("twenty um no thirty") — fillers are stripped later in the
+    /// pipeline, so they are still present when it runs.
+    static func isFillerWord(_ token: String) -> Bool {
+        isFiller(splitPunctuation(token).core)
+    }
+
     private static func isFiller(_ core: String) -> Bool {
         guard !core.isEmpty else { return false }
         // "ER", "UM" etc. spoken as initialisms come through all-caps; a real

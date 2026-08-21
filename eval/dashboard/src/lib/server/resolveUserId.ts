@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { verifyToken } from '@clerk/backend';
+import { tokensMatch } from '$lib/server/tokenAuth';
 
 // Trusted per-user attribution, shared by /api/usage and /api/notes.
 //
@@ -47,8 +48,17 @@ export async function resolveUserId(
     return sub;
   }
 
-  const token = env.INGEST_TOKEN;
-  if (token && request.headers.get('x-ingest-token') !== token) {
+  // Fail CLOSED: with neither Clerk nor a non-empty shared token configured we
+  // would otherwise trust the caller-supplied id. Treat "" (the .env.example
+  // placeholder) as unset.
+  const token = env.INGEST_TOKEN?.trim() || undefined;
+  if (!token) {
+    throw error(
+      500,
+      'server auth is not configured: set CLERK_SECRET_KEY/CLERK_JWT_KEY or a non-empty INGEST_TOKEN'
+    );
+  }
+  if (!tokensMatch(request.headers.get('x-ingest-token') ?? '', token)) {
     throw error(401, 'unauthorized: missing or invalid x-ingest-token');
   }
   if (!fallbackUserId || typeof fallbackUserId !== 'string') {

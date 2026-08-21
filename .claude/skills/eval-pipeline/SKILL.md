@@ -17,8 +17,9 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
   `WM_EVAL_OUT`), launch the built app **via LaunchServices (`open`), not the raw
   binary**, and after the MLX model loads it runs every text case through the
   shipped deterministic passes (`TranscriptSpacingRepair` → `SelfCorrectionCollapser`
-  → `DeterministicITN` → `FillerWordFilter` → `VocabularyPostProcessor`) + both LLM modes (`light`,
-  `polish`) with the **real** `CleanupFaithfulnessGuard`, grouped by target so the
+  → `DeterministicITN` → `FillerWordFilter` → `VocabularyPostProcessor`) + every
+  requested `CleanupTarget` (`light`, `polish`, and eval-only `slack`/`email`/`code`)
+  with the **real** `CleanupFaithfulnessGuard`, grouped by target so the
   KV cache stays primed, and writes `results.json` (per-stage outputs, guard
   verdict, per-stage latency). **Directly exec'ing the bundle's Mach-O crashes**
   (TCC can't find the Info.plist usage strings → the mesh CoreBluetooth scan hard-
@@ -39,7 +40,9 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
   sub-agents.
 - **Cases** (`cases.jsonl`, generalized schema: `input:{text|audio}`, `targets`,
   `reference`, `asr_reference`, keyword rules). `targets` is the extension hinge:
-  `light`+`polish` today, `slack`/`email`/`code` later with no engine change.
+  `light`+`polish` ship; `slack`/`email`/`code` are eval-only destinations
+  (à la Wispr Flow) in `CleanupTarget` + `flow-cases.jsonl`. Adding another
+  destination is a case on the enum + a prompt + cases that list it.
   Audio cases are generated into git-ignored `.eval-scratch/` by two scripts:
   `make_audio.sh` (TTS every text case via `say`; ffmpeg-gated Bluetooth-HFP +
   pink-noise augmentation for the realistic/disfluency subset) and
