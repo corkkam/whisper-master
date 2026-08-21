@@ -16,13 +16,8 @@ enum CleanupTarget: String, CaseIterable {
 
     var allowsRephrase: Bool { self != .light }
 
-    var prompt: String {
-        switch self {
-        case .light: return CleanupPrompt.system
-        case .polish: return CleanupPrompt.grammarPolish
-        case .slack: return CleanupPrompt.slack
-        case .email: return CleanupPrompt.email
-        case .code: return CleanupPrompt.code
-        }
-    }
+    /// **One system prompt for every target.** S1-mini takes its destination from the
+    /// control line's axes (`CleanupPrompt.axes(for:)`), not from differently-worded
+    /// instructions, so the per-target prompts the general model needed are gone.
+    var prompt: String { CleanupPrompt.system }
 }

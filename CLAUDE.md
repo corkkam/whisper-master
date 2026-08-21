@@ -196,6 +196,7 @@ the text that actually gets pasted from those same windows. The second
 short-window "preview" manager that used to paint the notch was **removed on
 purpose**; don't reintroduce it.
 
+
 ### Reading answers aloud (`Speech/`)
 
 An assistant answer is spoken as well as shown; a dictation is never read back.

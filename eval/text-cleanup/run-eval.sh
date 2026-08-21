@@ -59,7 +59,19 @@ rm -f "$out"
 
 launchctl setenv WM_EVAL_CASES "$cases"
 launchctl setenv WM_EVAL_OUT "$out"
-cleanup() { launchctl unsetenv WM_EVAL_CASES || true; launchctl unsetenv WM_EVAL_OUT || true; }
+# Chunk-budget override for A/B runs: CHUNK_WORDS=0 disables chunking entirely,
+# which is how the long-form behaviour is measured against its own control.
+if [ -n "${CHUNK_WORDS:-}" ]; then
+  echo "▶ chunk : WM_CLEANUP_CHUNK_WORDS=$CHUNK_WORDS"
+  launchctl setenv WM_CLEANUP_CHUNK_WORDS "$CHUNK_WORDS"
+else
+  launchctl unsetenv WM_CLEANUP_CHUNK_WORDS || true
+fi
+cleanup() {
+  launchctl unsetenv WM_EVAL_CASES || true
+  launchctl unsetenv WM_EVAL_OUT || true
+  launchctl unsetenv WM_CLEANUP_CHUNK_WORDS || true
+}
 trap cleanup EXIT
 
 open -a "$app"

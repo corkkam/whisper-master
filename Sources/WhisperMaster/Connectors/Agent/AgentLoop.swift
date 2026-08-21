@@ -174,7 +174,12 @@ struct AgentLoop {
     /// with them and the one piece worth keeping moved here.
     static func liveGenerator() -> Generate {
         { text, systemPrompt in
-            await MlxCleanupService.shared.clean(text, systemPrompt: systemPrompt)
+            // The **general** model, not the cleanup one. S1-mini normalises
+            // transcripts and will not follow a tool-calling prompt, so pointing the
+            // loop at it would mean no tool ever executes and the assistant silently
+            // becoming the keyword gate.
+            await MlxCleanupService.prepareGeneralIfInstalled()
+            return await MlxCleanupService.general.clean(text, systemPrompt: systemPrompt)
         }
     }
 
@@ -183,7 +188,13 @@ struct AgentLoop {
     /// wants the native tool-calling path; unset keeps the hand-rolled path.
     static func liveNativeGenerator() -> GenerateNative {
         { messages, toolSchemas in
-            await MlxCleanupService.shared.generateWithTools(
+            // **The general model, not the cleanup one** — the same rule as the text
+            // generator above, and it matters more here. The cleanup slot now holds a
+            // 0.6B text normalizer; handed a tools schema it would return normalised
+            // prose, no call would parse, and the assistant would fall through to the
+            // keyword gate without a single error to show for it.
+            await MlxCleanupService.prepareGeneralIfInstalled()
+            return await MlxCleanupService.general.generateWithTools(
                 messages: messages, toolSchemasJSON: toolSchemas)
         }
     }

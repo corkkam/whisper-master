@@ -5,13 +5,70 @@ Loaded when Claude works under this directory. Moved verbatim out of the root
 
 ### Transcription engine
 
-`TranscriberEngine` has a **single case**, `slidingWindow` ("Heavy", NVIDIA Parakeet `parakeet-tdt-0.6b-v3`), implemented by `FluidAudioStreamingTranscriber` (conforms to `LocalStreamingTranscriber`, `Sendable`). An earlier "Light"/EOU streaming engine **and** an Apple Foundation Models transcript-cleanup pass were both removed — the LLM added latency without gains since Parakeet already emits punctuation/capitalization. The enum is kept (one case) for metadata + future engines. `PrototypeViewModel.transcriber` is now a single stored property.
+`TranscriberEngine` has a **single case**, `slidingWindow` ("Heavy", NVIDIA Parakeet **`parakeet-tdt-0.6b-v2`** — the **English-only** build, chosen on purpose: more accurate on English, and without v3's multilingual long-form chunk-boundary content drops (FluidAudio #594). This file said `v3` for a while and the error propagated — it is what put a bogus "the ASR is multilingual but the cleanup model is English-only" blocker into `eval/text-cleanup/judgment.md`. The name lives in `LocalStreamingTranscriber.cacheDirectoryName`; read it there before writing it down anywhere else), implemented by `FluidAudioStreamingTranscriber` (conforms to `LocalStreamingTranscriber`, `Sendable`). An earlier "Light"/EOU streaming engine **and** an Apple Foundation Models transcript-cleanup pass were both removed — the LLM added latency without gains since Parakeet already emits punctuation/capitalization. The enum is kept (one case) for metadata + future engines. `PrototypeViewModel.transcriber` is now a single stored property.
 
 **One track, and no live preview of it.** `SlidingWindowAsrManager` only decodes once it holds `chunkSeconds + rightContextSeconds` of audio, so at the shipped `.streaming` config (11 s + 2 s) it emits **nothing for the first 13 seconds** — longer than a typical dictation, so on a short one the notch shows no words at all and the whole transcript lands at once from `finish()`/`flushRemaining()` when the key comes up. That is the accepted behaviour. (`SlidingWindowAsrConfig.hypothesisChunkSeconds` advertises "quick hypothesis updates for immediate feedback" but **nothing in FluidAudio ever reads it** — there is no hypothesis track to enable.)
 - **The short-window "preview" track was removed on purpose — do not bring it back.** A second `SlidingWindowAsrManager` (1.5 s chunk, `confirmationThreshold: 0`) used to run off the same mic buffers purely to paint the notch while you were still speaking, carried on `StreamingTranscriptUpdate.isPreview` and displayed through `previewTranscript` / `TranscriptMerger.tidiedPreview`. The live text was not wanted, and it cost an extra encoder pass per window for the length of every recording. All of it — the second manager, the `isPreview` flag, `tidiedPreview`, and the replay test that locked the split in — is gone.
 - **Do not "add live text" by lowering `chunkSeconds` either.** `finish()` reconstructs the final transcript from those same windows, so shorter windows mean less acoustic context and a worse transcript — the one thing that actually gets pasted. Models download on demand into `~/Library/Application Support/FluidAudio/Models/<cacheDirectoryName>`; `TranscriberEngine.isInstalled` is a filesystem check, so callers must not cache it. (The removed cleanup pass above was the *Apple Foundation Models* one; a separate **opt-in MLX qwen cleanup** was later added — see below.)
 
-### On-device Smart cleanup (MLX qwen — opt-in, off by default)
+### On-device Smart cleanup (MLX — opt-in, off by default)
+
+**Two models, because these are two jobs.** Cleanup runs **S1-mini by Superwhisper**
+(`MlxCleanupService.shared`) — a 0.6B text normalizer fine-tuned from Qwen3-0.6B,
+converted here to 4-bit: 335 MB on disk, ~100 ms. Tool calling and intent run
+**Qwen3-4B-Instruct-2507** (`CleanupModel.General`, `MlxCleanupService.general`),
+whose 2507 instruct build carries a real function-calling posture and is non-thinking
+by default so it never emits `<think>` blocks that break the loop's JSON parse.
+
+Measured end to end through the app on `eval/text-cleanup/cases.jsonl` with the guard
+applied: the outgoing qwen2.5-3B scored **85/89 at ~250 ms on 1.5 GB**, S1-mini scores
+**87/89 at ~100 ms on 335 MB**. Audio and LibriSpeech runs found no cleanup regression;
+see `eval/text-cleanup/judgment.md`.
+
+**⚠️ Never point the agent or the intent classifier at the cleanup slot.** S1-mini is
+not a chat model and will not follow general instructions — handed a tool schema it
+returns normalised prose, no call parses, `CommandAgentService` correctly reads that as
+"did not act", and the whole assistant degrades to the keyword gate **with no error to
+show for it**. Both `AgentLoop.liveGenerator()` and `liveNativeGenerator()` go through
+`prepareGeneralIfInstalled()`, which loads the general model **only when it is already
+on disk and never downloads it**.
+
+**The assistant model has its own install, with two triggers and neither is launch**
+(`AssistantModelManager`). Splitting the models split the *download* too: Smart cleanup
+now fetches a 335 MB normalizer, so without this nothing ever fetched the 2 GB
+tool-caller and every install silently ran the assistant on the keyword gate. It is
+fetched on the **first use of the chord** (the `connectorAgentEnabled` toggle is the
+permission; the capture in flight is never made to wait on it and still takes the
+deterministic path) or from the **Settings button**. `AssistantModelManager.Policy` is
+pure so the rule is tested without a 2 GB download; one fetch per launch, and a failure
+is retried only from Settings, never from the next spoken command.
+
+**⚠️ `assistantModelReady` is not `cleanupModelReady`.** The Settings hint used to read
+the latter, which was right only while the two jobs shared one model — after the split
+it cleared the "not on this Mac" warning the moment S1-mini loaded and claimed a model
+that had never been downloaded. `AssistantModelTests` locks the separation.
+
+**⚠️ A long dictation is cleaned in pieces, and the guard is not the safety net
+here** (`TranscriptChunker`). `MlxCleanupService` caps a generation at 512 tokens
+against a runaway decode; at ~1.3 English tokens per word that is ~390 words of
+output, past which the pass was cut mid-sentence. `CleanupFaithfulnessGuard` did
+**not** catch it — its truncation floor is 30% retention (anything tighter rejects
+legitimate self-corrections), and a 500-word dictation truncated to 390 retains 78%.
+On the native path that accepted truncation then *replaced* text the user had
+already watched land. The chunk budget is **240 words** because that is exactly the
+largest input for which the service's `words * 2 + 32` token budget stays inside
+512 — the two constants are pinned to each other by a test, so moving either one
+fails loudly. Chunking is skipped for the `email` context, whose greeting/sign-off
+layout spans the whole text. A chunk that fails keeps its own raw words.
+
+**S1-mini's format is exact and every integration bug traces to it**: the system prompt
+is the trained string (not a prompt to tune), the user turn opens with a
+`[Styling: …] [Structure: …] [Context: …]` control line, and **`enable_thinking` must be
+false**. The name is a **licence term** — Apache 2.0 plus one condition, that it keeps
+the name "S1-mini by Superwhisper" with that capitalization. "Polish my English" became
+**"Formal styling"**, because S1-mini normalises and will not restructure a sentence.
+
+The older description of the single-model design follows.
 
 Optional post-ASR cleanup by **qwen2.5-3B-Instruct-4bit via MLX** (`mlx-swift-examples`). Two Settings toggles: **Smart cleanup** (`llmCleanupEnabled` — light: fix self-corrections/false starts) and **Polish my English** (`llmGrammarPolishEnabled` — heavier rephrase to grammatical English). Dictation **never waits** on it: the deterministic text pastes instantly and, on the **native** path, the qwen polish refines it *in place* a beat later (`scheduleRefinement`); on the **web/Electron** path (no safe in-place edit) polish is computed *before* the ⌘V. Pieces:
 - **`MlxCleanupService`** (`actor`) — loads the model once and reuses a persistent system-prompt **KV cache** (feeds only the per-call delta). `clean()` returns `nil` on any problem so the caller keeps the deterministic text — cleanup can only ever help, never block. The load is **timeout-bounded (`loadTimeoutSeconds` 60 s) and retried** by the manager: a stalled MLX/Metal init (seen under launch-time GPU contention) used to wedge the state `.loading` forever, so Settings showed "Preparing…" indefinitely while polish silently no-op'd. Load/prime timing is logged.

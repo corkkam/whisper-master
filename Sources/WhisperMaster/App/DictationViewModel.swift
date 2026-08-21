@@ -72,6 +72,9 @@ final class DictationViewModel {
     /// Owns the optional on-device cleanup model: background download, progress
     /// (Settings only), and the one-shot ready banner. Dormant unless opted in.
     private lazy var cleanupModelManager = CleanupModelManager(state: state)
+    /// Owns the **assistant** model — a different model, fetched on first use of
+    /// the chord rather than on a toggle. See `AssistantModelManager`.
+    private lazy var assistantModelManager = AssistantModelManager(state: state)
     /// Reads assistant answers aloud. Created on the **first answer that wants
     /// speaking**, never at launch — an `AVSpeechSynthesizer` should not exist for a
     /// user who turned this off, nor under `swift test` / the headless snapshot
@@ -716,7 +719,8 @@ final class DictationViewModel {
         defer { state.isPolishing = false }
         let prompt = CleanupPrompt.resolved(grammarPolish: polish)
         let start = Date()
-        let cleaned = await MlxCleanupService.shared.clean(input, systemPrompt: prompt)
+        let cleaned = await MlxCleanupService.shared.clean(
+            input, systemPrompt: prompt, grammarPolish: polish)
         let ms = Int(Date().timeIntervalSince(start) * 1000)
         guard let cleaned else {
             Diagnostics.shared.noteLLM(ready: true, raw: nil, accepted: false, ms: ms)
@@ -1182,6 +1186,12 @@ final class DictationViewModel {
         // The denominator for every assistant number below: how often the chord
         // was actually used, before any tier has had a chance to take it.
         Analytics.shared.send(.assistantInvoked)
+        // Using the chord is what asks for the assistant's model — nothing fetches
+        // it at launch. This capture is **not** made to wait on it: the fetch runs
+        // in the background and the tiers below take the deterministic path exactly
+        // as they do today, so the words still land. It is the *next* command that
+        // gets a model.
+        assistantModelManager.prepareForFirstUse()
         let startedAt = Date()
         var trace = spoken.trace(at: startedAt)
 
@@ -1434,8 +1444,11 @@ final class DictationViewModel {
     /// deterministic reading otherwise (so a reminder still lands, just with no
     /// extracted time → the default-time path asks).
     private func classifyIntent(_ text: String, fallback: ClassifiedIntent) async -> ClassifiedIntent {
-        guard await MlxCleanupService.shared.isReady else { return fallback }
-        guard let raw = await MlxCleanupService.shared.clean(text, systemPrompt: IntentPrompt.system),
+        // The general model: the classifier parses a structured answer back, which
+        // a text normalizer cannot produce.
+        await MlxCleanupService.prepareGeneralIfInstalled()
+        guard await MlxCleanupService.general.isReady else { return fallback }
+        guard let raw = await MlxCleanupService.general.clean(text, systemPrompt: IntentPrompt.system),
               let parsed = IntentClassifier.parse(raw)
         else { return fallback }
         return parsed
@@ -1567,6 +1580,8 @@ final class DictationViewModel {
     /// model on opt-out.
     func reconcileCleanupModel() {
         cleanupModelManager.syncWithToggle()
+        assistantModelManager.sync()
+        assistantModelManager.releaseIfDisabled()
     }
 
     /// Run the on-device formatting pass on the final transcript when enabled

@@ -32,6 +32,34 @@ fi
 : "${R2_ENDPOINT:?missing in .env}"
 : "${R2_PUBLIC_BASE_URL:?missing in .env}"
 
+# --- The host you upload to must be the host the app reads ---
+#
+# CLAUDE.md says the public host lives in four places that must move together.
+# Nothing enforced it, and the drift is silent in the worst way: the credentials
+# and R2_PUBLIC_BASE_URL point at one bucket while the shipped binary reads
+# another, so an upload "succeeds" and the artifact is a 404 to every user. That
+# is exactly how s1-mini-4bit came to be published where the app never looks —
+# a stale .env survived the move to dl.corkkam.com.
+#
+# ModelInstaller is the source of truth because it is compiled into the bundle.
+_app_host="$(sed -n 's|.*"https://\([^/"]*\)/models".*|\1|p' \
+    Sources/WhisperMaster/ModelInstall/ModelInstaller.swift | head -1)"
+_env_host="${R2_PUBLIC_BASE_URL#*://}"; _env_host="${_env_host%%/*}"
+if [[ -n "$_app_host" && "$_app_host" != "$_env_host" ]]; then
+    cat >&2 <<EOF
+error: R2 host mismatch — this upload would go somewhere the app never reads.
+
+  R2_PUBLIC_BASE_URL : $_env_host   (where this script uploads)
+  ModelInstaller.swift: $_app_host   (where the shipped app downloads)
+
+Fix by pointing R2_PUBLIC_BASE_URL *and* the R2_* credentials at $_app_host,
+or by moving the app's host — Scripts/channel.sh, Auth/BetaAccess.swift and
+ModelInstall/ModelInstaller.swift together, after copying models/ across.
+Override for a deliberate one-off with ALLOW_HOST_MISMATCH=1.
+EOF
+    [[ "${ALLOW_HOST_MISMATCH:-0}" == "1" ]] || exit 1
+fi
+
 # --- Tools ---
 command -v rclone >/dev/null || { echo "error: rclone not installed (brew install rclone)" >&2; exit 1; }
 

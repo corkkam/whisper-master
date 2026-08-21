@@ -12,7 +12,7 @@ import Foundation
 ///
 /// A single Clerk *production* instance serves both channels; beta and stable
 /// users share one account and differ only by this flag.
-enum UpdateChannel: String {
+enum UpdateChannel: String, CaseIterable {
     case stable
     case beta
     case dev
