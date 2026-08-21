@@ -366,9 +366,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `checkForUpdateInformation()` is the one Sparkle entry point that has no
         // user driver behind it: it only fires the delegate callbacks below, which
         // set `availableUpdateVersion` and light the sidebar card. Held behind the
-        // gate with the rest of the bring-up because `feedURLString` reads the
-        // signed-in user's channel, so a check made before the session loads would
-        // poll the wrong feed.
+        // gate with the rest of the bring-up because `allowedChannels` reads the
+        // signed-in user's flag, so a check made before the session loads would
+        // miss the beta channel.
         updaterController.updater.checkForUpdateInformation()
 
         let userID = currentOnboardingUserID()
@@ -1512,14 +1512,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension AppDelegate: SPUUpdaterDelegate {
-    /// Choose the appcast feed dynamically from the signed-in user's beta flag.
-    /// Sparkle calls this on the main thread before every check, so it always
-    /// tracks the *current* Clerk session: a beta user (or one just flipped
-    /// stable server-side) lands on the right feed without a relaunch. Returning
-    /// nil would fall back to the static `SUFeedURL` in Info.plist; we always
-    /// return a concrete channel so the two never drift.
-    nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
-        MainActor.assumeIsolated { BetaAccess.currentChannel.feedURLString }
+    /// Admit beta appcast items for a user carrying the Clerk `betaAccess` flag.
+    /// Sparkle calls this on the main thread before every check, so it tracks the
+    /// *current* Clerk session: a flag flipped server-side moves the user between
+    /// the tracks on the next check, with no relaunch and no reinstall.
+    ///
+    /// ⚠️ This replaced a `feedURLString(for:)` override that pointed beta users
+    /// at a second appcast. That could never work: the beta feed served a
+    /// re-badged `…mac.beta` bundle, and Sparkle rejects an archive whose bundle
+    /// neither matches the host's file name nor its bundle id, so the update was
+    /// offered, downloaded, and then refused. One feed plus a channel tag is the
+    /// mechanism Sparkle actually provides for this. There is no feed override
+    /// now — `SUFeedURL` in Info.plist is correct for stable and beta alike, and
+    /// `Scripts/channel.sh` bakes the dev feed into the dev bundle.
+    nonisolated func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+        MainActor.assumeIsolated { BetaAccess.allowedChannels }
     }
 
     /// Light the sidebar's update card. Sparkle calls this for **every** kind of

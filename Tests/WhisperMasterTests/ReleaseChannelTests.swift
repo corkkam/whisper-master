@@ -8,25 +8,50 @@ final class ReleaseChannelTests: XCTestCase {
 
     // MARK: Channel resolution
 
-    func testBundleIDsMapToTheirChannels() {
-        XCTAssertEqual(ReleaseChannel.channel(forBundleID: "app.whispermaster.mac"), .stable)
-        XCTAssertEqual(ReleaseChannel.channel(forBundleID: "app.whispermaster.mac.beta"), .beta)
-        XCTAssertEqual(ReleaseChannel.channel(forBundleID: "app.whispermaster.mac.dev"), .dev)
+    private let shipping = ReleaseChannel.shippingBundleID
+
+    /// Stable and beta ship as ONE bundle so Sparkle can update between them, so
+    /// the version marker is the only thing that separates them.
+    func testTheVersionMarkerSeparatesStableFromBeta() {
+        XCTAssertEqual(ReleaseChannel.channel(forVersion: "1.1.0", bundleID: shipping), .stable)
+        XCTAssertEqual(ReleaseChannel.channel(forVersion: "1.1.0-beta.9", bundleID: shipping), .beta)
+        XCTAssertEqual(ReleaseChannel.channel(forVersion: "1.1.0-dev.1", bundleID: shipping), .dev)
+    }
+
+    /// The dev build is still re-badged side-by-side, and a local one may carry
+    /// no marker at all, so its id has to answer on its own.
+    func testTheDevBundleIsDevWhateverItsVersionSays() {
+        XCTAssertEqual(
+            ReleaseChannel.channel(forVersion: "1.1.0", bundleID: "app.whispermaster.mac.dev"), .dev)
+        XCTAssertEqual(
+            ReleaseChannel.channel(forVersion: "1.1.0-beta.9", bundleID: "app.whispermaster.mac.dev"),
+            .dev)
     }
 
     /// A bundle-less `swift build` run and the headless snapshot renderer must
     /// see every surface, so anything unrecognised resolves to `.dev`.
-    func testUnknownAndMissingBundleIDsResolveToDev() {
-        XCTAssertEqual(ReleaseChannel.channel(forBundleID: nil), .dev)
-        XCTAssertEqual(ReleaseChannel.channel(forBundleID: ""), .dev)
-        XCTAssertEqual(ReleaseChannel.channel(forBundleID: "com.example.other"), .dev)
+    func testUnknownAndMissingBundlesResolveToDev() {
+        XCTAssertEqual(ReleaseChannel.channel(forVersion: "1.1.0", bundleID: nil), .dev)
+        XCTAssertEqual(ReleaseChannel.channel(forVersion: "1.1.0", bundleID: ""), .dev)
+        XCTAssertEqual(ReleaseChannel.channel(forVersion: "1.1.0", bundleID: "com.example.other"), .dev)
+        XCTAssertEqual(ReleaseChannel.channel(forVersion: nil, bundleID: shipping), .dev)
     }
 
     /// Guards against a near-miss id (a typo'd re-badge in channel.sh) being
     /// silently treated as stable and shipping the gated surfaces open.
     func testSuffixLookalikesAreNotStable() {
-        XCTAssertEqual(ReleaseChannel.channel(forBundleID: "app.whispermaster.mac.beta.old"), .dev)
-        XCTAssertEqual(ReleaseChannel.channel(forBundleID: "app.whispermaster.macc"), .dev)
+        XCTAssertEqual(
+            ReleaseChannel.channel(forVersion: "1.1.0", bundleID: "app.whispermaster.mac.beta"), .dev)
+        XCTAssertEqual(
+            ReleaseChannel.channel(forVersion: "1.1.0", bundleID: "app.whispermaster.macc"), .dev)
+    }
+
+    /// `release.sh` refuses a beta release whose version lacks the marker, and
+    /// this is the other half of that contract: a marker-less build is stable, so
+    /// a forgotten bump can only ever close the gated surfaces, never open them.
+    func testAMarkerlessVersionIsStableNotBeta() {
+        XCTAssertEqual(ReleaseChannel.channel(forVersion: "1.1.0", bundleID: shipping), .stable)
+        XCTAssertEqual(ReleaseChannel.channel(forVersion: "1.1.0-rc1", bundleID: shipping), .stable)
     }
 
     // MARK: Section availability
@@ -64,5 +89,29 @@ final class ReleaseChannelTests: XCTestCase {
     /// render as "Soon" rather than disappearing, so the roadmap stays visible.
     func testSidebarStillListsAllFourPrimariesWhenGated() {
         XCTAssertEqual(SettingsSection.primary, [.today, .notes, .connectors, .settings])
+    }
+}
+
+/// The per-user half: which appcast items Sparkle is allowed to offer.
+final class BetaAccessChannelTests: XCTestCase {
+
+    func testAFlaggedUserIsAllowedTheBetaChannel() {
+        XCTAssertEqual(BetaAccess.allowedChannels(isBetaUser: true), ["beta"])
+    }
+
+    /// ⚠️ Empty is "stable only", NOT "no updates". Sparkle always offers an item
+    /// carrying no `<sparkle:channel>` and consults the allowed set only for
+    /// tagged ones, so an unflagged user still receives every stable release.
+    /// Read the other way round, this is also why a beta user keeps receiving
+    /// stable releases: their set adds beta, it does not replace the default.
+    func testAnUnflaggedUserGetsTheDefaultChannelOnly() {
+        XCTAssertTrue(BetaAccess.allowedChannels(isBetaUser: false).isEmpty)
+    }
+
+    /// The flag never admits the dev channel. Dev is gated by shipping a separate
+    /// bundle to a separate feed, not by a per-user setting, so a flipped flag
+    /// must not be able to pull a production user onto nightly builds.
+    func testTheFlagNeverAdmitsTheDevChannel() {
+        XCTAssertFalse(BetaAccess.allowedChannels(isBetaUser: true).contains("dev"))
     }
 }
