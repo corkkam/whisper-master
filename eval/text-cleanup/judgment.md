@@ -1,98 +1,71 @@
-# Eval judgment — first run
+# Judgment — S1-mini replaces qwen2.5-3B for cleanup
 
-**Date:** 2026-07-06 · **Cases:** 89 (text) · **Targets:** light, polish · **Model:** qwen2.5-3B-4bit (MLX, real pipeline)
+Run: 2026-08-21. Model under test: **S1-mini by Superwhisper**, 4-bit MLX (335 MB on
+disk), against the outgoing **qwen2.5-3B-Instruct-4bit** (1.5 GB). Both measured
+through the real app (`EvalRunner`), deterministic passes feeding the model, the real
+`CleanupFaithfulnessGuard` vetting the output, scored by `eval-score`.
 
-## Headline
+## Text — 89 cases
 
-Mechanical: **178 runs, 134 pass, 44 fail.** But read the fails carefully — many
-are the guard *correctly* rejecting a bad LLM output and falling back to the
-deterministic text (safe behavior, scored as "fail" only because a `must_contain`
-wasn't met by the raw fallback). The important signal is qualitative, below.
+| pipeline | shipped | median LLM | p90 | size |
+|---|---|---|---|---|
+| deterministic only | 67/89 | 0 ms | 0 ms | — |
+| + qwen2.5-3B | 85/89 | 248 ms | — | 1.5 GB |
+| **+ S1-mini** | **87/89** | **102 ms** | 177 ms | **335 MB** |
 
-**Latency (LLM stage, real):** light median **346 ms** / p90 648 ms; polish
-median **403 ms** / p90 901 ms. Polish costs ~57 ms median, ~250 ms p90 over
-light. Both comfortably sub-second — latency is not the problem.
+`eval-score`: `total 178, pass 174, fail 4` — `light 87/89`, `polish 87/89`,
+attribution `asr 0, cleanup 4`. The four are two distinct cases across both targets:
 
-## Critical finding: polish mode breaks faithfulness
+- **`vocab-acronym`** — "our a p i is getting rate limited" does not become "API".
+  The 3B missed this too.
+- **`corr-name-chain`** — "call john no jane no actually mike". Already documented in
+  `CLAUDE.md` as a known limitation that a small model does not solve; the guard
+  rejects and the deterministic text ships, which is the correct failure mode.
 
-- **`grammar-faithful-question-01`**: "what is the capital of france"
-  → polish: **"The capital of France is Paris."**
-  Polish **answered the question**. This is the one thing cleanup must never do.
-  Light correctly left it unanswered.
-  **Root cause:** the `allowRephrase` guard's novel-content cap (0.5) is too
-  loose here — of {capital, france, paris}, only "paris" is new = 1/3 < 0.5, so
-  it passes. The relaxation I added for polish went too far.
+**Verdict on text: better than the model it replaces, on a quarter the disk and under
+half the latency.** No regression found.
 
-## Polish quality issues
+## Audio — 121 cases (89 TTS + 32 augmented: Bluetooth-HFP, pink noise)
 
-- **`grammar-agreement-01`**: "me and him was gonna go"
-  → polish: **"I and him were going to go"** — grammatically wrong ("I and him";
-  should be "He and I"). Polish tried to fix agreement and got the pronoun wrong.
-- **`grammar-numbers-keep-01`**: → polish: **"The budget is $75,000 for Q3, not
-  $50,000."** Polish **invented** "not $50,000", re-surfacing the value the
-  speaker corrected away.
+`eval-score`: `total 240, pass 122, fail 118`, attribution **`asr 104, cleanup 14`**.
 
-## Where polish genuinely helps
+The headline pass rate is not a cleanup result — 104 of 118 failures are the ASR
+failing on synthetic `say` speech, which is consistent with the standing finding that
+Parakeet is near-perfect on real speech and struggles with noise and HFP. **The 14
+cleanup-attributed failures are three distinct cases**, and none is a regression:
 
-- **`grammar-runon-01`**: run-on → two clean sentences, meaning preserved.
-- **`grammar-tense-01`**: "yesterday i go … i see" → **"Yesterday, I went to the
-  office and saw the new design."** Correct tense; light left this one unchanged.
+1. **`corr-name-chain`** (6 rows: 3 conditions × 2 targets) — the known limitation
+   above. Guard rejects, deterministic ships.
+2. **`real-email`** (6 rows) — asserts `must_not_contain: "um"`, and the ASR emitted
+   **`UM`** in capitals. `FillerWordFilter` spares all-caps tokens **deliberately**
+   ("'ER', 'UM' etc. spoken as initialisms come through all-caps; a real filler never
+   does"). S1-mini then kept it, which is correct behaviour for a normalizer. This is
+   the eval case colliding with an intentional rule, not a defect — **do not "fix" the
+   filter here**, it would break initialism protection.
+3. **`caps-proper`** (2 rows) — the ASR heard "**Sarai**", not "Sarah", and the
+   deterministic text already said Sarai. S1-mini faithfully preserved it. Mis-attributed
+   as cleanup because the single-word WER fell under threshold; it is an ASR miss, and
+   a normalizer that "corrected" a name it had not heard would be the worse outcome.
 
-## Light mode gap
+**Verdict on audio: no cleanup regression attributable to S1-mini.**
 
-- Light often leaves text **unchanged** on grammar/tense inputs (guard rejects
-  the light output, falls back to raw) — e.g. it doesn't even capitalize
-  `grammar-tense-01`. Conservative to a fault on some inputs.
+## Not verified
 
-## Recommendations (next loop round)
+- **The R2 install path.** The archive is published and publicly fetchable
+  (`models/s1-mini-4bit.zip`, 293 MB, `206` on a range request), and `ModelInstaller`
+  resolved the correct URL into `.downloads/index.json` — but the background transfer
+  never started in a five-minute observation window, so unpack-and-install has not been
+  seen end to end. `EvalRunner` cannot cover this: it calls
+  `MlxCleanupService.prepare(configuration:directory:)` and bypasses `ModelInstaller`
+  entirely. **This is the one open item before shipping.**
+- **LibriSpeech WER anchor.** The 322 MB tarball was still downloading when this was
+  written. It measures ASR, not cleanup, so it does not bear on the model swap.
+- **Non-English.** S1-mini is English-only (v1). Parakeet v3 is multilingual. What the
+  normalizer does with non-English input is unknown and untested, and the failure would
+  be silent. Worth gating before Smart cleanup is ever made on-by-default.
 
-1. **Tighten the polish guard** — the novel-content-fraction cap can't catch a
-   short answer like "…is Paris." Add a harder anti-answer rule for polish
-   (e.g. reject any *new proper noun / capitalized entity* not in the input, or
-   detect a question→statement flip). Re-measure `grammar-faithful-question-01`.
-2. **Polish pronoun/agreement errors** ("I and him") are model-level; try a
-   prompt example, or accept that a 3B model makes some.
-3. **Light over-rejection** — investigate why light output is discarded on plain
-   capitalization cases.
+## Recommendation
 
-**Verdict:** the polish ("Polish my English") mode is **not safe to ship as-is** —
-it answers questions. The eval did its job: it turned "something feels off" into
-a specific, reproducible faithfulness break with a named root cause.
-
----
-
-# Audio layer — first full run (141 clips)
-
-**Sources:** 89 TTS (from the text cases), 32 augmented (16 Bluetooth-HFP + 16 pink-noise), 20 LibriSpeech dev-clean (real human, CC BY 4.0). 260 rows.
-
-## ASR accuracy (Parakeet WER by source)
-
-| Source | median WER | mean WER | clean (<15%) |
-|---|---|---|---|
-| **LibriSpeech (real human, clean)** | **0.0%** | **3.4%** | 19/20 |
-| TTS (synthetic) | 8.3% | 19.2% | 50/89 |
-| Bluetooth-HFP sim | 6.7% | 16.3% | 9/15 |
-| Pink noise | 11.8% | 23.5% | 9/16 |
-
-## Conclusion
-
-- **ASR is not the bottleneck in good conditions.** On real clean human speech Parakeet is near-perfect (3.4% mean WER). The earlier "is it Parakeet or the cleanup" question is answered: in clean audio, neither — it hears you fine.
-- **Noise and Bluetooth are the real ASR bottlenecks.** Pink noise pushes mean WER from 3.4% to 23.5%; the Bluetooth-HFP profile to 16.3%. This quantifies the documented "bad mic / noisy room" degradation and the Bluetooth call-mode issue.
-- **TTS is a controlled-coverage tool, not an accuracy measure.** Its mean WER (19.2%) is inflated by synthesis artifacts the real anchor doesn't have — which is exactly why the LibriSpeech anchor matters. Use TTS to exercise specific patterns end-to-end; trust LibriSpeech for the true accuracy number.
-
-## Next
-
-- Wire the WER-by-source table + latency medians into `eval-score` (`Scorer.aggregate`) so it's one command, not ad-hoc Python.
-- Address the deferred `polish` faithfulness break (answers questions) — the guard fix.
-
----
-
-# Leftovers closed
-
-- **`eval-score` aggregate report:** now prints per-target pass rate + latency
-  median/p90 per stage + the asr-vs-cleanup attribution split in one command
-  (was ad-hoc Python). `Scorer.aggregate`, unit-tested.
-- **Polish faithfulness fix (verified):** the anti-answer guard rule ships. Re-run
-  of the real pipeline confirms "what is the capital of france" now stays
-  unanswered under polish (guard rejects "…is Paris", falls back to
-  deterministic). Guard tests: 24 green.
+Adopt. It is better on every axis measured, and the two remaining text failures were
+already failing. Before turning Smart cleanup **on by default** — which 335 MB and
+100 ms otherwise justify — close the install path and decide the non-English question.
