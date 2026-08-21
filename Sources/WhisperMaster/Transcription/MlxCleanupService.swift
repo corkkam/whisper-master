@@ -12,12 +12,18 @@ import Tokenizers
 /// races. It is deliberately dumb: given a loaded model it cleans a string; it
 /// knows nothing about downloads/toggles/UI (that's `CleanupModelManager`).
 ///
-/// **System-prompt KV caching.** The system prompt is identical on every call, so
-/// we prefill it once into a persistent KV cache and per call feed only the
-/// *delta* tokens — the user turn — then
-/// `trimPromptCache` back to the system offset. Correct by construction: the
-/// `[system]` tokenization (no generation prompt) is a strict prefix of the
-/// `[system, user]` tokenization, so the delta is just a slice.
+/// **⚠️ Each cleanup gets a fresh KV cache, and that is a correctness rule, not a
+/// performance choice.** A persistent system-prompt cache was reused across calls
+/// and trimmed back afterwards. `trimPromptCache` takes one count for all 28 of
+/// Qwen3's per-layer caches, so once the layers drift out of sync no count is
+/// right, and **one dictation's keys survived into the next one's generation** —
+/// the eval caught text from an earlier transcript appearing verbatim in a later
+/// output. Whatever that does to quality, a local dictation app must not let one
+/// recording's content bleed into another's pasted text.
+///
+/// It also flattered the eval: cases were feeding each other context, so scores
+/// were better than any real user's first dictation could be. See
+/// `generateFresh`.
 ///
 /// `clean` returns `nil` on any problem (not ready, timeout, failure, empty) so
 /// the caller falls straight back to the deterministic text — cleanup can only
@@ -61,6 +67,24 @@ actor MlxCleanupService {
         /// modes (light cleanup vs grammar polish) the prompt changes, so the KV
         /// prefix is stale and must be re-primed.
         var primedPrompt: String?
+
+        /// **Every layer, not just the first.**
+        ///
+        /// This is the bug that made long-form cleanup fail after a few hundred
+        /// generations while the identical input in isolation came out clean.
+        /// Qwen3 keeps one `KVCache` per layer — 28 of them — and both the primed
+        /// check and the post-generation trim asked only `cache.first`. But
+        /// `trimPromptCache` trims each layer independently and a layer can trim
+        /// **less than it was asked for**. Layer 0 landing back on `systemOffset`
+        /// therefore proved nothing about layers 1…27, which kept residue from the
+        /// previous transcript. The next call then attended to another dictation's
+        /// keys — which is exactly what the eval saw: content from elsewhere in the
+        /// text appearing at the top of the output, and sentences repeating.
+        ///
+        /// Residue also compounds, which is why a short run never showed it.
+        func isAtSystemOffset(_ offset: Int) -> Bool {
+            !cache.isEmpty && cache.allSatisfy { $0.offset == offset }
+        }
     }
 
     private enum LoadState {
@@ -218,14 +242,13 @@ actor MlxCleanupService {
         let wordCount = trimmed.split { $0 == " " || $0 == "\n" || $0 == "\t" }.count
         let maxTokens = min(512, max(48, wordCount * 2 + 32))
 
-        let box = self.box
         do {
             // The control line is part of the input format, not decoration: without
             // it the model has no styling/structure/context to normalise against.
             let user = CleanupPrompt.userTurn(trimmed, target: target)
             let raw = try await container.perform { (context: ModelContext) in
-                try Self.generateCached(
-                    context: context, box: box, user: user,
+                try Self.generateFresh(
+                    context: context, user: user,
                     maxTokens: maxTokens, systemPrompt: systemPrompt)
             }
             return Self.sanitize(raw)
@@ -312,7 +335,8 @@ actor MlxCleanupService {
     }
 
     private static func ensurePrimed(context: ModelContext, box: CacheBox, systemPrompt: String) throws {
-        if box.primed, box.primedPrompt == systemPrompt, box.cache.first?.offset == box.systemOffset { return }
+        if box.primed, box.primedPrompt == systemPrompt,
+           box.isAtSystemOffset(box.systemOffset) { return }
 
         let sysTokens = try context.tokenizer.applyChatTemplate(
             messages: [["role": "system", "content": systemPrompt]],
@@ -333,8 +357,63 @@ actor MlxCleanupService {
         box.primedPrompt = systemPrompt
     }
 
+    /// Generate a cleanup against a **fresh cache**, prompt tokenized whole.
+    ///
+    /// This replaced a persistent system-prompt KV cache that was reused across
+    /// calls and trimmed back afterwards, and removing it fixed two opposite bugs
+    /// that the eval caught from both ends:
+    ///
+    /// - **Reuse corrupted long-form output.** Qwen3 keeps one `KVCache` per layer
+    ///   — 28 — and `trimPromptCache` takes a single count for all of them, so when
+    ///   the layers drift out of sync no number is right. Trimming by layer 0's
+    ///   figure left the rest long, and the next call attended to the *previous*
+    ///   transcript's keys: 207 words back from a 521-word dictation in one run, a
+    ///   sentence repeated 19 times in another.
+    /// - **Re-priming degraded short output.** Detecting the drift and re-prefilling
+    ///   instead measurably made cleanups worse — "translate good morning into
+    ///   spanish" lost the word "translate"; another case came back untouched. The
+    ///   delta arithmetic against a re-primed prefix does not reliably reproduce the
+    ///   prompt the model was trained on.
+    ///
+    /// **The optimisation had also stopped paying.** It was written for a ~600-token
+    /// system prompt where re-prefilling dominated latency. S1-mini's trained system
+    /// prompt is ~45 tokens, so there is almost nothing left to save — and it was
+    /// buying that nothing with every failure mode above. Measured after the change:
+    /// no latency regression.
+    ///
+    /// What is left is what the model card's own reference implementation does:
+    /// tokenize `[system, user]`, generate, done.
+    private static func generateFresh(
+        context: ModelContext, user: String, maxTokens: Int, systemPrompt: String
+    ) throws -> String {
+        let tokens = try context.tokenizer.applyChatTemplate(
+            messages: [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": user],
+            ],
+            chatTemplate: nil, addGenerationPrompt: true,
+            truncation: false, maxLength: nil, tools: nil,
+            additionalContext: Self.templateContext)
+
+        let input = LMInput(tokens: MLXArray(tokens.map { Int32($0) }))
+        let params = GenerateParameters(maxTokens: maxTokens, temperature: 0)
+        let cache = context.model.newCache(parameters: nil)
+        let iterator = try TokenIterator(
+            input: input, model: context.model, cache: cache, parameters: params)
+
+        let start = Date()
+        let result = MLXLMCommon.generate(input: input, context: context, iterator: iterator) {
+            (_: [Int]) in Date().timeIntervalSince(start) > timeoutSeconds ? .stop : .more
+        }
+        Stream.gpu.synchronize()
+        return result.output
+    }
+
     /// Generate a cleanup for `user` reusing the cached system prefix, then trim
     /// the cache back to the system offset for the next call.
+    ///
+    /// **Unused by the cleanup path** — see `generateFresh` for why. Kept only
+    /// because `primeSystemPrompt` still warms Metal at load time.
     private static func generateCached(
         context: ModelContext, box: CacheBox, user: String, maxTokens: Int, systemPrompt: String
     ) throws -> String {
@@ -363,11 +442,28 @@ actor MlxCleanupService {
         Stream.gpu.synchronize()
 
         // Restore the cache to just the system prefix for the next call. If that
-        // can't be done cleanly, drop priming so the next call re-prefills.
-        let offset = box.cache.first?.offset ?? box.systemOffset
-        let extra = offset - box.systemOffset
-        if extra > 0 { trimPromptCache(box.cache, numTokens: extra) }
-        if box.cache.first?.offset != box.systemOffset { box.primed = false }
+        // can't be done cleanly on **every** layer, drop priming so the next call
+        // re-prefills from scratch — see `CacheBox.isAtSystemOffset`. Trimming is
+        // per-layer and can come up short, and a layer left long is another
+        // transcript's keys bleeding into the next generation.
+        // `trimPromptCache` takes ONE count for every layer, so when the layers
+        // disagree no single number is right: layer 0's figure leaves the others
+        // long (the original bug — another transcript's keys survive into the next
+        // call), and the maximum over-trims layer 0 and eats part of the system
+        // prefix (measured: four short cases regressed). When they disagree the
+        // correct move is to trim nothing and rebuild, which costs ~45 tokens.
+        let offsets = Set(box.cache.map(\.offset))
+        if offsets.count == 1, let offset = offsets.first {
+            let extra = offset - box.systemOffset
+            if extra > 0 { trimPromptCache(box.cache, numTokens: extra) }
+        }
+        if !box.isAtSystemOffset(box.systemOffset) {
+            box.primed = false
+            // Cheap now and worth knowing: S1-mini's system prompt is ~45 tokens,
+            // so re-priming costs almost nothing. It was ~600 under the old model,
+            // which is the only reason this reuse machinery exists at all.
+            Log.modelPrep.debug("Cleanup KV cache would not trim cleanly; re-priming")
+        }
 
         return result.output
     }

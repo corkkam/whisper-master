@@ -93,10 +93,11 @@ Verified on the real pipeline: exactly **one** verdict flips against the previou
 run (the 19× loop, now rejected); the other 91 cases are untouched.
 `CHUNK_WORDS=0 bash run-eval.sh` is the control arm.
 
-**Text after the change:** **178/184** — `light 89/92`, `polish 89/92`, attribution
-`asr 0, cleanup 6`. Four are the two long-standing cases (`vocab-acronym`,
-`corr-name-chain`) across both targets. Latency unchanged: light 106 ms median,
-polish 213 ms.
+**Text after the change:** **173/184** — `light 86/92`, `polish 87/92`, attribution
+`asr 0, cleanup 11`. Latency **improved** to 72 ms median on both targets (from
+106 ms light / 213 ms polish), because the cache machinery that was removed cost
+more than it saved. See the two sections below for why this number is lower than
+the runs before it and still the better one.
 
 **The other two are `long-migration-update`, and the red is deliberate.** Its
 keywords were first written so that the deterministic fallback satisfied them,
@@ -114,37 +115,92 @@ uncollapsed forms. Checked against the recorded outputs it separates them exactl
 | 207w, body dropped | fail — missing the opening |
 | 765w, 19× loop | fail — missing the opening |
 
-So the score fell from 180 to 178 because the suite can now see a defect it was
-blind to, not because anything regressed. **It should stay red until the cache
-issue below is fixed** — that is what it is for.
+It now **passes on merit** — 515 of 521 words, opening intact, ending where the
+speaker did — once the cache fix below landed. It was the detector that made that
+fix provable.
 
-**Audio after the change:** 244 rows, `asr 110, cleanup 14` — **the cleanup count is
-identical to the pre-change run**, and the same three cases
-(`real-email`, `corr-name-chain`, `caps-proper`). No regression. Parakeet
-transcribed the full 3.5-minute recording of the long case intact, which is the
-first time the streaming path has been asked for 500 words.
+**Audio after the change:** 244 rows, pass **126** (from 120), attribution
+`asr 108, cleanup 10` — **down from 14**, and LLM latency 70/73 ms from 126/286 ms.
+`real-email` (6 rows) now passes: it was the case where the ASR emitted `UM` in
+capitals and `FillerWordFilter` spares all-caps tokens deliberately, so the
+cache-fed run had been carrying it. What remains is `corr-name-chain` (6, the known
+name-chain limitation), `caps-proper` (2, an ASR miss mis-attributed), and
+`faith-translate` (2, the same real limitation the text run exposes).
 
-### ⚠️ Still open: long-form cleanup degrades in a long-running session
+Parakeet transcribed the full 3.5-minute recording of the long case intact, which
+is the first time the streaming path has been asked for 500 words.
 
-The two full-suite cells above are the finding, not a footnote. **In isolation the
-model cleans this input well (0.95, complete); after ~180 prior generations it
-cannot do it at all** — 207 words in one arm, a 19× loop in the other — and the
-same is true whether or not the input is chunked, so chunking is not the cause.
-Something in the shared system-prompt KV cache (`generateCached`'s
-prime/trim cycle) degrades with use.
+So the fresh cache is better on audio as well as faster — the only place it scores
+lower is the four text cases that were never passing on merit.
 
-The guard changes make this **fail safe** — the deterministic text ships — rather
-than paste a mangled paragraph. They do not fix it. Isolating it means
-instrumenting cache offsets across a long run, and it should be done before Smart
-cleanup is made on-by-default, because "long dictations quietly never get cleaned"
-is the shape it would take in production.
+### Root cause: the KV cache was shared between dictations — fixed
 
-Note also that `long-migration-update` is a **weak detector**: its `must_contain`
-keywords are satisfied by the deterministic fallback too, so it scores green
-whether cleanup works or not. It is useful for reading outputs by hand; it will not
-catch a regression on its own.
+**Found, and it is not only a quality bug.** Qwen3 keeps one `KVCache` per layer
+(28), and `trimPromptCache` takes a **single count for all of them**. Once the
+layers drift out of sync no count is right: trimming by layer 0's figure leaves
+the rest long, so the next generation attends to the **previous transcript's
+keys**. That is what produced the 207-word drop and the 19× loop — and the loop's
+repeated text was content from elsewhere in the input, arriving through the cache.
+
+Trimming by the *maximum* instead over-trims layer 0 and eats the system prefix
+(measured: four short cases regressed). Detecting the drift and re-priming instead
+also degraded output. **There is no setting of this mechanism that is correct**, so
+it is gone: each cleanup now builds a fresh cache and tokenizes `[system, user]`
+whole, which is what S1-mini's own reference implementation does.
+
+The optimisation had also stopped paying. It was written for a ~600-token system
+prompt where re-prefilling dominated latency; S1-mini's trained prompt is ~45
+tokens. Removing it **improved** latency: 72 ms median for both targets, from
+106 ms (light) and 213 ms (polish).
+
+**The reason this is a correctness rule and not a tuning choice:** one recording's
+words were reaching another recording's *pasted text*. For a local-first dictation
+app that is a line that cannot be crossed for any amount of quality.
+
+### ⚠️ And it means these scores were inflated — the honest number is 173/184
+
+The same four short cases were run against the cached path **in isolation**, and
+they degrade to exactly what the fresh path gives:
+
+| case | cached, full suite | cached, isolated | fresh, isolated |
+|---|---|---|---|
+| `faith-translate` | ✅ `Translate "Good morning"…` | ❌ `Good morning into Spanish.` | ❌ same |
+| `edge-mixed` | ✅ `Hey, so the Lyzr demo…` | ❌ input verbatim | ❌ same |
+| `faith-count` | ✅ `Count from one to 5` | ❌ `Count from 1 to 5` | ❌ same |
+
+They only passed **when other cases ran before them**. The suite was feeding itself
+few-shot context through the shared cache, so every number above was measuring a
+condition **no user is ever in** — a person dictating one sentence after launch has
+an empty cache and gets the isolated behaviour.
+
+So `173/184` is not a regression from `178/184`; it is the first honest reading.
+The four are genuine S1-mini limitations at 0.6B that contamination was hiding, and
+they are better carried in the open. Results are now reproducible: identical
+isolated and in-suite.
+
+### Resolved: long-form cleanup after a long session
+
+The symptom that led to the cache: in isolation the model cleaned this input well
+(0.95, complete), but after ~180 prior generations it could not do it at all — 207
+words in one arm, a 19× loop in the other — chunked or not, so chunking was never
+the cause. With the fresh cache it passes **on merit in the full suite**: 515 of
+521 words, opening intact, ending where the speaker did, the `tuesday → thursday`
+correction collapsed, guard accepted.
+
+The guard's long-form band and the chunker both stay. They are independent of the
+cache fix and each catches something it does not: the band is what turns any future
+bad long-form pass into a safe deterministic fallback instead of mangled text, and
+the chunker is what keeps a >390-word output off the 512-token ceiling.
 
 ## Not verified
+
+- ~~**The R2 install path.**~~ **Closed 2026-08-21.** `models/s1-mini-4bit.zip` is on
+  the live bucket and verified end to end: the URL `ModelInstaller` builds returns
+  200 (307 MB), and the SHA-256 re-downloaded from that host matches the pin
+  compiled into `ModelChecksums`. The **published bytes were copied, not re-zipped**
+  — `ditto` embeds timestamps, so a re-zip of identical files hashes differently and
+  would have been rejected as a corrupt download. The account of the original
+  failure is kept below because the failure mode is worth remembering.
 
 - **The R2 install path — cause found, fix needs the live bucket's credentials.**
   The archive was published to the host in the local `.env`
