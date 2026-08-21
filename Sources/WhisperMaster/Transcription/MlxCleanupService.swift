@@ -4,16 +4,17 @@ import MLXLLM
 import MLXLMCommon
 import Tokenizers
 
-/// On-device transcript cleanup using Qwen3-4B-Instruct-2507 via MLX.
+/// On-device transcript cleanup via MLX. Two instances, two models: `shared` is
+/// S1-mini on the dictation hot path, `general` is Qwen3-4B-Instruct-2507 for the
+/// callers that need to tool-call.
 ///
 /// An `actor` so the (large, single) model loads once and is shared without
 /// races. It is deliberately dumb: given a loaded model it cleans a string; it
 /// knows nothing about downloads/toggles/UI (that's `CleanupModelManager`).
 ///
-/// **System-prompt KV caching.** The cleanup system prompt is ~600 tokens and is
-/// identical on every call. Re-prefilling it each time dominates latency, so we
-/// prefill it once into a persistent KV cache (this doubles as Metal-kernel
-/// warmup) and per call feed only the *delta* tokens — the user turn — then
+/// **System-prompt KV caching.** The system prompt is identical on every call, so
+/// we prefill it once into a persistent KV cache and per call feed only the
+/// *delta* tokens — the user turn — then
 /// `trimPromptCache` back to the system offset. Correct by construction: the
 /// `[system]` tokenization (no generation prompt) is a strict prefix of the
 /// `[system, user]` tokenization, so the delta is just a slice.
@@ -159,6 +160,61 @@ actor MlxCleanupService {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
+        // **A long dictation is cleaned in pieces, not truncated.** Past ~390 words
+        // of output the `maxTokens` ceiling below cut the generation mid-sentence,
+        // and the faithfulness guard's 30% floor was far too loose to notice — see
+        // `TranscriptChunker`. Splitting at sentence boundaries keeps every pass in
+        // the range the model was trained for.
+        //
+        // Not for `.email`: that context lays out a greeting, body and sign-off
+        // across the *whole* text, so cleaning it in pieces would produce a greeting
+        // per chunk. An over-long email keeps the single pass it always had.
+        if CleanupPrompt.axes(for: target).2 == .general,
+           TranscriptChunker.needsChunking(trimmed) {
+            return await cleanInPieces(trimmed, systemPrompt: systemPrompt, target: target)
+        }
+
+        return await cleanOnePass(trimmed, systemPrompt: systemPrompt, target: target,
+                                  container: container)
+    }
+
+    /// Clean each piece and rejoin. **A piece that fails keeps its own raw text**
+    /// rather than vanishing: the alternative is silently returning three quarters
+    /// of someone's paragraph, which is the exact failure this path exists to stop.
+    /// The guard upstream still vets the joined result as a whole.
+    private func cleanInPieces(
+        _ text: String, systemPrompt: String, target: CleanupTarget
+    ) async -> String? {
+        guard case .ready(let container) = state else { return nil }
+        let pieces = TranscriptChunker.chunks(text)
+        guard !pieces.isEmpty else { return nil }
+
+        var out: [String] = []
+        var anyCleaned = false
+        for piece in pieces {
+            let cleaned = await cleanOnePass(piece, systemPrompt: systemPrompt,
+                                             target: target, container: container)
+            if let cleaned, !cleaned.isEmpty {
+                anyCleaned = true
+                out.append(cleaned)
+            } else {
+                // S1-mini returns an empty string for filler-only input, which its
+                // card calls a valid result. At chunk scale that is nearly always a
+                // failed pass rather than a genuinely empty paragraph, and keeping
+                // the words is the safe reading of an ambiguous one.
+                out.append(piece)
+            }
+        }
+        // If nothing cleaned, this is a failed run, not a cleanup that changed
+        // nothing — say so, so the caller keeps the deterministic text.
+        guard anyCleaned else { return nil }
+        return out.joined(separator: " ")
+    }
+
+    private func cleanOnePass(
+        _ trimmed: String, systemPrompt: String, target: CleanupTarget,
+        container: ModelContainer
+    ) async -> String? {
         let wordCount = trimmed.split { $0 == " " || $0 == "\n" || $0 == "\t" }.count
         let maxTokens = min(512, max(48, wordCount * 2 + 32))
 
