@@ -72,7 +72,9 @@ the **real** `CleanupFaithfulnessGuard`. The scorer does not re-run the model.
 | Audio glue | `make_audio.sh`, `fetch_librispeech.sh` | TTS + HFP/noise aug + LibriSpeech slice → `.eval-scratch/` (git-ignored). |
 | Pusher | `eval/text-cleanup/push-run.mjs` | `POST /api/eval/ingest`. Needs `EVAL_INGEST_TOKEN`. |
 | History page | landing repo, `app/eval/` + `lib/eval/` | Public reads, token-gated ingest. `lib/eval/scoring.ts` is a TS port of `EvalScoreKit`. |
-| Retired dashboard | `eval/dashboard/` | The old SvelteKit + MongoDB deploy. Still serving `/api/usage` and `/api/notes` for shipped Mac builds; its eval half is dead. |
+| Assistant suite | `eval/text-cleanup/assistant-cases.jsonl` + `App/AgentToolEval.swift` | Shown the tools, does the model call the right one? Two targets: the shipped prompt and native tool calling. |
+| Transcription suite | `eval/text-cleanup/make-transcription-cases.mjs` | The speech model on its own, graded on word error with no cleanup in the loop. |
+| CI | `.github/workflows/eval.yml` | Runs the suites on a clean macOS runner, optionally publishing. |
 | Historical Ollama harness | `run.py`, `guard.py` | Left as history. Do not extend. Do not use for ship decisions. |
 
 `AudioReplayTests` is a **separate** regression bench (committed `paragraph-N.m4a`
@@ -266,19 +268,15 @@ If you see a CoreBluetooth crash at launch: you exec’d the binary. Use `open`.
 
 Public history: **[whisper.corkkam.com/eval](https://whisper.corkkam.com/eval)**, served by
 the landing site (`../whisper-master-landing-page`, route `app/eval/`, data in
-`lib/eval/` on Supabase). It used to be its own SvelteKit deploy on a separate
-Vercel account backed by MongoDB Atlas; that app still exists at
-`eval/dashboard/` and is still up, because shipped Mac builds hardcode it as
-the sync base URL for `/api/usage` and `/api/notes`. **Its eval half is
-retired** — do not push runs to it, and do not add features to it.
+`lib/eval/` on Supabase).
 
-**Every stable and beta release grades itself.** `Scripts/release.sh` runs the
-text suite against the bundle it just built and publishes the scores tagged with
-the version and channel, so `/eval` can answer "how did 1.1.0-beta.9 score". It
-runs last and never fails the release; `RUN_EVAL=0` skips it, `EVAL_REQUIRED=1`
-makes it a gate, and the `dev` channel is off by default. Note that it quits and
-relaunches the app it grades — on a local stable release that is your daily
-driver. See the `releasing` skill.
+The old SvelteKit dashboard that used to live at `eval/dashboard/` **has been
+deleted**. Its eval half moved here; its `/api/usage` and `/api/notes` routes
+moved to the landing site, and `UsageSyncConfig` / `NotesSyncConfig` now point
+at `whisper.corkkam.com`. The Vercel project at `whisper-eval-dashboard.vercel.app`
+still has to stay deployed until 1.1.0-beta.7 and .8 age out, because those
+builds have the old URL compiled into them; nothing in this repo depends on it
+any more.
 
 A run is published by `run-eval.sh`, or by hand:
 

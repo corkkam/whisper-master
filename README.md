@@ -10,7 +10,7 @@ Hold a key, talk, and clean formatted text lands wherever your cursor is — tra
 ![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-211c15)
 ![Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-c0381a)
 ![On-device](https://img.shields.io/badge/transcription-100%25%20on--device-3c7a4e)
-[![Eval dashboard](https://img.shields.io/badge/eval-dashboard-c0381a)](https://whisper-eval-dashboard.vercel.app)
+[![Eval](https://img.shields.io/badge/eval-published-c0381a)](https://whisper.corkkam.com/eval)
 [![Site](https://img.shields.io/badge/whispermaster.app-211c15)](https://whispermaster.app)
 
 </div>
@@ -76,9 +76,9 @@ Every change is graded against the **real shipped pipeline**, not a proxy, on re
 
 The weak numbers are published on purpose. **Quote all three or none** — quoting 3.4% alone is the fastest way to lose the trust the whole product rests on.
 
-**Live dashboard: [whisper-eval-dashboard.vercel.app](https://whisper-eval-dashboard.vercel.app)**
+**Published runs: [whisper.corkkam.com/eval](https://whisper.corkkam.com/eval)**
 
-The harness is in [`eval/`](eval/) and the dashboard is a SvelteKit + Prisma + MongoDB app in [`eval/dashboard/`](eval/dashboard/).
+The harness is in [`eval/`](eval/); the page that publishes the runs lives in the landing-page repo (`app/eval/`, `lib/eval/`) and reads Supabase. Every stable and beta release grades itself and posts its score there.
 
 ## Build and develop
 

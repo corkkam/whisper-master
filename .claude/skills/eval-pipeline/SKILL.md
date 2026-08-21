@@ -92,11 +92,14 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
     `launchctl setenv` + `open`, waits for `results.json`, pushes; `DASHBOARD_URL`
     retargets, `NO_PUSH=1` skips). `eval/text-cleanup/push-run.mjs` is the manual
     equivalent.
-  - **The old SvelteKit dashboard (`eval/dashboard/`) is retired for eval.** It is
-    still deployed at `whisper-eval-dashboard.vercel.app` and must stay up:
-    shipped Mac builds hardcode it as the base URL for `/api/usage` and
-    `/api/notes` (`Usage/UsageSyncConfig.swift`, `Notes/NotesSyncConfig.swift`).
-    It is on a **different Vercel account**, so its Mongo `DATABASE_URL` cannot be
-    read with the CLI on this machine — which is why the history was moved to
-    Supabase rather than re-pointed at Atlas. Do not push runs there; do not add
-    features there.
+  - **The old SvelteKit dashboard is gone from this repo.** `eval/dashboard/`
+    was deleted once `/api/usage` and `/api/notes` moved to the landing site and
+    `UsageSyncConfig` / `NotesSyncConfig` were repointed at
+    `whisper.corkkam.com`. The Vercel project at
+    `whisper-eval-dashboard.vercel.app` **must stay deployed** until 1.1.0-beta.7
+    and .8 age out, because those builds have the old URL compiled in. Its next
+    auto-deploy from `dev` will fail with the directory missing, which is
+    harmless — Vercel keeps serving the last successful deployment — but the
+    tidy fix is to disconnect that project's Git integration. It is on a
+    **different Vercel account**, so nothing on this machine can do that or read
+    its env.
