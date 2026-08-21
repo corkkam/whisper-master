@@ -62,13 +62,30 @@ the cleanup model only, and the ASR anchor did not move.
 
 ## Not verified
 
-- **The R2 install path.** The archive is published and publicly fetchable
-  (`models/s1-mini-4bit.zip`, 293 MB, `206` on a range request), and `ModelInstaller`
-  resolved the correct URL into `.downloads/index.json` — but the background transfer
-  never started in a five-minute observation window, so unpack-and-install has not been
-  seen end to end. `EvalRunner` cannot cover this: it calls
+- **The R2 install path — cause found, fix needs the live bucket's credentials.**
+  The archive was published to the host in the local `.env`
+  (`R2_PUBLIC_BASE_URL=https://model.scoopscore.in`), but `.env` is **stale**: commit
+  `293fe4c` moved every artifact to `dl.corkkam.com`, which is what
+  `ModelInstaller.mirrorBaseURL` compiles in. So the app asks
+  `dl.corkkam.com/models/s1-mini-4bit.zip` and gets a **404** — which is exactly why the
+  transfer observed here never started. The two are different buckets, not two domains
+  on one: the legacy bucket holds `s1-mini-4bit.zip` and `parakeet-tdt-0.6b-v3.zip`, the
+  live one holds `Qwen3-4B-Instruct-2507-4bit.zip`. Only the legacy bucket's credentials
+  are in `.env`, so the copy cannot be done from this machine.
+
+  **To close it:** copy `models/s1-mini-4bit.zip` from the legacy bucket to the live one
+  **byte-for-byte** (do not re-zip — `ditto` embeds timestamps, so identical files
+  produce a different hash), then update `R2_PUBLIC_BASE_URL` in `.env`. The SHA-256 of
+  the hosted object is already pinned in `ModelChecksums`
+  (`517d5091f6c5ac8c8af9a67f1cece60f9cf9899560652e38ba5ca4f788bc17aa`), which it was not
+  before — an unpinned archive installs through the safety valve, unverified.
+
+  Until the copy lands, Smart cleanup falls through to the **loud** HuggingFace path and
+  fetches `superwhisper/s1-mini` as BF16 (≈1.2 GB) rather than our 4-bit conversion: it
+  works, but it is neither the size nor the model these numbers were measured on.
+  `EvalRunner` cannot cover any of this — it calls
   `MlxCleanupService.prepare(configuration:directory:)` and bypasses `ModelInstaller`
-  entirely. **This is the one open item before shipping.**
+  entirely, which is why a 404 mirror survived a full eval run.
 - **Non-English.** S1-mini is English-only (v1). Parakeet v3 is multilingual. What the
   normalizer does with non-English input is unknown and untested, and the failure would
   be silent. Worth gating before Smart cleanup is ever made on-by-default.

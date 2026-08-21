@@ -33,6 +33,21 @@ show for it**. Both `AgentLoop.liveGenerator()` and `liveNativeGenerator()` go t
 `prepareGeneralIfInstalled()`, which loads the general model **only when it is already
 on disk and never downloads it**.
 
+**The assistant model has its own install, with two triggers and neither is launch**
+(`AssistantModelManager`). Splitting the models split the *download* too: Smart cleanup
+now fetches a 335 MB normalizer, so without this nothing ever fetched the 2 GB
+tool-caller and every install silently ran the assistant on the keyword gate. It is
+fetched on the **first use of the chord** (the `connectorAgentEnabled` toggle is the
+permission; the capture in flight is never made to wait on it and still takes the
+deterministic path) or from the **Settings button**. `AssistantModelManager.Policy` is
+pure so the rule is tested without a 2 GB download; one fetch per launch, and a failure
+is retried only from Settings, never from the next spoken command.
+
+**⚠️ `assistantModelReady` is not `cleanupModelReady`.** The Settings hint used to read
+the latter, which was right only while the two jobs shared one model — after the split
+it cleared the "not on this Mac" warning the moment S1-mini loaded and claimed a model
+that had never been downloaded. `AssistantModelTests` locks the separation.
+
 **S1-mini's format is exact and every integration bug traces to it**: the system prompt
 is the trained string (not a prompt to tune), the user turn opens with a
 `[Styling: …] [Structure: …] [Context: …]` control line, and **`enable_thinking` must be
