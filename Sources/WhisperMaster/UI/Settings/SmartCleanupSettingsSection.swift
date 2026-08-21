@@ -11,20 +11,25 @@ struct SmartCleanupSettingsSection: View {
     @Bindable var state: AppState
 
     var body: some View {
+        // dev's container (the card wrapper moved out to the caller); this
+        // branch's copy, because the model underneath changed.
         Group {
+            // **The name is a licence term, not a flourish.** S1-mini is Apache 2.0
+            // plus one condition: wherever it is used it keeps the name "S1-mini by
+            // Superwhisper", with that capitalization. Don't shorten it here.
             SettingsRow("Smart cleanup",
-                        subtitle: "A local model tidies how you talk. \"three no wait four\" becomes \"four\". About 2.3 GB; nothing leaves your Mac.") {
+                        subtitle: "A local model tidies how you talk, using S1-mini by Superwhisper. \u{201C}three no wait four\u{201D} becomes \u{201C}four\u{201D}. About 300 MB; nothing leaves your Mac.") {
                 ThemeToggle(isOn: $state.llmCleanupEnabled)
             }
 
             if state.llmCleanupEnabled {
                 RowDivider()
-                // The tag, not a word at the end of the subtitle: "Experimental."
-                // as the last sentence of four lines was read by nobody, and this
-                // is the one toggle here that can drop a word.
-                SettingsRow("Polish my English",
-                            tag: "Experimental",
-                            subtitle: "Rewrites your dictation into clear English. Facts, names, and numbers stay exact.") {
+                // No longer promises a rewrite: S1-mini normalises, it does not
+                // restructure sentences the way a general instruct model tried to.
+                // Claiming a rewrite it will not perform is worse than the smaller
+                // promise, so the name changed with the model.
+                SettingsRow("Formal styling",
+                            subtitle: "Cleans up towards formal writing rather than everyday speech. Your words, facts, names, and numbers stay exact.") {
                     ThemeToggle(isOn: $state.llmGrammarPolishEnabled)
                 }
                 RowDivider()

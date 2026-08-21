@@ -32,6 +32,34 @@ fi
 : "${R2_ENDPOINT:?missing in .env}"
 : "${R2_PUBLIC_BASE_URL:?missing in .env}"
 
+# --- The host you upload to must be the host the app reads ---
+#
+# CLAUDE.md says the public host lives in four places that must move together.
+# Nothing enforced it, and the drift is silent in the worst way: the credentials
+# and R2_PUBLIC_BASE_URL point at one bucket while the shipped binary reads
+# another, so an upload "succeeds" and the artifact is a 404 to every user. That
+# is exactly how s1-mini-4bit came to be published where the app never looks —
+# a stale .env survived the move to dl.corkkam.com.
+#
+# ModelInstaller is the source of truth because it is compiled into the bundle.
+_app_host="$(sed -n 's|.*"https://\([^/"]*\)/models".*|\1|p' \
+    Sources/WhisperMaster/ModelInstall/ModelInstaller.swift | head -1)"
+_env_host="${R2_PUBLIC_BASE_URL#*://}"; _env_host="${_env_host%%/*}"
+if [[ -n "$_app_host" && "$_app_host" != "$_env_host" ]]; then
+    cat >&2 <<EOF
+error: R2 host mismatch — this upload would go somewhere the app never reads.
+
+  R2_PUBLIC_BASE_URL : $_env_host   (where this script uploads)
+  ModelInstaller.swift: $_app_host   (where the shipped app downloads)
+
+Fix by pointing R2_PUBLIC_BASE_URL *and* the R2_* credentials at $_app_host,
+or by moving the app's host — Scripts/channel.sh, Auth/BetaAccess.swift and
+ModelInstall/ModelInstaller.swift together, after copying models/ across.
+Override for a deliberate one-off with ALLOW_HOST_MISMATCH=1.
+EOF
+    [[ "${ALLOW_HOST_MISMATCH:-0}" == "1" ]] || exit 1
+fi
+
 # --- Tools ---
 command -v rclone >/dev/null || { echo "error: rclone not installed (brew install rclone)" >&2; exit 1; }
 
@@ -238,3 +266,53 @@ echo ""
 echo "Released $VERSION on the $CHANNEL channel:"
 echo "  appcast: ${R2_PUBLIC_BASE_URL%/}/$CH_APPCAST_NAME"
 echo "  archive: ${R2_PUBLIC_BASE_URL%/}/$(basename "$ZIP")"
+
+# --- Grade this build, and publish the score against the version ---
+#
+# Launches the bundle we just built with WM_EVAL_CASES set, pushes every case
+# through the real shipped cleanup pipeline, and posts the scores to
+# whisper.corkkam.com/eval tagged with $VERSION and $CHANNEL. Doing it here
+# rather than by hand is the whole point: "how did 1.1.0-beta.9 score" only has
+# an answer if something records it at release time.
+#
+# Deliberately LAST and deliberately non-fatal. Everything above is already
+# published, and in CI the DMG, the What's New manifest, the announcement and
+# the release tag all come after this script. A flaky twenty-minute eval must
+# not be able to skip any of them. Set EVAL_REQUIRED=1 to make it a gate.
+#
+# On by default for stable and beta, off for dev: dev ships on every version
+# bump to the dev branch, and a score per internal build is noise on a public
+# page. RUN_EVAL=0 / RUN_EVAL=1 overrides either way.
+#
+# Text suite only. The audio suite needs ffmpeg, a TTS pass and a LibriSpeech
+# download, none of which belong in a release; run that one by hand against
+# .eval-scratch/audio_cases.jsonl. EVAL_CASES overrides.
+#
+# LOCAL RUNS: this quits and relaunches the app it grades. Cutting a stable
+# release from your own machine therefore takes your daily driver down for the
+# length of the run. RUN_EVAL=0 if you would rather it did not.
+case "$CHANNEL" in
+    stable|beta) EVAL_DEFAULT=1 ;;
+    *)           EVAL_DEFAULT=0 ;;
+esac
+
+if [[ "${RUN_EVAL:-$EVAL_DEFAULT}" == "1" ]]; then
+    echo ""
+    echo ">> Grading $VERSION ($CHANNEL) — this loads the cleanup model and runs every case"
+    if EVAL_VERSION="$VERSION" EVAL_CHANNEL="$CHANNEL" APP="$APP_PATH" \
+        bash eval/text-cleanup/run-eval.sh \
+            "${EVAL_CASES:-eval/text-cleanup/cases.jsonl}" \
+            "$VERSION ($CHANNEL)"; then
+        echo ">> Score published: https://whisper.corkkam.com/eval"
+    elif [[ -n "${EVAL_REQUIRED:-}" ]]; then
+        echo "error: the eval failed and EVAL_REQUIRED is set." >&2
+        exit 1
+    else
+        echo ">> WARNING: the eval did not finish. $VERSION is released and published;" >&2
+        echo "   it just carries no score on /eval. Re-run it by hand:" >&2
+        echo "     EVAL_VERSION=$VERSION EVAL_CHANNEL=$CHANNEL APP=\"$APP_PATH\" \\" >&2
+        echo "       bash eval/text-cleanup/run-eval.sh" >&2
+    fi
+else
+    echo ">> RUN_EVAL=0 — skipping the eval. $VERSION will carry no score on /eval."
+fi

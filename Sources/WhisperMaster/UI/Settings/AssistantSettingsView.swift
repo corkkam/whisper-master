@@ -38,7 +38,7 @@ struct AssistantSettingsView: View {
             SettingsCard {
                 SettingsRow(
                     "Let it use your connectors",
-                    subtitle: "The assistant can read anything you have connected. Runs on-device; writes still ask you first."
+                    subtitle: "The assistant can read anything you have connected. Runs on-device, on a larger model than Smart cleanup uses; writes still ask you first."
                 ) {
                     ThemeToggle(isOn: $state.connectorAgentEnabled, label: "Connector assistant")
                         .disabled(isSnapshot)
@@ -53,28 +53,83 @@ struct AssistantSettingsView: View {
                             .font(Typography.subheadline)
                             .foregroundStyle(Theme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
-                        if !state.cleanupModelReady {
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 11.5, weight: .semibold))
-                                    .foregroundStyle(Theme.warning)
-                                Text("The model isn't downloaded yet — turn on Smart cleanup to fetch it.")
-                                    .font(Typography.caption)
-                                    .foregroundStyle(Theme.textSecondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 9)
-                            .background(
-                                RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                                    .fill(Theme.warningSoft))
-                        }
+                        modelStatus
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 12)
                 }
             }
+    }
+
+    // MARK: - The assistant's model
+
+    /// Whether the model behind the chord is actually on this Mac.
+    ///
+    /// **This reads the assistant model's own state, and that is the point.** It
+    /// used to key off `cleanupModelReady`, which was correct only while cleanup
+    /// and tool calling shared one model. They don't any more — Smart cleanup now
+    /// fetches a 335 MB normalizer that cannot tool-call — so the old test cleared
+    /// this warning the moment cleanup was ready and claimed the assistant was
+    /// present when nothing had ever downloaded it.
+    ///
+    /// The button is the second of the model's two triggers (the first is using the
+    /// chord). Nothing on this page downloads on appearance.
+    @ViewBuilder
+    private var modelStatus: some View {
+        if let download = state.assistantModelDownload {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(download.detail)
+                    Spacer()
+                    Text("\(Int(download.fractionCompleted * 100))%")
+                }
+                .font(Typography.caption)
+                .foregroundStyle(Theme.textSecondary)
+                ProgressView(value: download.fractionCompleted)
+                    .tint(Theme.accent)
+            }
+        } else if state.assistantModelReady {
+            HStack(spacing: 8) {
+                StatusDot(color: Theme.success, size: 7)
+                Text("Assistant model ready")
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer(minLength: 0)
+            }
+        } else {
+            notInstalledNote
+        }
+    }
+
+    private var notInstalledNote: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(Theme.warning)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(state.assistantModelFailed
+                    ? "The assistant model couldn\u{2019}t be downloaded. Until it\u{2019}s here, "
+                        + "your words still land \u{2014} they just take the plain path."
+                    : "The assistant model isn\u{2019}t on this Mac yet. It arrives the first "
+                        + "time you use the chord, or you can fetch it now \u{2014} about 2 GB, "
+                        + "once.")
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !isSnapshot {
+                    Button(state.assistantModelFailed ? "Retry" : "Download now") {
+                        state.assistantModelDownloadRequested = true
+                    }
+                    .textButton()
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
+                .fill(Theme.warningSoft))
     }
 
     // MARK: - Reading answers aloud

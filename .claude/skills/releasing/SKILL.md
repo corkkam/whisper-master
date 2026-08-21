@@ -113,6 +113,15 @@ A "release" = put a newer, EdDSA-signed `.zip` + an updated `appcast.xml` on R2;
 
 **What a tester sees:** their installed app's Sparkle polls `SUFeedURL`, sees a higher `CFBundleVersion`, downloads the signed zip, swaps the app in place, and relaunches — no reinstall. Builds are now **Developer ID-signed and notarized**, so first-ever installs open without any Gatekeeper warning — the `xattr -dr com.apple.quarantine` step is no longer needed.
 
+**Every stable and beta release grades itself.** After the upload, `release.sh` launches the bundle it just built with the eval runner armed, runs the text suite through the real cleanup pipeline, and publishes the scores to **https://whisper.corkkam.com/eval** tagged with the version and channel — so the public page can answer "how did 1.1.0-beta.9 score". Four things worth knowing before you cut one:
+
+- **It is last and it cannot fail the release.** By the time it runs the archive, the appcast and (in CI) everything after `release.sh` are already published or still to come, and a flaky twenty-minute eval must not be able to skip the DMG, the What's New manifest or the release tag. A failure prints a warning and the re-run command. `EVAL_REQUIRED=1` turns it into a gate; `RUN_EVAL=0` skips it.
+- **`dev` is off by default.** dev ships on every version bump to the `dev` branch, and a score per internal build is noise on a public page. In CI, `RUN_EVAL` is `1` only on `main`.
+- **It quits and relaunches the app it grades.** The runner reads its config from the environment at launch, so there is no way round this. Cutting a **stable release from your own machine** therefore takes your daily driver down for the length of the run — `RUN_EVAL=0` if that is not acceptable right now.
+- **In CI it is not free.** The runner downloads the ~2 GB cleanup model onto a fresh macOS runner, then runs 89 cases twice. Reckon on ten extra macOS-runner minutes per stable release, billed at 10x.
+
+It needs `EVAL_INGEST_TOKEN`: a GitHub Actions secret on this repo for CI, and a line in `.env` for a local or beta release. Without it the ingest route refuses the upload and the release still succeeds, unscored. Text suite only — the audio suite needs ffmpeg, a TTS pass and a LibriSpeech download, so run that one by hand.
+
 ### Release announcements (Telegram) — the commit message IS the post
 
 After a successful CI release, `Scripts/notify-telegram.py` (final step in `release.yml`) posts to the Telegram group `Corkkam.com` (chat id stored in the `TELEGRAM_CHAT_ID` secret; bot token in `TELEGRAM_BOT_TOKEN`) **and attaches the built app zip** (`build/sparkle/WhisperMaster-<version>.zip` — the Sparkle archive, i.e. the actual `.app`, not a DMG) so people download it straight from the group. **No LLM is involved** — the announcement text is taken verbatim from the release commit message, so write that message as finished, post-ready copy:

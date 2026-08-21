@@ -10,7 +10,11 @@ import Foundation
 /// caller falls back to FluidAudio's own HuggingFace download.
 enum ModelInstaller {
     /// Public R2 base holding `<archiveName>.zip` for each model.
-    private static let mirrorBaseURL = URL(
+    ///
+    /// Not `private`, so `DistributionHostTests` can hold this and the Sparkle feed
+    /// host together — they must name the same bucket, and when they didn't, model
+    /// archives 404'd with nothing anywhere reporting it.
+    static let mirrorBaseURL = URL(
         string: "https://dl.corkkam.com/models"
     )!
 

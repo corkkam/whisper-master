@@ -118,11 +118,11 @@ is not loaded:
 - **Bump both** `CFBundleShortVersionString` **and** `CFBundleVersion` in
   `Resources/Info.plist` before a manual release, or Sparkle won't see it as newer.
 - **⚠️ The public R2 host is baked into shipped bundles in three places** —
-  `Resources/Info.plist` (`SUFeedURL`, what stable *and* beta poll),
-  `Scripts/channel.sh` (`CH_SU_FEED_URL`, which overrides it for `dev`),
-  `ModelInstall/ModelInstaller.swift` (`mirrorBaseURL`) — plus
-  `R2_PUBLIC_BASE_URL` in `.env`. (`Auth/BetaAccess.swift` was a fourth until the
-  feed override was replaced by `allowedChannelsForUpdater:`.) Change hosts only by
+  `Scripts/channel.sh` (`CH_SU_FEED_URL`), `Auth/BetaAccess.swift`
+  (`UpdateChannel.feedURLString`), `ModelInstall/ModelInstaller.swift`
+  (`mirrorBaseURL`) — plus `Resources/Info.plist`'s `SUFeedURL`, which is what
+  Sparkle actually reads for stable and beta, and `R2_PUBLIC_BASE_URL` in `.env`.
+  `DistributionHostTests` locks the two compiled-in ones together. Change hosts only by
   editing all four together **and** copying `models/` to the new bucket first; an
   empty `models/` prefix silently degrades every user to the slow HuggingFace path.
 - **Never commit directly to `main`** — it only receives merges from `release/*`
@@ -206,6 +206,7 @@ sum ("one two three" is a spoken sequence, not 6); and don't lower the track's
 the text that actually gets pasted from those same windows. The second
 short-window "preview" manager that used to paint the notch was **removed on
 purpose**; don't reintroduce it.
+
 
 ### Reading answers aloud (`Speech/`)
 

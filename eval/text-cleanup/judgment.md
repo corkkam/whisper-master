@@ -1,98 +1,244 @@
-# Eval judgment — first run
+# Judgment — S1-mini replaces qwen2.5-3B for cleanup
 
-**Date:** 2026-07-06 · **Cases:** 89 (text) · **Targets:** light, polish · **Model:** qwen2.5-3B-4bit (MLX, real pipeline)
+Run: 2026-08-21. Model under test: **S1-mini by Superwhisper**, 4-bit MLX (335 MB on
+disk), against the outgoing **qwen2.5-3B-Instruct-4bit** (1.5 GB). Both measured
+through the real app (`EvalRunner`), deterministic passes feeding the model, the real
+`CleanupFaithfulnessGuard` vetting the output, scored by `eval-score`.
 
-## Headline
+## Text — 89 cases
 
-Mechanical: **178 runs, 134 pass, 44 fail.** But read the fails carefully — many
-are the guard *correctly* rejecting a bad LLM output and falling back to the
-deterministic text (safe behavior, scored as "fail" only because a `must_contain`
-wasn't met by the raw fallback). The important signal is qualitative, below.
+| pipeline | shipped | median LLM | p90 | size |
+|---|---|---|---|---|
+| deterministic only | 67/89 | 0 ms | 0 ms | — |
+| + qwen2.5-3B | 85/89 | 248 ms | — | 1.5 GB |
+| **+ S1-mini** | **87/89** | **102 ms** | 177 ms | **335 MB** |
 
-**Latency (LLM stage, real):** light median **346 ms** / p90 648 ms; polish
-median **403 ms** / p90 901 ms. Polish costs ~57 ms median, ~250 ms p90 over
-light. Both comfortably sub-second — latency is not the problem.
+`eval-score`: `total 178, pass 174, fail 4` — `light 87/89`, `polish 87/89`,
+attribution `asr 0, cleanup 4`. The four are two distinct cases across both targets:
 
-## Critical finding: polish mode breaks faithfulness
+- **`vocab-acronym`** — "our a p i is getting rate limited" does not become "API".
+  The 3B missed this too.
+- **`corr-name-chain`** — "call john no jane no actually mike". Already documented in
+  `CLAUDE.md` as a known limitation that a small model does not solve; the guard
+  rejects and the deterministic text ships, which is the correct failure mode.
 
-- **`grammar-faithful-question-01`**: "what is the capital of france"
-  → polish: **"The capital of France is Paris."**
-  Polish **answered the question**. This is the one thing cleanup must never do.
-  Light correctly left it unanswered.
-  **Root cause:** the `allowRephrase` guard's novel-content cap (0.5) is too
-  loose here — of {capital, france, paris}, only "paris" is new = 1/3 < 0.5, so
-  it passes. The relaxation I added for polish went too far.
+**Verdict on text: better than the model it replaces, on a quarter the disk and under
+half the latency.** No regression found.
 
-## Polish quality issues
+## Audio — 121 cases (89 TTS + 32 augmented: Bluetooth-HFP, pink noise)
 
-- **`grammar-agreement-01`**: "me and him was gonna go"
-  → polish: **"I and him were going to go"** — grammatically wrong ("I and him";
-  should be "He and I"). Polish tried to fix agreement and got the pronoun wrong.
-- **`grammar-numbers-keep-01`**: → polish: **"The budget is $75,000 for Q3, not
-  $50,000."** Polish **invented** "not $50,000", re-surfacing the value the
-  speaker corrected away.
+`eval-score`: `total 240, pass 122, fail 118`, attribution **`asr 104, cleanup 14`**.
 
-## Where polish genuinely helps
+The headline pass rate is not a cleanup result — 104 of 118 failures are the ASR
+failing on synthetic `say` speech, which is consistent with the standing finding that
+Parakeet is near-perfect on real speech and struggles with noise and HFP. **The 14
+cleanup-attributed failures are three distinct cases**, and none is a regression:
 
-- **`grammar-runon-01`**: run-on → two clean sentences, meaning preserved.
-- **`grammar-tense-01`**: "yesterday i go … i see" → **"Yesterday, I went to the
-  office and saw the new design."** Correct tense; light left this one unchanged.
+1. **`corr-name-chain`** (6 rows: 3 conditions × 2 targets) — the known limitation
+   above. Guard rejects, deterministic ships.
+2. **`real-email`** (6 rows) — asserts `must_not_contain: "um"`, and the ASR emitted
+   **`UM`** in capitals. `FillerWordFilter` spares all-caps tokens **deliberately**
+   ("'ER', 'UM' etc. spoken as initialisms come through all-caps; a real filler never
+   does"). S1-mini then kept it, which is correct behaviour for a normalizer. This is
+   the eval case colliding with an intentional rule, not a defect — **do not "fix" the
+   filter here**, it would break initialism protection.
+3. **`caps-proper`** (2 rows) — the ASR heard "**Sarai**", not "Sarah", and the
+   deterministic text already said Sarai. S1-mini faithfully preserved it. Mis-attributed
+   as cleanup because the single-word WER fell under threshold; it is an ASR miss, and
+   a normalizer that "corrected" a name it had not heard would be the worse outcome.
 
-## Light mode gap
+**Verdict on audio: no cleanup regression attributable to S1-mini.**
 
-- Light often leaves text **unchanged** on grammar/tense inputs (guard rejects
-  the light output, falls back to raw) — e.g. it doesn't even capitalize
-  `grammar-tense-01`. Conservative to a fault on some inputs.
+## LibriSpeech — 20 clips of real human speech (dev-clean, CC BY 4.0)
 
-## Recommendations (next loop round)
+`eval-score`: `total 20, pass 19, fail 1`, attribution **`asr 1, cleanup 0`**. The one
+failure is a 40% WER clip; every cleanup pass held.
 
-1. **Tighten the polish guard** — the novel-content-fraction cap can't catch a
-   short answer like "…is Paris." Add a harder anti-answer rule for polish
-   (e.g. reject any *new proper noun / capitalized entity* not in the input, or
-   detect a question→statement flip). Re-measure `grammar-faithful-question-01`.
-2. **Polish pronoun/agreement errors** ("I and him") are model-level; try a
-   prompt example, or accept that a 3B model makes some.
-3. **Light over-rejection** — investigate why light output is discarded on plain
-   capitalization cases.
+Mean WER **3.4%**, median **0.0%**, 15/20 under 5% — **identical to the figure on
+record before this change**, which is the check that matters here: the swap touched
+the cleanup model only, and the ASR anchor did not move.
 
-**Verdict:** the polish ("Polish my English") mode is **not safe to ship as-is** —
-it answers questions. The eval did its job: it turned "something feels off" into
-a specific, reproducible faithfulness break with a named root cause.
+**Verdict on real speech: zero cleanup failures.**
 
----
+## Long-form: a truncation, and a guard that could not see it
 
-# Audio layer — first full run (141 clips)
+Run: 2026-08-21, after the S1-mini adoption. A 525-word case
+(`long-migration-update`) was added because nothing in the suite was long enough to
+exercise the generation ceiling — the longest existing case is ~120 words.
 
-**Sources:** 89 TTS (from the text cases), 32 augmented (16 Bluetooth-HFP + 16 pink-noise), 20 LibriSpeech dev-clean (real human, CC BY 4.0). 260 rows.
+`MlxCleanupService` caps a generation at 512 tokens against a runaway decode. At
+~1.3 English tokens per word that is ~390 words of output. The same input was run
+four ways:
 
-## ASR accuracy (Parakeet WER by source)
+| arm | out | ratio | old verdict | what it was |
+|---|---|---|---|---|
+| isolated, unchunked | 437w | 0.84 | **accepted** | stops on the word "We" |
+| isolated, chunked | 496w | 0.95 | accepted | ends where the speaker did |
+| full suite, unchunked | 207w | 0.40 | **accepted** | three fifths gone |
+| full suite, chunked | 765w | 1.47 | **accepted** | one sentence, 19 times |
 
-| Source | median WER | mean WER | clean (<15%) |
+**The truncation is real and the chunker fixes it** — in isolation, 0.84 cut
+mid-sentence becomes 0.95 complete, for ~300 ms. But the guard accepted every bad
+output, which is the more serious finding: `minRetentionRatio` 0.30 and
+`rephraseMaxExpansionRatio` 2.0 were tuned on six-word utterances, where a faithful
+cleanup really can halve or double the count. They have no business judging 500 words.
+
+Long inputs (≥120 words) now get 0.75 retention and 1.25 expansion. The
+mid-sentence cut gets a **separate verdict** (`.cutOff`) rather than a tighter
+floor, because 0.84 and 0.95 are too close for any ratio to separate — what makes
+one wrong is *where it stops*. That test self-calibrates against S1-mini's casual
+registers, which omit the final period deliberately.
+
+Verified on the real pipeline: exactly **one** verdict flips against the previous
+run (the 19× loop, now rejected); the other 91 cases are untouched.
+`CHUNK_WORDS=0 bash run-eval.sh` is the control arm.
+
+**Text after the change:** **173/184** — `light 86/92`, `polish 87/92`, attribution
+`asr 0, cleanup 11`. Latency **improved** to 72 ms median on both targets (from
+106 ms light / 213 ms polish), because the cache machinery that was removed cost
+more than it saved. See the two sections below for why this number is lower than
+the runs before it and still the better one.
+
+**The other two are `long-migration-update`, and the red is deliberate.** Its
+keywords were first written so that the deterministic fallback satisfied them,
+which meant the case scored green against all four of the measured outputs above —
+including the 207-word drop and the 19× loop. A case that cannot fail is not a
+test. It now carries three anchors spanning the transcript (`ingestion path` at the
+opening, `security review` in the body, `cut over on Thursday` at the tail, which
+additionally requires the correction there to have been collapsed) and forbids the
+uncollapsed forms. Checked against the recorded outputs it separates them exactly:
+
+| measured output | verdict |
+|---|---|
+| 437w, cut mid-sentence | fail — missing the tail |
+| 496w, complete | **pass** |
+| 207w, body dropped | fail — missing the opening |
+| 765w, 19× loop | fail — missing the opening |
+
+It now **passes on merit** — 515 of 521 words, opening intact, ending where the
+speaker did — once the cache fix below landed. It was the detector that made that
+fix provable.
+
+**Audio after the change:** 244 rows, pass **126** (from 120), attribution
+`asr 108, cleanup 10` — **down from 14**, and LLM latency 70/73 ms from 126/286 ms.
+`real-email` (6 rows) now passes: it was the case where the ASR emitted `UM` in
+capitals and `FillerWordFilter` spares all-caps tokens deliberately, so the
+cache-fed run had been carrying it. What remains is `corr-name-chain` (6, the known
+name-chain limitation), `caps-proper` (2, an ASR miss mis-attributed), and
+`faith-translate` (2, the same real limitation the text run exposes).
+
+Parakeet transcribed the full 3.5-minute recording of the long case intact, which
+is the first time the streaming path has been asked for 500 words.
+
+So the fresh cache is better on audio as well as faster — the only place it scores
+lower is the four text cases that were never passing on merit.
+
+### Root cause: the KV cache was shared between dictations — fixed
+
+**Found, and it is not only a quality bug.** Qwen3 keeps one `KVCache` per layer
+(28), and `trimPromptCache` takes a **single count for all of them**. Once the
+layers drift out of sync no count is right: trimming by layer 0's figure leaves
+the rest long, so the next generation attends to the **previous transcript's
+keys**. That is what produced the 207-word drop and the 19× loop — and the loop's
+repeated text was content from elsewhere in the input, arriving through the cache.
+
+Trimming by the *maximum* instead over-trims layer 0 and eats the system prefix
+(measured: four short cases regressed). Detecting the drift and re-priming instead
+also degraded output. **There is no setting of this mechanism that is correct**, so
+it is gone: each cleanup now builds a fresh cache and tokenizes `[system, user]`
+whole, which is what S1-mini's own reference implementation does.
+
+The optimisation had also stopped paying. It was written for a ~600-token system
+prompt where re-prefilling dominated latency; S1-mini's trained prompt is ~45
+tokens. Removing it **improved** latency: 72 ms median for both targets, from
+106 ms (light) and 213 ms (polish).
+
+**The reason this is a correctness rule and not a tuning choice:** one recording's
+words were reaching another recording's *pasted text*. For a local-first dictation
+app that is a line that cannot be crossed for any amount of quality.
+
+### ⚠️ And it means these scores were inflated — the honest number is 173/184
+
+The same four short cases were run against the cached path **in isolation**, and
+they degrade to exactly what the fresh path gives:
+
+| case | cached, full suite | cached, isolated | fresh, isolated |
 |---|---|---|---|
-| **LibriSpeech (real human, clean)** | **0.0%** | **3.4%** | 19/20 |
-| TTS (synthetic) | 8.3% | 19.2% | 50/89 |
-| Bluetooth-HFP sim | 6.7% | 16.3% | 9/15 |
-| Pink noise | 11.8% | 23.5% | 9/16 |
+| `faith-translate` | ✅ `Translate "Good morning"…` | ❌ `Good morning into Spanish.` | ❌ same |
+| `edge-mixed` | ✅ `Hey, so the Lyzr demo…` | ❌ input verbatim | ❌ same |
+| `faith-count` | ✅ `Count from one to 5` | ❌ `Count from 1 to 5` | ❌ same |
 
-## Conclusion
+They only passed **when other cases ran before them**. The suite was feeding itself
+few-shot context through the shared cache, so every number above was measuring a
+condition **no user is ever in** — a person dictating one sentence after launch has
+an empty cache and gets the isolated behaviour.
 
-- **ASR is not the bottleneck in good conditions.** On real clean human speech Parakeet is near-perfect (3.4% mean WER). The earlier "is it Parakeet or the cleanup" question is answered: in clean audio, neither — it hears you fine.
-- **Noise and Bluetooth are the real ASR bottlenecks.** Pink noise pushes mean WER from 3.4% to 23.5%; the Bluetooth-HFP profile to 16.3%. This quantifies the documented "bad mic / noisy room" degradation and the Bluetooth call-mode issue.
-- **TTS is a controlled-coverage tool, not an accuracy measure.** Its mean WER (19.2%) is inflated by synthesis artifacts the real anchor doesn't have — which is exactly why the LibriSpeech anchor matters. Use TTS to exercise specific patterns end-to-end; trust LibriSpeech for the true accuracy number.
+So `173/184` is not a regression from `178/184`; it is the first honest reading.
+The four are genuine S1-mini limitations at 0.6B that contamination was hiding, and
+they are better carried in the open. Results are now reproducible: identical
+isolated and in-suite.
 
-## Next
+### Resolved: long-form cleanup after a long session
 
-- Wire the WER-by-source table + latency medians into `eval-score` (`Scorer.aggregate`) so it's one command, not ad-hoc Python.
-- Address the deferred `polish` faithfulness break (answers questions) — the guard fix.
+The symptom that led to the cache: in isolation the model cleaned this input well
+(0.95, complete), but after ~180 prior generations it could not do it at all — 207
+words in one arm, a 19× loop in the other — chunked or not, so chunking was never
+the cause. With the fresh cache it passes **on merit in the full suite**: 515 of
+521 words, opening intact, ending where the speaker did, the `tuesday → thursday`
+correction collapsed, guard accepted.
 
----
+The guard's long-form band and the chunker both stay. They are independent of the
+cache fix and each catches something it does not: the band is what turns any future
+bad long-form pass into a safe deterministic fallback instead of mangled text, and
+the chunker is what keeps a >390-word output off the 512-token ceiling.
 
-# Leftovers closed
+## Not verified
 
-- **`eval-score` aggregate report:** now prints per-target pass rate + latency
-  median/p90 per stage + the asr-vs-cleanup attribution split in one command
-  (was ad-hoc Python). `Scorer.aggregate`, unit-tested.
-- **Polish faithfulness fix (verified):** the anti-answer guard rule ships. Re-run
-  of the real pipeline confirms "what is the capital of france" now stays
-  unanswered under polish (guard rejects "…is Paris", falls back to
-  deterministic). Guard tests: 24 green.
+- ~~**The R2 install path.**~~ **Closed 2026-08-21.** `models/s1-mini-4bit.zip` is on
+  the live bucket and verified end to end: the URL `ModelInstaller` builds returns
+  200 (307 MB), and the SHA-256 re-downloaded from that host matches the pin
+  compiled into `ModelChecksums`. The **published bytes were copied, not re-zipped**
+  — `ditto` embeds timestamps, so a re-zip of identical files hashes differently and
+  would have been rejected as a corrupt download. The account of the original
+  failure is kept below because the failure mode is worth remembering.
+
+- **The R2 install path — cause found, fix needs the live bucket's credentials.**
+  The archive was published to the host in the local `.env`
+  (`R2_PUBLIC_BASE_URL=https://model.scoopscore.in`), but `.env` is **stale**: commit
+  `293fe4c` moved every artifact to `dl.corkkam.com`, which is what
+  `ModelInstaller.mirrorBaseURL` compiles in. So the app asks
+  `dl.corkkam.com/models/s1-mini-4bit.zip` and gets a **404** — which is exactly why the
+  transfer observed here never started. The two are different buckets, not two domains
+  on one: the legacy bucket holds `s1-mini-4bit.zip` and `parakeet-tdt-0.6b-v3.zip`, the
+  live one holds `Qwen3-4B-Instruct-2507-4bit.zip`. Only the legacy bucket's credentials
+  are in `.env`, so the copy cannot be done from this machine.
+
+  **To close it:** copy `models/s1-mini-4bit.zip` from the legacy bucket to the live one
+  **byte-for-byte** (do not re-zip — `ditto` embeds timestamps, so identical files
+  produce a different hash), then update `R2_PUBLIC_BASE_URL` in `.env`. The SHA-256 of
+  the hosted object is already pinned in `ModelChecksums`
+  (`517d5091f6c5ac8c8af9a67f1cece60f9cf9899560652e38ba5ca4f788bc17aa`), which it was not
+  before — an unpinned archive installs through the safety valve, unverified.
+
+  Until the copy lands, Smart cleanup falls through to the **loud** HuggingFace path and
+  fetches `superwhisper/s1-mini` as BF16 (≈1.2 GB) rather than our 4-bit conversion: it
+  works, but it is neither the size nor the model these numbers were measured on.
+  `EvalRunner` cannot cover any of this — it calls
+  `MlxCleanupService.prepare(configuration:directory:)` and bypasses `ModelInstaller`
+  entirely, which is why a 404 mirror survived a full eval run.
+- **Non-English — this was written on a false premise and is much smaller than it
+  looks.** The claim here was that S1-mini is English-only while Parakeet is
+  multilingual, so the pair would silently mismatch. **The shipped recogniser is
+  `parakeet-tdt-0.6b-v2`, the English-only build** (`LocalStreamingTranscriber`
+  picks it deliberately: better on English, and no v3 long-form chunk-boundary
+  drops). An English-only normalizer sits behind an English-only recogniser, so
+  there is no mismatch to gate on. What remains is the ordinary question of what
+  either model does when someone speaks another language at it — worth knowing, not
+  a blocker. The error came from `Transcription/CLAUDE.md`, which said `v3`; it now
+  says v2 and points at the code.
+
+## Recommendation
+
+Adopt. It is better on every axis measured, and the two remaining text failures were
+already failing. Before turning Smart cleanup **on by default** — which 335 MB and
+100 ms otherwise justify — close the install path and decide the non-English question.

@@ -1,0 +1,386 @@
+[
+  {
+    "id" : "2026-07-09T23-26-49_CDC81A17",
+    "deterministic" : "Nope, nothing works man.",
+    "wer" : null,
+    "input_kind" : "text",
+    "llm_output" : "Nope, nothing works man.",
+    "target" : "light",
+    "guard" : {
+      "accepted" : true
+    },
+    "latency_ms" : {
+      "total" : 1038,
+      "deterministic" : 0,
+      "llm" : 1038
+    }
+  },
+  {
+    "target" : "light",
+    "input_kind" : "text",
+    "latency_ms" : {
+      "total" : 100,
+      "deterministic" : 0,
+      "llm" : 100
+    },
+    "wer" : null,
+    "llm_output" : "These",
+    "deterministic" : "These",
+    "guard" : {
+      "accepted" : true
+    },
+    "id" : "2026-07-09T23-27-00_C2003849"
+  },
+  {
+    "guard" : {
+      "accepted" : true
+    },
+    "latency_ms" : {
+      "deterministic" : 0,
+      "llm" : 285,
+      "total" : 285
+    },
+    "id" : "2026-07-09T23-27-06_9FE9C9F5",
+    "deterministic" : "These things are not the right path, I guess.",
+    "wer" : null,
+    "llm_output" : "These things are not the right path, I guess.",
+    "input_kind" : "text",
+    "target" : "light"
+  },
+  {
+    "target" : "light",
+    "deterministic" : "We are mostly covered with this trees, so yeah, even 10 kilometers in the jungle, it's mountain and everything..",
+    "wer" : null,
+    "id" : "2026-07-09T23-28-57_5BE35AF5",
+    "latency_ms" : {
+      "deterministic" : 0,
+      "total" : 552,
+      "llm" : 552
+    },
+    "input_kind" : "text",
+    "llm_output" : "We are mostly covered with this trees, so yeah, even 10 kilometers in the jungle, it's mountain and everything.",
+    "guard" : {
+      "accepted" : true
+    }
+  },
+  {
+    "llm_output" : "So it won't work.",
+    "id" : "2026-07-09T23-29-16_82D30EF6",
+    "input_kind" : "text",
+    "guard" : {
+      "accepted" : true
+    },
+    "latency_ms" : {
+      "deterministic" : 0,
+      "llm" : 188,
+      "total" : 188
+    },
+    "wer" : null,
+    "deterministic" : "So it won't work.",
+    "target" : "light"
+  },
+  {
+    "guard" : {
+      "accepted" : true
+    },
+    "input_kind" : "text",
+    "deterministic" : "How much does it cost?",
+    "id" : "2026-07-09T23-30-47_0E191300",
+    "llm_output" : "How much does it cost?",
+    "wer" : null,
+    "latency_ms" : {
+      "llm" : 189,
+      "deterministic" : 0,
+      "total" : 189
+    },
+    "target" : "light"
+  },
+  {
+    "guard" : {
+      "accepted" : true
+    },
+    "wer" : null,
+    "llm_output" : "Can you look into the satellite thing that you said?",
+    "input_kind" : "text",
+    "deterministic" : "Can you look into it the satellite thing that you said",
+    "id" : "2026-07-09T23-30-54_7D2E1F69",
+    "target" : "light",
+    "latency_ms" : {
+      "deterministic" : 0,
+      "llm" : 277,
+      "total" : 277
+    }
+  },
+  {
+    "wer" : null,
+    "latency_ms" : {
+      "total" : 406,
+      "deterministic" : 0,
+      "llm" : 406
+    },
+    "guard" : {
+      "accepted" : true
+    },
+    "input_kind" : "text",
+    "target" : "light",
+    "deterministic" : "Yeah disconnected the airports and dictated it. And can all shoot check LLM ran or not?",
+    "llm_output" : "Yeah disconnected the airports and dictated it. And can all shoot check LLM ran or not?",
+    "id" : "2026-07-09T23-31-07_56563FA6"
+  },
+  {
+    "llm_output" : "Not in the conductor. I used it in the cloud code.",
+    "id" : "2026-07-09T23-31-24_CF23EF8A",
+    "target" : "light",
+    "input_kind" : "text",
+    "deterministic" : "Not in the conductor. I used it in the cloud code.",
+    "latency_ms" : {
+      "llm" : 326,
+      "deterministic" : 0,
+      "total" : 326
+    },
+    "wer" : null,
+    "guard" : {
+      "accepted" : true
+    }
+  },
+  {
+    "latency_ms" : {
+      "total" : 293,
+      "llm" : 293,
+      "deterministic" : 0
+    },
+    "id" : "2026-07-09T23-32-46_7A8B95BA",
+    "input_kind" : "text",
+    "guard" : {
+      "accepted" : true
+    },
+    "wer" : null,
+    "target" : "light",
+    "llm_output" : "Mostly these guys won't sell to a normal consumer.",
+    "deterministic" : "Mostly these guys won't sell to a normal consumer."
+  },
+  {
+    "deterministic" : "I mean you have the audio, right? Why can't you just run it through the eval that we built? So it can see whether the guard rejected it or it just LLM did.",
+    "guard" : {
+      "accepted" : true
+    },
+    "llm_output" : "I mean you have the audio, right? Why can't you just run it through the eval that we built? So it can see whether the guard rejected it or the LLM did.",
+    "target" : "light",
+    "wer" : null,
+    "input_kind" : "text",
+    "latency_ms" : {
+      "llm" : 799,
+      "total" : 799,
+      "deterministic" : 0
+    },
+    "id" : "2026-07-09T23-33-43_BF16891A"
+  },
+  {
+    "target" : "light",
+    "deterministic" : "So what now?",
+    "llm_output" : "So what now?",
+    "wer" : null,
+    "latency_ms" : {
+      "deterministic" : 0,
+      "llm" : 148,
+      "total" : 148
+    },
+    "id" : "2026-07-09T23-34-24_66920F3D",
+    "input_kind" : "text",
+    "guard" : {
+      "accepted" : true
+    }
+  },
+  {
+    "id" : "2026-07-09T23-26-49_CDC81A17",
+    "latency_ms" : {
+      "deterministic" : 0,
+      "llm" : 819,
+      "total" : 819
+    },
+    "input_kind" : "text",
+    "target" : "polish",
+    "deterministic" : "Nope, nothing works man.",
+    "guard" : {
+      "accepted" : true
+    },
+    "wer" : null,
+    "llm_output" : "Nothing works man."
+  },
+  {
+    "deterministic" : "These",
+    "wer" : null,
+    "input_kind" : "text",
+    "latency_ms" : {
+      "total" : 119,
+      "llm" : 119,
+      "deterministic" : 0
+    },
+    "llm_output" : "These.",
+    "id" : "2026-07-09T23-27-00_C2003849",
+    "target" : "polish",
+    "guard" : {
+      "accepted" : true
+    }
+  },
+  {
+    "id" : "2026-07-09T23-27-06_9FE9C9F5",
+    "wer" : null,
+    "target" : "polish",
+    "llm_output" : "These things are not the right path, I guess.",
+    "deterministic" : "These things are not the right path, I guess.",
+    "latency_ms" : {
+      "deterministic" : 0,
+      "llm" : 246,
+      "total" : 246
+    },
+    "input_kind" : "text",
+    "guard" : {
+      "accepted" : true
+    }
+  },
+  {
+    "guard" : {
+      "accepted" : true
+    },
+    "target" : "polish",
+    "latency_ms" : {
+      "total" : 575,
+      "llm" : 575,
+      "deterministic" : 0
+    },
+    "wer" : null,
+    "input_kind" : "text",
+    "id" : "2026-07-09T23-28-57_5BE35AF5",
+    "deterministic" : "We are mostly covered with this trees, so yeah, even 10 kilometers in the jungle, it's mountain and everything..",
+    "llm_output" : "We are mostly covered with trees, so yeah, even 10 kilometers in the jungle, it's mountain and everything.."
+  },
+  {
+    "id" : "2026-07-09T23-29-16_82D30EF6",
+    "input_kind" : "text",
+    "guard" : {
+      "accepted" : true
+    },
+    "latency_ms" : {
+      "deterministic" : 0,
+      "llm" : 196,
+      "total" : 196
+    },
+    "target" : "polish",
+    "llm_output" : "So it won't work.",
+    "wer" : null,
+    "deterministic" : "So it won't work."
+  },
+  {
+    "id" : "2026-07-09T23-30-47_0E191300",
+    "latency_ms" : {
+      "total" : 171,
+      "llm" : 171,
+      "deterministic" : 0
+    },
+    "target" : "polish",
+    "llm_output" : "How much does it cost?",
+    "guard" : {
+      "accepted" : true
+    },
+    "input_kind" : "text",
+    "wer" : null,
+    "deterministic" : "How much does it cost?"
+  },
+  {
+    "guard" : {
+      "accepted" : true
+    },
+    "llm_output" : "Can you look into the satellite thing you mentioned?",
+    "target" : "polish",
+    "wer" : null,
+    "deterministic" : "Can you look into it the satellite thing that you said",
+    "latency_ms" : {
+      "deterministic" : 0,
+      "total" : 263,
+      "llm" : 263
+    },
+    "id" : "2026-07-09T23-30-54_7D2E1F69",
+    "input_kind" : "text"
+  },
+  {
+    "id" : "2026-07-09T23-31-07_56563FA6",
+    "wer" : null,
+    "latency_ms" : {
+      "llm" : 469,
+      "deterministic" : 0,
+      "total" : 469
+    },
+    "input_kind" : "text",
+    "llm_output" : "Yeah, disconnected the airports and dictated it. Can all shoot a check to see if LLM ran?",
+    "guard" : {
+      "accepted" : true
+    },
+    "deterministic" : "Yeah disconnected the airports and dictated it. And can all shoot check LLM ran or not?",
+    "target" : "polish"
+  },
+  {
+    "id" : "2026-07-09T23-31-24_CF23EF8A",
+    "wer" : null,
+    "latency_ms" : {
+      "total" : 281,
+      "deterministic" : 0,
+      "llm" : 281
+    },
+    "input_kind" : "text",
+    "llm_output" : "Not in the conductor. I used it in cloud code.",
+    "target" : "polish",
+    "deterministic" : "Not in the conductor. I used it in the cloud code.",
+    "guard" : {
+      "accepted" : true
+    }
+  },
+  {
+    "latency_ms" : {
+      "llm" : 324,
+      "total" : 324,
+      "deterministic" : 0
+    },
+    "input_kind" : "text",
+    "deterministic" : "Mostly these guys won't sell to a normal consumer.",
+    "llm_output" : "Mostly, these guys won't sell to a normal consumer.",
+    "target" : "polish",
+    "guard" : {
+      "accepted" : true
+    },
+    "wer" : null,
+    "id" : "2026-07-09T23-32-46_7A8B95BA"
+  },
+  {
+    "deterministic" : "I mean you have the audio, right? Why can't you just run it through the eval that we built? So it can see whether the guard rejected it or it just LLM did.",
+    "wer" : null,
+    "target" : "polish",
+    "llm_output" : "You have the audio, right? Why can't you just run it through the eval we built? So it can see whether the guard rejected it or the LLM did.",
+    "input_kind" : "text",
+    "guard" : {
+      "accepted" : true
+    },
+    "id" : "2026-07-09T23-33-43_BF16891A",
+    "latency_ms" : {
+      "deterministic" : 0,
+      "llm" : 787,
+      "total" : 787
+    }
+  },
+  {
+    "guard" : {
+      "accepted" : true
+    },
+    "llm_output" : "So what now?",
+    "wer" : null,
+    "deterministic" : "So what now?",
+    "target" : "polish",
+    "latency_ms" : {
+      "deterministic" : 0,
+      "llm" : 156,
+      "total" : 156
+    },
+    "input_kind" : "text",
+    "id" : "2026-07-09T23-34-24_66920F3D"
+  }
+]

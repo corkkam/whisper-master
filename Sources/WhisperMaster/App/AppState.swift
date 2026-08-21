@@ -342,6 +342,26 @@ final class AppState {
     /// One-shot flag the Settings "Retry" button sets; drained by the manager on
     /// the next refresh tick to re-attempt a failed load.
     var cleanupRetryRequested: Bool = false
+
+    // MARK: - The assistant model (a different model, and a different question)
+
+    /// Live progress of the **assistant** model's download. Same hard rule as
+    /// `cleanupModelDownload`: Settings only, never the notch or the tray.
+    /// Transient; written by `AssistantModelManager`.
+    var assistantModelDownload: ModelInstaller.Progress?
+    /// Whether the assistant model is loaded and usable. This is **not**
+    /// `cleanupModelReady` — since the two jobs split onto two models, cleanup
+    /// readiness says nothing about whether the chord can reach a model that
+    /// tool-calls, and reading one for the other is how the Settings hint came to
+    /// claim the assistant was present when it was not.
+    var assistantModelReady: Bool = false
+    /// Set when the assistant model's download or load fails after retries, so
+    /// Settings can be honest and offer a retry.
+    var assistantModelFailed: Bool = false
+    /// One-shot flag the Settings "Download"/"Retry" button sets. This is also the
+    /// **only** way the 2 GB fetch starts without the user having used the chord —
+    /// nothing here downloads at launch.
+    var assistantModelDownloadRequested: Bool = false
     /// Whether gentle "you haven't used me in a while" reminders are enabled.
     /// Persisted; **on by default** — the app lives in the notch with no window to
     /// come back to, so an install nobody is reminded of is an install nobody uses.

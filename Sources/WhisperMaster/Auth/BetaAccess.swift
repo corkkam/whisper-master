@@ -7,10 +7,31 @@ import Foundation
 /// same appcast — told apart only by the `-beta.N` marker in the version and by
 /// `<sparkle:channel>beta</sparkle:channel>` on the appcast item. `dev` is the
 /// one channel still built as a side-by-side bundle with a feed of its own.
-enum UpdateChannel: String {
+///
+/// A single Clerk *production* instance serves stable and beta; those users
+/// share one account and differ only by `publicMetadata.betaAccess`.
+enum UpdateChannel: String, CaseIterable {
     case stable
     case beta
     case dev
+
+    /// The Sparkle appcast this channel is served from, EdDSA-signed with the
+    /// same key and hosted at the R2 root.
+    ///
+    /// Stable and beta deliberately return the **same** URL — they are one
+    /// installed app reading one feed, and a beta item is told apart by its
+    /// `<sparkle:channel>` tag, not by living in a separate file. Nothing routes
+    /// on this any more (`SUFeedURL` in Info.plist is what Sparkle actually
+    /// reads, and `Scripts/channel.sh` overrides it for `dev`); it stays as the
+    /// compiled-in declaration that `DistributionHostTests` holds against
+    /// `ModelInstaller.mirrorBaseURL`, so updates and model archives can never
+    /// drift onto different buckets. Keep in lock-step with `CH_SU_FEED_URL`.
+    var feedURLString: String {
+        switch self {
+        case .stable, .beta: return "https://dl.corkkam.com/appcast.xml"
+        case .dev: return "https://dl.corkkam.com/appcast-dev.xml"
+        }
+    }
 
     /// How the build names itself beside the version, or `nil` when it should
     /// say nothing.
