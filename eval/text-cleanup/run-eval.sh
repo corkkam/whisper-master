@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# One command: run the in-app eval end to end, then push the result into the
-# dashboard's history (MongoDB).
+# One command: run the in-app eval end to end, then publish the result to the
+# public history at whisper.corkkam.com/eval.
 #
 #   bash run-eval.sh [cases.jsonl] [label]
 #
@@ -11,9 +11,18 @@
 # Env overrides:
 #   APP            path to the built .app   (default: /Applications/Whisper Master.app)
 #   OUT            results.json output path (default: ./.eval-scratch/results.json)
-#   DASHBOARD_URL  where to POST the run    (default: http://localhost:5173)
+#   DASHBOARD_URL  where to POST the run    (default: https://whisper.corkkam.com)
 #   TIMEOUT        seconds to wait for the run to finish (default: 1200)
-#   NO_PUSH=1      run the eval but skip the dashboard push (just write results.json)
+#   NO_PUSH=1      run the eval but skip the push (just write results.json)
+#   EVAL_VERSION   marketing version this run grades (Scripts/release.sh sets it)
+#   EVAL_CHANNEL   stable | beta | dev            (Scripts/release.sh sets it)
+#
+# The push needs EVAL_INGEST_TOKEN, in the environment or in this repo's .env.
+# The route fails closed, so without it the upload is refused.
+#
+# This QUITS AND RELAUNCHES the app it is about to grade, because the runner
+# reads its config from the environment at launch. If that app is your daily
+# driver, it goes away for the length of the run.
 #
 # Why the launchctl/open dance: the eval runs *inside the app* and reads its
 # config from env at launch. A directly-exec'd bundle fails TCC's Info.plist
@@ -27,8 +36,7 @@ label="${2:-eval $(date '+%Y-%m-%d %H:%M')}"
 app="${APP:-/Applications/Whisper Master.app}"
 out="${OUT:-$here/.eval-scratch/results.json}"
 timeout="${TIMEOUT:-1200}"
-dash="$here/../dashboard"
-dashboard_url="${DASHBOARD_URL:-http://localhost:5173}"
+dashboard_url="${DASHBOARD_URL:-https://whisper.corkkam.com}"
 
 # Absolute paths — EvalRunner + launchctl need them.
 cases="$(cd "$(dirname "$cases_in")" && pwd)/$(basename "$cases_in")"
@@ -42,16 +50,20 @@ echo "▶ cases : $cases"
 echo "▶ app   : $app"
 echo "▶ out   : $out"
 
-# Heads-up if the dashboard isn't reachable — the eval still runs and the
-# results are saved; you can push them later.
+# Heads-up if the site isn't reachable — the eval still runs and the results
+# are saved; you can push them later.
 if [ "${NO_PUSH:-0}" != "1" ] && ! curl -sf -o /dev/null "$dashboard_url"; then
-  echo "⚠ dashboard not reachable at $dashboard_url"
-  echo "  start it in another terminal: (cd eval/dashboard && npm run dev)"
+  echo "⚠ not reachable at $dashboard_url"
   echo "  the eval will still run; results are saved and can be pushed afterwards."
 fi
 
 # The runner reads env at launch, so quit any running instance and start clean.
-osascript -e 'quit app "Whisper Master"' 2>/dev/null || true
+# Quit the bundle we are about to launch, by its own name — a beta or dev build
+# is "Whisper Master Beta" / "Whisper Master Dev" and side-by-side with stable,
+# so a hardcoded "Whisper Master" here quit the wrong app and left the one being
+# graded running with stale env.
+app_name="$(basename "$app" .app)"
+osascript -e "quit app \"$app_name\"" 2>/dev/null || true
 sleep 1
 
 # Remove any stale results so we can detect *this* run's write.
@@ -89,19 +101,24 @@ while [ "$waited" -lt "$timeout" ]; do
   sleep 3; waited=$((waited + 3))
 done
 
+# The app has nothing left to do; it was launched only to be graded. Leaving a
+# second, env-poisoned instance running is how the next run picks up stale
+# WM_EVAL_* values.
+quit_app() { osascript -e "quit app \"$app_name\"" 2>/dev/null || true; }
+trap 'cleanup; quit_app' EXIT
+
 [ -f "$out" ] || { echo "✗ timed out after ${timeout}s — no results.json written" >&2; exit 1; }
 rows="$(grep -c '"id"' "$out" 2>/dev/null || true)"
 echo "✓ eval finished — ${rows:-?} rows → $out"
 
 if [ "${NO_PUSH:-0}" = "1" ]; then
-  echo "NO_PUSH set — skipping the dashboard push."
+  echo "NO_PUSH set — skipping the push."
   exit 0
 fi
 
-echo "▶ pushing to dashboard ($dashboard_url)…"
-if ! ( cd "$dash" && DASHBOARD_URL="$dashboard_url" node scripts/push-run.mjs "$out" "$cases" "$label" ); then
-  echo "✗ push failed — is the dashboard running? (cd eval/dashboard && npm run dev)" >&2
-  echo "  results are safe at $out; re-push later with:" >&2
-  echo "  (cd eval/dashboard && npm run push-run -- \"$out\" \"$cases\" \"$label\")" >&2
+echo "▶ publishing to $dashboard_url/eval …"
+if ! DASHBOARD_URL="$dashboard_url" node "$here/push-run.mjs" "$out" "$cases" "$label"; then
+  echo "✗ push failed. Results are safe at $out; re-push later with:" >&2
+  echo "  DASHBOARD_URL=$dashboard_url node $here/push-run.mjs \"$out\" \"$cases\" \"$label\"" >&2
   exit 1
 fi
