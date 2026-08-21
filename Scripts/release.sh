@@ -126,6 +126,28 @@ bash Scripts/notarize.sh "$APP_PATH"
 
 # --- Zip the app for Sparkle ---
 rm -rf "$STAGE"; mkdir -p "$STAGE"
+
+# ⚠️ Seed the stage with the feed already published on this channel BEFORE
+# staging the new zip. generate_appcast rebuilds the appcast from whatever it
+# finds in the directory, so a stage holding only this run's archive produces a
+# ONE-ITEM feed — and uploading that silently deletes every older item from the
+# live appcast. That was harmless while each channel owned a single-item feed of
+# its own; it is fatal now that stable and beta share appcast.xml, because a beta
+# release would drop the stable item and strand every user who has not updated.
+# With the published feed present, generate_appcast reports "removed 0 old
+# updates" and copies prior items through verbatim — signatures, enclosure URLs
+# and all — without needing their archives on disk.
+#
+# Always seeded as "appcast.xml": that is the name generate_appcast reads and
+# writes. A channel served under another name (dev) is renamed after generation,
+# below.
+if curl -fsS "${R2_PUBLIC_BASE_URL%/}/$CH_APPCAST_NAME" -o "$STAGE/appcast.xml"; then
+    echo ">> Seeded stage from published $CH_APPCAST_NAME ($(grep -c '<item>' "$STAGE/appcast.xml") existing item(s))"
+else
+    rm -f "$STAGE/appcast.xml"
+    echo ">> No published $CH_APPCAST_NAME to seed from — generating a fresh feed"
+fi
+
 ZIP="$STAGE/WhisperMaster-$VERSION.zip"
 ditto -c -k --keepParent "$APP_PATH" "$ZIP"
 
@@ -137,23 +159,34 @@ echo ">> Generating appcast"
 # code and signing every local release from a plaintext file on disk. The key is
 # supposed to live in the login keychain locally and in a GitHub Actions secret
 # on CI, and nowhere else. Do not put it back in .env.
+# Beta items carry <sparkle:channel>beta</sparkle:channel>; stable items carry no
+# channel at all. Sparkle offers an UNTAGGED item to everyone and a tagged one
+# only to an updater that allows that channel (SUAppcastDriver.m, ~line 487), so
+# this single flag is what keeps a beta release invisible to stable users while
+# still letting a beta user receive stable releases. `dev` keeps its own separate
+# feed and needs no tag.
+GEN_ARGS=(--download-url-prefix "${R2_PUBLIC_BASE_URL%/}/")
+if [[ "$CHANNEL" == "beta" ]]; then
+    GEN_ARGS+=(--channel beta)
+fi
+
 if [[ -n "${CI:-}" && -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]]; then
     # CI only: sign with the exported EdDSA key (no keychain on the runner).
     ED_KEY_FILE="build/.sparkle_ed_key"
     printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$ED_KEY_FILE"
     trap 'rm -f "$ED_KEY_FILE"' EXIT
-    "$GEN_APPCAST" "$STAGE" --ed-key-file "$ED_KEY_FILE" --download-url-prefix "${R2_PUBLIC_BASE_URL%/}/"
+    "$GEN_APPCAST" "$STAGE" --ed-key-file "$ED_KEY_FILE" "${GEN_ARGS[@]}"
     rm -f "$ED_KEY_FILE"; trap - EXIT
 else
     # Local: read the private key from the keychain (may prompt once).
-    "$GEN_APPCAST" "$STAGE" --download-url-prefix "${R2_PUBLIC_BASE_URL%/}/"
+    "$GEN_APPCAST" "$STAGE" "${GEN_ARGS[@]}"
 fi
 
-# generate_appcast always writes "appcast.xml". Beta/dev get their own feed file
-# so a non-stable release never rewrites stable's appcast.xml — rename before
-# upload. STAGE is wiped each run and holds only this channel's zip, so the feed
-# is clean.
-if [[ "$CHANNEL" != "stable" ]]; then
+# generate_appcast always writes "appcast.xml". A channel served under another
+# name (dev) is renamed before upload. Beta now shares stable's appcast.xml, so
+# it does NOT rename — its items are told apart by <sparkle:channel>, not by
+# living in a separate file.
+if [[ "$CH_APPCAST_NAME" != "appcast.xml" ]]; then
     # Older generate_appcast always writes "appcast.xml"; newer versions derive
     # the feed filename from the app's SUFeedURL and may already emit
     # "$CH_APPCAST_NAME" directly. Handle both without failing.
@@ -171,9 +204,15 @@ fi
 # baked into the app — it just omits sparkle:edSignature. An unsigned enclosure
 # is an update no installed app will accept, so the release "succeeds" while
 # silently breaking every updater. This bit 1.2.8-beta.5. Fail before upload.
+# ⚠️ Scoped to THIS release's enclosure line, not the whole file. A merged feed
+# already contains older, correctly signed items, so a file-wide grep passes even
+# when the new item is unsigned — which is the exact failure this guard exists to
+# catch (it bit 1.2.8-beta.5). generate_appcast puts the enclosure URL and its
+# sparkle:edSignature on one line, so matching the archive name pins the check to
+# the right item.
 FEED="$STAGE/$CH_APPCAST_NAME"
-if ! grep -q 'sparkle:edSignature=' "$FEED"; then
-    echo "error: $CH_APPCAST_NAME carries no sparkle:edSignature — nothing was uploaded." >&2
+if ! grep -F "WhisperMaster-$VERSION.zip" "$FEED" | grep -q 'sparkle:edSignature='; then
+    echo "error: the $VERSION item in $CH_APPCAST_NAME carries no sparkle:edSignature — nothing was uploaded." >&2
     echo "       The EdDSA private key used for signing does not match SUPublicEDKey" >&2
     echo "       in the built app. Reconcile them before releasing:" >&2
     echo "         app SUPublicEDKey : $(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP_PATH/Contents/Info.plist" 2>/dev/null)" >&2

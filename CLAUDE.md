@@ -118,9 +118,11 @@ is not loaded:
 - **Bump both** `CFBundleShortVersionString` **and** `CFBundleVersion` in
   `Resources/Info.plist` before a manual release, or Sparkle won't see it as newer.
 - **⚠️ The public R2 host is baked into shipped bundles in three places** —
-  `Scripts/channel.sh` (`CH_SU_FEED_URL`), `Auth/BetaAccess.swift`
-  (`UpdateChannel.feedURLString`), `ModelInstall/ModelInstaller.swift`
-  (`mirrorBaseURL`) — plus `R2_PUBLIC_BASE_URL` in `.env`. Change hosts only by
+  `Resources/Info.plist` (`SUFeedURL`, what stable *and* beta poll),
+  `Scripts/channel.sh` (`CH_SU_FEED_URL`, which overrides it for `dev`),
+  `ModelInstall/ModelInstaller.swift` (`mirrorBaseURL`) — plus
+  `R2_PUBLIC_BASE_URL` in `.env`. (`Auth/BetaAccess.swift` was a fourth until the
+  feed override was replaced by `allowedChannelsForUpdater:`.) Change hosts only by
   editing all four together **and** copying `models/` to the new bucket first; an
   empty `models/` prefix silently degrades every user to the slow HuggingFace path.
 - **Never commit directly to `main`** — it only receives merges from `release/*`
@@ -146,6 +148,15 @@ is not loaded:
 - A 0.5s `Timer` in `AppDelegate.startStatusRefreshLoop` polls `PrototypeAppState` and rebuilds the tray icon symbol, tooltip, header line, and history submenu. There's no `@Observable` bridge to AppKit — the timer is the bridge. **Every AppKit write on this path is change-guarded** (`appliedTrayIconKey` / `appliedTrayTooltip` / `appliedTrayHeader`, `renderedHistoryIDs`, and the `ignoresMouseEvents` check inside `DictationPillWindow.setInteractive`): the answer is identical on nearly every tick, and writing anyway meant allocating a fresh `NSImage` and pushing a status-item update through the menu-bar server twice a second for the life of the process. Keep new per-tick writes guarded the same way — an unguarded `button.image = …` here is a permanent background cost, not a one-off.
 
 ### Authentication — Clerk sign-in gate (`Auth/`)
+
+**Beta is not a separate app.** Stable and beta ship as one bundle
+(`app.whispermaster.mac`) and are told apart only by the `-beta.N` version marker
+and a `<sparkle:channel>beta</sparkle:channel>` tag on the appcast item;
+`BetaAccess.allowedChannels` decides which items a user may receive, so a Clerk
+flag flip moves them between tracks with no reinstall. Do **not** re-badge beta
+into its own bundle id "so it installs side by side" — that is what made the
+tracks un-updatable, and `Scripts/bundle.sh` now re-badges `dev` only. Details:
+**`.claude/skills/releasing/SKILL.md`**.
 
 The app is **gated behind Clerk sign-in at launch**: dictation won't start until a
 user is authenticated. Transcription itself still runs entirely on-device — only
