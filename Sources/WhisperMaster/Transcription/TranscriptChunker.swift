@@ -26,13 +26,26 @@ enum TranscriptChunker {
     /// `words * 2 + 32` stays inside the 512-token generation cap, so a chunk can
     /// never be the thing that gets truncated. It is also ~1.5 minutes of speech —
     /// a paragraph and a half, which is well within what the model was trained on.
-    static let maxWords = 240
+    static let defaultMaxWords = 240
+
+    /// The live budget. `WM_CLEANUP_CHUNK_WORDS` overrides it for eval runs — **`0`
+    /// disables chunking entirely**, which is the control this had to be measured
+    /// against. Reading it here rather than threading a flag through the service
+    /// keeps the switch in one place and out of the shipped call sites; unset (the
+    /// only state a shipped build is ever in) is the default.
+    static var maxWords: Int {
+        guard let raw = ProcessInfo.processInfo.environment["WM_CLEANUP_CHUNK_WORDS"],
+              let value = Int(raw) else { return defaultMaxWords }
+        return value
+    }
 
     /// Whether `text` needs splitting at all. The overwhelming majority of
     /// dictations do not, and those must take the single-pass path unchanged —
     /// chunking a short transcript would spend the KV cache for nothing.
-    static func needsChunking(_ text: String, maxWords: Int = maxWords) -> Bool {
-        wordCount(text) > maxWords
+    static func needsChunking(_ text: String, maxWords: Int? = nil) -> Bool {
+        let budget = maxWords ?? Self.maxWords
+        guard budget > 0 else { return false }
+        return wordCount(text) > budget
     }
 
     /// Split into chunks of at most `maxWords` words, preferring sentence
@@ -42,7 +55,8 @@ enum TranscriptChunker {
     /// result with a single space reproduces the input's words in order.
     /// `TranscriptChunkerTests` asserts it over every case, because a chunker that
     /// drops a word is a worse bug than the truncation it was written to prevent.
-    static func chunks(_ text: String, maxWords: Int = maxWords) -> [String] {
+    static func chunks(_ text: String, maxWords explicit: Int? = nil) -> [String] {
+        let maxWords = explicit ?? Self.maxWords
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
         guard needsChunking(trimmed, maxWords: maxWords) else { return [trimmed] }

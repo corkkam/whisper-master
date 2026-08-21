@@ -48,6 +48,19 @@ the latter, which was right only while the two jobs shared one model — after t
 it cleared the "not on this Mac" warning the moment S1-mini loaded and claimed a model
 that had never been downloaded. `AssistantModelTests` locks the separation.
 
+**⚠️ A long dictation is cleaned in pieces, and the guard is not the safety net
+here** (`TranscriptChunker`). `MlxCleanupService` caps a generation at 512 tokens
+against a runaway decode; at ~1.3 English tokens per word that is ~390 words of
+output, past which the pass was cut mid-sentence. `CleanupFaithfulnessGuard` did
+**not** catch it — its truncation floor is 30% retention (anything tighter rejects
+legitimate self-corrections), and a 500-word dictation truncated to 390 retains 78%.
+On the native path that accepted truncation then *replaced* text the user had
+already watched land. The chunk budget is **240 words** because that is exactly the
+largest input for which the service's `words * 2 + 32` token budget stays inside
+512 — the two constants are pinned to each other by a test, so moving either one
+fails loudly. Chunking is skipped for the `email` context, whose greeting/sign-off
+layout spans the whole text. A chunk that fails keeps its own raw words.
+
 **S1-mini's format is exact and every integration bug traces to it**: the system prompt
 is the trained string (not a prompt to tune), the user turn opens with a
 `[Styling: …] [Structure: …] [Context: …]` control line, and **`enable_thinking` must be

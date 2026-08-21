@@ -9,8 +9,8 @@ final class TranscriptChunkerTests: XCTestCase {
     /// inside its 512-token generation cap. If either constant moves, this fails
     /// and the pair has to be reconciled on purpose.
     func testTheBudgetIsTheLargestInputThatCannotHitTheGenerationCap() {
-        XCTAssertLessThanOrEqual(TranscriptChunker.maxWords * 2 + 32, 512)
-        XCTAssertGreaterThan((TranscriptChunker.maxWords + 1) * 2 + 32, 512)
+        XCTAssertLessThanOrEqual(TranscriptChunker.defaultMaxWords * 2 + 32, 512)
+        XCTAssertGreaterThan((TranscriptChunker.defaultMaxWords + 1) * 2 + 32, 512)
     }
 
     // MARK: - The short path is untouched
@@ -26,7 +26,7 @@ final class TranscriptChunkerTests: XCTestCase {
     }
 
     func testExactlyTheBudgetIsStillOnePass() {
-        let text = words(TranscriptChunker.maxWords)
+        let text = words(TranscriptChunker.defaultMaxWords)
         XCTAssertFalse(TranscriptChunker.needsChunking(text))
         XCTAssertEqual(TranscriptChunker.chunks(text).count, 1)
     }
@@ -50,7 +50,7 @@ final class TranscriptChunkerTests: XCTestCase {
         for text in [longPunctuated(900), words(700), oneLongSentence(600)] {
             for chunk in TranscriptChunker.chunks(text) {
                 XCTAssertLessThanOrEqual(
-                    chunk.split(separator: " ").count, TranscriptChunker.maxWords)
+                    chunk.split(separator: " ").count, TranscriptChunker.defaultMaxWords)
             }
         }
     }

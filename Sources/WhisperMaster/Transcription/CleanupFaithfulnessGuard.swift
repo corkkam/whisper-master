@@ -51,6 +51,54 @@ enum CleanupFaithfulnessGuard {
     static let rephraseMaxExpansionRatio = 2.0
     static let rephraseMaxNovelContentFraction = 0.5
 
+    /// **A long input gets a tight band, and this is the check that was missing.**
+    ///
+    /// The ratios above are loose on purpose: on a six-word utterance a faithful
+    /// cleanup really can halve or double the count, so a tight band there rejects
+    /// legitimate self-corrections and compressions. That reasoning does not carry
+    /// to a 500-word dictation, and applying the short-input band to one is how the
+    /// eval caught the model returning **207 words of a 521-word paragraph** — 60%
+    /// of it silently gone — and the guard waving it through at 0.40 against a 0.30
+    /// floor. A degenerate *loop* got through the same gap from the other side, at
+    /// 1.47 against a 2.0 ceiling.
+    ///
+    /// Over `longFormMinWords` the law of large numbers applies: removing fillers
+    /// and collapsing corrections moves a long transcript by a few percent, not by
+    /// half. So the band closes to something a faithful pass comfortably meets and
+    /// neither pathology can.
+    /// Each of the three long-form failures the eval produced needs a *different*
+    /// instrument, and that is why this is not one wider ratio:
+    ///
+    /// - **207 of 521 words**, ending cleanly — a ratio catches it, nothing else can.
+    /// - **765 of 521, one sentence 19×** — the expansion ceiling catches it.
+    /// - **437 of 521, stopping on the word "We"** — ratio 0.84, which no floor can
+    ///   reject without also rejecting the good 0.95 pass beside it. What makes it
+    ///   obviously wrong is not its length but that it **ends mid-sentence**, so
+    ///   that is what gets tested. See `endsMidSentence`.
+    static let longFormMinWords = 120
+    static let longFormMinRetention = 0.75
+    static let longFormMaxExpansion = 1.25
+
+    /// A generation that hit its token ceiling stops wherever it happened to be —
+    /// "…and we were 3 versions behind training. We". Detecting *that* is precise,
+    /// where a length ratio is a guess.
+    ///
+    /// **Self-calibrating, because not every register punctuates.** S1-mini's
+    /// `casual` and `semi-casual` styling deliberately omit the final period, so a
+    /// missing terminator is only evidence of truncation when the model was
+    /// punctuating in the first place — which the presence of terminators earlier
+    /// in the output proves. An unpunctuated casual output is exempt rather than
+    /// silently rejected.
+    static func endsMidSentence(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = trimmed.last else { return false }
+        let terminators: Set<Character> = [".", "!", "?", "\"", ")", ":", "”"]
+        guard !terminators.contains(last) else { return false }
+        // Did it punctuate anywhere else? If not, this is a register that omits
+        // the final stop, not a cut-off generation.
+        return trimmed.dropLast().contains { $0 == "." || $0 == "!" || $0 == "?" }
+    }
+
     /// Why a rewrite was refused — or that it wasn't.
     ///
     /// The guard used to answer only `Bool`, and the reason died at the `return
@@ -69,6 +117,9 @@ enum CleanupFaithfulnessGuard {
         /// answering. Carries the observed ratio and the ceiling it broke.
         case tooLong(ratio: Double, ceiling: Double)
         case tooShort(ratio: Double, floor: Double)
+        /// A long rewrite that stops mid-sentence: the generation hit its token
+        /// ceiling. Length alone cannot separate this from a faithful pass.
+        case cutOff
         /// Words in, only numbers and symbols out: the model computed the utterance.
         case computed
         /// A named entity the input never had (polish mode's anti-answer rule).
@@ -91,6 +142,8 @@ enum CleanupFaithfulnessGuard {
                 return String(format: "The rewrite was %.1f× longer than what you said (limit %.1f×) — the model started answering rather than cleaning.", ratio, ceiling)
             case .tooShort(let ratio, let floor):
                 return String(format: "The rewrite kept only %.0f%% of what you said (floor %.0f%%) — too much was dropped.", ratio * 100, floor * 100)
+            case .cutOff:
+                return "The rewrite stopped in the middle of a sentence, so the ending would have been lost."
             case .computed:
                 return "The rewrite was only numbers and symbols — the model worked the sentence out instead of cleaning it."
             case .inventedEntity:
@@ -129,11 +182,20 @@ enum CleanupFaithfulnessGuard {
         // Length band (loose — see doc comment).
         if inputWords > 0 {
             let ratio = Double(outputWords) / Double(inputWords)
-            let ceiling = allowRephrase ? rephraseMaxExpansionRatio : maxExpansionRatio
+            // Long inputs get the tight band; short ones keep the loose one they
+            // were tuned against. See `longFormMinWords`.
+            let isLongForm = inputWords >= longFormMinWords
+            let ceiling = isLongForm
+                ? longFormMaxExpansion
+                : (allowRephrase ? rephraseMaxExpansionRatio : maxExpansionRatio)
             if ratio > ceiling { return .tooLong(ratio: ratio, ceiling: ceiling) }
-            if inputWords >= truncationFloorMinWords, ratio < minRetentionRatio {
-                return .tooShort(ratio: ratio, floor: minRetentionRatio)
+            let floor = isLongForm ? longFormMinRetention : minRetentionRatio
+            if inputWords >= truncationFloorMinWords, ratio < floor {
+                return .tooShort(ratio: ratio, floor: floor)
             }
+            // The tail check, which no ratio can stand in for. Long-form only: a
+            // short utterance ending without a stop is ordinary.
+            if isLongForm, endsMidSentence(out) { return .cutOff }
         }
 
         // A cleanup of a sentence with real (non-number) words always yields
