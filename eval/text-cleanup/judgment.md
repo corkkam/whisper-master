@@ -93,10 +93,30 @@ Verified on the real pipeline: exactly **one** verdict flips against the previou
 run (the 19× loop, now rejected); the other 91 cases are untouched.
 `CHUNK_WORDS=0 bash run-eval.sh` is the control arm.
 
-**Text after the change:** 180/184 — `light 90/92`, `polish 90/92`, attribution
-`asr 0, cleanup 4`. The four are the two known cases (`vocab-acronym`,
-`corr-name-chain`) across both targets. Latency unchanged: light 105 ms median,
-polish 214 ms.
+**Text after the change:** **178/184** — `light 89/92`, `polish 89/92`, attribution
+`asr 0, cleanup 6`. Four are the two long-standing cases (`vocab-acronym`,
+`corr-name-chain`) across both targets. Latency unchanged: light 106 ms median,
+polish 213 ms.
+
+**The other two are `long-migration-update`, and the red is deliberate.** Its
+keywords were first written so that the deterministic fallback satisfied them,
+which meant the case scored green against all four of the measured outputs above —
+including the 207-word drop and the 19× loop. A case that cannot fail is not a
+test. It now carries three anchors spanning the transcript (`ingestion path` at the
+opening, `security review` in the body, `cut over on Thursday` at the tail, which
+additionally requires the correction there to have been collapsed) and forbids the
+uncollapsed forms. Checked against the recorded outputs it separates them exactly:
+
+| measured output | verdict |
+|---|---|
+| 437w, cut mid-sentence | fail — missing the tail |
+| 496w, complete | **pass** |
+| 207w, body dropped | fail — missing the opening |
+| 765w, 19× loop | fail — missing the opening |
+
+So the score fell from 180 to 178 because the suite can now see a defect it was
+blind to, not because anything regressed. **It should stay red until the cache
+issue below is fixed** — that is what it is for.
 
 **Audio after the change:** 244 rows, `asr 110, cleanup 14` — **the cleanup count is
 identical to the pre-change run**, and the same three cases
@@ -150,9 +170,16 @@ catch a regression on its own.
   `EvalRunner` cannot cover any of this — it calls
   `MlxCleanupService.prepare(configuration:directory:)` and bypasses `ModelInstaller`
   entirely, which is why a 404 mirror survived a full eval run.
-- **Non-English.** S1-mini is English-only (v1). Parakeet v3 is multilingual. What the
-  normalizer does with non-English input is unknown and untested, and the failure would
-  be silent. Worth gating before Smart cleanup is ever made on-by-default.
+- **Non-English — this was written on a false premise and is much smaller than it
+  looks.** The claim here was that S1-mini is English-only while Parakeet is
+  multilingual, so the pair would silently mismatch. **The shipped recogniser is
+  `parakeet-tdt-0.6b-v2`, the English-only build** (`LocalStreamingTranscriber`
+  picks it deliberately: better on English, and no v3 long-form chunk-boundary
+  drops). An English-only normalizer sits behind an English-only recogniser, so
+  there is no mismatch to gate on. What remains is the ordinary question of what
+  either model does when someone speaks another language at it — worth knowing, not
+  a blocker. The error came from `Transcription/CLAUDE.md`, which said `v3`; it now
+  says v2 and points at the code.
 
 ## Recommendation
 
