@@ -49,6 +49,17 @@ cleanup-attributed failures are three distinct cases**, and none is a regression
 
 **Verdict on audio: no cleanup regression attributable to S1-mini.**
 
+## LibriSpeech — 20 clips of real human speech (dev-clean, CC BY 4.0)
+
+`eval-score`: `total 20, pass 19, fail 1`, attribution **`asr 1, cleanup 0`**. The one
+failure is a 40% WER clip; every cleanup pass held.
+
+Mean WER **3.4%**, median **0.0%**, 15/20 under 5% — **identical to the figure on
+record before this change**, which is the check that matters here: the swap touched
+the cleanup model only, and the ASR anchor did not move.
+
+**Verdict on real speech: zero cleanup failures.**
+
 ## Not verified
 
 - **The R2 install path.** The archive is published and publicly fetchable
@@ -58,8 +69,6 @@ cleanup-attributed failures are three distinct cases**, and none is a regression
   seen end to end. `EvalRunner` cannot cover this: it calls
   `MlxCleanupService.prepare(configuration:directory:)` and bypasses `ModelInstaller`
   entirely. **This is the one open item before shipping.**
-- **LibriSpeech WER anchor.** The 322 MB tarball was still downloading when this was
-  written. It measures ASR, not cleanup, so it does not bear on the model swap.
 - **Non-English.** S1-mini is English-only (v1). Parakeet v3 is multilingual. What the
   normalizer does with non-English input is unknown and untested, and the failure would
   be silent. Worth gating before Smart cleanup is ever made on-by-default.
