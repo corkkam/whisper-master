@@ -1,0 +1,202 @@
+name: Eval
+
+# Grade the shipped pipeline on a clean machine and publish the scores to
+# whisper.corkkam.com/eval.
+#
+# This exists because the eval was, until now, something only one laptop could
+# run. `Scripts/release.sh` runs it at release time, but that path had never
+# been exercised anywhere except that laptop, so "every release grades itself"
+# was a claim rather than a fact. This workflow is where it gets proven, and
+# where a suite can be re-run on demand without cutting a release.
+#
+# COST. The macOS runner bills at 10x and the cleanup model is a 2 GB download
+# on a cold cache, so nothing here runs on an ordinary push. The triggers are:
+#
+#   - workflow_dispatch, the real interface, once this is on the default branch.
+#   - a push to a `feature/eval-**` branch that changes the workflow, the runner
+#     or the cases. A workflow that cannot be tested before it merges is a
+#     workflow that gets debugged in production; this is how it self-tests.
+#
+# Both are deliberately narrow. If this starts firing on unrelated work, tighten
+# the paths rather than deleting the trigger.
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Which suite to run"
+        type: choice
+        default: assistant
+        options: [assistant, cleanup, all]
+      push_results:
+        description: "Publish the scores to /eval"
+        type: boolean
+        default: false
+      label:
+        description: "Label for the stored run"
+        type: string
+        default: ""
+  push:
+    branches: ["feature/eval-**"]
+    paths:
+      - ".github/workflows/eval.yml"
+      - "eval/text-cleanup/*.jsonl"
+      - "eval/text-cleanup/run-eval.sh"
+      - "eval/text-cleanup/push-run.mjs"
+      - "Sources/WhisperMaster/Eval/**"
+
+concurrency:
+  group: eval-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The MLX cleanup model, mirrored on R2. `ModelInstaller` fetches the same
+  # archive at runtime; CI pre-seeds it so the app finds it already installed
+  # and does not spend the first minutes of the run downloading.
+  MODEL_NAME: Qwen3-4B-Instruct-2507-4bit
+  MODELS_DIR: ~/Library/Application Support/FluidAudio/Models
+
+jobs:
+  eval:
+    # macos-26 for the same reason release.yml pins it: macos-15's Xcode 16.4
+    # cannot resolve this project's package graph at all.
+    runs-on: macos-26
+    # A cold model download plus two suites; the default 360 is generous enough
+    # to hide a hang, so cap it.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      - name: Install build tools
+        run: brew install xcodegen
+
+      - name: Read the model checksum
+        # The cache key is the checksum the app itself verifies against, so a
+        # model bump invalidates the cache automatically rather than silently
+        # serving the old weights to every future run.
+        id: model
+        run: |
+          set -euo pipefail
+          sum=$(grep -A6 'static let sha256' Sources/WhisperMaster/ModelInstall/ModelChecksums.swift \
+                | grep "\"$MODEL_NAME\"" | sed -E 's/.*: *"([a-f0-9]{64})".*/\1/')
+          [ -n "$sum" ] || { echo "could not read the checksum for $MODEL_NAME" >&2; exit 1; }
+          echo "sha256=$sum" >> "$GITHUB_OUTPUT"
+          echo "checksum $sum"
+
+      - name: Restore the cleanup model
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Application Support/FluidAudio/Models
+          key: mlx-${{ env.MODEL_NAME }}-${{ steps.model.outputs.sha256 }}
+
+      - name: Download the cleanup model
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        # Straight from the public R2 mirror, then verified against the same
+        # checksum the app uses. An unverified 2 GB blob decompressed into the
+        # models directory is not something to do quietly.
+        run: |
+          set -euo pipefail
+          dir=$(eval echo "$MODELS_DIR")
+          mkdir -p "$dir"
+          url="https://dl.corkkam.com/models/${MODEL_NAME}.zip"
+          echo ">> $url"
+          curl -fSL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/model.zip" "$url"
+          actual=$(shasum -a 256 "$RUNNER_TEMP/model.zip" | cut -d' ' -f1)
+          if [ "$actual" != "${{ steps.model.outputs.sha256 }}" ]; then
+            echo "checksum mismatch: got $actual" >&2
+            exit 1
+          fi
+          ditto -x -k "$RUNNER_TEMP/model.zip" "$dir"
+          rm -f "$RUNNER_TEMP/model.zip"
+          ls -la "$dir/$MODEL_NAME" | head -5
+
+      - name: Build the app
+        # Debug, ad-hoc signed. The assistant bench is behind `#if DEBUG`, and
+        # nothing here is distributed, so a Developer ID identity would only be
+        # a secret this job does not need.
+        #
+        # It has to be xcodebuild rather than `swift build`: mlx-swift's Metal
+        # shaders only compile under Xcode, so a SwiftPM binary loads the model
+        # and then fails at the first kernel. See the note in Package.swift.
+        env:
+          CONFIG: Debug
+          SIGN_IDENTITY: "-"
+        run: bash Scripts/bundle.sh
+
+      - name: Grade the assistant
+        if: >-
+          github.event_name == 'push' ||
+          inputs.suite == 'assistant' || inputs.suite == 'all'
+        # Runs the Mach-O directly rather than through `open`. That is safe for
+        # this one hook and only this one: `AppMain` handles WM_AGENT_TOOL_EVAL
+        # and returns before any AppKit, TCC or CoreBluetooth setup, which is
+        # exactly what makes exec'ing the binary crash for every other path.
+        env:
+          WM_AGENT_TOOL_EVAL: "1"
+          WM_EVAL_CASES: ${{ github.workspace }}/eval/text-cleanup/assistant-cases.jsonl
+          WM_EVAL_OUT: ${{ github.workspace }}/.eval-scratch/assistant-results.json
+        run: |
+          set -euo pipefail
+          mkdir -p .eval-scratch
+          "build/Whisper Master.app/Contents/MacOS/WhisperMaster" | tee .eval-scratch/assistant.log
+          test -s "$WM_EVAL_OUT"
+
+      - name: Grade the cleanup pipeline
+        if: >-
+          inputs.suite == 'cleanup' || inputs.suite == 'all'
+        # This one does need LaunchServices: the runner starts from
+        # `applicationDidFinishLaunching`, so the app has to come up properly.
+        # It is the part of CI viability that was never proven, which is why it
+        # is `continue-on-error` for now — a failure here should report itself,
+        # not fail a job whose other half worked.
+        continue-on-error: true
+        env:
+          APP: ${{ github.workspace }}/build/Whisper Master.app
+          NO_PUSH: "1"
+          OUT: ${{ github.workspace }}/.eval-scratch/results.json
+          TIMEOUT: "1800"
+        #
+        # The transcription suite is deliberately absent: its clips are generated
+        # by make_audio.sh, which wants ffmpeg, a TTS pass and a LibriSpeech
+        # download. That belongs on a machine that keeps .eval-scratch between
+        # runs, not on a runner that throws it away. Run it locally:
+        #   bash make_audio.sh && node make-transcription-cases.mjs --real
+        run: |
+          set -euo pipefail
+          bash eval/text-cleanup/run-eval.sh eval/text-cleanup/cases.jsonl "ci ${{ github.sha }}"
+
+      - name: Publish the scores
+        if: >-
+          github.event_name == 'workflow_dispatch' && inputs.push_results
+        env:
+          EVAL_INGEST_TOKEN: ${{ secrets.EVAL_INGEST_TOKEN }}
+          DASHBOARD_URL: https://whisper.corkkam.com
+        run: |
+          set -euo pipefail
+          label='${{ inputs.label }}'
+          [ -n "$label" ] || label="ci ${{ inputs.suite }} $(git rev-parse --short HEAD)"
+          push() {
+            [ -s "$1" ] || return 0
+            node eval/text-cleanup/push-run.mjs "$1" "$2" "$3"
+          }
+          # Each suite is pushed with its OWN cases file. Pushing the assistant
+          # results against cases.jsonl would leave every case rule-less, which
+          # scores it on word error alone — a perfect run for a suite that has no
+          # audio in it.
+          push .eval-scratch/assistant-results.json eval/text-cleanup/assistant-cases.jsonl "$label (assistant)"
+          push .eval-scratch/results.json eval/text-cleanup/cases.jsonl "$label (cleanup)"
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: .eval-scratch/
+          if-no-files-found: warn
+          retention-days: 14
