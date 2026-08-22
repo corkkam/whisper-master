@@ -379,3 +379,92 @@ reach across the intervening cardinal. One glance per run, and it is the right
 trade against making the rule loose enough to hide a real invention. The three
 false positives that *were* worth fixing — "6b", "c'est", "15th" — are fixed and
 locked by tests.
+
+## The full baseline, and what the matcher change actually cost
+
+The 92 existing cases were then run end to end (8 batches of 12, installed
+1.1.0-beta.9) and scored under **both** matchers, because a change to pass/fail
+semantics has to be measured rather than argued:
+
+| matcher | pass |
+|---|---|
+| substring (old) | 175/184 |
+| word boundary (new) | 169/184 |
+| word boundary, after fixing 3 cases | **175/184** |
+
+**Net zero.** The six flipped rows were three cases asserting a
+first-letter-dropped stem — `'arakeet'` for Parakeet, `'etrieves'` for retrieves,
+`'erfect'` for Perfect — to sidestep capitalization. Matching has always been
+case-insensitive, so the trick was never needed; it just stopped meaning anything
+once word-character terms began matching on word boundaries. They name the whole
+word now.
+
+**And the `"um"` hazard did not fire on this run.** Zero rows were *fixed* by the
+change. Eight outputs contain an um-inside-a-word ("summarize", "documents",
+"bumped", "Documentation") and none of them belongs to a case that forbids `"um"`.
+So the hazard is real and latent, not currently active — and the `real-email`
+finding recorded earlier in this file is **not** an instance of it: that was an
+audio run, and the capital-`UM`-from-ASR reading of it stands.
+
+### `long-migration-update` truncates again, and the guard accepts it
+
+The finding this case was built for, reproduced:
+
+| target | LLM ms | out/in | guard | stops at |
+|---|---|---|---|---|
+| light | **13243** | 0.85 (445/521w) | **accepted** | "the deck is about 80" |
+| polish | 13354 | 0.79 (414/521w) | **accepted** | "the deck is about" |
+
+Both cut mid-sentence, ~76 words short of the tail, and `.cutOff` did not fire —
+so the mangled text is what reaches the user rather than the safe deterministic
+fallback. Earlier in this file the same case is recorded passing on merit at 515
+of 521 words. **The condition differs**: that measurement was one 92-case run,
+this one is batched 12 at a time, so the case ran with far fewer prior
+generations. With a fresh cache per cleanup that should not matter, and it did.
+Reported as measured; the cause is not established here.
+
+### The "worth a look" list was mostly noise, and now is not
+
+It ran to 16 entries on the baseline, of which 13 were correct outputs. Two
+exemptions fixed that, both measured rather than guessed:
+
+- **A collapsed disfluency is supposed to lose words.** Seven `disfluency` cases
+  sit at retention 0.50–0.64 and are right to. `disf-cross-sentence` at 0.40 is
+  the best output in the suite.
+- **A rephrasing target is allowed novel content.** `polish` writing "went"/"saw"
+  for a tense fix is its job, so the novel-word check applies to non-rephrasing
+  targets only — which is where an invention is a finding.
+
+16 → **3**, and all three are real: `num-phone` at 0.50 on both targets, and
+`edge-mixed` at 0.62 under polish. `num-phone` is worth its place, because it is
+the *same mechanism* as `sens-card` — spoken digits collapsing into one token —
+passing at 0.50 where the card number fails at 0.17. The two cases bracket the
+guard's floor from either side.
+
+### The model reverts the ITN on small counts
+
+New, and only visible through the novel-word metric: `light` turns the
+deterministic "we need 3 things" back into "we need **three** things", and
+"Two separate things" from "2". The ITN digitizes and the model un-digitizes. Both
+readings are defensible English; what is not defensible is that the two stages
+disagree, so which one wins depends on whether the LLM pass ran.
+
+## Combined suite: 116 cases, 232 rows, 215 pass
+
+`light 110/116`, `polish 105/116`, attribution `asr 0, cleanup 17`. Weighted
+`186.5/197.5` and `177.0/197.5`.
+
+**The number to look at is `no-op rows`: 79 of 116 on `light`.** Two thirds of
+the suite's light rows come back word-identical. On the recorded diagnostic set of
+real dictations it was 10 of 12. A normalizer that leaves clean text alone is
+behaving correctly — but "the model changes nothing on two thirds of calls, for
+338 ms median and 9.1 s at p99" is a product fact that no pass rate in this file
+has ever reported, and it is the first thing worth acting on.
+
+### The suite cannot assert casing, and should be able to
+
+`vocab-preserve` expects the custom term "Parakeet" and the pipeline emits
+"parakeet". **No assertion in the suite can see that**, because matching is
+case-insensitive everywhere — which is exactly why the case reached for
+`'arakeet'` in the first place. A case-sensitive assertion form is the obvious
+next parameter; it is not built here.

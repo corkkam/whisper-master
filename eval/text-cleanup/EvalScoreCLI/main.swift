@@ -123,19 +123,36 @@ do {
     // the point of the metrics: the long-form truncation passed its rules, and a
     // retention of 0.40 is what would have said so without anyone having thought
     // to assert the missing sentence.
+    //
+    // Two exemptions, both measured rather than guessed. Without them this list
+    // ran to 16 entries on the baseline suite of which 13 were correct outputs,
+    // and a list that is mostly noise gets skipped:
+    //
+    //  - **A collapsed disfluency is supposed to lose words.** "ship it friday
+    //    actually no let me start over we should ship it monday" -> "We should
+    //    ship it Monday" is retention 0.40 and is the best output in the suite.
+    //    So `disfluency` and `fillers` are exempt from the retention floor.
+    //  - **A rephrasing target is allowed novel content.** `polish` writing
+    //    "went"/"saw" for a tense fix is its job, so the novel-word check applies
+    //    to non-rephrasing targets only. `light` inventing a word is the finding
+    //    this catches, and that is where it still fires.
+    let dropIsThePoint: Set<String> = ["disfluency", "fillers"]
+    let rephrasingTargets: Set<String> = ["polish", "slack", "email", "code"]
     let suspicious = scores.filter { s in
         guard s.mechanicalPass, s.metrics.inputWords >= 8 else { return false }
-        return s.metrics.retention < 0.75 || s.metrics.retention > 1.6
-            || !s.metrics.novelWords.isEmpty
+        let retentionOdd = !dropIsThePoint.contains(s.category)
+            && (s.metrics.retention < 0.75 || s.metrics.retention > 1.6)
+        let inventedWords = !rephrasingTargets.contains(s.target) && !s.metrics.novelWords.isEmpty
+        return retentionOdd || inventedWords
     }
     if !suspicious.isEmpty {
         print("  passed the rules, worth a look (\(suspicious.count)):")
         for s in suspicious.sorted(by: { $0.metrics.retention < $1.metrics.retention }) {
             var why = "retention \(f2(s.metrics.retention))"
-            if !s.metrics.novelWords.isEmpty {
+            if !rephrasingTargets.contains(s.target), !s.metrics.novelWords.isEmpty {
                 why += ", novel: \(s.metrics.novelWords.prefix(6).joined(separator: " "))"
             }
-            print("    ? [\(s.target)] \(s.id): \(why)")
+            print("    ? [\(s.target)] \(s.id) (\(s.category)): \(why)")
         }
     }
 } catch {
