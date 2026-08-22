@@ -109,6 +109,16 @@ do {
         print("  FAIL [\(f.target)] \(f.id) (\(f.category)): \(f.reasons.joined(separator: "; ")) (\(f.attribution ?? "-"))")
     }
 
+    // Assertions the word-boundary matcher reads differently from a plain
+    // substring. Not a failure — it is how an author sees which of their terms
+    // was load-bearing on the old behaviour (seven cases forbid "um", which a
+    // substring also finds inside "number").
+    let disagreements = Scorer.matcherDisagreements(cases: loaded, rows: rows)
+    if !disagreements.isEmpty {
+        print("  matcher note — substring vs word boundary (\(disagreements.count)):")
+        for d in Set(disagreements).sorted() { print("    · \(d)") }
+    }
+
     // Rows that satisfy every keyword rule and still look wrong. This section is
     // the point of the metrics: the long-form truncation passed its rules, and a
     // retention of 0.40 is what would have said so without anyone having thought

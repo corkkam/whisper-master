@@ -42,6 +42,33 @@ final class MetricsTests: XCTestCase {
         XCTAssertEqual(n, [])
     }
 
+    /// From a real run: "apartment 6 b" -> "6B" read as invented because the
+    /// initialism run only accepted letters.
+    func testDigitInitialismIsNotNovel() {
+        let n = Metrics.novelWords(input: WER.normalize("send it to 1400 market street apartment 6 b"),
+                                  output: WER.normalize("Send it to 1400 Market Street Apartment 6B."))
+        XCTAssertEqual(n, [])
+    }
+
+    /// From a real run: "c est" -> "c'est" and "fifteenth" -> "15th" both read as
+    /// invented. A two-token join and an ordinal are transformations the
+    /// pipeline is built to make.
+    func testTwoTokenJoinIsNotNovel() {
+        let n = Metrics.novelWords(input: WER.normalize("she said c est la vie"),
+                                  output: WER.normalize(#"She said "c'est la vie"."#))
+        XCTAssertEqual(n, [])
+    }
+
+    func testOrdinalIsNotNovel() {
+        let n = Metrics.novelWords(input: WER.normalize("the deadline is march fifteenth"),
+                                  output: WER.normalize("The deadline is March 15th."))
+        XCTAssertEqual(n, [])
+        XCTAssertTrue(Metrics.isOrdinal("15th"))
+        XCTAssertTrue(Metrics.isOrdinal("3rd"))
+        XCTAssertFalse(Metrics.isOrdinal("th"))
+        XCTAssertFalse(Metrics.isOrdinal("north"))
+    }
+
     func testAnsweredQuestionIsNovel() {
         // The failure this metric exists for: the model answered instead of
         // punctuating, so the answer's words are in the output and nowhere else.

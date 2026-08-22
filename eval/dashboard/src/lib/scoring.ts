@@ -72,14 +72,35 @@ export function sourceOf(id: string): Source {
  * the keyword rules; an unfaithful acceptance is still caught by mustNotContain.
  * So the final output's keyword compliance is the sole mechanical arbiter.
  */
+/**
+ * Case-insensitive keyword match, ported from the Swift `Scorer.matches`.
+ *
+ * A term made only of word characters matches on **word boundaries**; anything
+ * else is a plain substring. This is the semantics every case was already
+ * written as if it had. Plain `includes` was quietly failing them: seven cases
+ * forbid the filler `"um"`, which `includes` also finds inside **n-um-ber**,
+ * **s-um-mary** and **doc-um-entation**; `"uh"` is inside "though"; `"AM"` is
+ * inside "same" and "campaign"; `"20"` is inside "2025".
+ *
+ * The punctuation carve-out keeps the rest working: `"\n- "`, `"1."`, `"Best,"`,
+ * `"$25"` and `"github.com/corkkam"` all still mean exactly the characters they
+ * name.
+ */
+export function matches(term: string, text: string): boolean {
+  if (!term) return true;
+  if (!/^[\p{L}\p{N}]+$/u.test(term)) return text.toLowerCase().includes(term.toLowerCase());
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'iu');
+  return re.test(text);
+}
+
 export function scoreRow(row: ResultRow, rule: Rule | undefined, werValue: number | null): Scored {
   const reasons: string[] = [];
-  const low = (row.llm_output ?? '').toLowerCase();
+  const out = row.llm_output ?? '';
   for (const t of rule?.mustContain ?? []) {
-    if (!low.includes(t.toLowerCase())) reasons.push(`missing '${t}'`);
+    if (!matches(t, out)) reasons.push(`missing '${t}'`);
   }
   for (const t of rule?.mustNotContain ?? []) {
-    if (low.includes(t.toLowerCase())) reasons.push(`forbidden '${t}'`);
+    if (matches(t, out)) reasons.push(`forbidden '${t}'`);
   }
 
   let attribution: 'asr' | 'cleanup' | null = null;
@@ -129,11 +150,16 @@ export const FUNCTION_WORDS = new Set([
  */
 export function novelWords(input: string[], output: string[]): string[] {
   const inSet = new Set(input);
-  const inNoApos = new Set(input.map((w) => w.replace(/'/g, '')));
+  const bare = (w: string) => w.replace(/'/g, '');
+  // Adjacent pairs run together, so a two-token join ("c est" -> "c'est") reads
+  // as the same words rather than as new material.
+  const inJoined = new Set(input.map(bare));
+  for (let i = 0; i + 1 < input.length; i++) inJoined.add(bare(input[i]) + bare(input[i + 1]));
   const initialisms = new Set<string>();
   let run = '';
   for (const w of [...input, '']) {
-    if (w.length === 1 && /[a-z]/.test(w)) run += w;
+    // Digits count: "apartment 6 b" -> "6b" is a join, not an invention.
+    if (w.length === 1 && /[a-z0-9]/.test(w)) run += w;
     else {
       if (run.length > 1) initialisms.add(run);
       run = '';
@@ -146,7 +172,9 @@ export function novelWords(input: string[], output: string[]): string[] {
     seen.add(w);
     if (/^[0-9]+$/.test(w)) continue;
     if (initialisms.has(w)) continue;
-    if (inNoApos.has(w.replace(/'/g, ''))) continue;
+    if (inJoined.has(bare(w))) continue;
+    // "fifteenth" -> "15th": inverse text normalization wearing a suffix.
+    if (/^[0-9]+(st|nd|rd|th)$/.test(w)) continue;
     if (FUNCTION_WORDS.has(w)) continue;
     novel.push(w);
   }

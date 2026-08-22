@@ -89,10 +89,15 @@ public enum Metrics {
     ///    five" becoming "25" is correct, and flagging it would light up every
     ///    number case in the suite. A digit run is never counted as invented.
     /// 2. **Assembled initialisms.** "a p i" -> "api" is also the job. A novel
-    ///    token whose letters appear in the input as a consecutive run of
-    ///    single characters is the same words, joined.
-    /// 3. **Apostrophe variants.** "its" / "it's" differ only in punctuation the
-    ///    normalizer is allowed to add.
+    ///    token whose characters appear in the input as a consecutive run of
+    ///    single characters is the same words, joined. Digits count: a real run
+    ///    flagged "6b" as invented, from "apartment 6 b".
+    /// 3. **Apostrophe variants and two-token joins.** "its" / "it's" differ only
+    ///    in punctuation the normalizer is allowed to add, and a candidate that
+    ///    is an adjacent input pair run together is the same words joined -- a
+    ///    real run flagged "c'est" as invented, from "c est".
+    /// 3b. **Ordinals.** "fifteenth" -> "15th" is inverse text normalization
+    ///    wearing a suffix; digits plus st/nd/rd/th is never invented content.
     /// 4. **Function words.** A cleanup pass legitimately reshapes grammar —
     ///    splitting or joining a contraction, restoring a dropped article,
     ///    turning "gonna" into "going to". An invented *fact* is never a closed-
@@ -131,12 +136,16 @@ public enum Metrics {
 
     public static func novelWords(input: [String], output: [String]) -> [String] {
         let inSet = Set(input)
-        let inNoApostrophe = Set(input.map { $0.replacingOccurrences(of: "'", with: "") })
+        let bare: (String) -> String = { $0.replacingOccurrences(of: "'", with: "") }
+        var inJoined = Set(input.map(bare))
+        // Adjacent pairs run together, so a two-token join reads as the same
+        // words rather than as new material.
+        for (a, b) in zip(input, input.dropFirst()) { inJoined.insert(bare(a) + bare(b)) }
         // Runs of single-character input tokens, joined — "a p i" -> "api".
         var initialisms = Set<String>()
         var run = ""
         for w in input + [""] {
-            if w.count == 1, w.first?.isLetter == true { run += w }
+            if w.count == 1, let c = w.first, c.isLetter || c.isNumber { run += w }
             else { if run.count > 1 { initialisms.insert(run) }; run = "" }
         }
 
@@ -145,11 +154,19 @@ public enum Metrics {
             guard seen.insert(w).inserted else { continue }
             if w.allSatisfy(\.isNumber) { continue }                                   // 1
             if initialisms.contains(w) { continue }                                     // 2
-            if inNoApostrophe.contains(w.replacingOccurrences(of: "'", with: "")) { continue }  // 3
+            if inJoined.contains(bare(w)) { continue }                                  // 3
+            if isOrdinal(w) { continue }                                                // 3b
             if functionWords.contains(w) { continue }                                   // 4
             novel.append(w)
         }
         return novel
+    }
+
+    /// Digits with an ordinal suffix — "15th", "3rd". Inverse text normalization
+    /// wearing a suffix, never invented content.
+    static func isOrdinal(_ w: String) -> Bool {
+        guard w.count > 2, ["st", "nd", "rd", "th"].contains(String(w.suffix(2))) else { return false }
+        return w.dropLast(2).allSatisfy(\.isNumber) && !w.dropLast(2).isEmpty
     }
 
     private static func editDistance(_ a: [String], _ b: [String]) -> Int {

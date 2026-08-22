@@ -70,11 +70,10 @@ public enum Scorer {
 
     public static func score(evalCase: EvalCase, row: ResultRow) -> RunScore {
         var reasons: [String] = []
-        let low = row.llmOutput.lowercased()
-        for term in evalCase.mustContain where !low.contains(term.lowercased()) {
+        for term in evalCase.mustContain where !matches(term, in: row.llmOutput) {
             reasons.append("missing '\(term)'")
         }
-        for term in evalCase.mustNotContain where low.contains(term.lowercased()) {
+        for term in evalCase.mustNotContain where matches(term, in: row.llmOutput) {
             reasons.append("forbidden '\(term)'")
         }
 
@@ -91,6 +90,65 @@ public enum Scorer {
                         attribution: attribution,
                         metrics: Metrics.measure(evalCase: evalCase, row: row),
                         guardFellBack: !row.guardVerdict.accepted)
+    }
+
+    /// Case-insensitive keyword match.
+    ///
+    /// **A term made only of word characters matches on word boundaries; anything
+    /// else is a plain substring.** This is the semantics every case in the suite
+    /// was already written as if it had, and plain `contains` was quietly failing
+    /// them: seven cases forbid the filler `"um"`, which `contains` also finds
+    /// inside **n-um-ber**, **s-um-mary** and **doc-um-entation**; `"uh"` is inside
+    /// "though"; `"AM"`/`"PM"` are inside "same", "example" and "campaign";
+    /// `"20"`/`"25"`/`"30"` are inside "2025" and "$300". A suite that reports a
+    /// failure because the transcript said "number" is measuring its own matcher.
+    ///
+    /// The punctuation carve-out is what keeps the rest working: `"\n- "`,
+    /// `"1."`, `"Best,"`, `"$25"` and `"github.com/corkkam"` all still mean
+    /// exactly the characters they name, because a word boundary around them
+    /// would not be where the author meant it.
+    ///
+    /// A word-character term still matches across an inflection boundary the way
+    /// a reader expects — `"PR"` is found in "the PR", not in "PRs" — so a case
+    /// that wants the looser reading spells the term out with its suffix.
+    static func matches(_ term: String, in text: String) -> Bool {
+        let needle = term.lowercased(), haystack = text.lowercased()
+        guard !needle.isEmpty else { return true }
+        guard needle.allSatisfy({ $0.isLetter || $0.isNumber }) else {
+            return haystack.contains(needle)
+        }
+        var searchStart = haystack.startIndex
+        while let r = haystack.range(of: needle, range: searchStart..<haystack.endIndex) {
+            let beforeOK = r.lowerBound == haystack.startIndex
+                || !isWordChar(haystack[haystack.index(before: r.lowerBound)])
+            let afterOK = r.upperBound == haystack.endIndex || !isWordChar(haystack[r.upperBound])
+            if beforeOK, afterOK { return true }
+            searchStart = haystack.index(after: r.lowerBound)
+        }
+        return false
+    }
+
+    private static func isWordChar(_ c: Character) -> Bool { c.isLetter || c.isNumber }
+
+    /// Terms that mean something different under the two matchers, so a case
+    /// author can see which of their assertions was load-bearing on the old
+    /// behaviour. Reported by the CLI, never a failure.
+    public static func matcherDisagreements(cases: [EvalCase], rows: [ResultRow]) -> [String] {
+        let byID = Dictionary(cases.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var out: [String] = []
+        for row in rows {
+            guard let c = byID[row.id] else { continue }
+            for (kind, terms) in [("must_contain", c.mustContain), ("must_not_contain", c.mustNotContain)] {
+                for t in terms where t.allSatisfy({ $0.isLetter || $0.isNumber }) {
+                    let strict = matches(t, in: row.llmOutput)
+                    let loose = row.llmOutput.lowercased().contains(t.lowercased())
+                    if strict != loose {
+                        out.append("\(c.id) [\(row.target)] \(kind) '\(t)': substring \(loose), word \(strict)")
+                    }
+                }
+            }
+        }
+        return out
     }
 
     /// Severity weight for a failing category. A normalizer that answers a
