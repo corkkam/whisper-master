@@ -78,6 +78,12 @@ enum AgentPrompt {
     /// `<tools>` block and the `<tool_call>` convention), so this carries only the
     /// behavioural rules — listing the tools or the JSON shape here would fight the
     /// template rather than reinforce it.
+    ///
+    /// **The length rule has to be stated, though.** In the hand-rolled prompts it
+    /// rides on the reply format (`{"answer":"<one or two short sentences>"}`), so
+    /// dropping the format lines dropped the only place that said how long an answer
+    /// may be — and the answer lands on a notch band a few hundred points wide, or is
+    /// read aloud. Handed a day's calendar the model replayed the whole listing back.
     static func systemNative() -> String {
         """
         You answer questions about the user's calendar, tasks and messages by calling the provided functions.
@@ -87,6 +93,7 @@ enum AgentPrompt {
         - Omit the connector argument to use every connector.
         - Never repeat a call with the same arguments — you already have that result.
         - Answer as soon as you have enough.
+        - Answer in one or two short sentences of plain prose. Never list, never repeat the data back.
         - Never invent events, names or numbers. Only report what a function returned.
         """
     }
@@ -101,6 +108,7 @@ enum AgentPrompt {
         - Call a function first. Never answer before calling one.
         - For times, pass the user's own words ("tomorrow at 9"), never a date you worked out.
         - Never repeat a call with the same arguments — you already have that result.
+        - Report in one short sentence of plain prose. Never list, never repeat the data back.
         - Never invent events, names or numbers. Only report what a function returned.
         - If nothing else fits, call create_note with what the user said.
         """
@@ -162,11 +170,14 @@ struct AgentLoop {
 
     /// The production generator: the already-loaded qwen.
     ///
-    /// **Note the cost.** `MlxCleanupService` keeps a persistent KV cache primed on
-    /// the *cleanup* system prompt; passing a different system prompt re-prefills it.
-    /// So an agent call re-primes, and the next dictation cleanup re-primes back.
-    /// That's acceptable — neither is in the sub-second dictation hot path — but it's
-    /// the reason the loop isn't run speculatively or on every transcript.
+    /// **It goes through `generateAgent`, not `clean`, and that is load-bearing.**
+    /// `clean` is the *transcript-cleanup* entry point: it wraps its input in the
+    /// cleanup control line, sizes the token budget from the input's word count, and
+    /// chunks anything over 240 words into separately-generated pieces. The measured
+    /// cost is the third: the turn that reads a real tool result gets chunked, and the
+    /// answer is then built from the first piece alone — confidently, and about a
+    /// quarter of the data. `MlxCleanupService.generateAgent` is the same model with
+    /// none of that. The full account, and the numbers, are on that method.
     ///
     /// It lived on `ConnectorAgentService`, which existed to assemble the agent for a
     /// scheduled automation and for the retired day-query key. With automations gone
@@ -179,7 +190,7 @@ struct AgentLoop {
             // loop at it would mean no tool ever executes and the assistant silently
             // becoming the keyword gate.
             await MlxCleanupService.prepareGeneralIfInstalled()
-            return await MlxCleanupService.general.clean(text, systemPrompt: systemPrompt)
+            return await MlxCleanupService.general.generateAgent(text, systemPrompt: systemPrompt)
         }
     }
 
@@ -233,6 +244,18 @@ struct AgentLoop {
     /// waiting on instead of saying "Working on it" for thirty seconds. No-op by
     /// default, so a caller with nothing to caption (a test) can ignore it.
     var onStep: (AgentActivity) -> Void = { _ in }
+    /// For a **spoken command**: an answer arriving before any tool has been called is
+    /// a mistake the model gets told about once, rather than the end of the run.
+    ///
+    /// The caller has already ruled out the "it was just chatting" reading —
+    /// `CommandAgentService` discards a run that executed nothing, and the words are
+    /// filed verbatim instead. So the old behaviour spent one generation of an
+    /// eight-iteration budget and threw the command away on the strength of a single
+    /// "Sure, I'll remind you at six." One correction turn costs a second or two and
+    /// is the difference between a reminder existing and a note that says the user
+    /// wanted one. A question (`AgentPrompt.system`) leaves this off: answering
+    /// without a tool is a legitimate outcome there.
+    var requiresToolBeforeAnswer: Bool = false
 
     func run(question: String) async -> AgentOutcome {
         guard !tools.isEmpty else { return .failed }
@@ -256,6 +279,8 @@ struct AgentLoop {
         /// — reading its own result, not recognising it as an answer, and issuing the
         /// *identical* call again — which is what this key catches.
         var madeCalls = Set<String>()
+        /// Whether the one correction `requiresToolBeforeAnswer` allows has been spent.
+        var correctedPrematureAnswer = false
         var messages: [AgentMessage] = [.init(role: .user, text: question)]
 
         // Reported once, not before every generate. After a call returns, the model
@@ -292,6 +317,19 @@ struct AgentLoop {
                 messages.append(.init(role: .system, text: "That was invalid: \(error.modelFeedback) Try again."))
 
             case .success(.answer(let answer)):
+                // Once, and only for a command: see `requiresToolBeforeAnswer`. The
+                // second premature answer is taken at face value — a model that will
+                // not call anything after being told to plainly is not going to, and
+                // the caller's own rule turns it into a filed note either way.
+                if requiresToolBeforeAnswer, madeCalls.isEmpty, !correctedPrematureAnswer {
+                    correctedPrematureAnswer = true
+                    let note = "Nothing has happened yet — that was only text, and the "
+                        + "user cannot see it. Call a \(useNative ? "function" : "tool") "
+                        + "now to carry out the command."
+                    turns.append(AgentTurn(role: .system, text: note))
+                    messages.append(.init(role: .system, text: note))
+                    continue
+                }
                 return AgentOutcome(answer: answer, instanceLabels: labels,
                                     turns: turns, exhausted: false)
 
@@ -317,10 +355,19 @@ struct AgentLoop {
                 // Nudge toward finishing: without it a 3B will often keep exploring
                 // rather than answer from a result it already has. It's a nudge, not a
                 // rule — a further call with different arguments is still allowed.
+                //
+                // **The wording has to follow the path.** On the native path the model
+                // answers in plain words, and a nudge naming `{"answer":"…"}` taught it
+                // to emit that envelope as its reply — which arrives with no
+                // `<tool_call>` block and so becomes the answer, braces and all, on the
+                // band and in the spoken read-back.
                 messages.append(.init(
                     role: .system,
-                    text: "Answer now with {\"answer\":\"...\"} if that is enough, "
-                        + "otherwise call another tool."))
+                    text: useNative
+                        ? "Answer now in plain words if that is enough, otherwise call "
+                            + "another function."
+                        : "Answer now with {\"answer\":\"...\"} if that is enough, "
+                            + "otherwise call another tool."))
             }
         }
 
