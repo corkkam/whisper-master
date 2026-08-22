@@ -65,18 +65,25 @@ final class LabBenchRunner {
 
     // MARK: - Lifecycle
 
-    func start(suite: LabSuite, models: [LabModel], repoRoot: URL?) {
+    /// `limit` runs only the first N cases. Used by the headless bench for a
+    /// quick pass; **it is logged, never silent** — a bench that ran 10 of 92 and
+    /// reported a score without saying so is a lie by omission.
+    func start(suite: LabSuite, models: [LabModel], repoRoot: URL?, limit: Int? = nil) {
         guard !isRunning, !models.isEmpty else { return }
         failure = nil
         log = []
 
-        let loaded: LabSuiteCases
+        var loaded: LabSuiteCases
         do {
             loaded = try LabSuiteLoader.load(suite, repoRoot: repoRoot)
         } catch {
             failure = error.localizedDescription
             append(.bad, error.localizedDescription)
             return
+        }
+        if let limit, limit > 0, limit < loaded.cases.count {
+            append(.info, "limited to the first \(limit) of \(loaded.cases.count) cases")
+            loaded = LabSuiteCases(cases: Array(loaded.cases.prefix(limit)), sources: loaded.sources)
         }
 
         var newRun = LabRun(
