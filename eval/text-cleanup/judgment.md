@@ -242,3 +242,140 @@ the chunker is what keeps a >390-word output off the 512-token ceiling.
 Adopt. It is better on every axis measured, and the two remaining text failures were
 already failing. Before turning Smart cleanup **on by default** — which 335 MB and
 100 ms otherwise justify — close the install path and decide the non-English question.
+
+---
+
+# Judgment — what the new parameters found
+
+Run: 2026-08-23. No model or prompt changed here. What changed is the **scorer**:
+it now reports the shape of every output beside the keyword verdict, and the
+keyword matcher was fixed. Every number below comes from the real pipeline
+through `EvalRunner` on the installed 1.1.0-beta.9 bundle, scored by
+`eval-score`.
+
+## The scorer was failing cases on its own matcher
+
+`must_contain` / `must_not_contain` were plain case-insensitive substring checks.
+**Seven cases forbid the filler `"um"`, and a substring finds it inside "number",
+"summary" and "documentation".** `"uh"` is inside "although". `"AM"` and `"PM"`
+are inside "same", "example" and "campaign". `"20"`, `"25"` and `"30"` are inside
+"2025" and "$300". 42 assertion terms across the three case files are under three
+characters.
+
+This section of the file already carried one symptom of it, read as something
+else: `real-email` was recorded as failing because "the ASR emitted `UM` in
+capitals". That may also be true, but the same case fails whenever the transcript
+contains the word **number** — and it is a case about a dictated email, so it
+will.
+
+A word-character term now matches on word boundaries; a term with punctuation or
+whitespace stays a plain substring, so `"\n- "`, `"1."`, `"Best,"`, `"$25"` and
+`"github.com/corkkam"` are unchanged. The CLI prints every assertion the two
+matchers read differently, so nothing about this is silent.
+
+## Four defects in the pipeline, each located precisely
+
+### 1. A dictated card number cannot survive the cleanup path
+
+`sens-card` — "card number four one one one one one one one one one one one one
+one one one" — comes out **as those English words**, on both targets.
+
+The mechanism is exact, and the eval separates it from the neighbouring case that
+works:
+
+| case | spoken digits | words in → out | retention | guard |
+|---|---|---|---|---|
+| `sens-2fa` | 6 | 8 → 4 (`924173`) | 0.44 | **accepted** |
+| `sens-card` | 16 | 18 → 3 | ~0.17 | **rejected** |
+
+`DeterministicITN` deliberately leaves a run of digit words alone rather than sum
+it, so digitizing is the model's job — and digitizing *N* spoken digits collapses
+*N* words into one token. `CleanupFaithfulnessGuard.minRetentionRatio` is 0.30, so
+a six-digit code clears the floor and a sixteen-digit one cannot. **A card number,
+IBAN, account number or serial dictated aloud is structurally impossible to
+paste.** This is a guard-tuning decision with its own history, so it is reported
+rather than changed here; the shape of a fix is a digit-sequence exemption, not a
+lower floor.
+
+### 2. `joinEmails` turns "is at <domain>" into an email address
+
+`uri-url` — "the repo is at github dot com slash corkkam slash whisper master" —
+leaves `DeterministicITN` as:
+
+```
+the repo is@github.com slash corkkam slash whisper master
+```
+
+`joinEmails` treats the token before "at" as an email local-part, so **any
+sentence of the form "<word> at <domain> dot com" becomes a bogus address**. The
+model then produced `The repo is @github.com/corkkam/whisper/master.` A local-part
+guard — a handle or name, not an arbitrary verb like "is" — is the fix.
+
+Worth noting how this was found: the case's *first* assertion was `must_contain:
+["github.com"]`, and the mangled output satisfied it. The case passed. It only
+became a finding once the assertion was tightened to forbid `is@`.
+
+### 3. `polish` translates code-switched speech, and the guard accepts it
+
+The most serious of the four.
+
+```
+in : haan so the deployment kal ho jayega but we need the review first
+out: The deployment is happening tomorrow, but we need the review first.
+```
+
+Guard **accepted**. The Hindi was translated to English, "haan" was dropped, and
+words the speaker never said were put in their place. Under `light` the guard
+rejected and the deterministic text shipped, which is the correct outcome — so
+this is specific to the rephrasing target. It is the same class of failure the
+anti-answer rule was added for, and the guard has no equivalent test for a
+language change. Weighted ×2 as `multilingual`.
+
+### 4. `light` spends nine seconds on a long input and pastes the raw words
+
+`long-standup`, 224 words:
+
+| target | LLM ms | out/in | guard |
+|---|---|---|---|
+| light | **9125** | 1.00 | **rejected** |
+| polish | 7971 | 0.91 | accepted |
+
+Nine seconds of generation, discarded, and the unpunctuated deterministic text is
+what reaches the user. `long-two-topics` (139 words) is fine on both (0.97 /
+0.92), so this is not simply length. A rejection is the *safe* failure and that
+part is working as designed — but paying nine seconds for it is a latency bug in
+its own right, and the p99 column is where it shows: **9125 ms against a 445 ms
+median.**
+
+A related inconsistency: `uri-path` ("slash users slash lappy slash code slash
+whisper") is correctly rendered `/users/lappy/code/whisper` under `light`, and
+under `polish` the guard rejects and the user gets the word "slash" five times.
+
+## What the metrics said that no rule could
+
+- **`light` is close to a no-op on real text.** Against the recorded diagnostic
+  set, **10 of 12 rows** came back word-identical while costing 293 ms median. On
+  the 24 new cases it is **12 of 24**. That is not a defect — a normalizer that
+  leaves clean text alone is behaving — but "half the calls change nothing" is a
+  fact about the product that no pass rate was reporting.
+- **Retention flagged a credential losing a token.** `sens-api-key` under `light`:
+  "s k dash live dash four seven two nine" → "S-K-Live-4729", a dropped "dash",
+  where `polish` kept it. Retention 0.58. **The keyword rule passed it** — it
+  asserted `4729`, and `4729` is there.
+- **Retention is diagnostic, not a gate, and `disf-cross-sentence` is why.**
+  Retention 0.40, and it is *correct*: collapsing "ship it on friday actually no
+  let me start over we should ship it monday" to "We should ship it Monday" is
+  supposed to halve the word count. Any run of this suite that gated on retention
+  would fail the best output in it.
+- **`ms/word` is the comparable latency figure.** 45.7 ms/word on light against a
+  445 ms median: the median moves with the length mix of the suite, and this does
+  not.
+
+## Known over-count, left in the open
+
+`uri-version-tag` reports `v1` as a novel word — "v one point 2 point 3" →
+"v1.2.3" is a legitimate join across the ITN, and the initialism rule does not
+reach across the intervening cardinal. One glance per run, and it is the right
+trade against making the rule loose enough to hide a real invention. The three
+false positives that *were* worth fixing — "6b", "c'est", "15th" — are fixed and
+locked by tests.
