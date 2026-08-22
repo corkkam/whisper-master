@@ -18,7 +18,7 @@ import Foundation
 /// scan hard-crashes.
 enum EvalRunner {
     private struct Item {
-        let id, det, inputKind: String
+        let id, category, det, inputKind: String
         let asrText, asrReference: String?
         let asrMs: Int?
         let targets: [String]
@@ -55,7 +55,8 @@ enum EvalRunner {
                 var latency: [String: Int] = ["deterministic": 0, "llm": llmMs, "total": llmMs]
                 if let asrMs = item.asrMs { latency["asr"] = asrMs; latency["total"] = asrMs + llmMs }
                 var row: [String: Any] = [
-                    "id": item.id, "target": target.rawValue, "input_kind": item.inputKind,
+                    "id": item.id, "category": item.category,
+                    "target": target.rawValue, "input_kind": item.inputKind,
                     "deterministic": item.det, "llm_output": accepted ? llm : item.det,
                     "guard": ["accepted": accepted], "wer": NSNull(), "latency_ms": latency,
                 ]
@@ -76,11 +77,15 @@ enum EvalRunner {
         var items: [Item] = []
         for c in loadCases(casesPath) {
             let id = c["id"] as? String ?? ""
+            // Carried into every row so the scorer and the dashboard can roll up
+            // per category without also being handed the cases file.
+            let category = c["category"] as? String ?? "uncategorized"
             let targets = c["targets"] as? [String] ?? ["light", "polish"]
             let input = (c["input"] as? [String: Any]) ?? wrap(c["input"])
             if let text = input?["text"] as? String {
-                items.append(Item(id: id, det: deterministic(text), inputKind: "text",
-                                  asrText: nil, asrReference: nil, asrMs: nil, targets: targets))
+                items.append(Item(id: id, category: category, det: deterministic(text),
+                                  inputKind: "text", asrText: nil, asrReference: nil,
+                                  asrMs: nil, targets: targets))
             } else if let audioPath = input?["audio"] as? String {
                 if transcriber == nil {
                     let t = FluidAudioStreamingTranscriber()
@@ -91,8 +96,9 @@ enum EvalRunner {
                     transcriber = t
                 }
                 guard let t = transcriber, let (asr, ms) = await transcribe(audioPath, with: t) else { continue }
-                items.append(Item(id: id, det: deterministic(asr), inputKind: "audio",
-                                  asrText: asr, asrReference: c["asr_reference"] as? String ?? "",
+                items.append(Item(id: id, category: category, det: deterministic(asr),
+                                  inputKind: "audio", asrText: asr,
+                                  asrReference: c["asr_reference"] as? String ?? "",
                                   asrMs: ms, targets: targets))
             }
         }

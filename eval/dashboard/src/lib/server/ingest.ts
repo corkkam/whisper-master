@@ -1,5 +1,6 @@
 import {
   aggregate,
+  rowMetrics,
   scoreRow,
   sourceOf,
   wer,
@@ -44,7 +45,14 @@ export interface PreparedRun {
   results: PreparedResult[];
 }
 
-/** Parse a cases.jsonl string into id -> keyword rules. */
+/**
+ * Parse a cases.jsonl string into id -> keyword rules.
+ *
+ * `category` and `reference` come from here rather than from results.json:
+ * the runner has only recently started writing `category`, and no version of it
+ * writes `reference`. The cases file is the authority for both, so a run
+ * ingested without one still rolls up per category correctly.
+ */
 export function parseCases(jsonl?: string | null): Map<string, Rule> {
   const map = new Map<string, Rule>();
   if (!jsonl) return map;
@@ -55,7 +63,9 @@ export function parseCases(jsonl?: string | null): Map<string, Rule> {
       const c = JSON.parse(t);
       map.set(c.id, {
         mustContain: c.must_contain ?? [],
-        mustNotContain: c.must_not_contain ?? []
+        mustNotContain: c.must_not_contain ?? [],
+        reference: c.reference ?? null,
+        category: c.category ?? null
       });
     } catch {
       /* skip malformed line */
@@ -75,11 +85,14 @@ export function prepareRun(rows: ResultRow[], rules: Map<string, Rule>, meta: In
       row.input_kind === 'audio' && row.asr_reference != null && row.asr_text != null
         ? wer(row.asr_reference, row.asr_text)
         : (row.wer ?? null);
-    const s = scoreRow(row, rules.get(row.id), werValue);
+    const rule = rules.get(row.id);
+    const s = scoreRow(row, rule, werValue);
     const latency = row.latency_ms ?? {};
+    const category = row.category ?? rule?.category ?? null;
+    const metrics = rowMetrics(row, rule);
     prepared.push({
       caseId: row.id,
-      category: row.category ?? null,
+      category,
       source: src,
       target: row.target,
       inputKind: row.input_kind ?? 'text',
@@ -94,7 +107,10 @@ export function prepareRun(rows: ResultRow[], rules: Map<string, Rule>, meta: In
       attribution: s.attribution,
       reasons: s.reasons
     });
-    scored.push({ target: row.target, source: src, wer: werValue, latency, score: s });
+    scored.push({
+      target: row.target, source: src, wer: werValue, latency, score: s,
+      category, guardAccepted: row.guard?.accepted ?? true, metrics
+    });
   }
 
   const caseIds = new Set(rows.map((r) => r.id));
