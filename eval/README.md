@@ -70,9 +70,16 @@ the **real** `CleanupFaithfulnessGuard`. The scorer does not re-run the model.
 | Guard | `CleanupFaithfulnessGuard.swift` | Rejects invented / answering / coding output. Diagnostic, not a pass/fail. |
 | Case schema + WER + scorer | `eval/text-cleanup/EvalScore/` | Pure SwiftPM lib `EvalScoreKit`. No app / MLX deps. |
 | CLI | `eval/text-cleanup/EvalScoreCLI/` | `swift run eval-score <results.json> <cases.jsonl>` |
-| Baseline cases | `eval/text-cleanup/cases.jsonl` | ~89 text cases, default targets `light`+`polish`. |
+| Baseline cases | `eval/text-cleanup/cases.jsonl` | 116 text cases across 16 categories, default targets `light`+`polish`. |
 | Destination cases | `eval/text-cleanup/flow-cases.jsonl` | Slack / email / code suite. |
-| Staged cases | `eval/text-cleanup/cases-extended.jsonl` | New dimensions awaiting calibration against a real run, then folded into `cases.jsonl` and deleted. Kept separate on purpose: an uncalibrated assertion turns the main suite red for a reason that is the case's fault, not the pipeline's. |
+
+**Adding a batch of cases: stage them in a separate file first.** Write them to
+e.g. `cases-extended.jsonl`, run *that* file, fix every assertion that failed for
+the case's own fault rather than the pipeline's, then merge and delete it. Of the
+24 cases added on 2026-08-23, three had wrong assertions — one forbade a
+one-character term, one asserted a rewrite a rephrasing target is allowed to
+make, and one was too weak to catch the bug it had found. Merging first would have
+turned the suite red for the suite's own reasons.
 | One-shot driver | `eval/text-cleanup/run-eval.sh` | Quit app → `launchctl setenv` → `open` → wait → optional push. |
 | Audio glue | `make_audio.sh`, `fetch_librispeech.sh` | TTS + HFP/noise aug + LibriSpeech slice → `.eval-scratch/` (git-ignored). |
 | Pusher | `eval/text-cleanup/push-run.mjs` | `POST /api/eval/ingest`. Needs `EVAL_INGEST_TOKEN`. |
@@ -131,8 +138,22 @@ One JSON object per line.
 Rules:
 
 - Audio cases **must** have `asr_reference`.
-- `must_contain` / `must_not_contain` are case-insensitive substring checks on
-  the **final** `llm_output` (or the deterministic fallback if the guard rejected).
+- `must_contain` / `must_not_contain` are case-insensitive checks on the **final**
+  `llm_output` (or the deterministic fallback if the guard rejected). **A term made
+  only of word characters matches on word boundaries; anything else is a plain
+  substring.** So `"um"` means the word *um* and not the middle of "n-um-ber",
+  while `"\n- "`, `"1."`, `"Best,"`, `"$25"` and `"github.com/corkkam"` mean
+  exactly the characters they name. Two consequences worth knowing before you
+  write a case:
+  - **An inflection is a different word.** `"PR"` is found in "the PR" and not in
+    "PRs". Spell the suffix out if you want the looser reading.
+  - **Nothing in the suite can assert casing**, because matching is
+    case-insensitive throughout. `vocab-preserve` wants "Parakeet" and passes on
+    "parakeet". Don't reach for a first-letter-dropped stem (`'arakeet'`) to work
+    around capitalization — it was never needed, and it stops matching entirely
+    under word boundaries.
+  - `eval-score` prints every assertion the two matchers read differently, so a
+    term that was load-bearing on the old behaviour is visible rather than silent.
 - The guard verdict is **not** a pass/fail. A rejection means the safe
   deterministic text was kept — for a faithfulness case that is often the
   correct result. An unfaithful *acceptance* is still caught by `must_not_contain`.
@@ -175,8 +196,20 @@ open: a **content-word** rephrase a rephrasing target is allowed to make
 compared within a target and never gated on.
 
 `eval-score` closes with a **"passed the rules, worth a look"** list: rows that
-satisfy every keyword rule and still have a retention outside 0.75–1.6 or a
-novel word. That list is the point of all of this.
+satisfy every keyword rule and still have a retention outside 0.75–1.6 or a novel
+word. That list is the point of all of this — with two exemptions, both of which
+came from the list being 16 entries of which 13 were correct outputs:
+
+- **`disfluency` and `fillers` are exempt from the retention floor.** A collapsed
+  restart is *supposed* to lose words: "ship it friday actually no let me start
+  over we should ship it monday" → "We should ship it Monday" is retention 0.40
+  and the best output in the suite.
+- **The novel-word check applies to non-rephrasing targets only.** `polish`
+  writing "went" for a tense fix is its job; `light` inventing a word is the
+  finding.
+
+A list that is mostly noise gets skipped, which costs more than the two
+exemptions do.
 
 ### Severity weighting
 
