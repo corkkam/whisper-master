@@ -188,6 +188,19 @@ jobs:
           # permanently unsymbolicated (the dSYM dies with the runner).
           POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
           POSTHOG_CLI_PROJECT_ID: ${{ secrets.POSTHOG_CLI_PROJECT_ID }}
+          # Publishes this build's eval score to whisper.corkkam.com/eval,
+          # tagged with the version and channel. release.sh runs the eval last
+          # and never lets it fail the release, so a missing or wrong token
+          # costs the score for this version and nothing else.
+          #
+          # STABLE ONLY, and it is not free: the eval launches the built app,
+          # which downloads the ~2 GB cleanup model onto a fresh runner and then
+          # runs 89 cases twice. Reckon on ten extra macOS-runner minutes per
+          # release, billed at 10x. release.sh already defaults the dev channel
+          # off; RUN_EVAL below is the switch if stable should stop paying for
+          # it too.
+          EVAL_INGEST_TOKEN: ${{ secrets.EVAL_INGEST_TOKEN }}
+          RUN_EVAL: ${{ github.ref_name == 'main' && '1' || '0' }}
         run: bash Scripts/release.sh
 
       - name: Publish shareable DMG to R2

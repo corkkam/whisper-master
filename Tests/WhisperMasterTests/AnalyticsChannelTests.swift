@@ -80,16 +80,18 @@ final class AnalyticsChannelTests: XCTestCase {
         XCTAssertFalse(AppState.persistedAnalyticsEnabled)
     }
 
-    /// The build's channel comes from the bundle id `Scripts/channel.sh` badges
-    /// in — never from `BetaAccess`, which answers "which appcast should Sparkle
-    /// poll" and reports `.beta` for a *stable* build run by a flagged user.
-    /// Attributing that user's events to beta would corrupt both channels' counts.
-    func testTheChannelIsDerivedFromTheBundleIDNotTheUsersBetaFlag() {
-        XCTAssertEqual(ReleaseChannel.channel(forBundleID: "app.whispermaster.mac"), .stable)
-        XCTAssertEqual(ReleaseChannel.channel(forBundleID: "app.whispermaster.mac.beta"), .beta)
-        XCTAssertEqual(ReleaseChannel.channel(forBundleID: "app.whispermaster.mac.dev"), .dev)
+    /// The build's channel comes from the running binary's version — never from
+    /// `BetaAccess`, which answers "which appcast items may this user receive"
+    /// and reports beta for a *stable* build run by a flagged user. Attributing
+    /// that user's events to beta would corrupt both channels' counts.
+    func testTheChannelIsDerivedFromTheBuildNotTheUsersBetaFlag() {
+        let shipping = ReleaseChannel.shippingBundleID
+        XCTAssertEqual(ReleaseChannel.channel(forVersion: "1.1.0", bundleID: shipping), .stable)
+        XCTAssertEqual(ReleaseChannel.channel(forVersion: "1.1.0-beta.9", bundleID: shipping), .beta)
+        XCTAssertEqual(
+            ReleaseChannel.channel(forVersion: "1.1.0", bundleID: "app.whispermaster.mac.dev"), .dev)
         // A bundle-less `swift build` run reports dev, so local development
         // never lands in the stable numbers.
-        XCTAssertEqual(ReleaseChannel.channel(forBundleID: nil), .dev)
+        XCTAssertEqual(ReleaseChannel.channel(forVersion: nil, bundleID: nil), .dev)
     }
 }

@@ -1,3 +1,14 @@
+> **The eval half of this app is retired.** Run history moved to
+> `whisper.corkkam.com/eval`, served by the landing-page repo out of Supabase
+> (`app/eval/`, `lib/eval/`). Do not push runs here and do not add features
+> here.
+>
+> This deploy stays up for one reason: shipped Mac builds hardcode
+> `https://whisper-eval-dashboard.vercel.app` as the sync base URL for
+> `/api/usage` and `/api/notes` (see `Sources/WhisperMaster/Usage/UsageSyncConfig.swift`).
+> It can be retired once an app release repoints them and the old builds have
+> aged out.
+
 # Eval dashboard
 
 A small full-stack app that stores **eval runs over time** and renders them as a

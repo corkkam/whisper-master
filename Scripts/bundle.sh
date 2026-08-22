@@ -108,15 +108,22 @@ echo ">> Staging $APP_DIR"
 rm -rf "$APP_DIR"
 cp -R "$PRODUCT" "$APP_DIR"
 
-# Non-stable channels (beta, dev): re-badge the staged bundle so it installs
-# SIDE-BY-SIDE with the stable app (distinct bundle id → its own TCC/Sparkle/
-# settings) and polls that channel's appcast. Done on the staged copy only —
-# project.yml/Info.plist are untouched. The edited Info.plist invalidates the
-# seal, so it is re-signed by the signing step below (DevID) or the ad-hoc
-# fallback further down. The executable name is intentionally left as
-# WhisperMaster: side-by-side works via the distinct bundle id + ".app" folder
-# name; the process name doesn't matter for a distributed build. See channel.sh.
-if [[ "$CHANNEL" != "stable" ]]; then
+# The `dev` channel ONLY: re-badge the staged bundle so it installs SIDE-BY-SIDE
+# with the shipping app (distinct bundle id → its own TCC/Sparkle/settings) and
+# polls the dev appcast. Done on the staged copy only — project.yml/Info.plist
+# are untouched. The edited Info.plist invalidates the seal, so it is re-signed
+# by the signing step below (DevID) or the ad-hoc fallback further down. The
+# executable name is intentionally left as WhisperMaster: side-by-side works via
+# the distinct bundle id + ".app" folder name; the process name doesn't matter
+# for a distributed build. See channel.sh.
+#
+# ⚠️ `beta` is deliberately NOT re-badged. Beta and stable are one installed app
+# so that a Clerk `betaAccess` flip can move a user between the tracks in place:
+# Sparkle only accepts an archive holding a bundle whose file name or bundle id
+# matches the host (SUInstaller.installSourcePathInUpdateFolder), so the moment
+# beta carries its own id it can never update a stable install, nor be updated
+# by one. Re-badging beta here is the bug, not the feature.
+if [[ "$CHANNEL" == "dev" ]]; then
     INFO="$APP_DIR/Contents/Info.plist"
     PLB=/usr/libexec/PlistBuddy
     echo ">> Re-badging for $CHANNEL channel: id=$CH_BUNDLE_ID name=\"$CH_APP_NAME\""
@@ -151,12 +158,12 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
     codesign --verify --deep --strict "$APP_DIR"
 fi
 
-# Ad-hoc + non-stable channel: the DevID block above was skipped, but the
-# re-badge edited Info.plist and invalidated the ad-hoc seal — re-sign the top
-# level so the staged bundle stays launchable (local
-# `CHANNEL=beta|dev SIGN_IDENTITY=- bundle.sh` smoke checks). Real releases go
-# through release.sh with a Developer ID.
-if [[ "$SIGN_IDENTITY" == "-" && "$CHANNEL" != "stable" ]]; then
+# Ad-hoc + dev channel: the DevID block above was skipped, but the re-badge
+# edited Info.plist and invalidated the ad-hoc seal — re-sign the top level so
+# the staged bundle stays launchable (local `CHANNEL=dev SIGN_IDENTITY=-
+# bundle.sh` smoke checks). Only `dev` needs this; `beta` no longer edits the
+# plist at all. Real releases go through release.sh with a Developer ID.
+if [[ "$SIGN_IDENTITY" == "-" && "$CHANNEL" == "dev" ]]; then
     echo ">> Re-signing $CHANNEL bundle ad-hoc (Info.plist was edited)"
     codesign -f -s - --entitlements Resources/WhisperMaster.entitlements "$APP_DIR"
 fi
