@@ -70,4 +70,38 @@ final class MatcherTests: XCTestCase {
         // And the case now passes, where it used to fail on "number".
         XCTAssertTrue(Scorer.score(evalCase: c, row: row).mechanicalPass)
     }
+
+    // MARK: case-sensitive assertions
+
+    /// Nothing in the suite could see a casing defect: `vocab-preserve` expects
+    /// the custom term "Parakeet", the pipeline emits "parakeet", and
+    /// `must_contain` passes either way. `must_contain_exact` is the fix.
+    func testExactAssertionSeesCasing() {
+        let c = try! EvalCase.decode(
+            #"{"id":"vocab-preserve","category":"vocabulary","input":{"text":"t"},"must_contain":["Parakeet"],"must_contain_exact":["Parakeet"]}"#)
+        func row(_ out: String) -> ResultRow {
+            ResultRow(id: "vocab-preserve", target: "light", inputKind: "text", asrText: nil,
+                      asrReference: nil, deterministic: "we deployed the parakeet model",
+                      llmOutput: out, guardVerdict: .init(accepted: true), latencyMs: [:], wer: nil)
+        }
+        // The insensitive rule passes on the wrong casing; the exact one does not.
+        let wrong = Scorer.score(evalCase: c, row: row("We deployed the parakeet model."))
+        XCTAssertFalse(wrong.mechanicalPass)
+        XCTAssertEqual(wrong.reasons, ["missing (exact) 'Parakeet'"])
+
+        XCTAssertTrue(Scorer.score(evalCase: c, row: row("We deployed the Parakeet model.")).mechanicalPass)
+    }
+
+    func testExactAssertionKeepsTheWordBoundaryRule() {
+        XCTAssertTrue(Scorer.matches("API", in: "Our API is slow.", caseSensitive: true))
+        XCTAssertFalse(Scorer.matches("API", in: "Our api is slow.", caseSensitive: true))
+        XCTAssertFalse(Scorer.matches("API", in: "Our APIs are slow.", caseSensitive: true))
+        XCTAssertTrue(Scorer.matches("api", in: "Our API is slow."))  // insensitive, unchanged
+    }
+
+    func testExactListsDefaultToEmptySoEveryExistingCaseIsUnchanged() {
+        let c = try! EvalCase.decode(#"{"id":"x","category":"numbers","input":{"text":"t"}}"#)
+        XCTAssertEqual(c.mustContainExact, [])
+        XCTAssertEqual(c.mustNotContainExact, [])
+    }
 }

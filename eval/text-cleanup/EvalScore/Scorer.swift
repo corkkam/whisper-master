@@ -76,6 +76,14 @@ public enum Scorer {
         for term in evalCase.mustNotContain where matches(term, in: row.llmOutput) {
             reasons.append("forbidden '\(term)'")
         }
+        // Case-sensitive assertions. Same word-boundary rule, no lowercasing —
+        // the only way anything in the suite can see a casing defect.
+        for term in evalCase.mustContainExact where !matches(term, in: row.llmOutput, caseSensitive: true) {
+            reasons.append("missing (exact) '\(term)'")
+        }
+        for term in evalCase.mustNotContainExact where matches(term, in: row.llmOutput, caseSensitive: true) {
+            reasons.append("forbidden (exact) '\(term)'")
+        }
 
         var attribution: String?
         if let w = row.wer, w > werFailThreshold {
@@ -111,8 +119,9 @@ public enum Scorer {
     /// A word-character term still matches across an inflection boundary the way
     /// a reader expects — `"PR"` is found in "the PR", not in "PRs" — so a case
     /// that wants the looser reading spells the term out with its suffix.
-    static func matches(_ term: String, in text: String) -> Bool {
-        let needle = term.lowercased(), haystack = text.lowercased()
+    static func matches(_ term: String, in text: String, caseSensitive: Bool = false) -> Bool {
+        let needle = caseSensitive ? term : term.lowercased()
+        let haystack = caseSensitive ? text : text.lowercased()
         guard !needle.isEmpty else { return true }
         guard needle.allSatisfy({ $0.isLetter || $0.isNumber }) else {
             return haystack.contains(needle)

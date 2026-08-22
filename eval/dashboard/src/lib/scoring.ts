@@ -22,6 +22,11 @@ export interface Rule {
   reference?: string | null;
   /** The case's category, for the per-category roll-up and the severity weight. */
   category?: string | null;
+  /** Case-SENSITIVE assertions. Every other rule lowercases both sides, so
+   *  nothing could see a casing defect: `vocab-preserve` expects the custom term
+   *  "Parakeet", the pipeline emits "parakeet", and `mustContain` passes. */
+  mustContainExact?: string[];
+  mustNotContainExact?: string[];
 }
 
 export interface Scored {
@@ -86,9 +91,11 @@ export function sourceOf(id: string): Source {
  * `"$25"` and `"github.com/corkkam"` all still mean exactly the characters they
  * name.
  */
-export function matches(term: string, text: string): boolean {
+export function matches(term: string, text: string, caseSensitive = false): boolean {
   if (!term) return true;
-  if (!/^[\p{L}\p{N}]+$/u.test(term)) return text.toLowerCase().includes(term.toLowerCase());
+  if (!/^[\p{L}\p{N}]+$/u.test(term)) {
+    return caseSensitive ? text.includes(term) : text.toLowerCase().includes(term.toLowerCase());
+  }
   const re = new RegExp(`(?<![\\p{L}\\p{N}])${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'iu');
   return re.test(text);
 }
@@ -101,6 +108,12 @@ export function scoreRow(row: ResultRow, rule: Rule | undefined, werValue: numbe
   }
   for (const t of rule?.mustNotContain ?? []) {
     if (matches(t, out)) reasons.push(`forbidden '${t}'`);
+  }
+  for (const t of rule?.mustContainExact ?? []) {
+    if (!matches(t, out, true)) reasons.push(`missing (exact) '${t}'`);
+  }
+  for (const t of rule?.mustNotContainExact ?? []) {
+    if (matches(t, out, true)) reasons.push(`forbidden (exact) '${t}'`);
   }
 
   let attribution: 'asr' | 'cleanup' | null = null;

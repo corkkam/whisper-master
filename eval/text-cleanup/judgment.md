@@ -468,3 +468,84 @@ has ever reported, and it is the first thing worth acting on.
 case-insensitive everywhere — which is exactly why the case reached for
 `'arakeet'` in the first place. A case-sensitive assertion form is the obvious
 next parameter; it is not built here.
+
+---
+
+# Judgment — the casing gap closed, and two more defects
+
+Run: 2026-08-23, same recorded results rescored. Three things landed since the
+section above: a case-sensitive assertion form, a fix for `joinEmails`, and a
+spoken-domain pass. Two of them found defects immediately.
+
+## Casing was unassertable, and the pipeline is getting it wrong
+
+`must_contain_exact` / `must_not_contain_exact` compare without lowercasing, and
+`vocab-preserve` fails on **both** targets the moment it can:
+
+```
+in : we deployed the parakeet model to production
+out: We deployed the parakeet model to production.
+```
+
+The custom vocabulary term is **Parakeet**. The pipeline emits it lowercase, and
+no rule in the suite could see that, because every assertion lowercased both
+sides — which is also why the case had reached for the stem `'arakeet'`. Combined
+suite goes 215/232 → **213/232**, and both new reds are real.
+
+`vocab-acronym` now carries the exact form too. It was already failing on
+`must_contain: ["API"]`, so this adds a reason rather than a failure.
+
+The existing 114 cases are untouched: both lists default to empty, so a case that
+does not opt in means exactly what it meant before.
+
+## `joinEmails` fixed, and the missing pass behind it
+
+The bug from the section above — "the repo is at github dot com" becoming
+`is@github.com` — had two halves, and only fixing the first one leaves the case
+red for a different reason.
+
+**Half one: the locative "at".** The only test on the local-part was `isWordy`,
+and "is" is wordy. `neverALocalPart` is now a closed-class list of words after
+which "at" is locative rather than an `@`: forms of *be*, locative verbs
+("live", "meet", "hosted"), and pronouns. The deliberate trade is recorded next
+to it — a genuine `me@example.com` dictated aloud will not join, because "mail me
+at example dot com" is far commoner, and a sentence turned into a plausible
+address is the worse failure: the words are gone, where a missed join leaves them
+readable.
+
+**Half two: there was no way to write a domain that is not an email.** Domain
+collapsing lived *inside* `joinEmails`, so once the address was correctly refused
+the transcript kept the literal words "dot com". `joinDomains` is now its own pass
+running before it, and `joinEmails` therefore only ever handles one shape.
+
+```
+the repo is at github dot com slash corkkam  ->  the repo is at github.com slash corkkam
+go to example dot co dot uk                  ->  go to example.co.uk
+take the dot product first                   ->  unchanged
+```
+
+**The TLD set is closed on purpose.** "dot" is an ordinary English word — "the dot
+product", "dot matrix", "connect the dots" — so the only safe trigger is a
+following token that can only be a TLD. Putting a word with an English meaning in
+that set ("in", "is", "so", "no", "at") would rewrite prose into a hostname.
+
+Known limitation, unchanged and now written down in the test: a **dotted local
+part** is not assembled. "mail john dot smith at gmail dot com" gives
+`mail john dot smith@gmail.com`, because "smith" is not a TLD and nothing else
+joins it.
+
+`DeterministicITNTests` 13/13; full suite **977 tests, 0 failures**.
+
+## Still open
+
+- **The guard's retention floor for digit sequences** (`sens-card`). Unchanged —
+  it is a tuning decision with its own history in this file.
+- **`polish` translating code-switched speech.** Unchanged. The guard has no
+  language-change test, only the anti-answer rule.
+- **`long-migration-update` truncating with `.cutOff` accepting it.** Unchanged,
+  and the cause is still not established: reproduce both the batched and the
+  single-run conditions before touching it.
+- **`light` is a no-op on two thirds of rows.** A product decision, not a bug.
+- **Surfacing the new metrics on `/eval`.** The data layer ships; the page does
+  not render any of it yet, because that is a UI change and goes through mocks
+  first.

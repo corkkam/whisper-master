@@ -129,8 +129,10 @@ One JSON object per line.
   "targets": ["slack"],                   // default ["light","polish"]
   "reference": "Hey, can you…",           // optional ideal final (for the judge)
   "asr_reference": "um hey can you…",     // required for audio — exact spoken words → WER
-  "must_contain": ["PR"],
+  "must_contain": ["PR"],              // case-insensitive, word-boundary
   "must_not_contain": ["Best,", "Dear"],
+  "must_contain_exact": ["PR"],        // case-SENSITIVE; optional
+  "must_not_contain_exact": [],
   "note": "casual Slack, no email chrome"
 }
 ```
@@ -147,11 +149,13 @@ Rules:
   write a case:
   - **An inflection is a different word.** `"PR"` is found in "the PR" and not in
     "PRs". Spell the suffix out if you want the looser reading.
-  - **Nothing in the suite can assert casing**, because matching is
-    case-insensitive throughout. `vocab-preserve` wants "Parakeet" and passes on
-    "parakeet". Don't reach for a first-letter-dropped stem (`'arakeet'`) to work
-    around capitalization — it was never needed, and it stops matching entirely
-    under word boundaries.
+  - **To assert casing, use `must_contain_exact` / `must_not_contain_exact`.**
+    The ordinary lists lowercase both sides, so `vocab-preserve` wanting
+    "Parakeet" passes on "parakeet" — which is the defect the exact form found.
+    Both exact lists follow the same word-boundary rule and default to empty, so
+    a case that does not opt in means what it always meant. Don't reach for a
+    first-letter-dropped stem (`'arakeet'`) to work around capitalization — it
+    was never needed, and it stops matching entirely under word boundaries.
   - `eval-score` prints every assertion the two matchers read differently, so a
     term that was load-bearing on the old behaviour is visible rather than silent.
 - The guard verdict is **not** a pass/fail. A rejection means the safe

@@ -16,7 +16,10 @@ enum DeterministicITN {
         // hyphenated compounds, then a digit pass for the pre-collapsed forms,
         // then the spoken-word pass.
         let toks = tokenize(dehyphenate(text))
-        return render(convertNumbers(convertDigits(joinEmails(toks))))
+        // Domains collapse before emails, so `joinEmails` only ever has to
+        // handle one shape (`<local> at <domain>`) instead of two, and a spoken
+        // domain that is *not* part of an address still gets written properly.
+        return render(convertNumbers(convertDigits(joinEmails(joinDomains(toks)))))
     }
 
     /// English hyphenates compound numbers 21–99 ("twenty-five"), and the ASR
@@ -59,13 +62,93 @@ enum DeterministicITN {
         core.range(of: #"^[A-Za-z0-9][A-Za-z0-9._-]*$"#, options: .regularExpression) != nil
     }
 
+    // MARK: - Spoken domains ("github dot com" → "github.com")
+
+    /// Top-level domains a spoken "dot" may introduce. **Closed on purpose.**
+    /// "dot" is an ordinary English word — "the dot product", "dot matrix",
+    /// "connect the dots" — so the only safe trigger is a following token that
+    /// can only be a TLD. Adding a word here that has an English meaning
+    /// ("in", "is", "so", "no", "at") would rewrite prose into a hostname.
+    private static let spokenTLDs: Set<String> = [
+        "com", "net", "org", "io", "dev", "ai", "app", "co", "us", "uk", "ca",
+        "de", "fr", "in", "gov", "edu", "sh", "gg", "tv", "xyz", "cloud", "tech",
+    ]
+
+    /// `<name> dot <tld> (dot <tld>)*` → `name.tld`. Runs before `joinEmails`.
+    ///
+    /// Why this exists as its own pass: domain collapsing used to happen **only**
+    /// inside `joinEmails`, so "the repo is at github dot com" had no way to
+    /// become a URL — the words "dot com" stayed in the transcript. The eval case
+    /// `uri-url` is the record of it.
+    ///
+    /// `in` is in the TLD set and is also a very common English word, so it is
+    /// accepted only where the preceding token is already domain-shaped and the
+    /// pattern is unambiguous; that is what the `isWordy` test on the name plus
+    /// the required literal "dot" between them buys. "dot in" does not occur in
+    /// ordinary speech the way "dot product" does.
+    private static func joinDomains(_ toks: [Tok]) -> [Tok] {
+        var out: [Tok] = []
+        var i = 0
+        while i < toks.count {
+            if i + 2 < toks.count, toks[i + 1].lower == "dot",
+               isWordy(toks[i].core), !toks[i].core.contains("."),
+               spokenTLDs.contains(toks[i + 2].lower) {
+                var parts = [toks[i].core.lowercased(), toks[i + 2].core.lowercased()]
+                var j = i + 3
+                var trail = toks[i + 2].trail
+                while j + 1 < toks.count, toks[j].lower == "dot",
+                      spokenTLDs.contains(toks[j + 1].lower) {
+                    parts.append(toks[j + 1].core.lowercased())
+                    trail = toks[j + 1].trail
+                    j += 2
+                }
+                out.append(Tok(lead: toks[i].lead, core: parts.joined(separator: "."), trail: trail))
+                i = j
+                continue
+            }
+            out.append(toks[i])
+            i += 1
+        }
+        return out
+    }
+
     // MARK: - Emails / URLs ("ninja at gmail dot com" → "ninja@gmail.com")
+
+    /// Words that are never an email local-part, because "at" after them is
+    /// **locative**, not an `@`.
+    ///
+    /// Found by the eval: "the repo is at github dot com slash corkkam" came out
+    /// as `the repo is@github.com slash corkkam`, because the only test on the
+    /// local-part was `isWordy`, and "is" is wordy. Any sentence shaped
+    /// "<word> at <domain> dot com" was becoming a bogus address — and it reads
+    /// as a real one, so nothing downstream would question it.
+    ///
+    /// The trade this makes, deliberately: a genuine address whose local-part
+    /// really is one of these ("me@example.com", dictated aloud) will not join.
+    /// "Mail me at example dot com" is far commoner than dictating `me@` as an
+    /// address, and a sentence wrongly turned into an email is the worse of the
+    /// two failures — the words are gone, where a missed join leaves them
+    /// readable. Keep this list closed-class and locative; do not grow it with
+    /// ordinary nouns, which are exactly what a local-part looks like.
+    private static let neverALocalPart: Set<String> = [
+        // Forms of "be" — the shape that produced the bug.
+        "is", "are", "was", "were", "am", "be", "been", "being", "isn't", "aren't",
+        // Locative verbs: "we meet at", "it lives at", "the docs live at".
+        "meet", "meets", "meeting", "live", "lives", "lived", "stay", "stays",
+        "work", "works", "arrive", "arrives", "look", "looks", "looking",
+        "start", "starts", "starting", "end", "ends", "ending",
+        "held", "hosted", "based", "published", "available", "hosted", "sits", "sit",
+        // Pronouns and determiners — "mail me at", "find them at", "it is at".
+        "me", "us", "them", "him", "her", "it", "you", "he", "she", "they", "we",
+        "this", "that", "these", "those", "there", "here", "one", "back", "now", "again",
+    ]
 
     private static func joinEmails(_ toks: [Tok]) -> [Tok] {
         var out: [Tok] = []
         var i = 0
         while i < toks.count {
-            if i + 2 < toks.count, toks[i + 1].lower == "at", isWordy(toks[i].core) {
+            if i + 2 < toks.count, toks[i + 1].lower == "at", isWordy(toks[i].core),
+               !neverALocalPart.contains(toks[i].lower) {
                 let local = toks[i]
                 // Domain already collapsed by the ASR ("gmail.com").
                 if toks[i + 2].core.range(of: #"^[A-Za-z0-9-]+(\.[A-Za-z]{2,})+$"#, options: .regularExpression) != nil {
