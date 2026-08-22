@@ -20,6 +20,14 @@ struct DayEvent: Equatable, Sendable, Identifiable {
     /// to be able to say *which* named connector an event came from — that's the
     /// whole point of naming them. Empty when the read wasn't instance-scoped.
     let instanceLabel: String
+    /// The call this event can be joined at, when the invitation carried one.
+    ///
+    /// Resolved once at read time by `ConferenceLink` rather than each time a
+    /// surface draws the event: the notch row repaints every time the minute
+    /// turns, and re-scanning a wall of invitation notes on each of those is work
+    /// nobody asked for. `nil` is the common case, and it means no Join affordance
+    /// is drawn at all — a button that opens nothing is worse than no button.
+    let joinURL: URL?
 
     init(id: String,
          title: String,
@@ -28,7 +36,8 @@ struct DayEvent: Equatable, Sendable, Identifiable {
          isAllDay: Bool,
          calendarTitle: String,
          sourceTitle: String,
-         instanceLabel: String = "") {
+         instanceLabel: String = "",
+         joinURL: URL? = nil) {
         self.id = id
         self.title = title
         self.start = start
@@ -37,6 +46,7 @@ struct DayEvent: Equatable, Sendable, Identifiable {
         self.calendarTitle = calendarTitle
         self.sourceTitle = sourceTitle
         self.instanceLabel = instanceLabel
+        self.joinURL = joinURL
     }
 
     var isUpcoming: Bool { end >= Date() }
@@ -223,7 +233,11 @@ final class CalendarConnector {
                     isAllDay: $0.isAllDay,
                     calendarTitle: $0.calendar?.title ?? "",
                     sourceTitle: $0.calendar?.source?.title ?? "",
-                    instanceLabel: instanceLabel)
+                    instanceLabel: instanceLabel,
+                    joinURL: ConferenceLink.find(
+                        url: $0.url?.absoluteString,
+                        location: $0.location,
+                        notes: $0.notes))
             }
     }
 

@@ -399,6 +399,45 @@ enum SnapshotMode {
                 openSessionID: "s1")
             s.agents.reveal(sessionID: "s1")
         }
+        // ---- The ambient row: what is relevant right now, in the leading wing ----
+        // The notch at rest with a meeting inside its horizon. No orb: nothing is
+        // running, and an orb here would claim otherwise.
+        renderPill(dir, name: "pill-11-now-meeting") { s in
+            s.phase = .idle
+            s.now.seed(events: mockDay())
+        }
+        // A reminder that has gone past. Ember, because it is the user's own thing,
+        // and it carries the checkbox — the one control the ambient row offers.
+        renderPill(dir, name: "pill-11b-now-overdue") { s in
+            s.phase = .idle
+            seedOverdueReminder(s)
+            s.now.seed(events: [])
+        }
+        // Both at once: dictating *and* a meeting three minutes out. This is the
+        // case the whole surface exists for — the state word demotes to a chip
+        // beside the orb so the day can keep the leading wing.
+        renderPill(dir, name: "pill-11c-now-while-dictating") { s in
+            s.phase = .recording
+            s.audioLevel = 0.4
+            s.now.seed(events: mockDay())
+        }
+        // A coding agent mid-turn with a reminder overdue. Same swap, and the proof
+        // that a running agent no longer pushes the day off the bezel.
+        renderPill(dir, name: "pill-11d-now-while-agent-works") { s in
+            s.phase = .idle
+            seedOverdueReminder(s)
+            s.now.seed(events: [])
+            s.agents.seedGlanceForSnapshot(
+                sessions: [
+                    AgentSession(
+                        id: "s1", repo: "whisper-master", state: .running,
+                        activity: "Editing NotchGlow.swift",
+                        turnStartedAt: Int64(
+                            Date().addingTimeInterval(-72).timeIntervalSince1970 * 1000))
+                ],
+                openSessionID: "s1")
+            s.agents.reveal(sessionID: "s1")
+        }
         // The finished turn, as one banner line: the same icon-title-subtitle shape
         // every other band in this app uses. It replaced a dense transcript with role
         // labels and monospaced tool rows, which was a log file on the bezel.
@@ -803,6 +842,51 @@ enum SnapshotMode {
         .background(WarmBackground())
     }
 
+    /// A believable day for the ambient row and the hover timeline: two finished
+    /// meetings, one about to start (with a real Zoom link so the Join pill is
+    /// drawn rather than described), and one in the evening.
+    ///
+    /// Times are relative to the render, so the row is always inside its horizon
+    /// and the snapshot shows the state worth reviewing instead of a dark notch.
+    private static func mockDay(now: Date = Date()) -> [DayEvent] {
+        [
+            DayEvent(
+                id: "m1", title: "Standup",
+                start: now.addingTimeInterval(-4 * 3600),
+                end: now.addingTimeInterval(-4 * 3600 + 900),
+                isAllDay: false, calendarTitle: "Work", sourceTitle: "Google",
+                instanceLabel: "Work"),
+            DayEvent(
+                id: "m2", title: "1:1 with Priya",
+                start: now.addingTimeInterval(-2 * 3600),
+                end: now.addingTimeInterval(-2 * 3600 + 1800),
+                isAllDay: false, calendarTitle: "Work", sourceTitle: "Google",
+                instanceLabel: "Work"),
+            DayEvent(
+                id: "m3", title: "Design review",
+                start: now.addingTimeInterval(6 * 60),
+                end: now.addingTimeInterval(66 * 60),
+                isAllDay: false, calendarTitle: "Work", sourceTitle: "Google",
+                instanceLabel: "Work",
+                joinURL: URL(string: "https://acme.zoom.us/j/9182736450")),
+            DayEvent(
+                id: "m4", title: "Dinner with Sam",
+                start: now.addingTimeInterval(5 * 3600),
+                end: now.addingTimeInterval(7 * 3600),
+                isAllDay: false, calendarTitle: "Personal", sourceTitle: "iCloud",
+                instanceLabel: "Personal"),
+        ]
+    }
+
+    /// One reminder, twenty minutes late — the ambient row's other rung.
+    private static func seedOverdueReminder(_ state: AppState) {
+        state.notesStore.persistenceEnabled = false
+        state.notesStore.upsertReminder(
+            ReminderItem(
+                title: "Rotate the R2 key",
+                dueDate: Date(timeIntervalSinceNow: -20 * 60)))
+    }
+
     private static func seedMockData(_ state: AppState) {
         state.phase = .idle
         state.audioLevel = 0
@@ -834,6 +918,9 @@ enum SnapshotMode {
         seedTraces(state.traces)
         seedUsage(state.usageStore)
         seedNotes(state.notesStore)
+        // The quick-actions band's left column is the day, so it needs one — the
+        // renderer never starts `NowStore`, so nothing would read EventKit anyway.
+        state.now.seed(events: mockDay())
         // Two *differently named* Google Calendar instances plus an iCal one, so the
         // multi-instance UI — the whole point of the redesign — is visible in the
         // headless renderer rather than only on a Mac with real accounts attached.

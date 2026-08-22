@@ -18,6 +18,8 @@ final class DictationPillWindow {
     /// Ticks the due-reminder banner's checkbox on or off. Injected by
     /// `AppDelegate`, which holds the pre-tick snapshot an un-tick restores.
     private let onToggleDueReminder: () -> Void
+    private let onCompleteNowReminder: (UUID) -> Void
+    private let onJoin: (URL) -> Void
 
     private var screenObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
@@ -31,12 +33,16 @@ final class DictationPillWindow {
         state: AppState,
         onOpenNotes: @escaping () -> Void = {},
         onCopyUndelivered: @escaping () -> Void = {},
-        onToggleDueReminder: @escaping () -> Void = {}
+        onToggleDueReminder: @escaping () -> Void = {},
+        onCompleteNowReminder: @escaping (UUID) -> Void = { _ in },
+        onJoin: @escaping (URL) -> Void = { _ in }
     ) {
         self.state = state
         self.onOpenNotes = onOpenNotes
         self.onCopyUndelivered = onCopyUndelivered
         self.onToggleDueReminder = onToggleDueReminder
+        self.onCompleteNowReminder = onCompleteNowReminder
+        self.onJoin = onJoin
 
         panel = NSPanel(
             contentRect: .zero,
@@ -60,7 +66,9 @@ final class DictationPillWindow {
             state: state,
             onOpenNotes: onOpenNotes,
             onCopyUndelivered: onCopyUndelivered,
-            onToggleDueReminder: onToggleDueReminder))
+            onToggleDueReminder: onToggleDueReminder,
+            onCompleteNowReminder: onCompleteNowReminder,
+            onJoin: onJoin))
         host.autoresizingMask = [.width, .height]
         panel.contentView = host
 
@@ -128,7 +136,9 @@ final class DictationPillWindow {
             layout: layout,
             onOpenNotes: onOpenNotes,
             onCopyUndelivered: onCopyUndelivered,
-            onToggleDueReminder: onToggleDueReminder)
+            onToggleDueReminder: onToggleDueReminder,
+            onCompleteNowReminder: onCompleteNowReminder,
+            onJoin: onJoin)
     }
 
     private func observeEnvironment() {

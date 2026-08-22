@@ -29,16 +29,29 @@ struct NotchQuickActionsLayout {
     /// Height of the hover zone on a notch-less display, where there is no
     /// safe-area inset to borrow. The system menu bar is 22pt.
     var fallbackHoverHeight: CGFloat = 22
-    /// Width of the black body. Wide enough for two columns of short rows.
-    var contentWidth: CGFloat = 452
+    /// Width of the black body.
+    ///
+    /// Wider than the two-column original, because the left column is now the
+    /// whole day: a timeline row carries a time, a marker, a title and either a
+    /// Join pill or a calendar name, and at 452pt the titles truncated to three
+    /// words each.
+    var contentWidth: CGFloat = 668
+    /// Fixed measure for the **notes** column, so the day gets the rest.
+    ///
+    /// The two used to split the band evenly, which gave three note titles the
+    /// same room as five timeline rows and made the day wrap while the notes sat
+    /// in white space. The day is why the panel is opened; the notes are what you
+    /// also get.
+    var notesColumnWidth: CGFloat = 232
     /// Smallest wing either side of the notch, so the surface reads as flowing out
     /// of the notch rather than as a slab that happens to touch it.
     var minSideExtension: CGFloat = 64
     /// Depth of the band for a single row of content: header, one row, action row.
-    var baseThickness: CGFloat = 144
-    /// What each additional row adds. Measured against the *reminder* row (title +
-    /// due line), the taller of the two column shapes.
-    var rowHeight: CGFloat = 36
+    var baseThickness: CGFloat = 132
+    /// What each additional row adds. Measured against the **timeline** row, which
+    /// is a single line with a 20pt checkbox in it — shorter than the two-line
+    /// reminder row this replaced, which is why the base came down with it.
+    var rowHeight: CGFloat = 28
     /// Radius of the concave flare where the top meets the bezel.
     var topConcaveRadius: CGFloat = 14
     /// Radius of the surface's rounded bottom corners.
@@ -93,8 +106,10 @@ struct NotchQuickActionsLayout {
     /// Depth of the band for the longer of its two columns. Content-driven, like the
     /// dictation surface's transcript band: an account with one reminder due doesn't
     /// earn a slab of empty black, and an empty one is barely a strip.
+    /// Sized to the longer column, which is the day — so the ceiling is
+    /// `NowTimeline.displayLimit`, not the notes column's three.
     func thickness(rows: Int) -> CGFloat {
-        let rows = max(1, min(rows, NotchQuickActionsModel.columnLimit))
+        let rows = max(1, min(rows, NowTimeline.displayLimit + 1))
         return baseThickness + CGFloat(rows - 1) * rowHeight
     }
 

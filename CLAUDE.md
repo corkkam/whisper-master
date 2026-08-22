@@ -262,6 +262,26 @@ Notes are already on disk from before pinning, transcripts and audio existed, an
 added here silently empties every existing user's notes. Every field added from
 here on uses `decodeIfPresent` with a default.
 
+### What is relevant right now (`Now/`)
+
+The notch carries the one thing that matters at this second — a meeting about to
+start, a reminder that has gone past — in the **leading** wing, beside whatever the
+app itself is doing in the trailing one. Hovering unrolls it into today as one
+ordered column. Details (the relevance ladder, the two refresh cadences, the
+conference-link allowlist): **`Sources/WhisperMaster/Now/CLAUDE.md`**; the surfaces
+are in `Sources/WhisperMaster/UI/CLAUDE.md`.
+
+**⚠️ Three rules from that file hold everywhere.** The ladder returns **at most one
+item, and usually none** — the notch stays dark when nothing is inside a horizon,
+because an ambient surface that is never empty is a dashboard and this app is not
+one; don't add a rung that is always true. Nothing on this surface counts in
+seconds (the smallest unit is the minute, rounded up), for the same reason the
+record dot is the system's only perpetual motion. And `ConferenceLink` is an
+**allowlist of hosts, never first-URL-wins**: invitation bodies are full of
+unsubscribe and room-booking links, so an unrecognised host draws no Join button at
+all, and the check is re-applied at `AppDelegate.openConferenceLink` because
+`NSWorkspace.open` will launch anything.
+
 ### Gentle reminders (`Reminders/`)
 
 Idle nudges and user-set reminders both surface in the notch band — **not** in
