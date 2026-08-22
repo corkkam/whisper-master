@@ -125,14 +125,14 @@ enum EvalRunner {
         }
     }
 
-    /// Mirror `DictationViewModel`'s non-LLM pipeline order exactly. Empty glossary
-    /// and always-on ITN/filler removal so the eval is reproducible.
+    /// Mirror `DictationViewModel`'s non-LLM pipeline order exactly.
+    ///
+    /// The sequence itself lives in `LabDeterministicPipeline`, shared with the
+    /// in-app Model Lab: this file and the lab were spelling out the same five
+    /// passes, and the ordering rule they encode (collapse self-corrections
+    /// *before* ITN) only holds while every copy agrees.
     private static func deterministic(_ raw: String) -> String {
-        let spaced = TranscriptSpacingRepair.repair(raw)
-        let corrected = SelfCorrectionCollapser.collapse(spaced)
-        let itn = DeterministicITN.normalize(corrected)
-        let deFillered = FillerWordFilter.clean(itn)
-        return VocabularyPostProcessor.apply(deFillered, glossary: [])
+        LabDeterministicPipeline.run(raw)
     }
 
     private static func wrap(_ value: Any?) -> [String: Any]? {

@@ -606,6 +606,12 @@ final class AppState {
     /// `UsageStore(load: false)`.
     let agents = AgentSurfaceController()
 
+    /// The Model Lab: the dev build's bench for open-source models. Dormant —
+    /// it reads no disk and loads no model until the page is opened
+    /// (`activate()`), so building an `AppState` in a test or the snapshot
+    /// renderer costs nothing. Same posture as `agents` and `UsageStore`.
+    let lab = LabController(load: false)
+
     /// Whether a coding agent is holding a turn open waiting for an answer.
     ///
     /// This yields to `approvals.pending` and to nothing else above it: both are

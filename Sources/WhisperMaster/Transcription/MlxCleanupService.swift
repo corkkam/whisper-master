@@ -171,6 +171,33 @@ actor MlxCleanupService {
         MLX.GPU.clearCache()
     }
 
+    /// What a generation actually cost. The dictation path throws this away — it
+    /// wants the text and nothing else — but the Model Lab bench is *about* the
+    /// cost, and a bench that re-implements generation to measure it would be
+    /// measuring something other than what ships. So the cost rides back out of
+    /// the same call, and `clean` drops it.
+    struct GenerationCost: Sendable, Equatable {
+        var promptTokens = 0
+        var generatedTokens = 0
+        var promptSeconds: Double = 0
+        var generateSeconds: Double = 0
+        /// How many model calls this took. More than one means the text was long
+        /// enough to be chunked.
+        var passes = 0
+
+        var tokensPerSecond: Double {
+            generateSeconds > 0 ? Double(generatedTokens) / generateSeconds : 0
+        }
+
+        static func + (lhs: Self, rhs: Self) -> Self {
+            Self(promptTokens: lhs.promptTokens + rhs.promptTokens,
+                 generatedTokens: lhs.generatedTokens + rhs.generatedTokens,
+                 promptSeconds: lhs.promptSeconds + rhs.promptSeconds,
+                 generateSeconds: lhs.generateSeconds + rhs.generateSeconds,
+                 passes: lhs.passes + rhs.passes)
+        }
+    }
+
     /// Clean one transcript. Returns `nil` (→ caller keeps original) if the model
     /// isn't ready, input is empty, or generation times out / throws. Output is
     /// *not* trusted here — `CleanupFaithfulnessGuard` vets it upstream.
@@ -180,9 +207,17 @@ actor MlxCleanupService {
         _ text: String, systemPrompt: String = CleanupPrompt.system,
         target: CleanupTarget = .light
     ) async -> String? {
-        guard case .ready(let container) = state else { return nil }
+        await cleanMeasured(text, systemPrompt: systemPrompt, target: target).text
+    }
+
+    /// `clean`, with what it cost. Same path, same result — see `GenerationCost`.
+    func cleanMeasured(
+        _ text: String, systemPrompt: String = CleanupPrompt.system,
+        target: CleanupTarget = .light
+    ) async -> (text: String?, cost: GenerationCost) {
+        guard case .ready(let container) = state else { return (nil, GenerationCost()) }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.isEmpty else { return (nil, GenerationCost()) }
 
         // **A long dictation is cleaned in pieces, not truncated.** Past ~390 words
         // of output the `maxTokens` ceiling below cut the generation mid-sentence,
@@ -202,22 +237,36 @@ actor MlxCleanupService {
                                   container: container)
     }
 
+    /// Load the model **for the lab**: the same load as `prepare`, but reported.
+    /// Returns how long the weights took to arrive and warm, which is not part of
+    /// any case's latency and is very much part of living with a model.
+    func prepareTimed(
+        configuration: ModelConfiguration,
+        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async -> Int {
+        let started = DispatchTime.now()
+        await prepare(configuration: configuration, onProgress: onProgress)
+        return Int(Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e6)
+    }
+
     /// Clean each piece and rejoin. **A piece that fails keeps its own raw text**
     /// rather than vanishing: the alternative is silently returning three quarters
     /// of someone's paragraph, which is the exact failure this path exists to stop.
     /// The guard upstream still vets the joined result as a whole.
     private func cleanInPieces(
         _ text: String, systemPrompt: String, target: CleanupTarget
-    ) async -> String? {
-        guard case .ready(let container) = state else { return nil }
+    ) async -> (text: String?, cost: GenerationCost) {
+        guard case .ready(let container) = state else { return (nil, GenerationCost()) }
         let pieces = TranscriptChunker.chunks(text)
-        guard !pieces.isEmpty else { return nil }
+        guard !pieces.isEmpty else { return (nil, GenerationCost()) }
 
         var out: [String] = []
         var anyCleaned = false
+        var total = GenerationCost()
         for piece in pieces {
-            let cleaned = await cleanOnePass(piece, systemPrompt: systemPrompt,
-                                             target: target, container: container)
+            let (cleaned, cost) = await cleanOnePass(piece, systemPrompt: systemPrompt,
+                                                     target: target, container: container)
+            total = total + cost
             if let cleaned, !cleaned.isEmpty {
                 anyCleaned = true
                 out.append(cleaned)
@@ -231,14 +280,14 @@ actor MlxCleanupService {
         }
         // If nothing cleaned, this is a failed run, not a cleanup that changed
         // nothing — say so, so the caller keeps the deterministic text.
-        guard anyCleaned else { return nil }
-        return out.joined(separator: " ")
+        guard anyCleaned else { return (nil, total) }
+        return (out.joined(separator: " "), total)
     }
 
     private func cleanOnePass(
         _ trimmed: String, systemPrompt: String, target: CleanupTarget,
         container: ModelContainer
-    ) async -> String? {
+    ) async -> (text: String?, cost: GenerationCost) {
         let wordCount = trimmed.split { $0 == " " || $0 == "\n" || $0 == "\t" }.count
         let maxTokens = min(512, max(48, wordCount * 2 + 32))
 
@@ -246,14 +295,14 @@ actor MlxCleanupService {
             // The control line is part of the input format, not decoration: without
             // it the model has no styling/structure/context to normalise against.
             let user = CleanupPrompt.userTurn(trimmed, target: target)
-            let raw = try await container.perform { (context: ModelContext) in
+            let (raw, cost) = try await container.perform { (context: ModelContext) in
                 try Self.generateFresh(
                     context: context, user: user,
                     maxTokens: maxTokens, systemPrompt: systemPrompt)
             }
-            return Self.sanitize(raw)
+            return (Self.sanitize(raw), cost)
         } catch {
-            return nil
+            return (nil, GenerationCost())
         }
     }
 
@@ -277,8 +326,19 @@ actor MlxCleanupService {
         toolSchemasJSON: [String],
         maxTokens: Int = 512
     ) async -> String? {
-        guard case .ready(let container) = state else { return nil }
-        guard !messages.isEmpty else { return nil }
+        await generateWithToolsMeasured(
+            messages: messages, toolSchemasJSON: toolSchemasJSON, maxTokens: maxTokens).text
+    }
+
+    /// `generateWithTools`, with what it cost — the tool-calling bench's half of
+    /// `cleanMeasured`. Same path, same result.
+    func generateWithToolsMeasured(
+        messages: [[String: String]],
+        toolSchemasJSON: [String],
+        maxTokens: Int = 512
+    ) async -> (text: String?, cost: GenerationCost) {
+        guard case .ready(let container) = state else { return (nil, GenerationCost()) }
+        guard !messages.isEmpty else { return (nil, GenerationCost()) }
 
         let tools: [ToolSpec] = toolSchemasJSON.compactMap {
             (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any]
@@ -288,7 +348,8 @@ actor MlxCleanupService {
         }
 
         do {
-            let raw = try await container.perform { (context: ModelContext) -> String in
+            let (raw, cost) = try await container.perform {
+                (context: ModelContext) -> (String, GenerationCost) in
                 let tokens = try context.tokenizer.applyChatTemplate(
                     messages: chatMessages, chatTemplate: nil, addGenerationPrompt: true,
                     truncation: false, maxLength: nil,
@@ -306,11 +367,16 @@ actor MlxCleanupService {
                     Date().timeIntervalSince(start) > Self.timeoutSeconds ? .stop : .more
                 }
                 Stream.gpu.synchronize()
-                return result.output
+                return (result.output, GenerationCost(
+                    promptTokens: tokens.count,
+                    generatedTokens: result.tokens.count,
+                    promptSeconds: result.promptTime,
+                    generateSeconds: result.generateTime,
+                    passes: 1))
             }
-            return Self.sanitize(raw)
+            return (Self.sanitize(raw), cost)
         } catch {
-            return nil
+            return (nil, GenerationCost())
         }
     }
 
@@ -385,7 +451,7 @@ actor MlxCleanupService {
     /// tokenize `[system, user]`, generate, done.
     private static func generateFresh(
         context: ModelContext, user: String, maxTokens: Int, systemPrompt: String
-    ) throws -> String {
+    ) throws -> (String, GenerationCost) {
         let tokens = try context.tokenizer.applyChatTemplate(
             messages: [
                 ["role": "system", "content": systemPrompt],
@@ -406,7 +472,13 @@ actor MlxCleanupService {
             (_: [Int]) in Date().timeIntervalSince(start) > timeoutSeconds ? .stop : .more
         }
         Stream.gpu.synchronize()
-        return result.output
+        let cost = GenerationCost(
+            promptTokens: tokens.count,
+            generatedTokens: result.tokens.count,
+            promptSeconds: result.promptTime,
+            generateSeconds: result.generateTime,
+            passes: 1)
+        return (result.output, cost)
     }
 
     /// Generate a cleanup for `user` reusing the cached system prefix, then trim

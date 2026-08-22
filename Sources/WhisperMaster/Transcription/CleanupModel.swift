@@ -58,7 +58,15 @@ enum CleanupModel {
         static let huggingFaceId = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
         static let label = "assistant model"
 
+        /// The shipped assistant model, unless a **dev build** has been pointed
+        /// at another one from the Model Lab (`LabModelOverride`, which refuses
+        /// on every other channel and falls back here whenever the chosen model
+        /// is not on disk).
         static var directory: URL {
+            LabModelOverride.directory(for: .assistant) ?? shippedDirectory
+        }
+
+        static var shippedDirectory: URL {
             CleanupModel.modelsRoot.appendingPathComponent(archiveName, isDirectory: true)
         }
 
@@ -76,7 +84,18 @@ enum CleanupModel {
     }
 
     /// The unpacked model directory MLX loads from.
+    ///
+    /// A **dev build** can point this at another open-source model from the Model
+    /// Lab; see `LabModelOverride` for the three fences on that. Every other
+    /// channel, and any override naming a model that is not installed, gets
+    /// `shippedDirectory`.
     static var directory: URL {
+        LabModelOverride.directory(for: .cleanup) ?? shippedDirectory
+    }
+
+    /// Where the model this build actually ships with lives, override or no
+    /// override. The installer writes here.
+    static var shippedDirectory: URL {
         modelsRoot.appendingPathComponent(archiveName, isDirectory: true)
     }
 

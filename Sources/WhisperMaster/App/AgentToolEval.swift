@@ -31,27 +31,13 @@ enum AgentToolEval {
         let expectedTool: String
     }
 
-    private static let cases: [Case] = [
-        .init(spoken: "what's on my calendar tomorrow", expectedTool: "list_calendar_events"),
-        .init(spoken: "send a slack to the ops channel saying I'll be late", expectedTool: "send_message"),
-        .init(spoken: "remind me to call mom at 6", expectedTool: "create_reminder"),
-        .init(spoken: "add a dentist appointment to my personal calendar friday at 3", expectedTool: "create_calendar_event"),
-        .init(spoken: "what are my unread emails", expectedTool: "list_mail"),
-        .init(spoken: "what tasks are assigned to me", expectedTool: "list_tasks"),
-        .init(spoken: "show me my recent messages", expectedTool: "list_messages"),
-        .init(spoken: "make a note that the wifi password is basalt harbor nineteen", expectedTool: "create_note"),
-        .init(spoken: "what files are in my drive", expectedTool: "list_files"),
-        .init(spoken: "what accounts do i have connected", expectedTool: "list_connectors"),
-        .init(spoken: "post to the eng channel that the build is green", expectedTool: "send_message"),
-        .init(spoken: "remind me to submit the report tomorrow morning", expectedTool: "create_reminder"),
-        // Messier, dictation-shaped: run-ons, a self-correction, an implicit time, and
-        // a bare thought with nothing to act on. These are where the two prompt shapes
-        // are more likely to separate than on the clean commands above.
-        .init(spoken: "uh can you check what meetings I've got going on later today", expectedTool: "list_calendar_events"),
-        .init(spoken: "message the design channel no wait the ops channel and tell them the deploy is done", expectedTool: "send_message"),
-        .init(spoken: "book thirty minutes with the personal calendar for a review tomorrow at four", expectedTool: "create_calendar_event"),
-        .init(spoken: "just jot down that I should follow up with the vendor about pricing", expectedTool: "create_note"),
-    ]
+    /// The same 16 commands the in-app Model Lab runs, from the one list both
+    /// read (`LabSuiteLoader.toolCases`). Two benches drifting apart on which
+    /// commands they ask about would make their numbers incomparable, which is
+    /// the only reason to have two.
+    private static let cases: [Case] = LabSuiteLoader.toolCases.map {
+        Case(spoken: $0.spoken, expectedTool: $0.expectedTool)
+    }
 
     /// One path's verdict on one case.
     private struct Verdict {
@@ -166,23 +152,8 @@ enum AgentToolEval {
 
     // MARK: - Tools
 
-    /// The tool set a real spoken command sees: the on-device local tools plus a
-    /// representative spread of connectors, expanded exactly as `CommandAgentService`
-    /// does it. Persistence off so seeding never touches a real account file.
-    private static func buildTools() -> [ToolDescriptor] {
-        let store = ConnectorInstanceStore()
-        store.persistenceEnabled = false
-        store.add(ConnectorInstance(
-            kind: .googleCalendar, label: "Work", identity: "sam@acme.com",
-            config: .calendars(identifiers: ["mock-work"], sourceTitle: "Google")))
-        store.add(ConnectorInstance(
-            kind: .googleCalendar, label: "Personal", identity: "sam@gmail.com",
-            config: .calendars(identifiers: ["mock-personal"], sourceTitle: "Google")))
-        store.add(ConnectorInstance(kind: .slack, label: "Work chat", identity: "Acme"))
-        store.add(ConnectorInstance(kind: .gmail, label: "Gmail", identity: "sam@gmail.com"))
-        store.add(ConnectorInstance(kind: .googleDrive, label: "Drive", identity: "sam@gmail.com"))
-        store.add(ConnectorInstance(kind: .linear, label: "Linear", identity: "Acme"))
-        return LocalToolCatalog.all + ToolRegistry.available(store: store, includeWrites: true)
-    }
+    /// The tool set a real spoken command sees. Shared with the lab's suite
+    /// (`LabToolBench.buildTools`) so the two benches offer the same tools.
+    private static func buildTools() -> [ToolDescriptor] { LabToolBench.buildTools() }
 }
 #endif
