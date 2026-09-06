@@ -420,7 +420,9 @@ actor MlxCleanupService {
         let trimmed = user.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         do {
-            let raw = try await container.perform { (context: ModelContext) in
+            // `generateFresh` also returns the run's token/latency cost, which the
+            // Model Lab records per case. The agent loop has nowhere to put it.
+            let (raw, _) = try await container.perform { (context: ModelContext) in
                 try Self.generateFresh(
                     context: context, user: trimmed,
                     maxTokens: maxTokens, systemPrompt: systemPrompt)
