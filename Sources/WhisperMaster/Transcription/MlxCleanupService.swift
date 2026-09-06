@@ -292,7 +292,12 @@ actor MlxCleanupService {
                 let tokens = try context.tokenizer.applyChatTemplate(
                     messages: chatMessages, chatTemplate: nil, addGenerationPrompt: true,
                     truncation: false, maxLength: nil,
-                    tools: tools.isEmpty ? nil : tools)
+                    tools: tools.isEmpty ? nil : tools,
+                    // Same `enable_thinking: false` every other render passes. Without
+                    // it a template that honours the flag opens a reasoning block, and
+                    // the tool call — if it survives at all — arrives after a wall of
+                    // text the parser has to dig through.
+                    additionalContext: Self.templateContext)
                 let input = LMInput(tokens: MLXArray(tokens.map { Int32($0) }))
                 // A fresh cache, never the primed cleanup one.
                 let cache = context.model.newCache(parameters: nil)
@@ -307,6 +312,52 @@ actor MlxCleanupService {
                 }
                 Stream.gpu.synchronize()
                 return result.output
+            }
+            return Self.sanitize(raw)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Generate for the **agent loop**: the conversation exactly as written, against
+    /// the agent's own system prompt, with a fixed token ceiling.
+    ///
+    /// **The agent must not go through `clean`, and this is why.** `clean` is the
+    /// transcript-cleanup path, and it does three things to its input that are correct
+    /// for a dictation and wrong for a tool-calling turn:
+    ///
+    /// - it prepends the cleanup **control line**
+    ///   (`[Styling: …] [Structure: prose] [Context: general]`), which tells the model
+    ///   to normalise prose in the same breath the agent prompt tells it to emit one
+    ///   JSON object and nothing else;
+    /// - it sizes `maxTokens` from the **input** word count (`words * 2 + 32`, floor
+    ///   48), which is the right rule for a rewrite — output length tracks input
+    ///   length — and the wrong one here, where the shortest command can need the
+    ///   longest call. The floor of 48 happened to cover every case in the bench, so
+    ///   this is a latent fault rather than a measured one; a fixed ceiling costs
+    ///   nothing and removes it;
+    /// - it **chunks** anything past `TranscriptChunker.maxWords` (240) into pieces,
+    ///   generates each one separately and joins them with a space. **This one is
+    ///   measured.** Given a 460-word conversation — one day's calendar merged across
+    ///   two connections — `ToolCallParser` then took the first balanced JSON object
+    ///   out of the joined text and dropped the rest: the answer covered the work
+    ///   calendar alone and gave its range as 01:00–07:00 against data saying
+    ///   01:00–09:00. Reproduced on both runs. Nothing reported the loss.
+    ///
+    /// None of that is `clean`'s fault — it was never the agent's generator. Returns
+    /// `nil` on the same terms as `clean`, so the loop's budget race and fallback are
+    /// unchanged. `AgentToolEval`'s `via clean` arm is the regression guard.
+    func generateAgent(
+        _ user: String, systemPrompt: String, maxTokens: Int = 384
+    ) async -> String? {
+        guard case .ready(let container) = state else { return nil }
+        let trimmed = user.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        do {
+            let raw = try await container.perform { (context: ModelContext) in
+                try Self.generateFresh(
+                    context: context, user: trimmed,
+                    maxTokens: maxTokens, systemPrompt: systemPrompt)
             }
             return Self.sanitize(raw)
         } catch {

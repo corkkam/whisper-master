@@ -61,6 +61,94 @@ final class AgentLoopTests: XCTestCase {
                       "the native path must hand the generator tool schemas")
     }
 
+    /// A native-path reply that is a bare `{"answer":…}` envelope is read, not shown.
+    /// The two paths share one loop and one set of nudges, so a 4-bit model picks the
+    /// hand-rolled shape up and emits it here — and it used to arrive on the notch band
+    /// with its braces, then get read aloud that way.
+    func testANativeReplyThatIsAnAnswerEnvelopeIsUnwrapped() async {
+        let store = makeStore()
+        let model = ScriptedNativeModel([#"{"answer":"You have two meetings."}"#])
+        var loop = AgentLoop(tools: ToolRegistry.available(store: store),
+                             router: ToolRouter(store: store, requestApproval: { _ in .denied }),
+                             generate: { _, _ in nil }, maxIterations: 4)
+        loop.generateNative = model.generate
+        let outcome = await loop.run(question: "what's my day")
+
+        XCTAssertEqual(outcome.answer, "You have two meetings.")
+    }
+
+    /// …and a hand-rolled *call* emitted on the native path still executes, through the
+    /// same validator. Recognising the envelope is not the same as coercing arguments.
+    func testANativeReplyInTheHandRolledCallShapeStillRuns() async {
+        let store = makeStore()
+        let model = ScriptedNativeModel([
+            #"{"tool":"list_connectors","args":{}}"#,
+            "You have one calendar, Work.",
+        ])
+        var loop = AgentLoop(tools: ToolRegistry.available(store: store),
+                             router: ToolRouter(store: store, requestApproval: { _ in .denied }),
+                             generate: { _, _ in nil }, maxIterations: 4)
+        loop.generateNative = model.generate
+        let outcome = await loop.run(question: "what's connected")
+
+        XCTAssertEqual(outcome.turns.map(\.role), [.model, .tool, .model])
+        XCTAssertEqual(outcome.answer, "You have one calendar, Work.")
+    }
+
+    // MARK: - A command that answers before it acts
+
+    /// A spoken command answered with words and nothing else used to end the run at
+    /// the first generation, and the caller then filed the user's sentence as a note.
+    /// One correction turn recovers the command.
+    func testACommandThatAnswersFirstIsCorrectedAndThenActs() async {
+        let store = makeStore()
+        let (generate, calls) = scripted([
+            #"{"answer":"Sure, I'll check that for you."}"#,
+            #"{"tool":"list_connectors","args":{}}"#,
+            #"{"answer":"You have one calendar, Work."}"#,
+        ])
+        var loop = makeLoop(store: store, generate: generate)
+        loop.requiresToolBeforeAnswer = true
+        let outcome = await loop.run(question: "what's connected")
+
+        XCTAssertFalse(outcome.exhausted)
+        XCTAssertEqual(outcome.answer, "You have one calendar, Work.")
+        XCTAssertEqual(calls(), 3)
+        XCTAssertEqual(outcome.turns.map(\.role), [.model, .system, .model, .tool, .model])
+        XCTAssertTrue(outcome.turns[1].text.contains("Call a tool"),
+                      "the correction has to say what to do instead")
+    }
+
+    /// Once, not every time. A model that will not call anything after being told
+    /// plainly is not going to, and spinning on it burns the whole budget for the same
+    /// outcome — the caller discards a run that executed nothing either way.
+    func testTheCorrectionIsOfferedOnlyOnce() async {
+        let store = makeStore()
+        let (generate, calls) = scripted([
+            #"{"answer":"Sure thing."}"#,
+            #"{"answer":"Consider it done."}"#,
+        ])
+        var loop = makeLoop(store: store, generate: generate)
+        loop.requiresToolBeforeAnswer = true
+        let outcome = await loop.run(question: "remind me to call mom")
+
+        XCTAssertEqual(outcome.answer, "Consider it done.")
+        XCTAssertEqual(calls(), 2, "one correction, then the second answer stands")
+    }
+
+    /// A *question* is allowed to answer without calling anything — the flag is the
+    /// command path's, and turning it on for both would make "what can you do" a
+    /// three-generation run for no gain.
+    func testAQuestionIsNotCorrectedForAnsweringFirst() async {
+        let store = makeStore()
+        let (generate, calls) = scripted([#"{"answer":"Two meetings."}"#])
+        let outcome = await makeLoop(store: store, generate: generate)
+            .run(question: "what's my day")
+
+        XCTAssertEqual(outcome.answer, "Two meetings.")
+        XCTAssertEqual(calls(), 1)
+    }
+
     // MARK: - Happy paths
 
     func testAnswersImmediately() async {

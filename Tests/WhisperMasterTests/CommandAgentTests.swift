@@ -115,6 +115,24 @@ final class CommandAgentTests: XCTestCase {
         XCTAssertTrue(notes.visibleReminders.isEmpty)
     }
 
+    /// …but it is told so once before the run is written off. A 4-bit model opening
+    /// with "Sure, I'll remember that" is common, and it used to cost the command: one
+    /// generation spent, nil back, and the deterministic path filing the sentence.
+    func testAnAnswerFirstCommandIsGivenOneChanceToAct() async {
+        let notes = notesStore()
+        let result = await service(notes: notes, connectors: emptyConnectors()).perform(
+            "remind me to buy milk at six",
+            generate: scripted([
+                #"{"answer":"Sure, I'll remember that."}"#,
+                #"{"tool":"create_reminder","args":{"title":"Buy milk","when":"at six"}}"#,
+                #"{"answer":"Reminder set for six."}"#,
+            ]))
+
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.createdSomething, true)
+        XCTAssertEqual(notes.visibleReminders.count, 1)
+    }
+
     /// …but a loop that runs dry *after* creating something has still carried the
     /// command out. Handing nil back there would file the same words a second time
     /// through the deterministic path and caption it "Note saved" — two lies about one

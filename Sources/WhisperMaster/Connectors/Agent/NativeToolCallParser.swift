@@ -19,7 +19,17 @@ enum NativeToolCallParser {
             // function first" but that answered anyway is still handled the same as
             // the hand-rolled path — `CommandAgentService` counts execution, not text.
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? .failure(.emptyAnswer) : .success(.answer(trimmed))
+            guard !trimmed.isEmpty else { return .failure(.emptyAnswer) }
+            // **A bare `{"answer":…}` or `{"tool":…}` is read, not shown.** The two
+            // paths share one loop, and a 4-bit model that has seen the hand-rolled
+            // shape emits it here too. Left alone it becomes the answer *including its
+            // braces* — raw JSON on the notch band and read aloud in the user's voice.
+            // Only the envelope is being recognised; the arguments inside still go
+            // through the one validator, so nothing is coerced.
+            if case .success(let step) = ToolCallParser.parse(trimmed, tools: tools) {
+                return .success(step)
+            }
+            return .success(.answer(trimmed))
         }
         guard let object = try? JSONSerialization.jsonObject(with: Data(block.utf8)) as? [String: Any] else {
             return .failure(.malformedJSON)

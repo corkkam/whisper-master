@@ -1316,14 +1316,25 @@ final class DictationViewModel {
     }
 
     private func runCommandAgent(_ text: String) async -> AgentAttempt {
-        guard await MlxCleanupService.shared.isReady else {
-            // The single commonest reason the assistant appears dead: the chord works,
-            // the connectors are healthy, and the tier that would have used them never
-            // starts because the model behind Smart cleanup was never loaded.
+        // **The assistant's own model, not the cleanup slot.** This gate read
+        // `MlxCleanupService.shared.isReady` — S1-mini, the dictation text normalizer
+        // — which is a different model with a different download, and it was wrong in
+        // both directions once the two split. A user with Smart cleanup off but the
+        // assistant model installed had the agent skipped entirely, and was told to
+        // turn on Smart cleanup to fix a model that was already sitting on disk. A
+        // user with the opposite pair ran the whole loop against a generator that
+        // could never answer, and the trace blamed the budget.
+        //
+        // Installed, not loaded: loading stays inside the loop's budget race
+        // (`AgentLoop.liveGenerator` calls `prepareGeneralIfInstalled`), so a cold 2 GB
+        // load can still cost this one capture its answer — but it cannot hang the
+        // chord, and the next command has a warm model.
+        guard CleanupModel.General.isInstalled else {
             return AgentAttempt(handled: false, decision: TraceDecision(
                 title: "Agent",
-                detail: "Skipped — the on-device model isn't loaded. Turn on Smart "
-                    + "cleanup in Settings → General to download and load it.",
+                detail: "Skipped — the assistant model isn't downloaded yet. It starts "
+                    + "fetching the first time you use the chord; you can also start it "
+                    + "from Settings → Assistant.",
                 taken: false))
         }
         let agent = CommandAgentService(
@@ -1448,7 +1459,14 @@ final class DictationViewModel {
         // a text normalizer cannot produce.
         await MlxCleanupService.prepareGeneralIfInstalled()
         guard await MlxCleanupService.general.isReady else { return fallback }
-        guard let raw = await MlxCleanupService.general.clean(text, systemPrompt: IntentPrompt.system),
+        // `generateAgent`, not `clean`, for the same reason `AgentLoop` uses it: this
+        // prompt asks for one strict JSON object, and `clean` would prepend the
+        // cleanup control line, size the token budget off the *input* length, and
+        // chunk a long capture into separately-generated pieces. A truncated or
+        // chunk-joined object fails `IntentClassifier.parse`, which reads here as the
+        // model having declined — silently, and most often on the longest captures.
+        guard let raw = await MlxCleanupService.general.generateAgent(
+                text, systemPrompt: IntentPrompt.system),
               let parsed = IntentClassifier.parse(raw)
         else { return fallback }
         return parsed

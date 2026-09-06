@@ -82,6 +82,48 @@ glue in shell, Claude Code as the judge, with run history on a public dashboard.
 Full details: **`.claude/skills/eval-pipeline/SKILL.md`**. Verify any change to the
 cleanup pipeline against the real thing via `eval/text-cleanup/run-eval.sh`.
 
+### Assistant tool-calling bench (`WM_AGENT_TOOL_EVAL`)
+
+The eval above scores *cleanup*. The chord's tool calling has its own bench,
+`App/AgentToolEval.swift` — sixteen spoken commands with the tool each one should
+call, run through three generation paths on the real Qwen3-4B, plus one turn that
+reads a 460-word tool result (the case where the paths separate).
+
+```bash
+CONFIG=Debug SIGN_IDENTITY=- bash Scripts/bundle.sh
+WM_AGENT_TOOL_EVAL=1 "./build/Whisper Master.app/Contents/MacOS/WhisperMaster"
+```
+
+**It must be the app bundle, not `.build/debug/WhisperMaster`.** The SwiftPM binary
+dies with `Failed to load the default metallib` — MLX's Metal shaders are a bundle
+resource only `xcodebuild` stages. The bench needs the **assistant** model
+(`Qwen3-4B-Instruct-2507-4bit`, ~2.3 GB) installed under
+`~/Library/Application Support/FluidAudio/Models/`; without it the bench prints
+`ABORT` and exits, so it is safe to run anywhere. To install it outside the app,
+fetch `$(ModelInstaller.mirrorBaseURL)/Qwen3-4B-Instruct-2507-4bit.zip`, check the
+digest against `ModelChecksums.sha256`, and unzip it into that directory.
+
+The three arms are `via clean` (the retired routing, kept as the control),
+`hand-rolled` (what ships) and `native` (the chat template's own tools mechanism,
+built and tested but **not** wired into production — nothing sets
+`AgentLoop.generateNative`).
+
+**Measured 2026-08-22.** All three call the correct tool 16/16 on the first turn,
+so first-turn tool choice is not what separates them — **don't re-run the bench to
+decide that question again.** They separate on the turn that reads a result:
+
+- `via clean` answered from **part of the data and said nothing about it**. The
+  460-word conversation is past the chunk budget, so it was split, each piece
+  generated separately and joined — and the parser then took the first balanced
+  JSON object and dropped the rest. Both runs reported only the work calendar and
+  gave its range as 01:00–07:00 when the data says 01:00–09:00. This is the failure
+  the cleanup routing actually caused: not a crash, a confident wrong answer.
+- `hand-rolled` and `native` both answered correctly across both calendars.
+- **Native is not better here, so it stays unwired.** It matched the hand-rolled
+  path on tool choice and grounding, and its answer ran longer. Flipping the
+  default needs a case the bench can show, not the argument that the chat template
+  is more in-distribution.
+
 ### Toolchain & prerequisites
 
 - **Apple Silicon, macOS 14+.** Build is **arm64-only**; deployment target macOS 14.0. Developed on macOS 26 / **Xcode 26.5**; Swift language mode **5.0** (`SWIFT_VERSION` in `project.yml`).

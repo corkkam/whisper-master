@@ -118,6 +118,9 @@ struct CommandAgentService {
         loop.prompt = AgentPrompt.command(toolList:)
         loop.now = now
         loop.onStep = onStep
+        // The chord suppresses the paste, so an answer with nothing executed behind it
+        // is a lost command — the loop corrects the model once before accepting one.
+        loop.requiresToolBeforeAnswer = true
         let outcome = await loop.run(question: spoken)
 
         /// Every exit reports through this, so a decline can't leave the trace empty —
