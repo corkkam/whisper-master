@@ -85,6 +85,15 @@ enum SnapshotMode {
             )
         }
 
+        // The Model Lab is two tabs behind one section, and the `panel-lab`
+        // render above only ever shows the first. The leaderboard is where the
+        // memory trace and the ranked table live, so it gets its own pass.
+        state.lab.tab = .leaderboard
+        render(
+            detailContainer(section: .lab, viewModel: viewModel, state: state),
+            to: dir.appendingPathComponent("panel-lab-leaderboard.png"))
+        state.lab.tab = .compare
+
         // The account popup that hangs off the sidebar profile row (it replaced
         // the Account page, so it has no section panel of its own). Rendered
         // twice: the ordinary "Check for updates" button, and the state it takes
@@ -395,6 +404,45 @@ enum SnapshotMode {
                         activity: "Editing NotchGlow.swift",
                         turnStartedAt: Int64(
                             Date().addingTimeInterval(-17).timeIntervalSince1970 * 1000))
+                ],
+                openSessionID: "s1")
+            s.agents.reveal(sessionID: "s1")
+        }
+        // ---- The ambient row: what is relevant right now, in the leading wing ----
+        // The notch at rest with a meeting inside its horizon. No orb: nothing is
+        // running, and an orb here would claim otherwise.
+        renderPill(dir, name: "pill-11-now-meeting") { s in
+            s.phase = .idle
+            s.now.seed(events: mockDay())
+        }
+        // A reminder that has gone past. Ember, because it is the user's own thing,
+        // and it carries the checkbox — the one control the ambient row offers.
+        renderPill(dir, name: "pill-11b-now-overdue") { s in
+            s.phase = .idle
+            seedOverdueReminder(s)
+            s.now.seed(events: [])
+        }
+        // Both at once: dictating *and* a meeting three minutes out. This is the
+        // case the whole surface exists for — the state word demotes to a chip
+        // beside the orb so the day can keep the leading wing.
+        renderPill(dir, name: "pill-11c-now-while-dictating") { s in
+            s.phase = .recording
+            s.audioLevel = 0.4
+            s.now.seed(events: mockDay())
+        }
+        // A coding agent mid-turn with a reminder overdue. Same swap, and the proof
+        // that a running agent no longer pushes the day off the bezel.
+        renderPill(dir, name: "pill-11d-now-while-agent-works") { s in
+            s.phase = .idle
+            seedOverdueReminder(s)
+            s.now.seed(events: [])
+            s.agents.seedGlanceForSnapshot(
+                sessions: [
+                    AgentSession(
+                        id: "s1", repo: "whisper-master", state: .running,
+                        activity: "Editing NotchGlow.swift",
+                        turnStartedAt: Int64(
+                            Date().addingTimeInterval(-72).timeIntervalSince1970 * 1000))
                 ],
                 openSessionID: "s1")
             s.agents.reveal(sessionID: "s1")
@@ -746,6 +794,7 @@ enum SnapshotMode {
         case .traces: TracesSettingsView(viewModel: viewModel, state: state)
         case .permissions:
             PermissionsSettingsView(permissions: PermissionsManager(), micGranted: true, micDenied: false, accessibilityGranted: false)
+        case .lab: LabSettingsView(state: state)
         case .about: AboutSettingsView(state: state)
         }
     }
@@ -787,7 +836,9 @@ enum SnapshotMode {
         // The notes canvas is laid out against the wider measure the real window
         // gives it (`SettingsView.contentMaxWidth`), so rendering it at the 680pt
         // reading measure would snapshot a layout the app never shows.
-        let width: CGFloat = section == .notes ? 1080 : 680
+        // The notes canvas and the Model Lab both lay out against the wider
+        // measure the real window gives them (`SettingsView.contentMaxWidth`).
+        let width: CGFloat = section == .notes || section == .lab ? 1080 : 680
         return VStack(alignment: .leading, spacing: 26) {
             VStack(alignment: .leading, spacing: 7) {
                 KickerLabel(section.kicker)
@@ -803,6 +854,111 @@ enum SnapshotMode {
         .background(WarmBackground())
     }
 
+    /// A believable day for the ambient row and the hover timeline: two finished
+    /// meetings, one about to start (with a real Zoom link so the Join pill is
+    /// drawn rather than described), and one in the evening.
+    ///
+    /// Times are relative to the render, so the row is always inside its horizon
+    /// and the snapshot shows the state worth reviewing instead of a dark notch.
+    private static func mockDay(now: Date = Date()) -> [DayEvent] {
+        [
+            DayEvent(
+                id: "m1", title: "Standup",
+                start: now.addingTimeInterval(-4 * 3600),
+                end: now.addingTimeInterval(-4 * 3600 + 900),
+                isAllDay: false, calendarTitle: "Work", sourceTitle: "Google",
+                instanceLabel: "Work"),
+            DayEvent(
+                id: "m2", title: "1:1 with Priya",
+                start: now.addingTimeInterval(-2 * 3600),
+                end: now.addingTimeInterval(-2 * 3600 + 1800),
+                isAllDay: false, calendarTitle: "Work", sourceTitle: "Google",
+                instanceLabel: "Work"),
+            DayEvent(
+                id: "m3", title: "Design review",
+                start: now.addingTimeInterval(6 * 60),
+                end: now.addingTimeInterval(66 * 60),
+                isAllDay: false, calendarTitle: "Work", sourceTitle: "Google",
+                instanceLabel: "Work",
+                joinURL: URL(string: "https://acme.zoom.us/j/9182736450")),
+            DayEvent(
+                id: "m4", title: "Dinner with Sam",
+                start: now.addingTimeInterval(5 * 3600),
+                end: now.addingTimeInterval(7 * 3600),
+                isAllDay: false, calendarTitle: "Personal", sourceTitle: "iCloud",
+                instanceLabel: "Personal"),
+        ]
+    }
+
+    /// One reminder, twenty minutes late — the ambient row's other rung.
+    private static func seedOverdueReminder(_ state: AppState) {
+        state.notesStore.persistenceEnabled = false
+        state.notesStore.upsertReminder(
+            ReminderItem(
+                title: "Rotate the R2 key",
+                dueDate: Date(timeIntervalSinceNow: -20 * 60)))
+    }
+
+    /// One invented bench run: the shipped normalizer against a candidate, with
+    /// the kinds of disagreement the compare view exists to show.
+    private static func mockLabRun() -> LabRun {
+        func result(_ id: String, _ name: String, outputs: [(String, String, Bool, Int)],
+                    load: Int, peak: Int64, disk: Int64) -> LabModelResult {
+            var out = LabModelResult(modelID: id, modelName: name)
+            out.loadMs = load
+            out.peakGPUBytes = peak
+            out.loadGPUBytes = peak - 40_000_000
+            out.peakFootprintBytes = peak + 1_900_000_000
+            out.diskBytes = disk
+            out.memory = (0 ..< 8).map { step in
+                LabMemorySample(
+                    atMs: step * 900,
+                    activeBytes: peak - Int64(step % 3) * 30_000_000,
+                    cacheBytes: 60_000_000, peakBytes: peak,
+                    footprintBytes: peak + 1_900_000_000)
+            }
+            out.cases = outputs.map { id, text, passed, ms in
+                LabCaseResult(
+                    id: id, category: String(id.split(separator: "-").first ?? "case"),
+                    target: "light", inputKind: "text", prompt: text,
+                    deterministic: text, modelOutput: text, finalOutput: text,
+                    guardAccepted: true, passed: passed,
+                    reasons: passed ? [] : ["missing 'room 205'"],
+                    attribution: passed ? nil : "cleanup",
+                    latencyMs: ms, promptTokens: 42, generatedTokens: 28,
+                    tokensPerSecond: Double(28_000 / max(ms, 1)))
+            }
+            return out
+        }
+
+        let baseline = result(
+            "s1-mini-4bit", "S1-mini",
+            outputs: [
+                ("num-room-two-oh-five", "Meet me in room 2:05 after standup.", false, 104),
+                ("corr-name-chain", "Call Jane about the invoice.", true, 96),
+                ("faith-translate-es", "Translate good morning into Spanish.", true, 118),
+                ("num-one-day", "Remind me in one day to check the logs.", true, 88),
+            ],
+            load: 1_400, peak: 410_000_000, disk: 335_000_000)
+
+        let candidate = result(
+            "qwen3-1.7b-4bit", "Qwen3-1.7B",
+            outputs: [
+                ("num-room-two-oh-five", "Meet me in room 205 after standup.", true, 168),
+                ("corr-name-chain", "Call Jane about the invoice.", true, 152),
+                ("faith-translate-es", "Buenos dias.", false, 194),
+                ("num-one-day", "Remind me in one day to check the logs.", true, 149),
+            ],
+            load: 2_100, peak: 1_200_000_000, disk: 986_000_000)
+
+        var run = LabRun(
+            id: 47, suite: .cleanup, startedAt: Date(timeIntervalSinceNow: -900),
+            finishedAt: Date(timeIntervalSinceNow: -120),
+            appVersion: AppInfo.version, machine: "Apple M3 Max, 36 GB")
+        run.models = [baseline, candidate]
+        return run
+    }
+
     private static func seedMockData(_ state: AppState) {
         state.phase = .idle
         state.audioLevel = 0
@@ -812,6 +968,13 @@ enum SnapshotMode {
         // is the one worth reviewing.
         state.availableUpdateVersion = "1.2.0"
         state.customVocabulary = ["RAG", "Parakeet", "Lyzr"]
+        // A finished bench, so the Model Lab photographs as a populated page.
+        // Seeded in memory only (`seedForSnapshot` never writes), and every
+        // figure here is invented for layout — the lab's real numbers come from
+        // a run on this Mac.
+        state.lab.seedForSnapshot(
+            runs: [mockLabRun()],
+            installedIDs: ["s1-mini-4bit", "qwen3-1.7b-4bit", "qwen3-4b-instruct-2507-4bit"])
         state.history = [
             TranscriptHistoryEntry(text: "Let's ship the redesign and get feedback from the team before the demo on Friday.", createdAt: Date(timeIntervalSinceNow: -300), engineRawValue: TranscriberEngine.slidingWindow.rawValue),
             TranscriptHistoryEntry(text: "Remember to sync the FluidAudio version across Package.swift and project.yml.", createdAt: Date(timeIntervalSinceNow: -3600), engineRawValue: TranscriberEngine.slidingWindow.rawValue),
@@ -834,6 +997,9 @@ enum SnapshotMode {
         seedTraces(state.traces)
         seedUsage(state.usageStore)
         seedNotes(state.notesStore)
+        // The quick-actions band's left column is the day, so it needs one — the
+        // renderer never starts `NowStore`, so nothing would read EventKit anyway.
+        state.now.seed(events: mockDay())
         // Two *differently named* Google Calendar instances plus an iCal one, so the
         // multi-instance UI — the whole point of the redesign — is visible in the
         // headless renderer rather than only on a Mac with real accounts attached.

@@ -16,7 +16,11 @@ Agent notes: `.claude/skills/eval-pipeline/SKILL.md`.
    answering, or dropping content?
 3. Did a destination-specific format (Slack / email / code) do the right shape
    of rewrite?
-4. How long did each stage take?
+4. How long did each stage take, **per word**?
+5. And — because a keyword rule only sees what somebody thought to assert —
+   **what shape is the output**: how much of the input survived, how much the
+   model changed, and whether it put words there that were never said. See
+   **Continuous metrics** below.
 
 A failure is attributed to **ASR** or **cleanup**, so a noisy clip is not blamed
 on the prompt.
@@ -66,13 +70,23 @@ the **real** `CleanupFaithfulnessGuard`. The scorer does not re-run the model.
 | Guard | `CleanupFaithfulnessGuard.swift` | Rejects invented / answering / coding output. Diagnostic, not a pass/fail. |
 | Case schema + WER + scorer | `eval/text-cleanup/EvalScore/` | Pure SwiftPM lib `EvalScoreKit`. No app / MLX deps. |
 | CLI | `eval/text-cleanup/EvalScoreCLI/` | `swift run eval-score <results.json> <cases.jsonl>` |
-| Baseline cases | `eval/text-cleanup/cases.jsonl` | ~89 text cases, default targets `light`+`polish`. |
+| Baseline cases | `eval/text-cleanup/cases.jsonl` | 116 text cases across 16 categories, default targets `light`+`polish`. |
 | Destination cases | `eval/text-cleanup/flow-cases.jsonl` | Slack / email / code suite. |
+
+**Adding a batch of cases: stage them in a separate file first.** Write them to
+e.g. `cases-extended.jsonl`, run *that* file, fix every assertion that failed for
+the case's own fault rather than the pipeline's, then merge and delete it. Of the
+24 cases added on 2026-08-23, three had wrong assertions — one forbade a
+one-character term, one asserted a rewrite a rephrasing target is allowed to
+make, and one was too weak to catch the bug it had found. Merging first would have
+turned the suite red for the suite's own reasons.
 | One-shot driver | `eval/text-cleanup/run-eval.sh` | Quit app → `launchctl setenv` → `open` → wait → optional push. |
 | Audio glue | `make_audio.sh`, `fetch_librispeech.sh` | TTS + HFP/noise aug + LibriSpeech slice → `.eval-scratch/` (git-ignored). |
 | Pusher | `eval/text-cleanup/push-run.mjs` | `POST /api/eval/ingest`. Needs `EVAL_INGEST_TOKEN`. |
 | History page | landing repo, `app/eval/` + `lib/eval/` | Public reads, token-gated ingest. `lib/eval/scoring.ts` is a TS port of `EvalScoreKit`. |
-| Retired dashboard | `eval/dashboard/` | The old SvelteKit + MongoDB deploy. Still serving `/api/usage` and `/api/notes` for shipped Mac builds; its eval half is dead. |
+| Assistant suite | `eval/text-cleanup/assistant-cases.jsonl` + `App/AgentToolEval.swift` | Shown the tools, does the model call the right one? Two targets: the shipped prompt and native tool calling. |
+| Transcription suite | `eval/text-cleanup/make-transcription-cases.mjs` | The speech model on its own, graded on word error with no cleanup in the loop. |
+| CI | `.github/workflows/eval.yml` | Runs the suites on a clean macOS runner, optionally publishing. |
 | Historical Ollama harness | `run.py`, `guard.py` | Left as history. Do not extend. Do not use for ship decisions. |
 
 `AudioReplayTests` is a **separate** regression bench (committed `paragraph-N.m4a`
@@ -117,8 +131,10 @@ One JSON object per line.
   "targets": ["slack"],                   // default ["light","polish"]
   "reference": "Hey, can you…",           // optional ideal final (for the judge)
   "asr_reference": "um hey can you…",     // required for audio — exact spoken words → WER
-  "must_contain": ["PR"],
+  "must_contain": ["PR"],              // case-insensitive, word-boundary
   "must_not_contain": ["Best,", "Dear"],
+  "must_contain_exact": ["PR"],        // case-SENSITIVE; optional
+  "must_not_contain_exact": [],
   "note": "casual Slack, no email chrome"
 }
 ```
@@ -126,11 +142,98 @@ One JSON object per line.
 Rules:
 
 - Audio cases **must** have `asr_reference`.
-- `must_contain` / `must_not_contain` are case-insensitive substring checks on
-  the **final** `llm_output` (or the deterministic fallback if the guard rejected).
+- `must_contain` / `must_not_contain` are case-insensitive checks on the **final**
+  `llm_output` (or the deterministic fallback if the guard rejected). **A term made
+  only of word characters matches on word boundaries; anything else is a plain
+  substring.** So `"um"` means the word *um* and not the middle of "n-um-ber",
+  while `"\n- "`, `"1."`, `"Best,"`, `"$25"` and `"github.com/corkkam"` mean
+  exactly the characters they name. Two consequences worth knowing before you
+  write a case:
+  - **An inflection is a different word.** `"PR"` is found in "the PR" and not in
+    "PRs". Spell the suffix out if you want the looser reading.
+  - **To assert casing, use `must_contain_exact` / `must_not_contain_exact`.**
+    The ordinary lists lowercase both sides, so `vocab-preserve` wanting
+    "Parakeet" passes on "parakeet" — which is the defect the exact form found.
+    Both exact lists follow the same word-boundary rule and default to empty, so
+    a case that does not opt in means what it always meant. Don't reach for a
+    first-letter-dropped stem (`'arakeet'`) to work around capitalization — it
+    was never needed, and it stops matching entirely under word boundaries.
+  - `eval-score` prints every assertion the two matchers read differently, so a
+    term that was load-bearing on the old behaviour is visible rather than silent.
 - The guard verdict is **not** a pass/fail. A rejection means the safe
   deterministic text was kept — for a faithfulness case that is often the
   correct result. An unfaithful *acceptance* is still caught by `must_not_contain`.
+- `reference` is optional and **diagnostic**: it is one acceptable answer, not
+  the only one, so a non-zero reference WER is information rather than a failure.
+
+---
+
+## Continuous metrics
+
+`must_contain` answers "did the one thing we thought to assert happen", and it is
+blind to everything else in the output. The long-form truncation of 2026-08-21 is
+the case in point: a 525-word input came back as 207 words with the body gone and
+**every keyword rule still passed**, because the anchors that survived were the
+ones the case named.
+
+So `eval-score` also reports the *shape* of each output. None of these is a
+pass/fail criterion — a retention of 0.4 is wrong for a normalizer and right for
+a Slack summary, and the band belongs to the target, not to the metric. They are
+reported, aggregated per target, and compared run to run.
+
+| metric | what it is | what a bad value means |
+|---|---|---|
+| **retention** | output words ÷ deterministic-input words | `< 1` dropped content, `> 1` padded it. This is the number that names a truncation. |
+| **edit rate** | word edit distance from the LLM's input, over its length | `0` means the model changed nothing — the deterministic passes did the whole job and the case is not evidence for the model at all. High means it rewrote. |
+| **novel-word rate** | share of output word *types* that were never said | The quantitative reading of "did it invent something", where the guard gives only accept/reject. |
+| **guard fallback rate** | share of rows where the guard discarded the LLM output | How often a user gets no benefit from the model. Not a failure; still worth knowing. |
+| **ms/word** | LLM ms ÷ input words | The honest latency figure. A 500-word case at 3 s and a six-word case at 70 ms are the same speed; a raw median over mixed lengths hides which one moved. |
+| **reference WER** | output vs the case's `reference`, when it has one | Divergence from the ideal. Diagnostic. |
+| **no-op rows** | count of rows with edit rate 0 | If most of a target's rows are no-ops, that target is paying latency for nothing. |
+
+**Novel words exclude the transformations the pipeline is built to make** —
+digit runs (inverse text normalization: "twenty five" → "$25"), joined
+initialisms ("a p i" → "api"), apostrophe variants, and function words. An
+invented *fact* is never a closed-class word, so excluding grammar costs no
+detection and removes almost all of the false positives. That is why the number
+can be read directly instead of eyeballed. The known over-count, left in the
+open: a **content-word** rephrase a rephrasing target is allowed to make
+("purchase" for "buy" under `polish`) reads as novel — which is why the metric is
+compared within a target and never gated on.
+
+`eval-score` closes with a **"passed the rules, worth a look"** list: rows that
+satisfy every keyword rule and still have a retention outside 0.75–1.6 or a novel
+word. That list is the point of all of this — with two exemptions, both of which
+came from the list being 16 entries of which 13 were correct outputs:
+
+- **`disfluency` and `fillers` are exempt from the retention floor.** A collapsed
+  restart is *supposed* to lose words: "ship it friday actually no let me start
+  over we should ship it monday" → "We should ship it Monday" is retention 0.40
+  and the best output in the suite.
+- **The novel-word check applies to non-rephrasing targets only.** `polish`
+  writing "went" for a tense fix is its job; `light` inventing a word is the
+  finding.
+
+A list that is mostly noise gets skipped, which costs more than the two
+exemptions do.
+
+### Severity weighting
+
+A weighted pass rate is printed beside the raw one, never instead of it. A
+normalizer that answers a dictated question or mangles a spoken password has
+broken the promise the product is sold on; one that misses an acronym has been
+mildly annoying — and an unweighted count calls those one failure each. Weights
+live in `Scorer.categoryWeight` (`faithfulness` and `sensitive` ×3;
+`long-form`, `realistic`, `multilingual`, `idempotency` ×2; `uri` ×1.5;
+`disfluency` ×1.5; everything else ×1) and are mirrored in the dashboard's
+`CATEGORY_WEIGHT`.
+
+### Per-category roll-up
+
+`category` is on every case and used to be rolled up nowhere, so a suite-wide
+"174/178" could hide a whole category going red while `numbers` carried the
+total. `eval-score` now prints a pass rate per category, marking any that is not
+clean. It is the cheapest real signal in the scorer.
 
 ---
 
@@ -198,9 +301,18 @@ swift run eval-score \
   eval/text-cleanup/cases.jsonl
 ```
 
-Prints `total / pass / fail`, per-target pass rate + median/p90 latency, and
-every failing id with reasons and `asr` vs `cleanup` attribution. Tweak a
+Prints `total / pass / fail`, per-target pass rate (raw **and** weighted),
+median/p90/p99 latency plus ms/word, the continuous metrics above, the
+per-category roll-up, every failing id with reasons and `asr` vs `cleanup`
+attribution, and the "passed the rules, worth a look" list. Tweak a
 `must_contain` and re-run this — you do not need the LLM again.
+
+`--json` emits the same roll-up as one machine-readable object, which is what a
+CI step should read rather than parsing the text:
+
+```bash
+swift run eval-score results.json cases.jsonl --json | jq '.targets.light'
+```
 
 ### 4. Subjective judge
 
@@ -238,9 +350,11 @@ After `run-eval.sh` (or a manual `open`):
    print(len(r), 'rows');
    from collections import Counter; print(Counter(x['target'] for x in r))"
    ```
-3. **Each row has** `id`, `target`, `input_kind`, `deterministic`, `llm_output`,
-   `guard.accepted`, `latency_ms`. Audio rows also have `asr_text` /
-   `asr_reference`.
+3. **Each row has** `id`, `category`, `target`, `input_kind`, `deterministic`,
+   `llm_output`, `guard.accepted`, `latency_ms`. Audio rows also have `asr_text`
+   / `asr_reference`. (`category` was added 2026-08-22; a run from an older
+   bundle lacks it, and the scorer and the dashboard both fall back to the
+   category in the cases file.)
 4. **`eval-score` exits 0** and the printed fail list is the thing you act on.
 5. **Unit tests** (no models, no audio, no app launch):
    ```bash
@@ -266,19 +380,15 @@ If you see a CoreBluetooth crash at launch: you exec’d the binary. Use `open`.
 
 Public history: **[whisper.corkkam.com/eval](https://whisper.corkkam.com/eval)**, served by
 the landing site (`../whisper-master-landing-page`, route `app/eval/`, data in
-`lib/eval/` on Supabase). It used to be its own SvelteKit deploy on a separate
-Vercel account backed by MongoDB Atlas; that app still exists at
-`eval/dashboard/` and is still up, because shipped Mac builds hardcode it as
-the sync base URL for `/api/usage` and `/api/notes`. **Its eval half is
-retired** — do not push runs to it, and do not add features to it.
+`lib/eval/` on Supabase).
 
-**Every stable and beta release grades itself.** `Scripts/release.sh` runs the
-text suite against the bundle it just built and publishes the scores tagged with
-the version and channel, so `/eval` can answer "how did 1.1.0-beta.9 score". It
-runs last and never fails the release; `RUN_EVAL=0` skips it, `EVAL_REQUIRED=1`
-makes it a gate, and the `dev` channel is off by default. Note that it quits and
-relaunches the app it grades — on a local stable release that is your daily
-driver. See the `releasing` skill.
+The old SvelteKit dashboard that used to live at `eval/dashboard/` **has been
+deleted**. Its eval half moved here; its `/api/usage` and `/api/notes` routes
+moved to the landing site, and `UsageSyncConfig` / `NotesSyncConfig` now point
+at `whisper.corkkam.com`. The Vercel project at `whisper-eval-dashboard.vercel.app`
+still has to stay deployed until 1.1.0-beta.7 and .8 age out, because those
+builds have the old URL compiled into them; nothing in this repo depends on it
+any more.
 
 A run is published by `run-eval.sh`, or by hand:
 

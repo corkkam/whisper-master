@@ -68,6 +68,7 @@ final class AppState {
     static let pauseMediaDefaultsKey = "WhisperMaster.pauseMediaWhileListening.v1"
     static let remindersEnabledDefaultsKey = "WhisperMaster.remindersEnabled.v1"
     static let quickActionsDefaultsKey = "WhisperMaster.quickActions.v1"
+    static let nowSurfaceDefaultsKey = "WhisperMaster.nowSurface.v1"
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
     static let remoteDictationEnabledDefaultsKey = "WhisperMaster.remoteDictationEnabled.v1"
     static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
@@ -376,6 +377,18 @@ final class AppState {
     var quickActionsEnabled: Bool = true {
         didSet { UserDefaults.standard.set(quickActionsEnabled, forKey: Self.quickActionsDefaultsKey) }
     }
+    /// Whether the notch carries the one thing that is relevant right now — a
+    /// meeting about to start, a reminder that has gone past — in the menu-bar row
+    /// beside whatever the app itself is doing.
+    ///
+    /// Persisted; **on by default**, and it is a hard off-switch: with it off
+    /// `NowStore` never ranks anything and the leading slot is never drawn, so the
+    /// bezel goes back to speaking only when spoken to. Deliberately separate from
+    /// `hidePillWhenIdle`, which is about the dictation indicator: one is "do not
+    /// show me the app", the other is "do not show me my day".
+    var nowSurfaceEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(nowSurfaceEnabled, forKey: Self.nowSurfaceDefaultsKey) }
+    }
     /// Keep this Mac awake so the phone can reach it for remote dictation even
     /// after it's been sitting locked and idle. Persisted; **opt-in** — off by
     /// default because it prevents idle sleep entirely (a battery cost). When off,
@@ -606,6 +619,35 @@ final class AppState {
     /// `UsageStore(load: false)`.
     let agents = AgentSurfaceController()
 
+    /// Whether the ambient row is showing something clickable.
+    ///
+    /// The **one** answer both the window-level interactivity guard
+    /// (`AppDelegate.reconcile`) and the view's own `allowsHitTesting` read, so the
+    /// two cannot drift. It is deliberately a *superset* of the view's precise
+    /// test: it does not know whether the surface is currently in its row form, and
+    /// a window that is interactive while the view declines the hit passes the
+    /// click straight through — the black fill and every non-control part of the
+    /// row are explicitly non-hittable for exactly that reason.
+    var ambientRowTakesClicks: Bool {
+        guard nowSurfaceEnabled, let item = now.item else { return false }
+        return item.reminderID != nil
+            || (item.joinURL != nil && (item.kind == .meetingNow || item.kind == .meetingSoon))
+    }
+
+    /// What is relevant right now — today's calendar and the reminders around it,
+    /// ranked down to the one thing the ambient notch row carries.
+    ///
+    /// Starts dormant for the same reason `agents` does: building an `AppState`
+    /// under `swift test` or the headless renderer must not open an `EKEventStore`
+    /// or arm a timer. `start()` runs post-auth, beside the rest of the bring-up.
+    let now: NowStore
+
+    /// The Model Lab: the dev build's bench for open-source models. Dormant —
+    /// it reads no disk and loads no model until the page is opened
+    /// (`activate()`), so building an `AppState` in a test or the snapshot
+    /// renderer costs nothing. Same posture as `agents` and `UsageStore`.
+    let lab = LabController(load: false)
+
     /// Whether a coding agent is holding a turn open waiting for an answer.
     ///
     /// This yields to `approvals.pending` and to nothing else above it: both are
@@ -769,6 +811,10 @@ final class AppState {
     var naturalVoiceRetryRequested: Bool = false
 
     init() {
+        // First, because it borrows two stores that are already initialised by
+        // their own inline initialisers and nothing below may touch `self` before
+        // every `let` is set.
+        now = NowStore(connectors: connectorStore, notes: notesStore)
         history = Self.loadHistory()
         answerLog = AnswerLog.load()
         customVocabulary = Self.loadVocabulary()
@@ -807,6 +853,7 @@ final class AppState {
         remindersEnabled = UserDefaults.standard.object(forKey: Self.remindersEnabledDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         quickActionsEnabled = UserDefaults.standard.object(forKey: Self.quickActionsDefaultsKey) as? Bool ?? true
+        nowSurfaceEnabled = UserDefaults.standard.object(forKey: Self.nowSurfaceDefaultsKey) as? Bool ?? true
         // Opt-in: off until the user has explicitly turned it on.
         keepAwakeForRemote = UserDefaults.standard.object(forKey: Self.keepAwakeForRemoteDefaultsKey) as? Bool ?? false
         // Opt-in: no listening socket until the user explicitly asks for one.

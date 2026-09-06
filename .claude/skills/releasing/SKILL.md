@@ -84,7 +84,7 @@ A `release/<x.y.z>` branch is an **optional detour between 1 and 4**, taken only
 
 **Three things that decide whether a push ships anything**, in the order CI checks them: `[skip ci]` in the commit message stops the workflow before it starts (not even the Ubuntu gate); an unchanged `CFBundleShortVersionString` stops it at the gate; `[skip release]` stops the macOS job after the gate. To land work with no risk of a build, change no version and add `[skip ci]`.
 
-**⚠️ Standing freeze as of 2026-08-14: no stable release.** `main` is at `1.0.1`; `dev` is at `1.1.0-beta.6` and ~76 commits ahead. Do **not** merge anything into `main`, and do **not** bump `CFBundleShortVersionString` on `dev` — either one ships a build. If a release run starts by accident, stop it (`gh run cancel`) rather than letting it finish. Lift this line only when the owner says so.
+**The 2026-08-14 stable-release freeze was lifted on 2026-09-06 by the owner.** It read: `main` at `1.0.1`, `dev` at `1.1.0-beta.6`, ship nothing. It ended when `dev` and the four unmerged feature branches were combined and merged to `main` (PR #17), and `1.1.0` was cut from there. The reason it is kept rather than deleted: a freeze is a thing an agent must not lift on its own, so the next one should be written the same way, with the same last line. Nothing is frozen now.
 
 **Versioning — SemVer, every release tagged.**
 - `CFBundleShortVersionString` is **SemVer** `MAJOR.MINOR.PATCH` (the human version, e.g. `1.2.6`). `CFBundleVersion` is the monotonic build number — CI sets it to epoch seconds so it always strictly increases (see CI/CD); locally bump it yourself.

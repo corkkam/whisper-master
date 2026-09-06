@@ -59,4 +59,24 @@ enum FeatureFlags {
     static var connectorsAndNotesAvailable: Bool {
         ReleaseChannel.current != .stable
     }
+
+    /// True when the **Model Lab** is reachable: install several open-source
+    /// models, bench them against the real suites, and point a shipped slot at
+    /// one of them.
+    ///
+    /// Dev builds only, and not merely because it is unfinished. The page
+    /// downloads gigabytes on request, holds a model resident for minutes at a
+    /// time, and can change which model the app dictates with — none of which
+    /// belongs in the hands of someone who installed a dictation app. `dev` also
+    /// covers a bare `swift build` run and the headless snapshot renderer, which
+    /// is what makes the page visible while it is being worked on.
+    static var modelLabAvailable: Bool {
+        modelLabAvailable(on: ReleaseChannel.current)
+    }
+
+    /// Pure, so the gate is tested for every channel without a bundle — the same
+    /// shape as `SettingsSection.isAvailable(connectorsAndNotes:)`.
+    static func modelLabAvailable(on channel: ReleaseChannel) -> Bool {
+        channel == .dev
+    }
 }

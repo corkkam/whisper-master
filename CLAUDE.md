@@ -80,7 +80,9 @@ and validate it against the audio bench above before shipping.
 A quality-first eval for the cleanup pipeline: durable logic in Swift, disposable
 glue in shell, Claude Code as the judge, with run history on a public dashboard.
 Full details: **`.claude/skills/eval-pipeline/SKILL.md`**. Verify any change to the
-cleanup pipeline against the real thing via `eval/text-cleanup/run-eval.sh`.
+cleanup pipeline against the real thing via `eval/text-cleanup/run-eval.sh`, or
+in-app on a dev build via the **Model Lab** (below), which grades with the same
+`EvalScoreKit` rules and exports the same `results.json`.
 
 ### Assistant tool-calling bench (`WM_AGENT_TOOL_EVAL`)
 
@@ -123,6 +125,15 @@ decide that question again.** They separate on the turn that reads a result:
   path on tool choice and grounding, and its answer ran longer. Flipping the
   default needs a case the bench can show, not the argument that the chat template
   is more in-distribution.
+
+**⚠️ A keyword rule only sees what somebody thought to assert.** The 2026-08-21
+long-form truncation dropped three fifths of a 525-word input and passed every
+`must_contain` in its case. So `eval-score` reports the *shape* of each output
+beside the verdict — retention, edit rate, novel-word rate, guard fallback rate,
+ms/word, reference WER — none of them a pass/fail criterion, because the
+acceptable band belongs to the target and not to the metric. When you add a case,
+give it a `category`: it carries the severity weight and the per-category roll-up,
+and a suite total can otherwise stay green while a whole category goes red.
 
 ### Toolchain & prerequisites
 
@@ -314,6 +325,26 @@ Notes are already on disk from before pinning, transcripts and audio existed, an
 `NotesStore.loadFromDisk` swallows a decode throw — so a bare non-optional field
 added here silently empties every existing user's notes. Every field added from
 here on uses `decodeIfPresent` with a default.
+
+### What is relevant right now (`Now/`)
+
+The notch carries the one thing that matters at this second — a meeting about to
+start, a reminder that has gone past — in the **leading** wing, beside whatever the
+app itself is doing in the trailing one. Hovering unrolls it into today as one
+ordered column. Details (the relevance ladder, the two refresh cadences, the
+conference-link allowlist): **`Sources/WhisperMaster/Now/CLAUDE.md`**; the surfaces
+are in `Sources/WhisperMaster/UI/CLAUDE.md`.
+
+**⚠️ Three rules from that file hold everywhere.** The ladder returns **at most one
+item, and usually none** — the notch stays dark when nothing is inside a horizon,
+because an ambient surface that is never empty is a dashboard and this app is not
+one; don't add a rung that is always true. Nothing on this surface counts in
+seconds (the smallest unit is the minute, rounded up), for the same reason the
+record dot is the system's only perpetual motion. And `ConferenceLink` is an
+**allowlist of hosts, never first-URL-wins**: invitation bodies are full of
+unsubscribe and room-booking links, so an unrecognised host draws no Join button at
+all, and the check is re-applied at `AppDelegate.openConferenceLink` because
+`NSWorkspace.open` will launch anything.
 
 ### Gentle reminders (`Reminders/`)
 
@@ -636,6 +667,31 @@ shortcut at all**.
   is a bench in the style of `AudioReplayTests` — it talks to whatever kunai is actually
   installed and **skips rather than fails** when there is none, so CI and a fresh clone
   stay green. Snapshots: `pill-10-agent-run`, `pill-10b-agent-choice`.
+
+### Model Lab (`Lab/`, dev builds only)
+
+A bench inside the app: install several open-source MLX models, run the real
+suites (cleanup, polish, destinations, tool calling, audio WER) against each one,
+and compare them on score, latency and memory. Reachable only when
+`FeatureFlags.modelLabAvailable` — `ReleaseChannel.current == .dev`, which also
+covers a bare `swift build` and the snapshot renderer. Details:
+**`Sources/WhisperMaster/Lab/CLAUDE.md`**.
+
+**⚠️ Three rules from that file hold outside it.** A dev build can point the
+shipped cleanup or assistant slot at another model, and that override is read
+inside `CleanupModel.directory` / `CleanupModel.General.directory` — it is refused
+on every channel but `dev`, validated against the filesystem on each read, and
+stores a catalogue id rather than a path; `CleanupModel.shippedDirectory` is where
+the installer still writes. The lab **duplicates nothing**: generation goes
+through `MlxCleanupService.cleanMeasured` (the same path `clean` takes, returning
+the cost it discards), the deterministic passes through
+`LabDeterministicPipeline` (which `EvalRunner` now calls too), scoring through
+`EvalScoreKit`, and the tool set and tool cases through `LabToolBench` /
+`LabSuiteLoader.toolCases`, shared with `AgentToolEval`. And **`EvalScoreKit` is
+now linked into the app twice over** — as a SwiftPM module in `Package.swift`
+(imported under `#if SWIFT_PACKAGE`) and as in-target sources in `project.yml`;
+adding a file under `eval/text-cleanup/EvalScore` needs nothing in Xcode but does
+need both files to stay in step.
 
 ### Diagnostics (local-only, `DIAGNOSTICS` build)
 

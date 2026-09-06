@@ -5,8 +5,7 @@
 //
 // The history used to live in a separate SvelteKit dashboard on its own Vercel
 // account; it is now a route on the landing site, which is why this script
-// moved out of `eval/dashboard/scripts/` and no longer needs that app checked
-// out or running.
+// moved out of the retired dashboard app, which has since been deleted.
 //
 //   DASHBOARD_URL      where to post   (default: https://whisper.corkkam.com)
 //   EVAL_VERSION       marketing version this run grades, e.g. 1.1.0-beta.9

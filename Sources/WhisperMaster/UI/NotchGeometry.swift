@@ -164,11 +164,22 @@ struct NotchSurfaceLayout {
     /// `Typography.notchLabel` (medium vs bold at the same 13pt) — hence
     /// `stateLabelSlack`, which covers the weight difference and keeps the last
     /// character off the housing rather than flush against it.
-    func wideWing(forStateLabel label: String) -> CGFloat {
-        guard !label.isEmpty else { return wideSideExtension }
+    /// Extra wing the **trailing** cluster needs when the state word is a chip
+    /// beside the orb rather than a bare label on the far side of the housing.
+    ///
+    /// The bare form spends its wing on text alone. The chipped form spends it on
+    /// the chip's own horizontal padding, the gap to the orb, and — for an agent
+    /// mid-turn — a stop button between them. Sized to the label alone, the cluster
+    /// overflowed its wing and the orb was pushed against the band's rounded
+    /// corner, where it drew clipped.
+    var stateChipAllowance: CGFloat = 96
+
+    func wideWing(forStateLabel label: String, extra: CGFloat = 0) -> CGFloat {
+        guard !label.isEmpty || extra > 0 else { return wideSideExtension }
         let needed = NotchTextMetrics.width(label)
             + NotchTranscriptRow.horizontalPadding
             + stateLabelSlack
+            + extra
         // **Snapped to a step, so the band cannot twitch.** The width is animated, so
         // any caption that changes while it is on screen — a running clock, a
         // connector name being re-reported — moved the whole surface by a few points
@@ -181,6 +192,18 @@ struct NotchSurfaceLayout {
     /// The grid the grown wing snaps to. Coarse enough that a word's worth of text
     /// change stays in one bucket, fine enough that a long caption still fits.
     var wingStep: CGFloat = 24
+
+    /// Whichever of two captions is physically wider.
+    ///
+    /// The wings are **symmetric** — the surface is centred on the notch and every
+    /// piece of this layout assumes it — so when both wings carry text the band has
+    /// to be sized to the longer of the two. Handing that string to
+    /// `surfaceWidth(for:_:stateLabel:)` is cheaper and far harder to get wrong
+    /// than a second, asymmetric width path: the loser still gets a wing at least
+    /// as wide as it needs.
+    func widerLabel(_ lhs: String, _ rhs: String) -> String {
+        NotchTextMetrics.width(lhs) >= NotchTextMetrics.width(rhs) ? lhs : rhs
+    }
 
     /// Headroom on a measured state label: the bold/medium weight difference plus a
     /// little air, so a caption sized exactly to its wing doesn't read as jammed
@@ -221,13 +244,17 @@ struct NotchSurfaceLayout {
     /// bar's *base* width — `panelSize` and the transcript wrap both do, because the
     /// panel must be sized for a state that hasn't happened yet and the wrap must
     /// not re-flow every time the caption changes.
+    /// `extraWing` is the trailing cluster's allowance — pass
+    /// `stateChipAllowance` whenever the state word is riding beside the orb as a
+    /// chip. Zero (the default) is the bar's historical shape.
     func surfaceWidth(for geometry: NotchGeometry,
                       _ width: NotchSurfaceWidth,
-                      stateLabel: String = "") -> CGFloat {
+                      stateLabel: String = "",
+                      extraWing: CGFloat = 0) -> CGFloat {
         let wing: CGFloat = switch width {
         case .glyph: glyphSideExtension
         case .banner: sideExtension
-        case .wide: wideWing(forStateLabel: stateLabel)
+        case .wide: wideWing(forStateLabel: stateLabel, extra: extraWing)
         }
         let full = bodyWidth(for: geometry) + wing * 2
         // The bar is the only surface long enough to run off a small display, so

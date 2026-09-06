@@ -19,6 +19,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case traces
     case permissions
     case mesh
+    case lab
     case about
 
     var id: String { rawValue }
@@ -26,7 +27,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// The four items shown in the sidebar.
     static let primary: [SettingsSection] = [.today, .notes, .connectors, .settings]
     /// The pages folded into the Settings screen's "More" list.
-    static let secondary: [SettingsSection] = [.insights, .engine, .agents, .traces, .permissions, .mesh, .about]
+    static let secondary: [SettingsSection] = [.insights, .engine, .agents, .traces, .permissions, .mesh, .lab, .about]
 
     var isPrimary: Bool { SettingsSection.primary.contains(self) }
 
@@ -42,6 +43,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         // channel rather than shipping a half-built network surface. Nothing is
         // deleted — flip this back to `true` to bring the panel out again.
         case .mesh: return false
+        // The Model Lab is a dev-build bench, not an unreleased product surface:
+        // it is *absent* rather than "coming soon", because promising a stable
+        // user a page that downloads 2 GB models would be promising the wrong
+        // thing (see `FeatureFlags.modelLabAvailable`).
+        case .lab: return FeatureFlags.modelLabAvailable
         default: return true
         }
     }
@@ -54,6 +60,17 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// always available.
     var isAvailable: Bool {
         isAvailable(connectorsAndNotes: FeatureFlags.connectorsAndNotesAvailable)
+    }
+
+    /// Whether this page appears in the Settings "More" list at all.
+    ///
+    /// An unreleased *product* page stays listed and reads "Soon": the roadmap is
+    /// deliberately visible, and dropping the row would make the feature look
+    /// cancelled rather than pending. The Model Lab is not a roadmap entry — it
+    /// is a bench for whoever is building the app — so on any other channel it is
+    /// simply absent rather than promised.
+    var isListed: Bool {
+        self != .lab || FeatureFlags.modelLabAvailable
     }
 
     /// The sidebar item that should read as selected for this section (a
@@ -72,6 +89,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .traces: return "Traces"
         case .permissions: return "Permissions"
         case .mesh: return "Nearby Macs"
+        case .lab: return "Model Lab"
         case .about: return "About"
         }
     }
@@ -100,6 +118,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .traces: return "What actually happened to the last few things you said."
         case .permissions: return "Whisper Master only asks for what it needs to work."
         case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
+        case .lab: return "Bench open-source models against the real suites, on this Mac."
         case .about: return "Voice dictation that stays on your Mac."
         }
     }
@@ -116,6 +135,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .traces: return "Activity"
         case .permissions: return "Privacy"
         case .mesh: return "Mesh"
+        case .lab: return "Dev build"
         case .about: return "Whisper Master"
         }
     }
@@ -133,6 +153,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .traces: return "list.bullet.indent"
         case .permissions: return "lock.shield"
         case .mesh: return "laptopcomputer"
+        case .lab: return "flask"
         case .about: return "info.circle"
         }
     }
@@ -451,8 +472,10 @@ struct SettingsView: View {
     /// column*. At 780 that bifurcation collapses to one sticky per row with the
     /// reminders squeezed beside it, so the notes page gets a wider measure. The
     /// window is 80% of the screen (`applyDefaultWindowFrame`), so the room exists.
+    /// The lab joins notes at the wider measure for the same reason: it is a
+    /// table of models beside a rail of cases, not a reading column.
     private var contentMaxWidth: CGFloat {
-        selection == .notes ? 1180 : 780
+        selection == .notes || selection == .lab ? 1180 : 780
     }
 
     private func header(_ section: SettingsSection) -> some View {
@@ -528,6 +551,12 @@ struct SettingsView: View {
                 MeshSettingsView(viewModel: viewModel, state: state)
             } else {
                 ComingSoonPanel(section: .mesh)
+            }
+        case .lab:
+            if selection.isAvailable {
+                LabSettingsView(state: state)
+            } else {
+                ComingSoonPanel(section: .lab)
             }
         case .traces:
             TracesSettingsView(viewModel: viewModel, state: state)

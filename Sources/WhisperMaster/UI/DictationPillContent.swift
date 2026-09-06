@@ -21,6 +21,13 @@ struct DictationPillContent: View {
     /// Ticks the due reminder off — or puts it back, if it's already ticked. The
     /// owner holds the pre-tick snapshot needed to undo, so the view just asks.
     var onToggleDueReminder: () -> Void = {}
+    /// Ticks the ambient reminder off from the leading slot. Separate from
+    /// `onToggleDueReminder`, which answers the *banner* for a reminder that has
+    /// fired — this one is a row that is merely late, and it does not un-tick
+    /// (the row simply stops being the most relevant thing and leaves).
+    var onCompleteNowReminder: (UUID) -> Void = { _ in }
+    /// Opens a meeting's conference link. Injected so the view stays AppKit-free.
+    var onJoin: (URL) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -104,6 +111,48 @@ struct DictationPillContent: View {
             } ?? false)
     }
 
+    /// The one ambient thing worth the bezel, or nil for a dark leading slot.
+    ///
+    /// **The lowest rung there is.** It is drawn only in the *row* form, so any
+    /// banner that drops the band takes the whole surface and the day steps aside
+    /// without a rule of its own — it is not in `bandIsBanner`, not in
+    /// `notchIsOccupied`, and it never delays or outranks anything. `NowStore`
+    /// already returns nil when there is nothing inside a horizon, so the common
+    /// answer here is nil and the notch stays dark.
+    private var nowItem: NowItem? {
+        guard state.nowSurfaceEnabled else { return nil }
+        return state.now.item
+    }
+
+    /// Whether the ambient row is the *only* thing on the surface — the notch at
+    /// rest with a meeting coming up. Its own branch because there is no orb and
+    /// no state word to draw beside it.
+    private var showAmbientOnly: Bool {
+        nowItem != nil && !bandIsBanner && !isFailed && state.download == nil
+            && !state.shouldShowLiveTranscript && !state.shouldShowPolishedBeat
+            && !state.shouldShowDeliveredBeat && state.preparingEngine == nil
+            && state.phase == .idle
+    }
+
+    /// The leading slot, wired up. Nil in every band form, so a dropped banner is
+    /// never asked to find room for it.
+    private var ambientSlot: NotchAmbientSlot? {
+        guard let nowItem, isNotchRow || showAmbientOnly else { return nil }
+        return NotchAmbientSlot(
+            item: nowItem,
+            now: now,
+            maxWidth: rowLabelMaxWidth,
+            onToggle: nowItem.reminderID.map { id in { onCompleteNowReminder(id) } },
+            onJoin: onJoin)
+    }
+
+    /// Whether the ambient row is showing something clickable, which is the only
+    /// reason the surface takes clicks while it is up. The predicate lives on
+    /// `AppState` so the window's own interactivity guard reads the same answer.
+    private var ambientHasControl: Bool {
+        ambientSlot != nil && state.ambientRowTakesClicks
+    }
+
     /// Read once per render rather than held: the elapsed labels in the context row
     /// only need to be right each time the band repaints, and a stored clock here
     /// would be a second thing to keep ticking.
@@ -151,6 +200,7 @@ struct DictationPillContent: View {
         if showAgentGlance {
             return NotchAgentGlance.listThickness(sessionCount: state.agents.sessions.count)
         }
+        if showAmbientOnly { return layout.bottomThickness }
         if showDueReminder { return layout.dueReminderThickness }
         if showCommandConfirmation { return layout.commandConfirmationThickness }
         if showDaySummary { return layout.daySummaryThickness }
@@ -189,6 +239,10 @@ struct DictationPillContent: View {
         // it as a dropped band put a slab of empty black under the bezel with a
         // caption lost in it — nothing else in the app treats "working" that way.
         if showAgentWorking { return true }
+        // The day on its own is a menu-bar row like every other "nothing to read"
+        // state. Dropping a band for one line would put a slab of empty black
+        // under the bezel for the ten minutes before a meeting.
+        if showAmbientOnly { return true }
         guard bandIsDictation || isDeliveredBadge else { return false }
         return transcriptModel.isEmpty
     }
@@ -285,6 +339,9 @@ struct DictationPillContent: View {
         // thing" at banner width was a skinny tower of over-wrapped text.
         if showApproval || showAgentAsk || showAgentGlance || showAgentWorking
             || showAgentReply { return .wide }
+        // The day is a row in the wings, so it needs the bar's width even though
+        // nothing is running — at banner width the title runs under the housing.
+        if showAmbientOnly { return .wide }
         guard bandIsDictation else { return .banner }
         return isDeliveredBadge ? .glyph : .wide
     }
@@ -310,12 +367,40 @@ struct DictationPillContent: View {
         // The expanded reply is the "big notch": it takes the widest surface the
         // panel was sized for, the same cap the assistant's longest captions reach.
         if showAgentReply, state.agents.replyExpanded { return expandedReplyWidth }
-        return layout.surfaceWidth(for: geometry, surfaceKind, stateLabel: stateLabel)
+        return layout.surfaceWidth(
+            for: geometry, surfaceKind, stateLabel: stateLabel, extraWing: extraWing)
+    }
+
+    /// The trailing cluster's allowance. Charged only when the state word is
+    /// actually riding beside the orb as a chip, which is exactly "there is an
+    /// ambient item *and* the app has something of its own to say" — see
+    /// `NotchSurfaceLayout.stateChipAllowance`.
+    ///
+    /// Both operands are cycle-free by construction: neither reads `ambientSlot`,
+    /// which is what depends on the wing this feeds.
+    private var extraWing: CGFloat {
+        !ambientLabel.isEmpty && !ownStateLabel.isEmpty ? layout.stateChipAllowance : 0
     }
 
     /// The state word the bar is carrying, or "" for every surface that isn't the
     /// bar. Resolved here because it decides the width as well as the content.
     private var stateLabel: String {
+        // Both wings can carry text now, and the wings are symmetric — so the band
+        // is measured against whichever of the two is wider. See
+        // `NotchSurfaceLayout.widerLabel`.
+        layout.widerLabel(ownStateLabel, ambientLabel)
+    }
+
+    /// The app's *own* state word, with no ambient item folded in.
+    ///
+    /// Split out from `stateLabel` because `extraWing` has to know whether there is
+    /// a chip to make room for, and asking `stateLabel` cannot answer that — it may
+    /// be holding the ambient row's text instead. Reading `ambientSlot` from
+    /// `extraWing` would have closed a cycle (`extraWing` → `ambientSlot` →
+    /// `rowLabelMaxWidth` → `extraWing`), which is a stack overflow at layout time,
+    /// not a compile error: the headless renderer died with SIGSEGV on the first
+    /// frame that had both an ambient item and a state word.
+    private var ownStateLabel: String {
         // The working row's caption carries a file name or a repo name, so like the
         // assistant's connector captions it has to grow the wing rather than
         // truncate against the base width.
@@ -335,11 +420,22 @@ struct DictationPillContent: View {
                 ? (state.agents.promptTarget?.repo ?? "the agent") : nil)
     }
 
+    /// The ambient row's text, for **measurement only**.
+    ///
+    /// Deliberately derived from `nowItem` rather than from `ambientSlot`: the slot
+    /// carries `rowLabelMaxWidth`, which is computed from the wing, which is
+    /// computed from this string. Reading the slot here would close that loop.
+    private var ambientLabel: String {
+        guard let nowItem, isNotchRow || showAmbientOnly else { return "" }
+        return NotchNowRow.sizingLabel(nowItem, now: now)
+    }
+
     /// Ceiling on the leading label in the row form, so a caption past the wing cap
     /// truncates at the housing's edge instead of disappearing behind it.
     private var rowLabelMaxWidth: CGFloat {
         layout.rowLabelMaxWidth(
-            for: geometry, wing: layout.wideWing(forStateLabel: stateLabel))
+            for: geometry,
+            wing: layout.wideWing(forStateLabel: stateLabel, extra: extraWing))
     }
 
     /// Whether the surface should be dropped down and visible.
@@ -360,6 +456,11 @@ struct DictationPillContent: View {
             || showAgentNudge || showLearned || showCleanupReady || showBanner || showReminder
             || state.shouldShowDeliveredBeat || state.shouldShowLiveTranscript
             || state.shouldShowPolishedBeat { return true }
+        // The day is not the dictation indicator, so `hidePillWhenIdle` does not
+        // govern it — that switch means "do not show me the app at rest", and this
+        // has its own (`AppState.nowSurfaceEnabled`). Checked before that guard
+        // rather than after, or turning one off would silently disable the other.
+        if showAmbientOnly { return true }
         guard hasContent else { return false }
         if state.phase == .idle && state.hidePillWhenIdle { return false }
         return true
@@ -367,6 +468,7 @@ struct DictationPillContent: View {
 
     /// Whether any state is worth surfacing at all.
     private var hasContent: Bool {
+        if showAmbientOnly { return true }
         if state.download != nil || state.preparingEngine != nil { return true }
         if state.shouldShowDeliveredBeat { return true }
         if state.shouldShowLiveTranscript || state.shouldShowPolishedBeat { return true }
@@ -415,6 +517,14 @@ struct DictationPillContent: View {
             shape.fill(Theme.Notch.surface)
                 .overlay { NotchGlow(activity: activity) }
                 .clipShape(shape)
+                // **The fill never takes a click.** The ambient row can be up for
+                // the ten minutes before a meeting, and the window has to be
+                // interactive for its one control — so without this the black
+                // surface would swallow menu-bar clicks either side of the notch
+                // for that whole time. Everything in the row is non-hittable too
+                // except the Join button and the checkbox, so a click anywhere
+                // else falls through exactly as it does today.
+                .allowsHitTesting(false)
         }
         .clipShape(shape)
         .opacity(isExpanded ? 1 : 0)
@@ -423,7 +533,7 @@ struct DictationPillContent: View {
         // button, the tappable command confirmation, and the undelivered hint's
         // Copy button); the dictation indicator stays click-through (the panel
         // toggles ignoresMouseEvents to match).
-        .allowsHitTesting(showApproval || showAgentAsk || showAgentGlance || showAgentReply || showAgentWorking || showAgentNudge || showBanner || showCommandConfirmation || showUndelivered || showDueReminder)
+        .allowsHitTesting(showApproval || showAgentAsk || showAgentGlance || showAgentReply || showAgentWorking || showAgentNudge || showBanner || showCommandConfirmation || showUndelivered || showDueReminder || ambientHasControl)
         // Appear *instantly* (no animation when expanding), animate only the
         // retract. A spring on the way in read as "the notch appears late" even
         // though the state flips synchronously on key-press. Banners (below) keep
@@ -484,7 +594,8 @@ struct DictationPillContent: View {
                 verticalInset: layout.rowVerticalPadding,
                 labelMaxWidth: rowLabelMaxWidth,
                 live: state.agents.log.currentActivity,
-                onStop: { state.agents.interrupt() })
+                onStop: { state.agents.interrupt() },
+                ambient: ambientSlot)
         } else if showAgentReply, let reply = state.agents.lastReply {
             // Click for the whole thing; click again for the one-liner. The full
             // reply is stored raw, so the expanded band re-presents it from source
@@ -546,6 +657,22 @@ struct DictationPillContent: View {
             NotchBluetoothBanner(state: state)
         } else if showReminder, let line = state.activeReminder {
             NotchReminderBanner(text: line)
+        } else if showAmbientOnly, let ambientSlot {
+            // The day on its own: no orb, no state word, one line in the leading
+            // wing. The trailing wing stays empty on purpose — an orb here would
+            // claim the app is doing something, and it is not.
+            HStack(spacing: 0) {
+                ambientSlot.row(showsJoin: false)
+                Spacer(minLength: NotchTranscriptRow.gutter)
+                // Join rides the trailing wing here, where the orb would be. With
+                // nothing running that wing is otherwise empty, and everything
+                // bunched against one end reads as a slab rather than as the two
+                // ends the bar is built around.
+                ambientSlot.trailingJoin
+            }
+            .padding(.horizontal, NotchTranscriptRow.horizontalPadding)
+            .padding(.vertical, layout.rowVerticalPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         } else {
             DictationStatusView(
                 state: state,
@@ -553,7 +680,8 @@ struct DictationPillContent: View {
                 activity: activity,
                 rowOrbSize: isNotchRow ? layout.rowOrbDiameter(for: geometry) : nil,
                 rowVerticalInset: isNotchRow ? layout.rowVerticalPadding : nil,
-                rowLabelMaxWidth: isNotchRow ? rowLabelMaxWidth : nil
+                rowLabelMaxWidth: isNotchRow ? rowLabelMaxWidth : nil,
+                ambient: ambientSlot
             )
         }
     }

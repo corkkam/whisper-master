@@ -16,9 +16,15 @@ import Foundation
 /// Launch via LaunchServices (`open`), passing env through `launchctl setenv` —
 /// a directly-exec'd bundle fails TCC's Info.plist lookup and the mesh Bluetooth
 /// scan hard-crashes.
+/// Target names that are not `CleanupTarget` cases.
+enum EvalTarget {
+    /// Speech model only. Graded on word error, never on the cleanup's keywords.
+    static let transcription = "transcription"
+}
+
 enum EvalRunner {
     private struct Item {
-        let id, det, inputKind: String
+        let id, category, det, inputKind: String
         let asrText, asrReference: String?
         let asrMs: Int?
         let targets: [String]
@@ -30,10 +36,19 @@ enum EvalRunner {
         let outPath = env["WM_EVAL_OUT"]
             ?? (casesPath as NSString).deletingLastPathComponent + "/results.json"
 
-        await MlxCleanupService.shared.prepare(configuration: .init(directory: CleanupModel.directory))
-        guard await MlxCleanupService.shared.isReady else {
-            Log.modelPrep.error("EvalRunner: cleanup model not ready; aborting")
-            return
+        // A transcription-only suite needs the speech model and nothing else, so it
+        // must not be blocked by a 2 GB LLM that is not installed. Decide from the
+        // cases rather than loading first and asking questions later.
+        let needsCleanupModel = loadCases(casesPath).contains { c in
+            let targets = (c["targets"] as? [String]) ?? ["light", "polish"]
+            return targets.contains { $0 != EvalTarget.transcription }
+        }
+        if needsCleanupModel {
+            await MlxCleanupService.shared.prepare(configuration: .init(directory: CleanupModel.directory))
+            guard await MlxCleanupService.shared.isReady else {
+                Log.modelPrep.error("EvalRunner: cleanup model not ready; aborting")
+                return
+            }
         }
 
         let items = await buildItems(casesPath)
@@ -42,6 +57,25 @@ enum EvalRunner {
         // within a target (alternating modes re-primes every call → wrong latency).
         var rows: [[String: Any]] = []
         let requested = Set(items.flatMap(\.targets))
+
+        // The transcription suite: the speech model on its own, with no cleanup in
+        // the loop. It exists because today ASR only shows up as a side effect of an
+        // audio cleanup case, so a Parakeet regression is invisible unless it also
+        // happens to break a keyword rule. Here the transcript *is* the output, the
+        // scorer computes WER against `asr_reference`, and the case passes or fails
+        // on hearing alone.
+        for item in items where item.targets.contains(EvalTarget.transcription) {
+            guard item.inputKind == "audio" else { continue }
+            let asrMs = item.asrMs ?? 0
+            rows.append([
+                "id": item.id, "target": EvalTarget.transcription, "input_kind": "audio",
+                "deterministic": item.asrText ?? "", "llm_output": item.asrText ?? "",
+                "guard": ["accepted": true], "wer": NSNull(),
+                "latency_ms": ["asr": asrMs, "deterministic": 0, "llm": 0, "total": asrMs],
+                "asr_text": item.asrText ?? "", "asr_reference": item.asrReference ?? "",
+            ])
+        }
+
         let targets = CleanupTarget.allCases.filter { requested.contains($0.rawValue) }
         for target in targets {
             let prompt = target.prompt
@@ -55,7 +89,8 @@ enum EvalRunner {
                 var latency: [String: Int] = ["deterministic": 0, "llm": llmMs, "total": llmMs]
                 if let asrMs = item.asrMs { latency["asr"] = asrMs; latency["total"] = asrMs + llmMs }
                 var row: [String: Any] = [
-                    "id": item.id, "target": target.rawValue, "input_kind": item.inputKind,
+                    "id": item.id, "category": item.category,
+                    "target": target.rawValue, "input_kind": item.inputKind,
                     "deterministic": item.det, "llm_output": accepted ? llm : item.det,
                     "guard": ["accepted": accepted], "wer": NSNull(), "latency_ms": latency,
                 ]
@@ -76,11 +111,15 @@ enum EvalRunner {
         var items: [Item] = []
         for c in loadCases(casesPath) {
             let id = c["id"] as? String ?? ""
+            // Carried into every row so the scorer and the dashboard can roll up
+            // per category without also being handed the cases file.
+            let category = c["category"] as? String ?? "uncategorized"
             let targets = c["targets"] as? [String] ?? ["light", "polish"]
             let input = (c["input"] as? [String: Any]) ?? wrap(c["input"])
             if let text = input?["text"] as? String {
-                items.append(Item(id: id, det: deterministic(text), inputKind: "text",
-                                  asrText: nil, asrReference: nil, asrMs: nil, targets: targets))
+                items.append(Item(id: id, category: category, det: deterministic(text),
+                                  inputKind: "text", asrText: nil, asrReference: nil,
+                                  asrMs: nil, targets: targets))
             } else if let audioPath = input?["audio"] as? String {
                 if transcriber == nil {
                     let t = FluidAudioStreamingTranscriber()
@@ -91,8 +130,9 @@ enum EvalRunner {
                     transcriber = t
                 }
                 guard let t = transcriber, let (asr, ms) = await transcribe(audioPath, with: t) else { continue }
-                items.append(Item(id: id, det: deterministic(asr), inputKind: "audio",
-                                  asrText: asr, asrReference: c["asr_reference"] as? String ?? "",
+                items.append(Item(id: id, category: category, det: deterministic(asr),
+                                  inputKind: "audio", asrText: asr,
+                                  asrReference: c["asr_reference"] as? String ?? "",
                                   asrMs: ms, targets: targets))
             }
         }
@@ -125,14 +165,14 @@ enum EvalRunner {
         }
     }
 
-    /// Mirror `DictationViewModel`'s non-LLM pipeline order exactly. Empty glossary
-    /// and always-on ITN/filler removal so the eval is reproducible.
+    /// Mirror `DictationViewModel`'s non-LLM pipeline order exactly.
+    ///
+    /// The sequence itself lives in `LabDeterministicPipeline`, shared with the
+    /// in-app Model Lab: this file and the lab were spelling out the same five
+    /// passes, and the ordering rule they encode (collapse self-corrections
+    /// *before* ITN) only holds while every copy agrees.
     private static func deterministic(_ raw: String) -> String {
-        let spaced = TranscriptSpacingRepair.repair(raw)
-        let corrected = SelfCorrectionCollapser.collapse(spaced)
-        let itn = DeterministicITN.normalize(corrected)
-        let deFillered = FillerWordFilter.clean(itn)
-        return VocabularyPostProcessor.apply(deFillered, glossary: [])
+        LabDeterministicPipeline.run(raw)
     }
 
     private static func wrap(_ value: Any?) -> [String: Any]? {
