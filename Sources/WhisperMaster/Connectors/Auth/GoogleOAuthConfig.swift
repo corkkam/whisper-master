@@ -28,6 +28,33 @@ enum GoogleOAuthConfig {
 
     static var isConfigured: Bool { clientID != nil }
 
+    /// Whether the **Gmail** one-click path is switched on in this build.
+    ///
+    /// Separate from `isConfigured` because the blocker is not the client id: Gmail's
+    /// read scope is a Google *restricted* scope, so until this client clears brand
+    /// verification **and** a CASA security assessment, only accounts listed as test
+    /// users on the Cloud project can grant it — everyone else is stopped at an
+    /// "app not verified" wall *after* being sent to the browser, which is a worse
+    /// dead end than never offering the button.
+    ///
+    /// So the flow ships built but dark: off unless a build (or a dev shell) says
+    /// otherwise, and the Gmail card keeps offering the manual-token path meanwhile.
+    /// Flip `GoogleGmailOAuthEnabled` in `Info.plist` on the day verification lands —
+    /// no other code changes.
+    static var isGmailOAuthEnabled: Bool {
+        if let env = ProcessInfo.processInfo.environment["GOOGLE_GMAIL_OAUTH"] {
+            return isAffirmative(env)
+        }
+        if let plist = Bundle.main.object(forInfoDictionaryKey: "GoogleGmailOAuthEnabled") {
+            if let flag = plist as? Bool { return flag }
+            if let text = plist as? String { return isAffirmative(text) }
+        }
+        return false
+    }
+
+    /// Both halves must hold before the Gmail sign-in is offered anywhere.
+    static var isGmailOAuthAvailable: Bool { isConfigured && isGmailOAuthEnabled }
+
     /// The redirect URI for an iOS-type client: the **reversed** client id as a custom
     /// scheme. `140047576864-abc.apps.googleusercontent.com` →
     /// `com.googleusercontent.apps.140047576864-abc:/oauth2redirect`.
@@ -50,8 +77,9 @@ enum GoogleOAuthConfig {
     }
 
     /// Read-only scopes. Calendar read is a *sensitive* scope (brand verification);
-    /// Gmail read is *restricted* and needs a CASA assessment, which is why Gmail
-    /// ships behind manual token paste rather than this flow.
+    /// Gmail read is *restricted* and additionally needs a CASA assessment, which is
+    /// why the Gmail flow is built but gated on `isGmailOAuthEnabled` and the manual
+    /// paste path stays.
     enum Scope {
         /// **Required to list the account's calendars.** `calendarList.list` accepts
         /// only `calendar`, `calendar.readonly`, or the `calendar.calendarlist*`
@@ -67,6 +95,21 @@ enum GoogleOAuthConfig {
         /// What the sign-in flow asks for: list the calendars, read + write their
         /// events, and learn the account email to label the instance.
         static let calendarConnect = [calendarReadonly, calendarEvents, userinfoEmail]
+
+        /// Read the mailbox. **Restricted** — see `isGmailOAuthEnabled`. Deliberately
+        /// `gmail.readonly` and nothing wider: every Gmail scope that can read a message
+        /// is restricted anyway, so a narrower one buys no easier review, and this app
+        /// never sends mail.
+        static let gmailReadonly = "https://www.googleapis.com/auth/gmail.readonly"
+
+        /// What the Gmail sign-in asks for: read the mail, and learn the address so the
+        /// instance can be labelled and deduped.
+        static let gmailConnect = [gmailReadonly, userinfoEmail]
+    }
+
+    private static func isAffirmative(_ value: String) -> Bool {
+        ["1", "true", "yes", "on"].contains(
+            value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
     }
 
     private static func isPlaceholder(_ value: String) -> Bool {

@@ -13,9 +13,16 @@ let package = Package(
         )
     ],
     dependencies: [
-        // Pinned exactly: 0.15.x changed sliding-window finish()/splicing behavior
-        // and coincided with vanished transcripts + cut-off sentences in the field.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.14.7"),
+        // Pinned exactly. Was 0.14.7 because 0.15.0's sliding-window
+        // finish()/splicing rewrite coincided with vanished transcripts + cut-off
+        // sentences in the field. Bumped to 0.15.5, which carries the long-form
+        // splice fixes (#688 word-boundary chunk merges, #689
+        // SlidingWindowAsrConfig). Re-tested against the audio bench
+        // (`swift test --filter AudioReplayTests`): all seven reference paragraphs,
+        // including the 122-word long-form P6, transcribe fully with output
+        // byte-for-byte identical to 0.14.7 — no vanished/truncated/empty
+        // transcript. Do not bump further without re-running that bench.
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.15.5"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
         .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.0.0"),
         // On-device qwen cleanup (MLX). Pinned exact: the MLXLMCommon/ChatSession
@@ -35,7 +42,14 @@ let package = Package(
                 .product(name: "MLXLLM", package: "mlx-swift-examples"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-examples"),
                 .product(name: "ClerkKit", package: "clerk-ios"),
-                .product(name: "ClerkKitUI", package: "clerk-ios")
+                .product(name: "ClerkKitUI", package: "clerk-ios"),
+                // The eval's mechanical scorer, so the in-app Model Lab grades a
+                // bench with the same rules the offline pipeline does instead of
+                // a second copy of them. Pure Swift, no MLX, no app imports.
+                // Under Xcode these files are compiled straight into the app
+                // target (project.yml), where there is no module to import — see
+                // the `#if SWIFT_PACKAGE` guards in Sources/WhisperMaster/Lab.
+                "EvalScoreKit"
             ],
             path: "Sources/WhisperMaster",
             resources: [

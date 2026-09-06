@@ -65,6 +65,24 @@ struct NotchTranscriptRow: View {
     /// just drawn in the menu bar instead of under it.
     var orbSize: CGFloat?
     var verticalInset: CGFloat?
+    /// Ceiling on `label`, for the row form. The `HStack` alone only bounds it by
+    /// the whole surface, and in the row the middle of that surface is behind the
+    /// camera housing — so without this a long caption doesn't truncate, it runs
+    /// into the hardware and its tail is invisible. `nil` in the band form.
+    var labelMaxWidth: CGFloat?
+    /// What is relevant right now, for the **leading** edge.
+    ///
+    /// When this is set the two ends change roles: the day takes the leading wing
+    /// and `label` demotes to a chip beside the orb. That is a deliberate break
+    /// from the bar's usual fixed ends, and it only happens while there is
+    /// something ambient to say — with no item the row is byte-identical to what
+    /// it has always been, which is what keeps every existing `pill-*` snapshot
+    /// valid. See `NotchNowRow` for why the day wins the leading edge.
+    var ambient: NotchAmbientSlot?
+    /// Whether the state chip is describing something *live* (your voice) rather
+    /// than machine work. Passed rather than derived from `mode`, so the chip and
+    /// `NotchGlow` are told the same thing by the same caller.
+    var stateIsLive: Bool = false
 
     private var resolvedOrbSize: CGFloat { orbSize ?? Self.orbDiameter }
     private var resolvedVerticalInset: CGFloat { verticalInset ?? Self.verticalPadding }
@@ -88,6 +106,9 @@ struct NotchTranscriptRow: View {
         HStack(spacing: Self.gutter) {
             leading
             Spacer(minLength: Self.gutter)
+            if ambient != nil, !label.isEmpty {
+                NotchStateChip(label: label, isListening: stateIsLive)
+            }
             glyph
         }
         .padding(.horizontal, Self.horizontalPadding)
@@ -97,14 +118,21 @@ struct NotchTranscriptRow: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
-    /// The words if there are any, otherwise the state in words.
+    /// The day if there is one, then the words if there are any, otherwise the
+    /// state in words.
     @ViewBuilder
     private var leading: some View {
-        if model.isEmpty {
+        if let ambient, model.isEmpty {
+            ambient.row()
+        } else if model.isEmpty {
             Text(label)
                 .font(Typography.notchLabel)
                 .foregroundStyle(Theme.Notch.text)
                 .lineLimit(1)
+                .truncationMode(.tail)
+                // `nil` is the unconstrained default, i.e. the band form is
+                // untouched — only the row needs the wing as a ceiling.
+                .frame(maxWidth: labelMaxWidth, alignment: .leading)
         } else {
             transcript
         }

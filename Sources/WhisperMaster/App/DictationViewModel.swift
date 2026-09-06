@@ -21,6 +21,22 @@ final class DictationViewModel {
     private let textInjector: TextInjector
     private var pendingAppendTasks: [UUID: Task<Void, Never>] = [:]
     private var preparationTask: Task<Void, Never>?
+    /// This session's audio, kept in memory in case the capture turns into a spoken
+    /// note — a note the user made by voice keeps the recording, so they can hear
+    /// what they actually said rather than trusting the transcript alone.
+    ///
+    /// It runs for **every** session rather than only for chord-armed ones, and that
+    /// is deliberate: the chord can arm a session that is already in flight (fn
+    /// pressed a hair before control — see the chord notes in `CLAUDE.md`), so
+    /// starting the writer at arm time would clip the opening word off exactly the
+    /// notes people dictate fastest. The cost is a mono int16 downmix per buffer,
+    /// which is nothing beside Parakeet, and the samples are dropped at the end of
+    /// any session that didn't become a note.
+    private var noteAudioWriter: SessionAudioWriter?
+    /// Ceiling on collected note audio (5 min at capture rate ≈ 10 MB). A latched
+    /// hands-free session has no natural end, so this is what stops an idle latch
+    /// from growing the heap all afternoon.
+    private static let noteAudioMaxMs = 5 * 60 * 1000
     private let releaseTailNanoseconds: UInt64 = 80_000_000
     /// When the current recording actually started capturing, for the analytics
     /// duration bucket. `nil` between sessions.
@@ -38,11 +54,27 @@ final class DictationViewModel {
     /// the chord merely re-labelled a session the push-to-talk key owns — there,
     /// letting go of control must not cut the recording short.
     private var commandChordOwnsSession = false
+    /// True when the agent key armed the current session — its finished transcript
+    /// goes to a coding agent instead of being typed. Consumed (and reset) at stop,
+    /// and mirrored into `state.agentCaptureArmed` for the notch.
+    private var agentArmed = false
+    /// True when the agent key is what *started* the running session, so its release
+    /// is what should stop it. False when it only re-labelled a session the
+    /// push-to-talk key owns.
+    private var agentKeyOwnsSession = false
+    /// When the agent key went down, so its release can tell a tap from a hold.
+    private var agentKeyDownAt: Date?
+    /// Whether an agent band was on screen at the press — a tap then means
+    /// "dismiss", not "open the list".
+    private var agentGlanceWasOpenAtKeyDown = false
     /// Drives gentle "you haven't used me in a while" reminders in the notch.
     private lazy var reminderScheduler = ReminderScheduler(state: state)
     /// Owns the optional on-device cleanup model: background download, progress
     /// (Settings only), and the one-shot ready banner. Dormant unless opted in.
     private lazy var cleanupModelManager = CleanupModelManager(state: state)
+    /// Owns the **assistant** model — a different model, fetched on first use of
+    /// the chord rather than on a toggle. See `AssistantModelManager`.
+    private lazy var assistantModelManager = AssistantModelManager(state: state)
     /// Reads assistant answers aloud. Created on the **first answer that wants
     /// speaking**, never at launch — an `AVSpeechSynthesizer` should not exist for a
     /// user who turned this off, nor under `swift test` / the headless snapshot
@@ -51,6 +83,10 @@ final class DictationViewModel {
     private var answerSpeaker: AnswerSpeaker?
     /// Watches pasted text for the user's fix-ups and grows the vocabulary.
     private let correctionLearner = CorrectionLearner()
+    /// Holds the user's music while we listen or talk, and hands it back after.
+    /// Inert until `update` is called with a busy state, so `swift test` and the
+    /// headless snapshot renderer never look at Core Audio or press a key.
+    private let mediaPauser = MediaPauser()
     /// The in-flight background polish for the last dictation (qwen cleanup +
     /// in-place refine). Cancelled when a new recording starts so a stale refine
     /// never edits the next session's field.
@@ -63,15 +99,8 @@ final class DictationViewModel {
     /// kept so a failed/empty engine finish can still deliver what streaming
     /// produced. The full window — not the truncated live-pill remainder.
     private var rawVolatileTranscript = ""
-    /// Running text from the transcriber's low-latency **preview** track, which
-    /// lands seconds before the accurate track says anything at all. It exists to
-    /// fill the notch while you're still speaking and is **display-only**: it is
-    /// never merged into `rawConfirmedTranscript`/`rawVolatileTranscript`, so it
-    /// can't reach the paste, the history, the salvage path, or the cleanup passes.
-    private var previewTranscript = ""
-    /// The accurate track's newest hypothesis for the current window — the tail
-    /// shown after `rawConfirmedTranscript`. Held as state so the display can be
-    /// recomputed when only the preview track ticked.
+    /// The engine's newest hypothesis for the current window — the tail shown
+    /// after `rawConfirmedTranscript`.
     private var latestHypothesis = ""
     /// Smooths the raw per-buffer mic level (fast attack, slow decay) so the
     /// notch wave breathes instead of snapping to zero between words.
@@ -119,77 +148,34 @@ final class DictationViewModel {
         reminderScheduler.tick()
     }
 
-    /// Fires due automations. Driven from the same 0.5 s refresh tick — see
-    /// `AutomationScheduler` for the catch-up and overlap policies.
-    func tickAutomations() {
-        guard state.connectorAgentEnabled else { return }
-        automationScheduler.tick()
+    /// Give the user's music back once the exchange is over — and cover the two
+    /// entrances `startRecording` doesn't own (a session started by the remote
+    /// server, an answer spoken from the Today card). Driven by the same 0.5 s tick
+    /// as the tray, so the release is one condition evaluated in one place rather
+    /// than a call at each of the finalize's four exits.
+    func reconcileMediaPlayback() {
+        mediaPauser.update(
+            enabled: state.pauseMediaWhileListening, busy: state.holdsMediaPlayback)
     }
 
-    /// Run one automation now, from the Settings list.
-    func runAutomationNow(_ task: ScheduledTask) {
-        automationScheduler.runNow(task)
-    }
-
-    /// Drives scheduled automations. Lazy so nothing is constructed for a user who
-    /// never opts in.
-    private lazy var automationScheduler = AutomationScheduler(
-        store: state.automationStore,
-        runner: { [weak self] task, trigger in
-            await self?.runAutomation(task, trigger: trigger)
-                ?? TaskRun(taskID: task.id, status: .failed, answer: "Cancelled.", trigger: trigger)
-        })
-
-    /// One automation firing: ask its question through the same agent a spoken query
-    /// uses, `unattended` so an unapproved write is denied rather than raising a card
-    /// nobody is there to read.
-    private func runAutomation(_ task: ScheduledTask, trigger: String) async -> TaskRun {
-        var run = TaskRun(taskID: task.id, trigger: trigger)
-        guard await MlxCleanupService.shared.isReady else {
-            run.status = .failed
-            run.answer = "The on-device model wasn't ready."
-            run.finishedAt = Date()
-            return run
-        }
-        let agent = ConnectorAgentService(store: state.connectorStore, approvals: state.approvals)
-        let outcome = await agent.answer(
-            question: task.instructions,
-            unattended: true,
-            generate: ConnectorAgentService.liveGenerator())
-        if let outcome {
-            run.status = .ok
-            run.answer = outcome.answer
-            // Surface it where the user already looks. A scheduled answer nobody sees
-            // is a scheduled answer that didn't happen.
-            state.activeDaySummary = DaySummary(
-                headline: task.title, detail: outcome.answer,
-                events: [], gaps: [], scopedTo: nil)
-            state.daySummaryAt = Date()
-            // An answer produced while nobody was looking is exactly the one that has
-            // to survive the twelve-second banner.
-            state.appendAnswer(
-                question: task.title, answer: outcome.answer, source: .automation)
-            // The headline here is the task's *title*, and the answer is in `detail` —
-            // the opposite of the spoken path, so both get read.
-            state.daySummaryWasSpoken = speakAnswer(
-                headline: task.title, detail: outcome.answer, source: .automation)
-        } else {
-            // Fall back to the deterministic summary rather than reporting nothing.
-            let summary = await DaySummaryService.buildAsync(store: state.connectorStore)
-            run.status = .ok
-            run.answer = "\(summary.headline). \(summary.detail)"
-            state.activeDaySummary = summary
-            state.daySummaryAt = Date()
-            state.appendAnswer(question: task.title, answer: run.answer, source: .automation)
-            state.daySummaryWasSpoken = speakAnswer(
-                headline: summary.headline, detail: summary.detail, source: .automation)
-        }
-        run.finishedAt = Date()
-        return run
+    /// The app is quitting. Anything we paused is released now — a Mac left with
+    /// silent speakers by an app that is no longer running is not debuggable.
+    func releaseHeldMedia() {
+        mediaPauser.releaseForTermination()
     }
 
     func startRecording(command: Bool = false) {
+        // Whatever agent band was lingering — a pinned reply, an open glance — a
+        // new recording outranks it, and letting it pop back up mid- or
+        // post-dictation is the "shows during normal dictation" bug.
+        state.agents.closeGlance()
         guard state.canStart else { return }
+        // Get the speakers out of the microphone's way from the key press itself,
+        // rather than waiting for the 0.5 s tick below to notice: the first words are
+        // spoken immediately, and they are the ones a podcast would be mixed into.
+        // The Core Audio look-up behind this runs off the main actor, so it costs the
+        // start path nothing.
+        mediaPauser.update(enabled: state.pauseMediaWhileListening, busy: true)
         // Every session begins as a normal dictation unless the command chord armed
         // it — reset here so a stale arm can't leak into the next one.
         setCommandArmed(command)
@@ -221,6 +207,9 @@ final class DictationViewModel {
         state.polishedAt = nil
         failedResetTask?.cancel()
         levelEnvelope.reset()
+        // Start collecting this session's audio, in case it turns into a spoken note
+        // (see `noteAudioWriter`).
+        noteAudioWriter = SessionAudioWriter()
 
         // If the Apple Intelligence pass is opted in, warm it while the user talks
         // so the post-dictation formatting is hot instead of a cold start. The
@@ -232,7 +221,6 @@ final class DictationViewModel {
         state.resetTranscript()
         rawConfirmedTranscript = ""
         rawVolatileTranscript = ""
-        previewTranscript = ""
         latestHypothesis = ""
         state.statusMessage = "Getting voice engine ready..."
 
@@ -306,12 +294,27 @@ final class DictationViewModel {
         // Capture session length now, at the user's stop, before the async
         // finalize work; cleared so a cancelled/failed run can't reuse it.
         let sessionDuration = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        // A trace is timestamped when the user *started speaking*, not when the
+        // finalize happened to finish — otherwise a slow decode files the row minutes
+        // after the words, and the list stops reading in the order things were said.
+        let sessionStartedAt = recordingStartedAt ?? Date()
         recordingStartedAt = nil
+        // Which account these words belong to, captured *here* rather than at the
+        // end of the finalize below: usage is per-account and the loaded account is
+        // repointed by the 0.5 s auth reconcile, so a sign-in/out during the
+        // finalize would otherwise file this session under whoever happens to be
+        // signed in when it finishes.
+        let sessionOwner = state.usageStore.currentUserID
         // Consume the command arm now (synchronously, at the user's stop) so it
         // can't linger; the async finalize below reads this captured copy.
         let commandMode = commandArmed
         setCommandArmed(false)
         commandChordOwnsSession = false
+        // Same consume-at-stop rule as the assistant arm above: read it here, at the
+        // user's stop, so it can't linger into the next session.
+        let agentMode = agentArmed
+        setAgentArmed(false)
+        agentKeyOwnsSession = false
         // However this stop arrived (key release, double-tap, tray, failure), the
         // gesture that latched the session is finished with it.
         state.handsFreeActive = false
@@ -325,6 +328,13 @@ final class DictationViewModel {
         Diagnostics.shared.mark(.stopRequested)
 
         Task {
+            // Whatever this session turned out to be, its audio is dead weight once
+            // the finalize is done: a note that wanted it has already consumed the
+            // writer (`takeNoteAudio` nils it out), so anything still here belongs to
+            // a dictation that was typed, answered, or failed. `defer` rather than a
+            // line per exit — the block below returns from four different places, and
+            // the one that got missed would hold ~10 MB until the next dictation.
+            defer { noteAudioWriter = nil }
             do {
                 try? await Task.sleep(nanoseconds: releaseTailNanoseconds)
                 microphoneCapture.stop()
@@ -347,16 +357,28 @@ final class DictationViewModel {
                     usedSalvage = true
                 }
                 Diagnostics.shared.noteRawAsr(rawFinal)
+                // The user-facing trace of the same chain the diagnostics build
+                // records. Two instruments on purpose — see `DictationTraceBuilder`.
+                var traceBuilder = DictationTraceBuilder(
+                    engine: state.selectedEngine,
+                    raw: rawFinal,
+                    usedSalvage: usedSalvage,
+                    startedAt: sessionStartedAt,
+                    duration: sessionDuration)
                 // Repair spaces the ASR dropped at pause/segment boundaries
                 // ("right?The" → "right? The") before the rest of the pipeline.
                 let spaced = TranscriptSpacingRepair.repair(rawFinal)
                 Diagnostics.shared.noteStage(.spacing, text: spaced)
+                traceBuilder.stage("Spacing repair", spaced)
                 // Collapse spoken number self-corrections ("twenty no thirty" →
                 // "thirty") before ITN, so the survivor is what gets formatted.
                 let (corrected, selfCorrectionFixes) = SelfCorrectionCollapser.collapseCounting(spaced)
                 Diagnostics.shared.noteStage(.selfCorrection, text: corrected)
+                traceBuilder.stage("Self-corrections", corrected,
+                                   note: DictationTraceBuilder.fixNote(selfCorrectionFixes, "collapsed"))
                 let formatted = await formatFinalTranscript(corrected)
                 Diagnostics.shared.noteStage(.itn, text: formatted)
+                traceBuilder.stage("Numbers & formatting", formatted)
                 // May leave the text empty (a recording that was only "hmm" /
                 // a silence hallucination) — the guard below then skips
                 // history and injection entirely.
@@ -364,12 +386,24 @@ final class DictationViewModel {
                     ? FillerWordFilter.cleanCounting(formatted)
                     : (formatted, 0)
                 Diagnostics.shared.noteStage(.filler, text: deFillered)
+                if state.removeFillerWordsEnabled {
+                    traceBuilder.stage("Filler words", deFillered,
+                                       note: DictationTraceBuilder.fixNote(fillerFixes, "removed"))
+                } else {
+                    traceBuilder.skipped("Filler words", why: "Switched off in Settings.")
+                }
                 // Apply the glossary as a safe text replacement (casing + known
                 // mishearings) — the substitute for FluidAudio's transcript-
                 // corrupting streaming rescorer.
                 let (cleaned, dictionaryFixes) = VocabularyPostProcessor.applyCounting(
                     deFillered, glossary: state.customVocabulary)
                 Diagnostics.shared.noteStage(.vocab, text: cleaned)
+                if state.customVocabulary.isEmpty {
+                    traceBuilder.skipped("Your vocabulary", why: "No terms added yet.")
+                } else {
+                    traceBuilder.stage("Your vocabulary", cleaned,
+                                       note: DictationTraceBuilder.fixNote(dictionaryFixes, "matched term"))
+                }
                 Diagnostics.shared.noteASR(
                     confirmedChars: rawConfirmedTranscript.count,
                     volatileChars: rawVolatileTranscript.count,
@@ -381,17 +415,12 @@ final class DictationViewModel {
                 // we'd waited, but the user never did.
                 state.phase = .idle
                 state.transcript.finalText = cleaned
-                guard !cleaned.isEmpty else {
-                    // Nothing to paste (only "hmm" / a silence hallucination).
-                    // Still record the session — an empty result is itself a
-                    // "miss" worth inspecting, and the audio is captured.
-                    Diagnostics.shared.finish(pasteOutcome: "empty", finalText: "")
-                    state.statusMessage = "Finished local transcription."
-                    return
-                }
+                let fixes = FixCounts(
+                    wordsCorrected: selfCorrectionFixes + fillerFixes,
+                    dictionary: dictionaryFixes)
                 // Was this the assistant? Only when the user *held the chord* for
                 // this session — the words are then a question or an instruction,
-                // never text, so the paste is *suppressed* and we finish here.
+                // never text, so the paste is *suppressed* below.
                 //
                 // Nothing below the chord may re-open this branch. An unarmed
                 // dictation is never inspected for trigger phrases or question
@@ -399,15 +428,68 @@ final class DictationViewModel {
                 // typed, and so does "what's my schedule for the sprint?". Inferring
                 // intent from words means eating a transcript whenever the guess is
                 // wrong, and no keyword list is good enough to earn that.
-                if commandMode, await routeCommandCapture(cleaned) {
+                var assistantHandled = false
+                // What the assistant tabs of the Traces surface need and cannot
+                // recover afterwards: the words as the engine heard them, and the
+                // chain that turned those into what the assistant was handed.
+                let spoken = SpokenCapture(
+                    heard: rawFinal, asked: cleaned, stages: traceBuilder.stages)
+                if agentMode, !cleaned.isEmpty {
+                    // The agent key wins over the assistant chord when both are
+                    // somehow armed: it is the more specific instruction, and it
+                    // names a destination rather than a kind of handling.
+                    assistantHandled = await routeAgentCapture(cleaned, spoken: spoken)
+                } else if commandMode, !cleaned.isEmpty {
+                    assistantHandled = await routeCommandCapture(cleaned, spoken: spoken)
+                }
+                // The frontmost app is the one about to receive the paste — or, for
+                // an assistant capture, the one the user was speaking from. We don't
+                // steal focus, so it's still the user's target app. Taken once here
+                // and shared, so the usage record and the trace below describe the
+                // same instant instead of two re-queries.
+                let front = NSWorkspace.shared.frontmostApplication
+                // One call chooses this session's exit *and* folds it into the
+                // durable usage stats, because they are one decision: a capture the
+                // assistant took and one that produced nothing are both real minutes
+                // of speaking, and omitting them makes the WPM gauge, lifetime words
+                // and the streak read low. The kind that was recorded is the branch
+                // taken below, so no exit can be reached without being accounted for
+                // — a line per exit is exactly what was missed before.
+                let kind = SessionAccounting(
+                    store: state.usageStore,
+                    appName: front?.localizedName ?? "",
+                    appBundleID: front?.bundleIdentifier ?? "",
+                    engineRawValue: state.selectedEngine.rawValue
+                ).account(
+                    transcript: cleaned,
+                    assistantHandled: assistantHandled,
+                    duration: sessionDuration,
+                    fixes: fixes,
+                    owner: sessionOwner)
+                switch kind {
+                case .empty:
+                    // Nothing to paste (only "hmm" / a silence hallucination) — the
+                    // session still counted above, since a miss is worth inspecting.
+                    Diagnostics.shared.finish(pasteOutcome: "empty", finalText: "")
+                    state.statusMessage = "Finished local transcription."
+                    return
+                case .assistant:
                     reminderScheduler.noteUsed()
                     Diagnostics.shared.finish(pasteOutcome: "command", finalText: cleaned)
                     state.statusMessage = "Handled by the assistant."
                     return
+                case .dictation:
+                    break
                 }
                 state.transcript.latestConfirmed = cleaned
                 state.transcript.latestPartial = ""
                 let entryID = state.appendHistory(text: cleaned, engine: state.selectedEngine)
+                // Written *before* the paste, so the polish and the delivery — both of
+                // which land later — have a row to attach themselves to. A trace that
+                // waited for them would be missing for the whole time the user is most
+                // likely to go looking for it.
+                let trace = traceBuilder.build(finalText: cleaned)
+                state.traces.record(trace)
                 reminderScheduler.noteUsed()
                 let wordCount = WordCount.count(cleaned)
                 Analytics.shared.send(.dictationCompleted(
@@ -415,25 +497,24 @@ final class DictationViewModel {
                     duration: sessionDuration,
                     wordCount: wordCount
                 ))
-                // The frontmost app is the one about to receive the paste — we
-                // don't steal focus, so it's still the user's target app.
-                let front = NSWorkspace.shared.frontmostApplication
                 Diagnostics.shared.noteFrontApp(
                     name: front?.localizedName ?? "unknown",
                     bundleID: front?.bundleIdentifier ?? "")
-                // Fold this dictation into the durable usage stats (Insights
-                // dashboard). Same front-app snapshot the diagnostics use — the
-                // app about to receive the paste — now always-on, not DIAGNOSTICS.
-                state.usageStore.record(DictationRecord(
-                    timestamp: Date(),
-                    wordCount: wordCount,
-                    durationSeconds: sessionDuration,
-                    appName: front?.localizedName ?? "",
-                    appBundleID: front?.bundleIdentifier ?? "",
-                    engineRawValue: state.selectedEngine.rawValue,
-                    fixes: FixCounts(
-                        wordsCorrected: selfCorrectionFixes + fillerFixes,
-                        dictionary: dictionaryFixes)))
+                // Roll the durable totals onto the analytics *person*. Read after
+                // `SessionAccounting.account` above has already folded this session
+                // in, so the totals include it — this reports the store, it does not
+                // record anything itself.
+                //
+                // This is what makes "which accounts are heavy users" a filter
+                // rather than an aggregation across every event that account ever
+                // sent: PostHog can cohort on a person property directly. On the
+                // `.dictation` path only, so the profile reflects delivered work
+                // rather than every session that was opened.
+                Analytics.shared.updatePersonProperties([
+                    "lifetimeDictations": String(state.usageStore.totalDictations),
+                    "lifetimeWords": String(state.usageStore.totalWords),
+                    "engine": state.selectedEngine.rawValue,
+                ])
                 // What AX sees at the moment we choose the paste route — the
                 // evidence for building the "nowhere to type" classifier.
                 Diagnostics.shared.noteFocus(FocusedElementInspector.focusDiagnostic())
@@ -441,7 +522,7 @@ final class DictationViewModel {
                 var pasteOutcome = "historyOnly"
                 var pastedText = cleaned
                 if state.autoPasteEnabled {
-                    let result = await pasteFinal(cleaned, entryID: entryID)
+                    let result = await pasteFinal(cleaned, entryID: entryID, traceID: trace.id)
                     pasteOutcome = result.outcome
                     pastedText = result.pasted
                     // Confirm the moment the text actually lands at the cursor:
@@ -455,8 +536,11 @@ final class DictationViewModel {
                         Feedback.delivered(soundEnabled: state.soundEnabled)
                     }
                 } else {
-                    scheduleRefinement(pasted: cleaned, entryID: entryID, target: nil)
+                    scheduleRefinement(pasted: cleaned, entryID: entryID,
+                                       traceID: trace.id, target: nil)
                 }
+                state.traces.attachDelivery(trace.id, DeliveryTrace(
+                    route: pasteOutcome, appName: front?.localizedName ?? ""))
                 Diagnostics.shared.notePolish(timing: polishTiming(for: pasteOutcome))
                 Diagnostics.shared.finish(pasteOutcome: pasteOutcome, finalText: pastedText)
                 state.statusMessage = "Finished local transcription."
@@ -467,17 +551,93 @@ final class DictationViewModel {
         }
     }
 
+    /// Which exit the finalize takes, and the usage record it owes — one decision,
+    /// made in one place.
+    ///
+    /// The defect this shape exists to prevent was a *missing call*: the assistant
+    /// and empty exits of `stopRecording` returned before recording anything, so
+    /// chord-armed captures and misses never reached the Insights dashboard at all.
+    /// A line per exit is precisely the thing that gets forgotten, so `account`
+    /// returns the kind it just recorded and the caller branches on that — an exit
+    /// cannot be taken without being accounted for. `stopRecording` needs a
+    /// microphone and a loaded engine; this doesn't, so it is what the tests pin.
+    @MainActor
+    struct SessionAccounting {
+        let store: UsageStore
+        /// The app the session belongs to, snapshotted once by the caller.
+        let appName: String
+        let appBundleID: String
+        let engineRawValue: String
+
+        /// Classify the finished session and fold it into the durable usage stats.
+        /// Returns what it recorded, which is also the exit to take: `.empty` and
+        /// `.assistant` finish there, `.dictation` goes on to the paste.
+        @discardableResult
+        func account(
+            transcript: String,
+            assistantHandled: Bool,
+            duration: TimeInterval,
+            fixes: FixCounts,
+            owner: String?
+        ) -> DictationRecord.SessionKind {
+            let kind: DictationRecord.SessionKind =
+                transcript.isEmpty ? .empty : (assistantHandled ? .assistant : .dictation)
+            store.record(
+                DictationViewModel.usageRecord(
+                    kind: kind,
+                    transcript: transcript,
+                    duration: duration,
+                    appName: appName,
+                    appBundleID: appBundleID,
+                    engineRawValue: engineRawValue,
+                    fixes: fixes),
+                owner: owner)
+            return kind
+        }
+    }
+
+    /// The record for one finished session. Pure, so what each exit of the finalize
+    /// contributes to usage is testable without a microphone.
+    static func usageRecord(
+        kind: DictationRecord.SessionKind,
+        transcript: String,
+        duration: TimeInterval,
+        appName: String,
+        appBundleID: String,
+        engineRawValue: String,
+        fixes: FixCounts,
+        now: Date = Date()
+    ) -> DictationRecord {
+        DictationRecord(
+            timestamp: now,
+            wordCount: WordCount.count(transcript),
+            durationSeconds: duration,
+            appName: appName,
+            appBundleID: appBundleID,
+            engineRawValue: engineRawValue,
+            fixes: fixes,
+            kind: kind)
+    }
+
     /// Kick the optional on-device qwen polish in the background and, when it
     /// produces a better transcript, rewrite the already-pasted text (and the
     /// saved history entry) in place — never blocking, since the deterministic
     /// text was already pasted. Also arms the correction learner on whatever text
     /// ends up on screen, so it never mistakes our own refine for a user fix-up.
-    private func scheduleRefinement(pasted: String, entryID: UUID?, target: AXUIElement?) {
+    private func scheduleRefinement(pasted: String,
+                                    entryID: UUID?,
+                                    traceID: UUID?,
+                                    target: AXUIElement?) {
         refinementTask?.cancel()
         refinementTask = Task { [weak self] in
             guard let self else { return }
             var onScreen = pasted
-            if let refined = await self.llmRefined(pasted), refined != pasted, !Task.isCancelled {
+            let attempt = await self.llmRefined(pasted)
+            // Recorded whatever happened, including the three ways it can decline —
+            // the whole point is that "the model was never asked" and "the model was
+            // asked and its answer was thrown away" stop looking the same.
+            var record = attempt.trace
+            if let refined = attempt.text, !Task.isCancelled {
                 if let target {
                     // We pasted into a live field — try to fix it in place. Only
                     // mirror the change into history if the field edit actually
@@ -488,6 +648,11 @@ final class DictationViewModel {
                         onScreen = refined
                         if let entryID { self.state.updateHistoryText(entryID, to: refined) }
                         self.notePolished(refined)
+                    } else {
+                        record = record.settled(
+                            as: .notApplied,
+                            reason: "The rewrite was good, but the field wouldn't accept "
+                                + "an in-place edit, so the first version is what you have.")
                     }
                 } else {
                     // Nothing was pasted (no editable target) — history and the
@@ -498,6 +663,7 @@ final class DictationViewModel {
                     self.notePolished(refined)
                 }
             }
+            if let traceID { self.state.traces.attachPolish(traceID, record) }
             guard !Task.isCancelled else { return }
             self.armCorrectionLearner(for: onScreen, hasTarget: target != nil)
         }
@@ -532,25 +698,54 @@ final class DictationViewModel {
     /// Flips `state.isPolishing` for the duration so the notch orb can show the
     /// "thinking" figure while the model works — the text is already delivered,
     /// so this is a progress signal, never a block.
-    private func llmRefined(_ input: String) async -> String? {
-        guard state.llmCleanupEnabled, !input.isEmpty else { return nil }
+    /// Returns the polished text **and** the record of why, so a rewrite that never
+    /// reached the user is still explainable. Every `nil` below used to be
+    /// indistinguishable from "Smart cleanup is off" on every surface in the app.
+    private func llmRefined(_ input: String) async -> PolishAttempt {
+        guard !input.isEmpty else {
+            return PolishAttempt(text: nil, trace: PolishTrace(
+                outcome: .off, reason: "There were no words to polish."))
+        }
+        guard state.llmCleanupEnabled else { return PolishAttempt(text: nil, trace: .off) }
+        let polish = state.llmGrammarPolishEnabled
+        let mode = polish ? "Polish my English" : "Light cleanup"
         guard await MlxCleanupService.shared.isReady else {
             Diagnostics.shared.noteLLM(ready: false, raw: nil, accepted: false, ms: 0)
-            return nil
+            return PolishAttempt(text: nil, trace: PolishTrace(
+                outcome: .modelNotReady, mode: mode, before: input,
+                reason: "Smart cleanup is on, but the on-device model wasn't loaded yet."))
         }
         state.isPolishing = true
         defer { state.isPolishing = false }
-        let polish = state.llmGrammarPolishEnabled
         let prompt = CleanupPrompt.resolved(grammarPolish: polish)
         let start = Date()
-        let cleaned = await MlxCleanupService.shared.clean(input, systemPrompt: prompt)
+        let cleaned = await MlxCleanupService.shared.clean(
+            input, systemPrompt: prompt, grammarPolish: polish)
         let ms = Int(Date().timeIntervalSince(start) * 1000)
-        let accepted = cleaned.map {
-            CleanupFaithfulnessGuard.accept(original: input, cleaned: $0, allowRephrase: polish)
-        } ?? false
-        Diagnostics.shared.noteLLM(ready: true, raw: cleaned, accepted: accepted, ms: ms)
-        guard let cleaned, accepted else { return nil }
-        return cleaned
+        guard let cleaned else {
+            Diagnostics.shared.noteLLM(ready: true, raw: nil, accepted: false, ms: ms)
+            return PolishAttempt(text: nil, trace: PolishTrace(
+                outcome: .noOutput, mode: mode, before: input,
+                reason: "The model was asked and returned nothing.", milliseconds: ms))
+        }
+        let verdict = CleanupFaithfulnessGuard.verdict(
+            original: input, cleaned: cleaned, allowRephrase: polish)
+        Diagnostics.shared.noteLLM(ready: true, raw: cleaned, accepted: verdict.isAccepted, ms: ms)
+        let record = PolishTrace(
+            outcome: .applied, mode: mode, before: input, after: cleaned,
+            reason: verdict.reason, milliseconds: ms)
+        guard verdict.isAccepted else {
+            return PolishAttempt(text: nil, trace: record.settled(
+                as: .rejected, reason: verdict.reason))
+        }
+        // An accepted rewrite identical to the input is not a failure and not a
+        // change; it used to be filtered at the call site, where it read as a
+        // rejection.
+        guard cleaned != input else {
+            return PolishAttempt(text: nil, trace: record.settled(
+                as: .noChange, reason: "The model had nothing to change."))
+        }
+        return PolishAttempt(text: cleaned, trace: record)
     }
 
     // MARK: - Day query (Connectors)
@@ -593,7 +788,27 @@ final class DictationViewModel {
         // Here the detail *is* the answer's second half (the next thing on the
         // calendar), so unlike the agent path it gets spoken.
         state.daySummaryWasSpoken = speakAnswer(
-            headline: summary.headline, detail: summary.detail, source: .spoken)
+            headline: summary.headline, detail: summary.detail)
+    }
+
+    /// The notch line for a transport command.
+    ///
+    /// Deliberately **not spoken**, unlike every other assistant answer: the result
+    /// is already audible — the room goes quiet, or the music comes back — and a
+    /// voice saying "Paused" over the silence it just made is the app talking to
+    /// hear itself. The one case worth a second line is the command that changed
+    /// nothing, which would otherwise look like it was never heard.
+    private func presentMediaConfirmation(_ command: MediaCommand, acted: Bool, question: String) {
+        state.activeDaySummary = DaySummary(
+            headline: command.confirmation,
+            detail: acted ? "" : "It was already.",
+            events: [],
+            gaps: [],
+            scopedTo: nil)
+        state.daySummaryAt = Date()
+        state.daySummaryWasSpoken = false
+        state.appendAnswer(question: question, answer: command.confirmation)
+        Feedback.delivered(soundEnabled: state.soundEnabled)
     }
 
     // MARK: - Reading answers aloud
@@ -607,17 +822,14 @@ final class DictationViewModel {
     /// - Parameter detail: the banner's second line. `nil` where it's provenance chrome
     ///   worth seeing and not worth hearing; passed through where it carries the answer.
     @discardableResult
-    private func speakAnswer(
-        headline: String,
-        detail: String?,
-        source: AnsweredQuestion.Source
-    ) -> Bool {
+    private func speakAnswer(headline: String, detail: String?) -> Bool {
         guard state.speakAnswersEnabled else { return false }
-        // A scheduled answer is a second, separate consent: nobody agrees to their Mac
-        // talking unprompted by agreeing that a question they asked can be answered.
-        if source == .automation, !state.speakAutomationAnswersEnabled { return false }
-        // An automation can fire on any tick, including mid-dictation. Never talk into
-        // a live microphone.
+        // Every answer now comes from a question the user just asked out loud, so
+        // there is no second, unprompted-speech consent to check — scheduled
+        // automations, the only thing that could talk without being asked, are gone.
+        // The mic guard stays: an answer can still land while a new dictation has
+        // already started, and talking into a live microphone puts the app's own
+        // voice in the transcript.
         guard state.phase == .idle else { return false }
 
         let speaker = answerSpeaker ?? makeAnswerSpeaker()
@@ -661,9 +873,8 @@ final class DictationViewModel {
     /// Replay a logged answer from the Today card.
     ///
     /// Deliberately **not** routed through `speakAnswer`: this is a direct tap on a
-    /// speaker button, so it ignores the "read answers aloud" preference (the user just
-    /// asked for this one) and the automation switch (which governs unprompted speech,
-    /// which this isn't). It still declines while the mic is live.
+    /// speaker button, so it ignores the "read answers aloud" preference — the user
+    /// just asked for this one. It still declines while the mic is live.
     func speakLoggedAnswer(_ entry: AnsweredQuestion) {
         guard state.phase == .idle else { return }
         (answerSpeaker ?? makeAnswerSpeaker()).speak(headline: entry.answer, detail: nil)
@@ -787,6 +998,158 @@ final class DictationViewModel {
         state.commandCaptureArmed = armed
     }
 
+    // MARK: - The agent key
+
+    /// The agent key went down: start (or re-label) a capture whose words go to a
+    /// coding agent.
+    ///
+    /// Mirrors the assistant chord exactly, and for the same reason: this key can be
+    /// pressed a moment after the push-to-talk key, so a session may already be in
+    /// flight. Re-labelling keeps every frame of audio where a restart would drop the
+    /// opening word.
+    func handleAgentKeyStart() {
+        agentKeyDownAt = Date()
+        // Remember what was on screen at the press: a tap dismisses it, while a
+        // hold talks — and the hold must start recording *now*, band open or not,
+        // or the first word is lost.
+        agentGlanceWasOpenAtKeyDown = state.agents.isGlanceOpen
+        guard state.agents.isAvailable else {
+            state.statusMessage = "No coding agent is running on this Mac."
+            return
+        }
+        if state.canStop || state.phase == .preparingModels {
+            setAgentArmed(true)
+            state.statusMessage = "Listening for the agent..."
+            return
+        }
+        if state.preparingEngine != nil {
+            state.statusMessage = "Voice engine is still getting ready."
+            return
+        }
+        guard state.canStart else { return }
+        agentKeyOwnsSession = true
+        setAgentArmed(true)
+        startRecording()
+    }
+
+    /// The agent key came up.
+    ///
+    /// **Hold means talk; a quick tap means look.** One key, two gestures, in the
+    /// spirit of the push-to-talk key's own hold / double-tap / toggle set — because
+    /// the alternative was a second binding for "show me the sessions", and a
+    /// shortcut per surface is exactly what makes a keyboard unlearnable.
+    ///
+    /// A tap is resolved *here*, on the release, rather than by delaying the start:
+    /// starting on the press is what keeps the first word of a real dictation, and
+    /// nothing about a sub-`tapMaxHold` press is worth transcribing anyway.
+    func handleAgentKeyStop() {
+        let heldFor = agentKeyDownAt.map { Date().timeIntervalSince($0) } ?? .infinity
+        agentKeyDownAt = nil
+
+        if heldFor < Self.agentTapMaxHold {
+            if agentKeyOwnsSession, state.canStop { cancelSession() }
+            agentKeyOwnsSession = false
+            setAgentArmed(false)
+            // A tap on an open band dismisses it and stops there; a tap on a bare
+            // notch opens the glance. Without the distinction, tapping to dismiss
+            // a reply immediately replaced it with the session list.
+            if agentGlanceWasOpenAtKeyDown {
+                state.agents.closeGlance()
+            } else {
+                state.agents.toggleGlance()
+            }
+            return
+        }
+
+        guard agentKeyOwnsSession else { return }
+        agentKeyOwnsSession = false
+        if state.canStop { stopRecording() }
+    }
+
+    /// Longest press still read as a tap. Matches `HotkeyGesture.tapMaxHold`, which
+    /// is the same judgement about the same physical gesture.
+    private static let agentTapMaxHold: TimeInterval = 0.35
+
+    private func setAgentArmed(_ armed: Bool) {
+        agentArmed = armed
+        state.agentCaptureArmed = armed
+    }
+
+    /// Send an armed capture to a coding agent. Returns `true` when the words were
+    /// delivered, so the caller suppresses the paste.
+    ///
+    /// When delivery fails — no server, no session and nowhere to start one — the
+    /// words are **not** silently dropped and **not** pasted into whatever app
+    /// happens to be in front. They go to the undelivered banner with its Copy
+    /// button, because the user held a key that means "send this to the agent", and
+    /// typing it into their editor is the one outcome that key press ruled out.
+    private func routeAgentCapture(_ text: String, spoken: SpokenCapture) async -> Bool {
+        let startedAt = Date()
+        var trace = spoken.trace(at: startedAt)
+        let delivered = await state.agents.deliver(
+            prompt: text, startingIn: state.resolvedAgentDirectory)
+        guard !delivered else {
+            let target = state.agents.promptTarget?.repo ?? "the agent"
+            state.statusMessage = "Sent to \(target)."
+            trace.decisions.append(TraceDecision(
+                title: "Coding agent",
+                detail: "You held the agent key, so the words went to \(target) instead of "
+                    + "being typed.",
+                taken: true))
+            trace.answer = "Sent to \(target)."
+            trace.provenance = target
+            trace.createdSomething = true
+            finish(trace, since: startedAt)
+            return true
+        }
+        copyToClipboard(text)
+        state.undeliveredText = text
+        state.undeliveredTranscriptAt = Date()
+        state.statusMessage = state.agents.isAvailable
+            ? "No session to send to. Set a project folder in Settings."
+            : "No coding agent is running on this Mac."
+        trace.decisions.append(TraceDecision(
+            title: "Coding agent",
+            detail: state.agents.isAvailable
+                ? "No session to send to, and no project folder is set, so the words were "
+                    + "copied instead of typed."
+                : "No coding agent is running on this Mac, so the words were copied "
+                    + "instead of typed.",
+            taken: true))
+        trace.answer = state.statusMessage
+        finish(trace, since: startedAt)
+        return true
+    }
+
+    /// What the finalize hands the assistant tiers: the words, and the record of how
+    /// they got that way.
+    ///
+    /// Passed down rather than re-derived, because by the time a tier runs the raw
+    /// transcript and the stage chain exist only as locals inside the finalize — and
+    /// "the assistant answered the wrong question" is very often "the assistant was
+    /// handed the wrong words", which is unanswerable without both.
+    struct SpokenCapture {
+        let heard: String
+        let asked: String
+        let stages: [TraceStage]
+
+        func trace(at askedAt: Date) -> AssistantTrace {
+            AssistantTrace(askedAt: askedAt,
+                           heard: TraceText.clamp(heard),
+                           asked: TraceText.clamp(asked),
+                           stages: stages)
+        }
+    }
+
+    /// Stamp the elapsed time and file it. One exit for every assistant tier, so a
+    /// route can't be added that quietly records nothing — the same discipline
+    /// `SessionAccounting` enforces for the usage record.
+    private func finish(_ trace: AssistantTrace, since startedAt: Date) {
+        var sealed = trace
+        sealed.milliseconds = Int(Date().timeIntervalSince(startedAt) * 1000)
+        state.traces.record(sealed)
+    }
+
     /// Carry out an armed capture. Returns `true` when it handled the text (the
     /// caller then suppresses the paste).
     ///
@@ -814,28 +1177,116 @@ final class DictationViewModel {
     /// into the user's editor is the one outcome the key press rules out, so the last
     /// tier is what guarantees the words land somewhere even when the model is no
     /// help.
-    private func routeCommandCapture(_ text: String) async -> Bool {
+    private func routeCommandCapture(_ text: String, spoken: SpokenCapture) async -> Bool {
         // Where Notes & Reminders is unreleased (stable) this whole path stays
         // off. Routing would swallow the transcript — suppressing the paste and
         // filing it into a store with no openable surface — so "remind me to
         // call mom" would silently vanish. Better to just paste the words.
         guard FeatureFlags.connectorsAndNotesAvailable else { return false }
-        await requestCalendarAccessIfNeeded()
-        if await runCommandAgent(text) { return true }
-        if state.connectorStore.hasReadableCalendar, DayQueryDetector.matches(text) {
-            await presentDaySummary(for: text)
+        // The denominator for every assistant number below: how often the chord
+        // was actually used, before any tier has had a chance to take it.
+        Analytics.shared.send(.assistantInvoked)
+        // Using the chord is what asks for the assistant's model — nothing fetches
+        // it at launch. This capture is **not** made to wait on it: the fetch runs
+        // in the background and the tiers below take the deterministic path exactly
+        // as they do today, so the words still land. It is the *next* command that
+        // gets a model.
+        assistantModelManager.prepareForFirstUse()
+        let startedAt = Date()
+        var trace = spoken.trace(at: startedAt)
+
+        // Transport commands come first, ahead of the calendar prompt and the model.
+        // "Pause the music" is an instruction about the machine the user is holding,
+        // it is exact, and making it wait on a 1.5 GB model to load — or answering it
+        // by filing a note called "pause" — is the kind of miss that makes people stop
+        // using the chord.
+        if let command = MediaCommandDetector.detect(text) {
+            let sent = await MediaController.perform(command)
+            // A spoken "pause" almost always arrives at music this app already
+            // silenced when the chord went down, so `sent` is false and the honest
+            // answer is still "Paused" rather than "it was already".
+            let wasHoldingPause = mediaPauser.yieldToUser()
+            let acted = sent || (command == .pause && wasHoldingPause)
+            presentMediaConfirmation(command, acted: acted, question: text)
+            trace.decisions.append(TraceDecision(
+                title: command.confirmation,
+                detail: acted
+                    ? "It reads as a transport command, so it went straight to whatever "
+                        + "is playing — no model, no connector."
+                    : "It reads as a transport command, and playback was already in "
+                        + "that state, so nothing was sent.",
+                taken: true))
+            trace.answer = command.confirmation
+            trace.provenance = "Media controls"
+            finish(trace, since: startedAt)
             return true
         }
+
+        await requestCalendarAccessIfNeeded()
+
+        let attempt = await runCommandAgent(text)
+        trace.decisions.append(attempt.decision)
+        trace.connectorsAllowed = attempt.connectorsAllowed
+        trace.toolsOffered = attempt.toolsOffered
+        trace.calls = attempt.calls
+        trace.turns = attempt.turns
+        if attempt.handled {
+            trace.answer = attempt.answer
+            trace.provenance = attempt.provenance
+            trace.createdSomething = attempt.createdSomething
+            Analytics.shared.send(.assistantRouted(route: .agent))
+            finish(trace, since: startedAt)
+            return true
+        }
+
+        let hasCalendar = state.connectorStore.hasReadableCalendar
+        let readsAsDayQuery = DayQueryDetector.matches(text)
+        if hasCalendar, readsAsDayQuery {
+            trace.decisions.append(TraceDecision(
+                title: "Day summary",
+                detail: "It reads as a question about your day and a calendar is "
+                    + "connected, so it was answered straight from the calendar with no "
+                    + "model involved.",
+                taken: true))
+            await presentDaySummary(for: text)
+            trace.answer = state.activeDaySummary?.headline ?? ""
+            trace.provenance = state.activeDaySummary?.detail ?? ""
+            Analytics.shared.send(.assistantRouted(route: .daySummary))
+            finish(trace, since: startedAt)
+            return true
+        }
+        trace.decisions.append(TraceDecision(
+            title: "Day summary",
+            detail: hasCalendar
+                ? "Skipped — this doesn't read as a question about your day."
+                : "Skipped — no calendar is connected.",
+            taken: false))
+
         let fallback = ClassifiedIntent.armedCapture(of: text)
         let refined = await classifyIntent(text, fallback: fallback)
         let intent = refined.kind == .dictation ? fallback : refined
         // The trigger-stripped words, used wherever the model left a piece empty.
         let payload = CommandDetector.detect(text)?.payload ?? text
+        Analytics.shared.send(.assistantRouted(route: .deterministic))
         if intent.kind == .reminder {
             createReminder(from: intent, fallbackTitle: payload)
+            trace.answer = "Reminder saved."
         } else {
-            createNote(from: intent, fallbackBody: payload)
+            createNote(from: intent, fallbackBody: payload, transcript: text)
+            trace.answer = "Note saved."
         }
+        // The last rung exists so the words always land somewhere, and that is worth
+        // saying plainly: filing a question as a note is what the surface is being
+        // asked to explain most of the time.
+        trace.decisions.append(TraceDecision(
+            title: intent.kind == .reminder ? "Filed as a reminder" : "Filed as a note",
+            detail: "Nothing above could act on this, and a capture made with the chord "
+                + "is never pasted — so the words were kept in Notes & Reminders rather "
+                + "than lost.",
+            taken: true))
+        trace.provenance = "Saved to Notes & Reminders"
+        trace.createdSomething = true
+        finish(trace, since: startedAt)
         return true
     }
 
@@ -847,15 +1298,53 @@ final class DictationViewModel {
     /// the tool set only when the user has opted the assistant into their connectors
     /// (`connectorAgentEnabled`); the notes and reminders tools are always there,
     /// because filing what you just said is what the chord means.
-    private func runCommandAgent(_ text: String) async -> Bool {
-        guard await MlxCleanupService.shared.isReady else { return false }
+    /// What the agent tier did, and everything the trace needs to explain it.
+    ///
+    /// A bare `Bool` is what the routing needs; it is also what made "the agent was
+    /// never even started" and "the agent ran, called three tools and gave up"
+    /// indistinguishable to the user.
+    private struct AgentAttempt {
+        let handled: Bool
+        let decision: TraceDecision
+        var toolsOffered: [String] = []
+        var connectorsAllowed = false
+        var calls: [ToolCallTrace] = []
+        var turns: [TraceTurn] = []
+        var answer = ""
+        var provenance = ""
+        var createdSomething = false
+    }
+
+    private func runCommandAgent(_ text: String) async -> AgentAttempt {
+        // **The assistant's own model, not the cleanup slot.** This gate read
+        // `MlxCleanupService.shared.isReady` — S1-mini, the dictation text normalizer
+        // — which is a different model with a different download, and it was wrong in
+        // both directions once the two split. A user with Smart cleanup off but the
+        // assistant model installed had the agent skipped entirely, and was told to
+        // turn on Smart cleanup to fix a model that was already sitting on disk. A
+        // user with the opposite pair ran the whole loop against a generator that
+        // could never answer, and the trace blamed the budget.
+        //
+        // Installed, not loaded: loading stays inside the loop's budget race
+        // (`AgentLoop.liveGenerator` calls `prepareGeneralIfInstalled`), so a cold 2 GB
+        // load can still cost this one capture its answer — but it cannot hang the
+        // chord, and the next command has a warm model.
+        guard CleanupModel.General.isInstalled else {
+            return AgentAttempt(handled: false, decision: TraceDecision(
+                title: "Agent",
+                detail: "Skipped — the assistant model isn't downloaded yet. It starts "
+                    + "fetching the first time you use the chord; you can also start it "
+                    + "from Settings → Assistant.",
+                taken: false))
+        }
         let agent = CommandAgentService(
             store: state.connectorStore,
             notes: state.notesStore,
             approvals: state.approvals,
             connectorsAllowed: state.connectorAgentEnabled,
             alertStyle: state.reminderDefaultAlertStyle,
-            soundName: state.reminderDefaultSound)
+            soundName: state.reminderDefaultSound,
+            takeNoteAudio: { [weak self] id in self?.takeNoteAudio(for: id) })
         // The orb shows the thinking figure while the loop runs — the paste is
         // suppressed, so without it the notch sits silent through a multi-second
         // tool call and reads as having dropped the command. `isPolishing` is what
@@ -863,10 +1352,43 @@ final class DictationViewModel {
         // work as a rewrite.
         state.isPolishing = true
         state.commandAgentRunning = true
-        let result = await agent.perform(text, generate: ConnectorAgentService.liveGenerator())
+        state.agentActivity = .thinking
+        let run = await agent.run(
+            text,
+            generate: AgentLoop.liveGenerator(),
+            // The loop reports; the view model is what writes `AppState`, so the
+            // "one writer" rule survives the callback.
+            onStep: { [weak self] step in self?.state.agentActivity = step })
         state.isPolishing = false
         state.commandAgentRunning = false
-        guard let result else { return false }
+        state.agentActivity = nil
+
+        /// Everything the run knows, whatever it decided — so a decline carries the
+        /// tool list and the calls that were made, which is exactly what makes it
+        /// diagnosable.
+        func attempt(handled: Bool, detail: String) -> AgentAttempt {
+            AgentAttempt(
+                handled: handled,
+                decision: TraceDecision(title: "Agent", detail: detail, taken: handled),
+                toolsOffered: run.toolsOffered,
+                connectorsAllowed: run.connectorsAllowed,
+                calls: run.calls,
+                turns: run.turns,
+                answer: run.result?.answer ?? "",
+                provenance: run.result?.detail ?? "",
+                createdSomething: run.result?.createdSomething ?? false)
+        }
+
+        guard let result = run.result else {
+            // Named separately from the loop's own reason, because "your connectors
+            // weren't on the table" is a *setting*, not a failure of the run, and it
+            // is the thing to fix.
+            let connectorNote = run.connectorsAllowed
+                ? ""
+                : " Your connectors weren't offered to it — \u{201C}Let it use your "
+                    + "connectors\u{201D} is off in Settings → General."
+            return attempt(handled: false, detail: run.declineReason + connectorNote)
+        }
         // The two outcomes get different surfaces, because they're different things.
         // A creation is a checkmark to glance at — it's already durable in Notes &
         // Reminders, and the band is a receipt. An *answer* exists only as long as
@@ -876,14 +1398,27 @@ final class DictationViewModel {
         // stays readable in Today → Recent answers, and `speakAnswer`.
         guard result.createdSomething else {
             presentAnswer(question: text, answer: result.answer, provenance: result.detail)
-            return true
+            return attempt(handled: true, detail: Self.agentDetail(run: run, acted: false))
         }
         showCommandConfirmation(
             Self.bandLine(result.answer),
             icon: result.icon,
             detail: result.detail,
             window: AppState.commandConfirmationDuration)
-        return true
+        return attempt(handled: true, detail: Self.agentDetail(run: run, acted: true))
+    }
+
+    /// One line saying what the agent did, built from the calls it actually made
+    /// rather than from the model's own account of itself — the model is exactly the
+    /// component this surface exists to check up on.
+    private static func agentDetail(run: CommandAgentService.Run, acted: Bool) -> String {
+        let tools = run.calls.map(\.tool)
+        let named = tools.isEmpty
+            ? "no tools"
+            : ListFormatter.localizedString(byJoining: Array(Set(tools)).sorted())
+        return acted
+            ? "Acted on it using \(named)."
+            : "Answered from \(named)."
     }
 
     /// Put an assistant answer on every surface that outlives the band: the notch,
@@ -899,7 +1434,7 @@ final class DictationViewModel {
         Feedback.delivered(soundEnabled: state.soundEnabled)
         // No detail: provenance ("From Work Calendar") is chrome worth seeing, not
         // hearing.
-        state.daySummaryWasSpoken = speakAnswer(headline: answer, detail: nil, source: .spoken)
+        state.daySummaryWasSpoken = speakAnswer(headline: answer, detail: nil)
     }
 
     /// Clamp the assistant's line to what the band can actually show. The banner is
@@ -920,18 +1455,62 @@ final class DictationViewModel {
     /// deterministic reading otherwise (so a reminder still lands, just with no
     /// extracted time → the default-time path asks).
     private func classifyIntent(_ text: String, fallback: ClassifiedIntent) async -> ClassifiedIntent {
-        guard await MlxCleanupService.shared.isReady else { return fallback }
-        guard let raw = await MlxCleanupService.shared.clean(text, systemPrompt: IntentPrompt.system),
+        // The general model: the classifier parses a structured answer back, which
+        // a text normalizer cannot produce.
+        await MlxCleanupService.prepareGeneralIfInstalled()
+        guard await MlxCleanupService.general.isReady else { return fallback }
+        // `generateAgent`, not `clean`, for the same reason `AgentLoop` uses it: this
+        // prompt asks for one strict JSON object, and `clean` would prepend the
+        // cleanup control line, size the token budget off the *input* length, and
+        // chunk a long capture into separately-generated pieces. A truncated or
+        // chunk-joined object fails `IntentClassifier.parse`, which reads here as the
+        // model having declined — silently, and most often on the longest captures.
+        guard let raw = await MlxCleanupService.general.generateAgent(
+                text, systemPrompt: IntentPrompt.system),
               let parsed = IntentClassifier.parse(raw)
         else { return fallback }
         return parsed
     }
 
-    private func createNote(from intent: ClassifiedIntent, fallbackBody: String) {
+    /// File a spoken note, keeping **what was said** and **how it sounded** beside
+    /// the assistant's tidied version.
+    ///
+    /// `intent.title`/`intent.body` are the model's rewrite of the capture; the
+    /// transcript is the verbatim words. Both are stored because the rewrite is the
+    /// useful form and the transcript is the only record of the original — and for a
+    /// note filed by voice, "did it hear me right?" is the first question the user
+    /// has. The recording answers it without them having to trust either string.
+    private func createNote(from intent: ClassifiedIntent, fallbackBody: String, transcript: String) {
         let body = intent.body.isEmpty ? fallbackBody : intent.body
-        state.notesStore.upsertNote(Note(title: intent.title, body: body))
+        let id = UUID()
+        let audio = takeNoteAudio(for: id)
+        state.notesStore.upsertNote(Note(
+            id: id,
+            title: intent.title,
+            body: body,
+            transcript: transcript,
+            audio: audio))
+        // `hasAudio` is the adoption signal for the whole audio tee — a note made
+        // from a session too short to record looks the same otherwise.
+        Analytics.shared.send(.noteCreated(source: .deterministic, hasAudio: audio != nil))
         showCommandConfirmation("Note saved", icon: "note.text",
                                 window: AppState.commandConfirmationDuration)
+    }
+
+    /// Hand this session's collected audio to a note, and stop collecting.
+    ///
+    /// Consuming the writer here is what keeps a single recording from being
+    /// attached to two notes if one capture somehow files twice, and it frees the
+    /// samples the moment they've been written to disk.
+    private func takeNoteAudio(for noteID: UUID) -> NoteAudio? {
+        guard let writer = noteAudioWriter else { return nil }
+        noteAudioWriter = nil
+        // A capture with no real audio (a failed session, or a mic that delivered
+        // nothing) gets no recording rather than a zero-length file that renders a
+        // dead play button.
+        guard writer.durationMs > 200 else { return nil }
+        return NoteAudioStore.save(
+            wav: writer.wavData(), durationMs: writer.durationMs, for: noteID)
     }
 
     /// Put a confirmation on the band. Every field is written on every call — they
@@ -962,6 +1541,7 @@ final class DictationViewModel {
             dueDate: due,
             alertStyle: state.reminderDefaultAlertStyle,
             soundName: state.reminderDefaultSound))
+        Analytics.shared.send(.reminderCreated(source: .deterministic, repeating: false))
         let when = Self.reminderTimeString(due, now: now)
         // A stated time is set; an unstated one gets a default the user can adjust
         // by tapping the banner (→ Settings → Notes & Reminders).
@@ -1018,6 +1598,8 @@ final class DictationViewModel {
     /// model on opt-out.
     func reconcileCleanupModel() {
         cleanupModelManager.syncWithToggle()
+        assistantModelManager.sync()
+        assistantModelManager.releaseIfDisabled()
     }
 
     /// Run the on-device formatting pass on the final transcript when enabled
@@ -1074,6 +1656,14 @@ final class DictationViewModel {
 
     private func enqueueAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         Diagnostics.shared.noteAudioBuffer(buffer)
+        // Tee the mic into the note recorder. This is *collection*, not a second
+        // capture — one tap, and the buffer is already in hand, so nothing here goes
+        // near a device or the engine (see the device-juggling prohibitions in
+        // `CLAUDE.md`). Bounded so a latched hands-free session can't grow without
+        // limit; past the cap the note simply keeps the audio it already has.
+        if let writer = noteAudioWriter, writer.durationMs < Self.noteAudioMaxMs {
+            writer.append(buffer)
+        }
         let id = UUID()
         let task = Task { [transcriber] in
             try? await transcriber.append(buffer)
@@ -1100,10 +1690,23 @@ final class DictationViewModel {
         permissionsManager.openAccessibilitySettings()
     }
 
-    func copyToClipboard(_ text: String) {
+    /// - Parameter concealed: mark the item so clipboard-history managers (Raycast,
+    ///   Maccy, Paste) skip it and the system does not mirror it via Universal
+    ///   Clipboard. True only on the auto-paste path (`pasteViaClipboard`), where the
+    ///   transcript lands on the general pasteboard purely to be ⌘V'd and then
+    ///   restored — it is never something the user chose to keep, and for an app whose
+    ///   promise is "your voice never leaves your Mac" it must not be captured off to
+    ///   history or another device. A deliberate copy (the "nowhere to type" fallback,
+    ///   an explicit Copy) stays unmarked so the user can still find it. Marker types
+    ///   are the nspasteboard.org convention.
+    func copyToClipboard(_ text: String, concealed: Bool = false) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        if concealed {
+            pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+            pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
+        }
     }
 
     func pasteText(_ text: String) {
@@ -1135,10 +1738,6 @@ final class DictationViewModel {
     func pasteLastTranscript() {
         guard let entry = state.history.first else { return }
         pasteText(entry.text)
-    }
-
-    func deleteHistoryEntry(_ id: UUID) {
-        state.removeHistoryEntry(id)
     }
 
     func clearAllHistory() {
@@ -1278,7 +1877,7 @@ final class DictationViewModel {
         }
     }
 
-    private static func detailText(for snapshot: DownloadUtils.DownloadProgress) -> String {
+    private static func detailText(for snapshot: DownloadProgress) -> String {
         switch snapshot.phase {
         case .listing:
             return "Checking voice engine..."
@@ -1378,19 +1977,6 @@ final class DictationViewModel {
     }
 
     private func applyTranscriptUpdate(_ update: StreamingTranscriptUpdate) {
-        // The preview track only ever paints the notch. Nothing here may touch the
-        // raw accumulators — they are what `stop()` salvages and what gets pasted.
-        if update.isPreview {
-            previewTranscript = TranscriptMerger.tidiedPreview(
-                TranscriptMerger.bestEffort(
-                    confirmed: update.confirmedText,
-                    volatile: update.partialText
-                )
-            )
-            refreshLiveTranscriptDisplay()
-            return
-        }
-
         if update.isConfirmed, !update.confirmedText.isEmpty {
             Diagnostics.shared.noteFirstConfirmed()
             rawConfirmedTranscript = TranscriptMerger.mergedConfirmed(
@@ -1408,33 +1994,20 @@ final class DictationViewModel {
         refreshLiveTranscriptDisplay()
     }
 
-    /// Put the best live text we have on the notch.
+    /// Put the live text on the notch.
     ///
-    /// Two tracks feed this. The accurate one says nothing for its first
-    /// `chunkSeconds + rightContextSeconds` of audio (13 s as shipped), so until it
-    /// speaks up the notch shows the **preview** track — all of it in volatile ink,
-    /// since none of it is locked in. The moment the accurate track produces
-    /// anything it owns the display outright and the preview steps aside.
-    ///
-    /// The two are deliberately **not** blended: the preview decodes its own
-    /// windows, so its wording won't be an exact prefix of the confirmed text and
-    /// `partialRemainder` would fail to find the seam and duplicate the whole
-    /// tail. Handover is near-seamless anyway — by the time the accurate track
-    /// confirms, its confirmed+volatile pair covers everything the preview did.
+    /// One track feeds this, and it says nothing for its first
+    /// `chunkSeconds + rightContextSeconds` of audio (13 s as shipped) — a shorter
+    /// dictation shows no words until the key comes up. That is deliberate: the
+    /// low-latency second track that used to fill the gap was removed.
     private func refreshLiveTranscriptDisplay() {
-        guard rawConfirmedTranscript.isEmpty, latestHypothesis.isEmpty else {
-            state.transcript.latestConfirmed = filterFillersIfEnabled(rawConfirmedTranscript)
-            state.transcript.latestPartial = filterFillersIfEnabled(
-                TranscriptMerger.partialRemainder(
-                    partialText: latestHypothesis,
-                    confirmedText: rawConfirmedTranscript
-                )
+        state.transcript.latestConfirmed = filterFillersIfEnabled(rawConfirmedTranscript)
+        state.transcript.latestPartial = filterFillersIfEnabled(
+            TranscriptMerger.partialRemainder(
+                partialText: latestHypothesis,
+                confirmedText: rawConfirmedTranscript
             )
-            return
-        }
-
-        state.transcript.latestConfirmed = ""
-        state.transcript.latestPartial = filterFillersIfEnabled(previewTranscript)
+        )
     }
 
     /// What streaming already produced (confirmed + current volatile window) —
@@ -1491,7 +2064,9 @@ final class DictationViewModel {
     /// it pastes the polished text — but returning it keeps the trace honest
     /// instead of always recording the pre-polish string.
     @discardableResult
-    private func pasteFinal(_ deterministic: String, entryID: UUID?) async -> (outcome: String, pasted: String) {
+    private func pasteFinal(_ deterministic: String,
+                            entryID: UUID?,
+                            traceID: UUID?) async -> (outcome: String, pasted: String) {
         guard permissionsManager.accessibilityGranted() else {
             copyToClipboard(deterministic)
             // Nothing was typed anywhere, so this needs the same visible recovery
@@ -1499,7 +2074,7 @@ final class DictationViewModel {
             state.undeliveredText = deterministic
             state.undeliveredTranscriptAt = Date()
             state.statusMessage = "Copied to clipboard, press ⌘V. Enable Accessibility for auto-paste."
-            scheduleRefinement(pasted: deterministic, entryID: entryID, target: nil)
+            scheduleRefinement(pasted: deterministic, entryID: entryID, traceID: traceID, target: nil)
             return ("noAccessibility", deterministic)
         }
 
@@ -1515,7 +2090,7 @@ final class DictationViewModel {
         if !isTerminal, let editable = FocusedElementInspector.editableTarget() {
             await textInjector.inject(deterministic)
             state.statusMessage = "Finished local transcription and pasted at cursor."
-            scheduleRefinement(pasted: deterministic, entryID: entryID, target: editable)
+            scheduleRefinement(pasted: deterministic, entryID: entryID, traceID: traceID, target: editable)
             return ("native", deterministic)
         }
 
@@ -1524,7 +2099,7 @@ final class DictationViewModel {
             state.undeliveredText = deterministic
             state.undeliveredTranscriptAt = Date()
             state.statusMessage = "No text field found. Copied to clipboard, press ⌘V to paste."
-            scheduleRefinement(pasted: deterministic, entryID: entryID, target: nil)
+            scheduleRefinement(pasted: deterministic, entryID: entryID, traceID: traceID, target: nil)
             return ("clipboard", deterministic)
         }
 
@@ -1534,7 +2109,12 @@ final class DictationViewModel {
         // ⌘V, which these apps honor. This is how polish reaches WhatsApp, Slack,
         // browsers, and the shell.
         if state.llmCleanupEnabled { state.statusMessage = "Polishing\u{2026}" }
-        let finalText = (await llmRefined(deterministic)) ?? deterministic
+        let attempt = await llmRefined(deterministic)
+        let finalText = attempt.text ?? deterministic
+        // This path polishes *before* the paste, so an accepted rewrite is what
+        // landed — there is no in-place edit that can fail, and the record needs no
+        // restamping.
+        if let traceID { state.traces.attachPolish(traceID, attempt.trace) }
         // Secure Keyboard Entry (Terminal's menu, or any focused password field)
         // makes the WindowServer swallow the synthesized ⌘V too. A blind paste
         // would fail *and* `pasteViaClipboard` would then restore the old clipboard
@@ -1567,7 +2147,7 @@ final class DictationViewModel {
     private func pasteViaClipboard(_ text: String) async {
         let pasteboard = NSPasteboard.general
         let saved = pasteboard.string(forType: .string)
-        copyToClipboard(text)
+        copyToClipboard(text, concealed: true)
         await textInjector.pressCommandV()
         try? await Task.sleep(nanoseconds: 600_000_000)
         if pasteboard.string(forType: .string) == text {

@@ -21,6 +21,13 @@ struct DictationPillContent: View {
     /// Ticks the due reminder off — or puts it back, if it's already ticked. The
     /// owner holds the pre-tick snapshot needed to undo, so the view just asks.
     var onToggleDueReminder: () -> Void = {}
+    /// Ticks the ambient reminder off from the leading slot. Separate from
+    /// `onToggleDueReminder`, which answers the *banner* for a reminder that has
+    /// fired — this one is a row that is merely late, and it does not un-tick
+    /// (the row simply stops being the most relevant thing and leaves).
+    var onCompleteNowReminder: (UUID) -> Void = { _ in }
+    /// Opens a meeting's conference link. Injected so the view stays AppKit-free.
+    var onJoin: (URL) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -35,16 +42,16 @@ struct DictationPillContent: View {
     /// user set it for a moment, and this band is the whole of its delivery.
     /// (`AppState.canShowDueReminderBanner` already yields it to the approval card
     /// and the undelivered hint, and pauses its clock while it does.)
-    private var showDueReminder: Bool { !showApproval && state.shouldShowDueReminderBanner }
+    private var showDueReminder: Bool { !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && state.shouldShowDueReminderBanner }
 
     /// The "note saved / reminder set" confirmation after a spoken command routed
     /// into Notes & Reminders — highest priority, since the paste was suppressed
     /// and this is the user's only feedback that the words went somewhere.
-    private var showCommandConfirmation: Bool { !showApproval && !showDueReminder && state.shouldShowCommandConfirmation }
+    private var showCommandConfirmation: Bool { !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && state.shouldShowCommandConfirmation }
 
     /// The "what's my day" answer — the immediate result of a connector query the
     /// user just asked for. Just under the command confirmation.
-    private var showDaySummary: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && state.shouldShowDaySummary }
+    private var showDaySummary: Bool { !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && !showCommandConfirmation && state.shouldShowDaySummary }
 
     /// The "nowhere to paste" hint — the immediate consequence of a dictation
     /// that had no target field.
@@ -53,29 +60,152 @@ struct DictationPillContent: View {
     /// the user to dismiss cards they never read.
     private var showApproval: Bool { state.approvals.pending != nil }
 
-    private var showUndelivered: Bool { !showApproval && !showCommandConfirmation && !showDaySummary && state.shouldShowUndeliveredBanner }
+    /// A coding agent holding a turn open on a question. Directly below the connector
+    /// approval and above everything else, because it is the same kind of thing: a
+    /// caller suspended behind a card. It yields to the connector card because that
+    /// one denies itself on a timeout, so it is the one that must not wait.
+    private var showAgentAsk: Bool { state.shouldShowAgentAsk }
+
+    /// The surface the user opened with a tap of the agent key: the session list, or
+    /// one session's tail once they went in.
+    private var showAgentGlance: Bool { !showAgentAsk && state.shouldShowAgentGlance }
+
+    /// A revealed session mid-turn: the slim row, not the panel. See
+    /// `AppState.shouldShowAgentWorking` for why a running turn must not hold a
+    /// panel-height band open.
+    private var showAgentWorking: Bool { !showAgentAsk && state.shouldShowAgentWorking }
+
+    /// The finished turn's answer, as one banner line.
+    private var showAgentReply: Bool { !showAgentAsk && state.shouldShowAgentReply }
+
+    /// The agent sessions shown as context under the question. Resolved here as well
+    /// as in the panel because the band's thickness depends on whether there are any.
+    private var otherAgentSessions: [AgentSession] {
+        NotchAgentPanel.otherSessions(
+            in: state.agents.sessions, askingRepo: state.agents.askingSession?.repo ?? "")
+    }
+
+    /// The finished reply, parsed once per render. Both the band's thickness and its
+    /// width are decided from it, and re-parsing for each would be the same string
+    /// walked three times a frame.
+    private var replyDocument: AgentReplyDocument? {
+        guard showAgentReply, state.agents.replyExpanded,
+              let reply = state.agents.lastReply
+        else { return nil }
+        return AgentReplyDocument.parse(state.agents.lastReplyRaw ?? reply)
+    }
+
+    /// The full width of the expanded reply. Every column is derived from this one
+    /// number, and the height is measured from the same derivation — measuring at an
+    /// assumed width while rendering at another is what produced the skinny
+    /// over-wrapped tower. The rung follows the reply: prose gets a reading measure,
+    /// grids and runs get the console.
+    private var expandedReplyWidth: CGFloat {
+        layout.expandedReplySurfaceWidth(
+            for: geometry,
+            console: replyDocument.map {
+                NotchAgentReplyExpanded.Layout.wantsConsole(
+                    document: $0,
+                    toolCount: state.agents.log.currentTurnTools.count,
+                    changedCount: state.agents.changeSet.editedPaths.count)
+            } ?? false)
+    }
+
+    /// The one ambient thing worth the bezel, or nil for a dark leading slot.
+    ///
+    /// **The lowest rung there is.** It is drawn only in the *row* form, so any
+    /// banner that drops the band takes the whole surface and the day steps aside
+    /// without a rule of its own — it is not in `bandIsBanner`, not in
+    /// `notchIsOccupied`, and it never delays or outranks anything. `NowStore`
+    /// already returns nil when there is nothing inside a horizon, so the common
+    /// answer here is nil and the notch stays dark.
+    private var nowItem: NowItem? {
+        guard state.nowSurfaceEnabled else { return nil }
+        return state.now.item
+    }
+
+    /// Whether the ambient row is the *only* thing on the surface — the notch at
+    /// rest with a meeting coming up. Its own branch because there is no orb and
+    /// no state word to draw beside it.
+    private var showAmbientOnly: Bool {
+        nowItem != nil && !bandIsBanner && !isFailed && state.download == nil
+            && !state.shouldShowLiveTranscript && !state.shouldShowPolishedBeat
+            && !state.shouldShowDeliveredBeat && state.preparingEngine == nil
+            && state.phase == .idle
+    }
+
+    /// The leading slot, wired up. Nil in every band form, so a dropped banner is
+    /// never asked to find room for it.
+    private var ambientSlot: NotchAmbientSlot? {
+        guard let nowItem, isNotchRow || showAmbientOnly else { return nil }
+        return NotchAmbientSlot(
+            item: nowItem,
+            now: now,
+            maxWidth: rowLabelMaxWidth,
+            onToggle: nowItem.reminderID.map { id in { onCompleteNowReminder(id) } },
+            onJoin: onJoin)
+    }
+
+    /// Whether the ambient row is showing something clickable, which is the only
+    /// reason the surface takes clicks while it is up. The predicate lives on
+    /// `AppState` so the window's own interactivity guard reads the same answer.
+    private var ambientHasControl: Bool {
+        ambientSlot != nil && state.ambientRowTakesClicks
+    }
+
+    /// Read once per render rather than held: the elapsed labels in the context row
+    /// only need to be right each time the band repaints, and a stored clock here
+    /// would be a second thing to keep ticking.
+    private var now: Date { Date() }
+
+    private var showUndelivered: Bool { !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showCommandConfirmation && !showDaySummary && state.shouldShowUndeliveredBanner }
+
+    /// Another session needs a permission, or finished while you were looking
+    /// elsewhere. Below every band that carries consent, a schedule, or text that
+    /// would otherwise be lost — this is only news.
+    private var showAgentNudge: Bool { state.shouldShowAgentNudge }
 
     /// The "learned a word" confirmation — just under the undelivered hint.
-    private var showLearned: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && state.shouldShowLearnedBanner }
+    private var showLearned: Bool { !showAgentNudge && !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && state.shouldShowLearnedBanner }
 
     /// The one-shot "smart cleanup is ready" confirmation — just under the
     /// learned hint. (Model download *progress* never appears here.)
-    private var showCleanupReady: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
+    private var showCleanupReady: Bool { !showAgentNudge && !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
 
     /// The Bluetooth-mic hint takes precedence over the dictation indicator and
     /// uses a taller band to fit its text + button.
-    private var showBanner: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
+    private var showBanner: Bool { !showAgentNudge && !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
 
     /// A gentle reminder — lower priority than the hints above, shown only when
     /// idle (`AppState.shouldShowReminder` already gates that).
-    private var showReminder: Bool { !showApproval && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
+    private var showReminder: Bool { !showAgentNudge && !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
 
     private var bandThickness: CGFloat {
         if showApproval { return layout.bannerThickness }
+        if showAgentAsk, let ask = state.agents.ask {
+            return NotchAgentPanel.thickness(
+                for: ask, otherSessions: otherAgentSessions.count,
+                banner: layout.bannerThickness)
+        }
+        if showAgentReply {
+            guard let document = replyDocument else { return layout.bannerThickness }
+            return NotchAgentReplyExpanded.thickness(
+                for: document,
+                prompt: state.agents.log.lastUserPrompt,
+                toolCount: state.agents.log.currentTurnTools.count,
+                changedCount: state.agents.changeSet.editedPaths.count,
+                surfaceWidth: expandedReplyWidth,
+                geometry: geometry)
+        }
+        if showAgentGlance {
+            return NotchAgentGlance.listThickness(sessionCount: state.agents.sessions.count)
+        }
+        if showAmbientOnly { return layout.bottomThickness }
         if showDueReminder { return layout.dueReminderThickness }
         if showCommandConfirmation { return layout.commandConfirmationThickness }
         if showDaySummary { return layout.daySummaryThickness }
         if showUndelivered { return layout.undeliveredThickness }
+        if showAgentNudge { return layout.commandConfirmationThickness }
         if showLearned { return layout.learnedThickness }
         if showCleanupReady { return layout.cleanupReadyThickness }
         if showBanner { return layout.bannerThickness }
@@ -104,6 +234,15 @@ struct DictationPillContent: View {
     /// so the leading label and trailing orb land outside the camera housing
     /// without any special-casing.
     private var isNotchRow: Bool {
+        // An agent mid-turn takes the same resting form a dictation does: the
+        // caption in one wing, the orb in the other, at menu-bar height. Rendering
+        // it as a dropped band put a slab of empty black under the bezel with a
+        // caption lost in it — nothing else in the app treats "working" that way.
+        if showAgentWorking { return true }
+        // The day on its own is a menu-bar row like every other "nothing to read"
+        // state. Dropping a band for one line would put a slab of empty black
+        // under the bezel for the ten minutes before a meeting.
+        if showAmbientOnly { return true }
         guard bandIsDictation || isDeliveredBadge else { return false }
         return transcriptModel.isEmpty
     }
@@ -118,8 +257,8 @@ struct DictationPillContent: View {
     /// them in this same order; this is the single "not the dictation indicator"
     /// test the width, thickness and glow all read from.
     private var bandIsBanner: Bool {
-        showApproval || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered
-            || showLearned || showCleanupReady || showBanner || showReminder
+        showApproval || showAgentAsk || showAgentGlance || showAgentWorking || showAgentReply || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered
+            || showAgentNudge || showLearned || showCleanupReady || showBanner || showReminder
     }
 
     /// Whether the band is the *transcript-bearing* dictation indicator. Narrower
@@ -140,7 +279,16 @@ struct DictationPillContent: View {
     /// dictation states that deserve their light (danger, and a quiet signal), even
     /// though neither carries a transcript.
     private var activity: NotchActivity {
-        bandIsBanner ? .idle : NotchActivity.resolve(from: state)
+        // The agent bands are the two banners that earn light: a finished reply is
+        // a delivery (centre signal bloom, like the checkmark's), and a running
+        // turn is machine work (trailing signal, like transcribing). Every other
+        // banner stays matte and carries its own colour.
+        // The agent bands are matte, like every other banner. The delivered glow
+        // was tried behind the reply card and read as a murky gradient smudge
+        // under a full card of text — the design system's own warning about a
+        // saturated hue at low alpha over pure black. Its character comes from
+        // the rails and the type, not haze.
+        return bandIsBanner ? .idle : NotchActivity.resolve(from: state)
     }
 
     /// The words the band is carrying, resolved here rather than in the row so the
@@ -179,7 +327,21 @@ struct DictationPillContent: View {
     /// Which of the three widths the current band wants. Dictation is the bar,
     /// sized to the state word it carries; the delivered checkmark stays a bare
     /// badge; every hint is written against the banner width.
+    ///
+    /// The approval card is the one *banner* that takes the bar: it carries three
+    /// buttons alongside its two lines, and at banner width the words and the
+    /// answers were competing for the same ~200pt.
     private var surfaceKind: NotchSurfaceWidth {
+        // The agent panel carries three buttons beside an unbounded command, or a
+        // column of model-authored options. Both need the bar, for the same reason
+        // the connector approval card does.
+        // The reply — collapsed or expanded — takes the bar: "show me the whole
+        // thing" at banner width was a skinny tower of over-wrapped text.
+        if showApproval || showAgentAsk || showAgentGlance || showAgentWorking
+            || showAgentReply { return .wide }
+        // The day is a row in the wings, so it needs the bar's width even though
+        // nothing is running — at banner width the title runs under the housing.
+        if showAmbientOnly { return .wide }
         guard bandIsDictation else { return .banner }
         return isDeliveredBadge ? .glyph : .wide
     }
@@ -196,17 +358,109 @@ struct DictationPillContent: View {
 
     /// Width of the black surface. The panel itself is always sized for the widest
     /// state, so the surface is framed inside it and centered on the notch.
+    ///
+    /// The bar's width follows its state word, because the assistant's captions
+    /// carry a user-chosen connector name and the leading label lives in the wing:
+    /// a caption longer than `wideSideExtension` would otherwise run under the
+    /// camera housing rather than widening the band.
     private var surfaceWidth: CGFloat {
-        layout.surfaceWidth(for: geometry, surfaceKind)
+        // The expanded reply is the "big notch": it takes the widest surface the
+        // panel was sized for, the same cap the assistant's longest captions reach.
+        if showAgentReply, state.agents.replyExpanded { return expandedReplyWidth }
+        return layout.surfaceWidth(
+            for: geometry, surfaceKind, stateLabel: stateLabel, extraWing: extraWing)
+    }
+
+    /// The trailing cluster's allowance. Charged only when the state word is
+    /// actually riding beside the orb as a chip, which is exactly "there is an
+    /// ambient item *and* the app has something of its own to say" — see
+    /// `NotchSurfaceLayout.stateChipAllowance`.
+    ///
+    /// Both operands are cycle-free by construction: neither reads `ambientSlot`,
+    /// which is what depends on the wing this feeds.
+    private var extraWing: CGFloat {
+        !ambientLabel.isEmpty && !ownStateLabel.isEmpty ? layout.stateChipAllowance : 0
+    }
+
+    /// The state word the bar is carrying, or "" for every surface that isn't the
+    /// bar. Resolved here because it decides the width as well as the content.
+    private var stateLabel: String {
+        // Both wings can carry text now, and the wings are symmetric — so the band
+        // is measured against whichever of the two is wider. See
+        // `NotchSurfaceLayout.widerLabel`.
+        layout.widerLabel(ownStateLabel, ambientLabel)
+    }
+
+    /// The app's *own* state word, with no ambient item folded in.
+    ///
+    /// Split out from `stateLabel` because `extraWing` has to know whether there is
+    /// a chip to make room for, and asking `stateLabel` cannot answer that — it may
+    /// be holding the ambient row's text instead. Reading `ambientSlot` from
+    /// `extraWing` would have closed a cycle (`extraWing` → `ambientSlot` →
+    /// `rowLabelMaxWidth` → `extraWing`), which is a stack overflow at layout time,
+    /// not a compile error: the headless renderer died with SIGSEGV on the first
+    /// frame that had both an ambient item and a state word.
+    private var ownStateLabel: String {
+        // The working row's caption carries a file name or a repo name, so like the
+        // assistant's connector captions it has to grow the wing rather than
+        // truncate against the base width.
+        if showAgentWorking, let session = state.agents.openSession {
+            // The *sizing* label, not the rendered one: the rendered caption ends in
+            // a running clock, and measuring the wing against it re-sized the band
+            // every second.
+            return NotchAgentWorkingRow.sizingLabel(
+                for: session, live: state.agents.log.currentActivity)
+        }
+        guard surfaceKind == .wide, transcriptModel.isEmpty else { return "" }
+        return activity.label(
+            holdToTalk: state.holdToTalkEnabled && !state.handsFreeActive,
+            commandCapture: state.commandCaptureArmed || state.commandAgentRunning,
+            agentActivity: state.agentActivity,
+            agentTarget: state.agentCaptureArmed
+                ? (state.agents.promptTarget?.repo ?? "the agent") : nil)
+    }
+
+    /// The ambient row's text, for **measurement only**.
+    ///
+    /// Deliberately derived from `nowItem` rather than from `ambientSlot`: the slot
+    /// carries `rowLabelMaxWidth`, which is computed from the wing, which is
+    /// computed from this string. Reading the slot here would close that loop.
+    private var ambientLabel: String {
+        guard let nowItem, isNotchRow || showAmbientOnly else { return "" }
+        return NotchNowRow.sizingLabel(nowItem, now: now)
+    }
+
+    /// Ceiling on the leading label in the row form, so a caption past the wing cap
+    /// truncates at the housing's edge instead of disappearing behind it.
+    private var rowLabelMaxWidth: CGFloat {
+        layout.rowLabelMaxWidth(
+            for: geometry,
+            wing: layout.wideWing(forStateLabel: stateLabel, extra: extraWing))
     }
 
     /// Whether the surface should be dropped down and visible.
     private var isExpanded: Bool {
         // Hints, the delivered beat, and the polish that runs on after a paste
-        // all show even when idle.
-        if showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered || showLearned || showCleanupReady || showBanner || showReminder
+        // all show even when idle. The approval card leads that list because it is
+        // the one band with a *caller suspended behind it*: it was only ever on
+        // screen because `isPolishing` happened to be holding the band open for the
+        // agent loop around it, so anything that raised a card outside that window
+        // would have left a write waiting on a question nobody was shown, until it
+        // timed out and denied itself.
+        if showApproval
+            || showAgentAsk
+            || showAgentGlance
+            || showAgentWorking
+            || showAgentReply
+            || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered
+            || showAgentNudge || showLearned || showCleanupReady || showBanner || showReminder
             || state.shouldShowDeliveredBeat || state.shouldShowLiveTranscript
             || state.shouldShowPolishedBeat { return true }
+        // The day is not the dictation indicator, so `hidePillWhenIdle` does not
+        // govern it — that switch means "do not show me the app at rest", and this
+        // has its own (`AppState.nowSurfaceEnabled`). Checked before that guard
+        // rather than after, or turning one off would silently disable the other.
+        if showAmbientOnly { return true }
         guard hasContent else { return false }
         if state.phase == .idle && state.hidePillWhenIdle { return false }
         return true
@@ -214,6 +468,7 @@ struct DictationPillContent: View {
 
     /// Whether any state is worth surfacing at all.
     private var hasContent: Bool {
+        if showAmbientOnly { return true }
         if state.download != nil || state.preparingEngine != nil { return true }
         if state.shouldShowDeliveredBeat { return true }
         if state.shouldShowLiveTranscript || state.shouldShowPolishedBeat { return true }
@@ -262,6 +517,14 @@ struct DictationPillContent: View {
             shape.fill(Theme.Notch.surface)
                 .overlay { NotchGlow(activity: activity) }
                 .clipShape(shape)
+                // **The fill never takes a click.** The ambient row can be up for
+                // the ten minutes before a meeting, and the window has to be
+                // interactive for its one control — so without this the black
+                // surface would swallow menu-bar clicks either side of the notch
+                // for that whole time. Everything in the row is non-hittable too
+                // except the Join button and the checkbox, so a click anywhere
+                // else falls through exactly as it does today.
+                .allowsHitTesting(false)
         }
         .clipShape(shape)
         .opacity(isExpanded ? 1 : 0)
@@ -270,7 +533,7 @@ struct DictationPillContent: View {
         // button, the tappable command confirmation, and the undelivered hint's
         // Copy button); the dictation indicator stays click-through (the panel
         // toggles ignoresMouseEvents to match).
-        .allowsHitTesting(showApproval || showBanner || showCommandConfirmation || showUndelivered || showDueReminder)
+        .allowsHitTesting(showApproval || showAgentAsk || showAgentGlance || showAgentReply || showAgentWorking || showAgentNudge || showBanner || showCommandConfirmation || showUndelivered || showDueReminder || ambientHasControl)
         // Appear *instantly* (no animation when expanding), animate only the
         // retract. A spring on the way in read as "the notch appears late" even
         // though the state flips synchronously on key-press. Banners (below) keep
@@ -293,7 +556,12 @@ struct DictationPillContent: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showDaySummary)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: state.isSpeakingAnswer)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showApproval)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showAgentAsk)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showAgentGlance)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showAgentWorking)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showAgentReply)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showDueReminder)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showAgentNudge)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowDeliveredBeat)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowPolishedBeat)
     }
@@ -304,6 +572,62 @@ struct DictationPillContent: View {
             NotchApprovalBanner(approval: approval) { outcome in
                 state.approvals.resolve(outcome)
             }
+        } else if showAgentAsk, let ask = state.agents.ask {
+            NotchAgentPanel(
+                ask: ask,
+                sessions: state.agents.sessions,
+                askingRepo: state.agents.askingSession?.repo ?? "",
+                mode: state.agents.askingSession?.mode ?? .ask,
+                now: now,
+                onResolve: { allow, always in
+                    state.agents.resolve(ask, allow: allow, always: always)
+                },
+                onAnswer: { question, selected in
+                    guard case .choice(let choice) = ask else { return }
+                    state.agents.answer(choice, question: question, selected: selected)
+                },
+                onSelectMode: { state.agents.setMode($0) })
+        } else if showAgentWorking, let session = state.agents.openSession {
+            NotchAgentWorkingRow(
+                session: session, now: now,
+                orbSize: layout.rowOrbDiameter(for: geometry),
+                verticalInset: layout.rowVerticalPadding,
+                labelMaxWidth: rowLabelMaxWidth,
+                live: state.agents.log.currentActivity,
+                onStop: { state.agents.interrupt() },
+                ambient: ambientSlot)
+        } else if showAgentReply, let reply = state.agents.lastReply {
+            // Click for the whole thing; click again for the one-liner. The full
+            // reply is stored raw, so the expanded band re-presents it from source
+            // rather than expanding the truncated line.
+            Group {
+                if state.agents.replyExpanded, let document = replyDocument {
+                    NotchAgentReplyExpanded(
+                        document: document,
+                        prompt: state.agents.log.lastUserPrompt,
+                        repo: state.agents.openSession?.repo ?? "",
+                        duration: state.agents.lastTurnDuration,
+                        editedPaths: state.agents.changeSet.editedPaths,
+                        tools: state.agents.log.currentTurnTools,
+                        surfaceWidth: expandedReplyWidth,
+                        kunaiURL: state.agents.openSessionURL,
+                        geometry: geometry,
+                        onCopy: { state.agents.copyLastReply() })
+                } else {
+                    NotchAgentReplyBanner(
+                        reply: reply,
+                        repo: state.agents.openSession?.repo ?? "",
+                        duration: state.agents.lastTurnDuration)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { state.agents.toggleReplyExpansion() }
+        } else if showAgentGlance {
+            NotchAgentGlance(
+                sessions: state.agents.sessions,
+                selectedID: state.agents.promptTarget?.id,
+                now: now,
+                onOpen: { state.agents.open(sessionID: $0.id) })
         } else if showDueReminder, let reminder = state.dueReminder {
             NotchDueReminderBanner(
                 reminder: reminder,
@@ -319,6 +643,10 @@ struct DictationPillContent: View {
                 .onTapGesture(perform: onOpenNotes)
         } else if showDaySummary, let summary = state.activeDaySummary {
             NotchDaySummaryBanner(summary: summary, isSpeaking: state.isSpeakingAnswer)
+        } else if showAgentNudge, let event = state.agents.nudge {
+            NotchAgentNudgeBanner(event: event)
+                .contentShape(Rectangle())
+                .onTapGesture { state.agents.focus(sessionID: event.sessionID) }
         } else if showUndelivered {
             NotchUndeliveredBanner(text: state.undeliveredText ?? "", onCopy: onCopyUndelivered)
         } else if showLearned, let term = state.learnedTerm {
@@ -329,13 +657,31 @@ struct DictationPillContent: View {
             NotchBluetoothBanner(state: state)
         } else if showReminder, let line = state.activeReminder {
             NotchReminderBanner(text: line)
+        } else if showAmbientOnly, let ambientSlot {
+            // The day on its own: no orb, no state word, one line in the leading
+            // wing. The trailing wing stays empty on purpose — an orb here would
+            // claim the app is doing something, and it is not.
+            HStack(spacing: 0) {
+                ambientSlot.row(showsJoin: false)
+                Spacer(minLength: NotchTranscriptRow.gutter)
+                // Join rides the trailing wing here, where the orb would be. With
+                // nothing running that wing is otherwise empty, and everything
+                // bunched against one end reads as a slab rather than as the two
+                // ends the bar is built around.
+                ambientSlot.trailingJoin
+            }
+            .padding(.horizontal, NotchTranscriptRow.horizontalPadding)
+            .padding(.vertical, layout.rowVerticalPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         } else {
             DictationStatusView(
                 state: state,
                 transcript: transcriptModel,
                 activity: activity,
                 rowOrbSize: isNotchRow ? layout.rowOrbDiameter(for: geometry) : nil,
-                rowVerticalInset: isNotchRow ? layout.rowVerticalPadding : nil
+                rowVerticalInset: isNotchRow ? layout.rowVerticalPadding : nil,
+                rowLabelMaxWidth: isNotchRow ? rowLabelMaxWidth : nil,
+                ambient: ambientSlot
             )
         }
     }

@@ -1,0 +1,2452 @@
+{
+  "Package.swift": {
+    "mtime": 1783325780.925828,
+    "ast_hash": "fe0665cb7bcfccd9bcf372e13bd80a4c",
+    "semantic_hash": ""
+  },
+  "Scripts/bundle.sh": {
+    "mtime": 1783087343.026568,
+    "ast_hash": "8dcdb49551d1673ce44632ff108c3264",
+    "semantic_hash": ""
+  },
+  "Scripts/install.sh": {
+    "mtime": 1783087336.0301635,
+    "ast_hash": "899944ad4c9702ce428ddbbd687f9bec",
+    "semantic_hash": ""
+  },
+  "Scripts/make-dmg.sh": {
+    "mtime": 1783087343.026874,
+    "ast_hash": "0fae4a8c16bb89bd8c6911f73189ab5d",
+    "semantic_hash": ""
+  },
+  "Scripts/notarize.sh": {
+    "mtime": 1783087343.027274,
+    "ast_hash": "01a5328c6166d8e7e96cad955226acf2",
+    "semantic_hash": ""
+  },
+  "Scripts/notify-telegram.py": {
+    "mtime": 1783087343.0275478,
+    "ast_hash": "bf2c1750e7e45323d09ea3ebda4aec26",
+    "semantic_hash": ""
+  },
+  "Scripts/release.sh": {
+    "mtime": 1783087343.0278866,
+    "ast_hash": "c372887f0c7fe44c776f0e151bcabd98",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Analytics/Analytics.swift": {
+    "mtime": 1783088835.2401197,
+    "ast_hash": "1084c0fb857d51e6cd7884174ada94e1",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Analytics/AnalyticsConfig.swift": {
+    "mtime": 1783089195.411719,
+    "ast_hash": "9ae8c09237bc38d8aabce6fd947a3392",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Analytics/AnalyticsEvent.swift": {
+    "mtime": 1783088805.410906,
+    "ast_hash": "52df4866ea90068d2d60c97af55ea031",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Analytics/AnalyticsIdentity.swift": {
+    "mtime": 1783088814.6191516,
+    "ast_hash": "ba21d53ee3e62e4798f0d3421350fd6b",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/AppDelegate.swift": {
+    "mtime": 1783326156.4633691,
+    "ast_hash": "09c9b58561da34a771d09f65ecf65ac0",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/AppInfo.swift": {
+    "mtime": 1783087343.0286193,
+    "ast_hash": "329da698ad65b3ba71c5c04788b119ee",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/AppMain.swift": {
+    "mtime": 1783087343.0289843,
+    "ast_hash": "7d283ca7b3e28d3c9bd523811fb6ba69",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/AppState.swift": {
+    "mtime": 1783319895.1842809,
+    "ast_hash": "62ac74b9c07dfca0bdda5af763e3100d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/DictationViewModel.swift": {
+    "mtime": 1783365913.634306,
+    "ast_hash": "eb3db29a0f6ac6d44bbb1e3a3aa98be8",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/Log.swift": {
+    "mtime": 1783157051.7789884,
+    "ast_hash": "8c1a539446914c2b7bb8c342b821e9fb",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/App/SnapshotMode.swift": {
+    "mtime": 1783087343.0299404,
+    "ast_hash": "5912499a2654b484b30584623ff981f8",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Audio/AudioInputDevices.swift": {
+    "mtime": 1783087343.0305474,
+    "ast_hash": "cd9eb5d05fa19bbd9411e1ca3d9ed7b2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Audio/BluetoothInputMonitor.swift": {
+    "mtime": 1783087343.0308838,
+    "ast_hash": "c614b671afd9e9f29332aca3f693e4ea",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Audio/MicrophoneCaptureService.swift": {
+    "mtime": 1783087343.0309703,
+    "ast_hash": "fcd89aa6a777061941b0cfb7713c846b",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/CorrectionDetector.swift": {
+    "mtime": 1783177082.6977293,
+    "ast_hash": "1788ea9d240b62eda260b38a5c220e40",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/CorrectionLearner.swift": {
+    "mtime": 1783156335.5449786,
+    "ast_hash": "7e92c4d920b528dcab074460abe0014f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/FocusedElementInspector.swift": {
+    "mtime": 1783365887.3718994,
+    "ast_hash": "9ab34bc1c39dc87f06defeca97166928",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/HotkeyManager.swift": {
+    "mtime": 1783087343.0310647,
+    "ast_hash": "f8fbd457100b20810758a8936eaa60eb",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/InPlaceRefiner.swift": {
+    "mtime": 1783278712.813435,
+    "ast_hash": "a86a71f0d2586631df558bf225c5af99",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/RefinementDiff.swift": {
+    "mtime": 1783278712.8136659,
+    "ast_hash": "e2213165c4842c90f4840606d31d5c9b",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Input/TextInjector.swift": {
+    "mtime": 1783364974.653941,
+    "ast_hash": "d760db1408601bfe99702b385613e269",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/LatencyProbe.swift": {
+    "mtime": 1783087343.03148,
+    "ast_hash": "0a262704c7e7f080e798f9d91299fd4a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/MeshBluetooth.swift": {
+    "mtime": 1783087343.0316904,
+    "ast_hash": "2f817dfd6b5fefb2888e37cce4199f4b",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/MeshCoordinator.swift": {
+    "mtime": 1783087343.0320337,
+    "ast_hash": "da91160e2c1e2a0ad35794e6cea19913",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/MeshPeer.swift": {
+    "mtime": 1783087343.0322857,
+    "ast_hash": "20eaa297d930cc3fee617f8e4d6f46fc",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/PeerDiscovery.swift": {
+    "mtime": 1783087343.0325127,
+    "ast_hash": "814be30c24d02490c672c4eb4e2d0c20",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/PeerIdentity.swift": {
+    "mtime": 1783087343.0327754,
+    "ast_hash": "8b81dcb1375c776eb5dcae2af54577f2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/PeerMetadata.swift": {
+    "mtime": 1783087343.0329952,
+    "ast_hash": "c8d81cc3b6085106b71c8efc03309616",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/ProximityBeacon.swift": {
+    "mtime": 1783087343.0333076,
+    "ast_hash": "45c75e9065dd4c4adefe64957731a092",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/ProximityScanner.swift": {
+    "mtime": 1783087343.0336146,
+    "ast_hash": "5b858bdcdad16398bb5c5b7849d3872d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/QRCode.swift": {
+    "mtime": 1783231726.0153184,
+    "ast_hash": "9cbfc3bfc81310e0527bdd93df868be9",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Mesh/TailscaleAddress.swift": {
+    "mtime": 1783231726.0156248,
+    "ast_hash": "6407ca477fe8d78ef712aa54c82ea920",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/ModelInstall/Archive.swift": {
+    "mtime": 1783087343.0342078,
+    "ast_hash": "a1cdab4126bb35bc6031fadbe627b9ef",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/ModelInstall/ModelInstaller.swift": {
+    "mtime": 1783278712.8144286,
+    "ast_hash": "a5b4ed26d81c6af4beb9c0530bd5f593",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Permissions/PermissionsManager.swift": {
+    "mtime": 1783087343.0361683,
+    "ast_hash": "212593b95810f63234d07fa2604733ad",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Reminders/ReminderBookkeeping.swift": {
+    "mtime": 1783087343.036761,
+    "ast_hash": "11374c1c3b0a119e5395afc916948cd2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Reminders/ReminderCopy.swift": {
+    "mtime": 1783087343.0369785,
+    "ast_hash": "f982d52687a5c53ae8a1c4737e75fe21",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Reminders/ReminderPolicy.swift": {
+    "mtime": 1783087343.03756,
+    "ast_hash": "021fc56b238a494b884bf268a859ee4e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Reminders/ReminderScheduler.swift": {
+    "mtime": 1783087343.037847,
+    "ast_hash": "5b28cd4b2cc8bac586b3e954f78a5e23",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Server/MessageChannel.swift": {
+    "mtime": 1783087343.0410855,
+    "ast_hash": "40a65205f687c2cd92b28d429be10d53",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Server/RemoteTranscriptionServer.swift": {
+    "mtime": 1783231726.0160205,
+    "ast_hash": "edbf14aecfea06fddfe621ac67b4c33f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Server/RemoteTranscriptionSession.swift": {
+    "mtime": 1783175551.9366693,
+    "ast_hash": "e562fbb946baa9e674fb8628283336df",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Server/SleepPreventer.swift": {
+    "mtime": 1783087343.0420198,
+    "ast_hash": "37b2c3dbf3b03204e1fea1b60a048c32",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Server/WireProtocol.swift": {
+    "mtime": 1783231726.0164154,
+    "ast_hash": "591f12d2b191ac53b1775bf436e67b8f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/AppleIntelligenceStatus.swift": {
+    "mtime": 1783087343.042584,
+    "ast_hash": "36d4c70f3b123327b0761a78cc1a5afa",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/AppleTextFormatter.swift": {
+    "mtime": 1783087343.0428135,
+    "ast_hash": "c27fc2772c40fe5d9a0934a3910b32f7",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/CleanupFaithfulnessGuard.swift": {
+    "mtime": 1783328688.596617,
+    "ast_hash": "a9e15fc46c13f70d93d26c6aaf0fafe1",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/CleanupModel.swift": {
+    "mtime": 1783278712.8149965,
+    "ast_hash": "d7f621033faf02935925368d0b8f603e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/CleanupModelManager.swift": {
+    "mtime": 1783278712.8152,
+    "ast_hash": "51f7ffc1778e1f3a5ce878d04c1a265c",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/CleanupPrompt.swift": {
+    "mtime": 1783345673.1200147,
+    "ast_hash": "bee8215ccb9c619d2186dc5657e447f1",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/DeterministicITN.swift": {
+    "mtime": 1783343673.1110797,
+    "ast_hash": "c492fcda8787997aa23a4fe52141b2d1",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/DeterministicTextFormatter.swift": {
+    "mtime": 1783087343.0436754,
+    "ast_hash": "27cda512fb338a85bbc7ac9756abfc4d",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/FillerWordFilter.swift": {
+    "mtime": 1783174992.2622495,
+    "ast_hash": "d24004487940e4910c9ebca6c227a0ab",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/FluidAudioStreamingTranscriber.swift": {
+    "mtime": 1783175010.8588834,
+    "ast_hash": "90e382726004d90af18f6c372d185ac7",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/FormatterPrompt.swift": {
+    "mtime": 1783087343.044141,
+    "ast_hash": "bdd06dda111f73c59192c88193ed420a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/LocalStreamingTranscriber.swift": {
+    "mtime": 1783174362.5550961,
+    "ast_hash": "a1f194ba2720d7bc7d16aec939e13518",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/MlxCleanupService.swift": {
+    "mtime": 1783319774.0381403,
+    "ast_hash": "46498fe45f739f716e587602edc13b8e",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/SpokenNumber.swift": {
+    "mtime": 1783277203.9453924,
+    "ast_hash": "1e1c60cad098dc3eaffa1afd27ebf4d2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/TextFormatterProvider.swift": {
+    "mtime": 1783087343.0448124,
+    "ast_hash": "dfd80733e025383acf85d1f9c692542f",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/TextFormatting.swift": {
+    "mtime": 1783087343.0451775,
+    "ast_hash": "85e08b31e229ae34cbae3ea8d6b905e9",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/TranscriptMerger.swift": {
+    "mtime": 1783157155.6951857,
+    "ast_hash": "1932e172de0d1ec9ccc7f65290eba21a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/TranscriptSpacingRepair.swift": {
+    "mtime": 1783175536.9065483,
+    "ast_hash": "2eeb6c4259d76a77b8c69098abffa57a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/VocabularyPostProcessor.swift": {
+    "mtime": 1783160622.9183702,
+    "ast_hash": "5cda1597b2865137e276b99197280094",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/VocabularyTermParser.swift": {
+    "mtime": 1783156349.0200455,
+    "ast_hash": "8520898827f42974e332c6b53c8ad806",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/DesignTokens.swift": {
+    "mtime": 1783087343.0457244,
+    "ast_hash": "b43bf9d2a4b451466bc6d02454fe4598",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/DictationPillContent.swift": {
+    "mtime": 1783278712.8160384,
+    "ast_hash": "7d2ad5fb05c7b058266113fdc0e76b53",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/DictationPillWindow.swift": {
+    "mtime": 1783087343.0462763,
+    "ast_hash": "5b6621caaf41122854439804c115a133",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/DictationStatusView.swift": {
+    "mtime": 1783087343.0464895,
+    "ast_hash": "ffd8d7136cb55754197f9dc22a58f6e5",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchBluetoothBanner.swift": {
+    "mtime": 1783087343.0467215,
+    "ast_hash": "7e8dc73b7ae97888f3ef6963e0efce03",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchCleanupReadyBanner.swift": {
+    "mtime": 1783278712.8161736,
+    "ast_hash": "38627b589bd747f720ca61acc057eb4c",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchGeometry.swift": {
+    "mtime": 1783278712.8164184,
+    "ast_hash": "e4ecfa6991c1972819fc69042120edbb",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchLearnedBanner.swift": {
+    "mtime": 1783191663.9169729,
+    "ast_hash": "9b726d3ded8fbd44782caad2cae777e6",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchReminderBanner.swift": {
+    "mtime": 1783087343.0470994,
+    "ast_hash": "1dbb60d946ab9954839eb5e4f2051988",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchShape.swift": {
+    "mtime": 1783087343.0474,
+    "ast_hash": "50cc70459814ac418d20d452c15f60e2",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/NotchUndeliveredBanner.swift": {
+    "mtime": 1783364115.6776948,
+    "ast_hash": "b4b7b48e51dc533240dd463180e540cd",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/OnboardingComponents.swift": {
+    "mtime": 1783087343.047857,
+    "ast_hash": "92ca98900e1bbf2309f37d886ec1ff1a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/OnboardingFlow.swift": {
+    "mtime": 1783278712.8167958,
+    "ast_hash": "aaba9b685e86907f5175365081f541f6",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/OnboardingStep.swift": {
+    "mtime": 1783278712.8169582,
+    "ast_hash": "9705689b4e2f55a199ee51f1dbc95de0",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/Steps/DonePage.swift": {
+    "mtime": 1783087343.0487297,
+    "ast_hash": "74132789bdf85085aa204e87c67d47a0",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/Steps/MicTestPage.swift": {
+    "mtime": 1783087343.0492663,
+    "ast_hash": "fbc50c1653f5a93eb3b0722c4aa9b033",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/Steps/SmartCleanupPage.swift": {
+    "mtime": 1783318157.0918715,
+    "ast_hash": "47d0440a8fba123341ee23198e66c6ae",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Onboarding/Steps/WelcomePage.swift": {
+    "mtime": 1783087343.0494645,
+    "ast_hash": "7d58f66701afbc11fc40082b4745fff5",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/OnboardingWindow.swift": {
+    "mtime": 1783087343.0495982,
+    "ast_hash": "585548d721cb72230516d143848cc8e0",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/AboutSettingsView.swift": {
+    "mtime": 1783088919.5229545,
+    "ast_hash": "6f599a9599ea37b422be6632b2bb3095",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/EngineSettingsView.swift": {
+    "mtime": 1783278712.8174877,
+    "ast_hash": "7a5362ca3022e55bffb62869b2da161c",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/HistorySettingsView.swift": {
+    "mtime": 1783087343.0504286,
+    "ast_hash": "0ba05b86248464467b93278a9e9e0a91",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/MeshSettingsView.swift": {
+    "mtime": 1783231726.0169094,
+    "ast_hash": "624ee09dcb7d0526dd40d47d16f4f86a",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/PermissionsSettingsView.swift": {
+    "mtime": 1783087343.051007,
+    "ast_hash": "bcbf47383a69fecf9346ed34f4fdb5c9",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/RecordingSettingsView.swift": {
+    "mtime": 1783154756.9502869,
+    "ast_hash": "edea08475c402f80a3127eb92c1d2933",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/SettingsComponents.swift": {
+    "mtime": 1783087343.0514126,
+    "ast_hash": "95a4e08845be00cdae7d1d60000790cf",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/SetupBanner.swift": {
+    "mtime": 1783087343.0515628,
+    "ast_hash": "923ddbb23b0b98c2b3a63a789b2fa366",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Settings/SmartCleanupSettingsSection.swift": {
+    "mtime": 1783320129.7156138,
+    "ast_hash": "e0227662d1c7d4e711d9031674ab3c28",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/SettingsView.swift": {
+    "mtime": 1783087343.0518181,
+    "ast_hash": "2e861cbc390df09bcb063353be4fe464",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/Theme.swift": {
+    "mtime": 1783087343.0520766,
+    "ast_hash": "142d3c6362474a20b1bb26fab094b1cd",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/UI/ThreadView.swift": {
+    "mtime": 1783087343.0523357,
+    "ast_hash": "8800d6a2802e051e3acc531c887a09d3",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/AudioReplayTests.swift": {
+    "mtime": 1783174004.9311593,
+    "ast_hash": "9f251e3bf0a3b02ef17c51a56777a059",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/CleanupFaithfulnessGuardTests.swift": {
+    "mtime": 1783328721.2393422,
+    "ast_hash": "60249ea44766212278d34f26269128d7",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/CorrectionDetectorTests.swift": {
+    "mtime": 1783177097.1038644,
+    "ast_hash": "f9cdec270233a0aba7f896638250fca9",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/DeterministicITNTests.swift": {
+    "mtime": 1783343652.6290793,
+    "ast_hash": "b30a69224d908c99d7ae6e159c709421",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/FillerWordFilterTests.swift": {
+    "mtime": 1783175060.0937383,
+    "ast_hash": "ac0ba9e1dc00f56890ad4f03de143c1c",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/RefinementDiffTests.swift": {
+    "mtime": 1783278712.8182917,
+    "ast_hash": "fae351bc767af5a7789baa0e9ce3b7d0",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/TranscriptMergerBestEffortTests.swift": {
+    "mtime": 1783157160.301113,
+    "ast_hash": "2d900abc3e3f0b1baf646be2b463f8c1",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/TranscriptSpacingRepairTests.swift": {
+    "mtime": 1783175560.8417392,
+    "ast_hash": "5baf85711dc6bc151a3b81df3a8214d8",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/VocabularyPostProcessorTests.swift": {
+    "mtime": 1783160724.585886,
+    "ast_hash": "e5cdd53898de96dc57b99a9eb4776380",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/VocabularyTermParserTests.swift": {
+    "mtime": 1783155472.7621412,
+    "ast_hash": "3d458774292bd1a87d19a133b93608d1",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/guard.py": {
+    "mtime": 1783278712.8188567,
+    "ast_hash": "55172c74f0c677c783edcd3efde55715",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/raw.json": {
+    "mtime": 1783238006.7182267,
+    "ast_hash": "df05d1033c5311b05b2c5a290a576e44",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/run.py": {
+    "mtime": 1783168112.0589888,
+    "ast_hash": "277280d3d16f731ca20239b0e1e7979c",
+    "semantic_hash": ""
+  },
+  ".context/plans/on-device-llm-transcript-cleanup-qwen2-5-3b-via-ml.md": {
+    "mtime": 1783231687.174485,
+    "ast_hash": "4c5ca0beaeca8b0a427f5732fea896a9",
+    "semantic_hash": ""
+  },
+  ".context/plans/remove-filler-words-improve-accuracy.md": {
+    "mtime": 1783154578.009321,
+    "ast_hash": "120ee7c6aaf764a9604f9b82cef60506",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraphs.md": {
+    "mtime": 1783159639.1731052,
+    "ast_hash": "35e2e639e9f6e2a18a8de0e4acfac57d",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/results-v2-vs-v3.md": {
+    "mtime": 1783345738.4274673,
+    "ast_hash": "c24765081912b4d6efb16f2407daf640",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/results.md": {
+    "mtime": 1783345747.6865196,
+    "ast_hash": "3ff16bcf442909f2fb4fa63257ae58a6",
+    "semantic_hash": ""
+  },
+  ".context/todos.md": {
+    "mtime": 1783087336.142126,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  ".github/workflows/release.yml": {
+    "mtime": 1783231726.0146465,
+    "ast_hash": "e8b07d3cdb183a8f030be0c9152e620b",
+    "semantic_hash": ""
+  },
+  "CLAUDE.md": {
+    "mtime": 1783355014.7468317,
+    "ast_hash": "3615d885b0020860c7e74e77483904bb",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1783355851.2231395,
+    "ast_hash": "ae407fb03c9e5dc6f47b1cb732e84ef5",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraphs.md": {
+    "mtime": 1783162203.669162,
+    "ast_hash": "35e2e639e9f6e2a18a8de0e4acfac57d",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-06-30-gentle-notch-reminders-design.md": {
+    "mtime": 1783087343.0527272,
+    "ast_hash": "f8720390eea5426995611a31558d4abf",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/README.md": {
+    "mtime": 1783168128.0937912,
+    "ast_hash": "895b43a33f8257ce92f72787ea8c3792",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/prompt.txt": {
+    "mtime": 1783345699.7162514,
+    "ast_hash": "0a63a04eb26c9d599205b3b15d3a0f8e",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/report.md": {
+    "mtime": 1783238006.717203,
+    "ast_hash": "7ab80f64a822e599b9c30fb32d32bc27",
+    "semantic_hash": ""
+  },
+  "features.md": {
+    "mtime": 1783098976.0850267,
+    "ast_hash": "d8c1b6553f92419294b70f3db63766ac",
+    "semantic_hash": ""
+  },
+  "project.yml": {
+    "mtime": 1783278712.8193865,
+    "ast_hash": "4d05b0eb025c4014f075129b2ec0bb75",
+    "semantic_hash": ""
+  },
+  ".context/attachments/2e1LID/image.png": {
+    "mtime": 1783179479.7189906,
+    "ast_hash": "6acdc4e0f0f928f558f5bcf5c822ddb2",
+    "semantic_hash": ""
+  },
+  ".context/attachments/KUAA9r/image.png": {
+    "mtime": 1783091135.070169,
+    "ast_hash": "45c352cd4c2e63b905905568035cfef4",
+    "semantic_hash": ""
+  },
+  ".context/attachments/NXptxM/image.png": {
+    "mtime": 1783272744.268626,
+    "ast_hash": "4eb00c0bf4fb81b5be7c3ba9ad1faf22",
+    "semantic_hash": ""
+  },
+  ".context/attachments/WeGlA4/image.png": {
+    "mtime": 1783275743.7092829,
+    "ast_hash": "c46e7715b2655b7e90e79e91ea27c80a",
+    "semantic_hash": ""
+  },
+  ".context/attachments/Xu3h4w/image.png": {
+    "mtime": 1783275544.362669,
+    "ast_hash": "92ae0999eb8c53dd8e7fda0719558b92",
+    "semantic_hash": ""
+  },
+  ".context/attachments/ejf7iT/image.png": {
+    "mtime": 1783274977.3922393,
+    "ast_hash": "12f1c117c013c9b41e9ec7823aadfa4d",
+    "semantic_hash": ""
+  },
+  ".context/attachments/ghqxso/image.png": {
+    "mtime": 1783273376.783276,
+    "ast_hash": "0f86339047347f662f999ef53c8924f0",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Resources/WhisperMasterLogo.png": {
+    "mtime": 1783087343.038311,
+    "ast_hash": "f891cc451bca000755acd53a27fc8511",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-1.m4a": {
+    "mtime": 1783160376.8223717,
+    "ast_hash": "8ce59ca627e8a71fb969f539181cee26",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-2.m4a": {
+    "mtime": 1783160378.3427432,
+    "ast_hash": "e088d861e318e7759a6f59f47be8a2f6",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-3.m4a": {
+    "mtime": 1783160379.514707,
+    "ast_hash": "a9517ff4cca13c83b4d7534bd43c8d3c",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-4.m4a": {
+    "mtime": 1783160380.6573164,
+    "ast_hash": "94a4e87f501c58f504cacf485584f449",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-5.m4a": {
+    "mtime": 1783160381.7828503,
+    "ast_hash": "790f731fd84c9d95c68c4c90b996694f",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-6.m4a": {
+    "mtime": 1783160383.1697788,
+    "ast_hash": "69214cc3856da6170cea1d0772e17c33",
+    "semantic_hash": ""
+  },
+  ".context/test-audio/paragraph-7.m4a": {
+    "mtime": 1783160384.5159452,
+    "ast_hash": "36254c5702ed0d6a00259af87e925fd0",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-1.m4a": {
+    "mtime": 1783162203.6647255,
+    "ast_hash": "8ce59ca627e8a71fb969f539181cee26",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-2.m4a": {
+    "mtime": 1783162203.6654556,
+    "ast_hash": "e088d861e318e7759a6f59f47be8a2f6",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-3.m4a": {
+    "mtime": 1783162203.666249,
+    "ast_hash": "a9517ff4cca13c83b4d7534bd43c8d3c",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-4.m4a": {
+    "mtime": 1783162203.6668966,
+    "ast_hash": "94a4e87f501c58f504cacf485584f449",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-5.m4a": {
+    "mtime": 1783162203.6674664,
+    "ast_hash": "790f731fd84c9d95c68c4c90b996694f",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-6.m4a": {
+    "mtime": 1783162203.6682222,
+    "ast_hash": "69214cc3856da6170cea1d0772e17c33",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/Fixtures/audio/paragraph-7.m4a": {
+    "mtime": 1783162203.6687741,
+    "ast_hash": "36254c5702ed0d6a00259af87e925fd0",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/ModelInstall/BackgroundFileDownloader.swift": {
+    "mtime": 1783278712.8140779,
+    "ast_hash": "1413185f97629c9a23555a5b1ef324fa",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/ModelInstall/DownloadResumeStore.swift": {
+    "mtime": 1783278712.8142033,
+    "ast_hash": "567e384e2a5bbde15e96907b5a9d6d17",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/DownloadResumeStoreTests.swift": {
+    "mtime": 1783278712.8180718,
+    "ast_hash": "61253c79cdd2c5cf0f5428c45b9ccd82",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-07-06-eval-engine-design.md": {
+    "mtime": 1783323831.7550113,
+    "ast_hash": "f189cbe5cce4e418f4aaec5c0402a0b9",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-07-06-eval-engine.md": {
+    "mtime": 1783325762.9092996,
+    "ast_hash": "e7f2e1f00701e3b078a2c5f216d06251",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScore/Case.swift": {
+    "mtime": 1783325813.3168142,
+    "ast_hash": "d0e643e44873a1c0ffc81ee0c93db590",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScore/Scorer.swift": {
+    "mtime": 1783344725.232906,
+    "ast_hash": "881d39eb6b068ae7bc7c1b0081b0bd4d",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScore/WER.swift": {
+    "mtime": 1783325800.8961897,
+    "ast_hash": "e5ae5aa7a9d87f2603acd297bdb7cdca",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScoreCLI/main.swift": {
+    "mtime": 1783328777.7300315,
+    "ast_hash": "9bc67e5893f431fcca5fb77a58f0fed0",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScoreTests/CaseTests.swift": {
+    "mtime": 1783325867.0395153,
+    "ast_hash": "3ccf8d1aa7b5667601212f11565383f4",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScoreTests/ScorerTests.swift": {
+    "mtime": 1783344748.5106742,
+    "ast_hash": "c3ecb2146d9635a6a10be49438d60fc5",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/EvalScoreTests/WERTests.swift": {
+    "mtime": 1783325851.3913972,
+    "ast_hash": "d289c5ebd0a7976226bf52372c617def",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Eval/EvalRunner.swift": {
+    "mtime": 1783345655.8241684,
+    "ast_hash": "292f356c9b9a7f739d6a6a1e2f6c69ed",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/smoke_results.json": {
+    "mtime": 1783326811.253372,
+    "ast_hash": "92f66e4bd5d60b46b03f8a529db613b6",
+    "semantic_hash": ""
+  },
+  ".context/attachments/UjTceZ/image.png": {
+    "mtime": 1783326580.9996529,
+    "ast_hash": "8075e0e6167caaa1b07e30a5d17e835a",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/judgment.md": {
+    "mtime": 1783329053.1018991,
+    "ast_hash": "434e609c62be56c5d96af3120cff5a94",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/make_audio.sh": {
+    "mtime": 1783327511.7363513,
+    "ast_hash": "cb193aea9e2d67b2fc1e3e9abdbcbedc",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-no-one.m4a": {
+    "mtime": 1783328081.480324,
+    "ast_hash": "566cd68eb1e4cf33c3951cba2d08eae2",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-one-day.m4a": {
+    "mtime": 1783328080.389229,
+    "ast_hash": "1fec132ae54fbb61c8b108e7b8efcd5b",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-one-of-them.m4a": {
+    "mtime": 1783328082.413371,
+    "ast_hash": "c0248a5539280068234d9714d9097ff2",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/results_audio_smoke.json": {
+    "mtime": 1783327726.194719,
+    "ast_hash": "a6a51ec51fa453698167333eb8c60757",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/results_audio_full.json": {
+    "mtime": 1783328401.4273045,
+    "ast_hash": "c782d8233d9125d67e10abeb2864b013",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/fetch_librispeech.sh": {
+    "mtime": 1783328037.8077695,
+    "ast_hash": "ec2fa7413781f0aff1b6818a6e3fbaa9",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/BOOKS.TXT": {
+    "mtime": 1412334947.0,
+    "ast_hash": "08c11d1dbba881b30bb2247e606100c0",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/CHAPTERS.TXT": {
+    "mtime": 1408257937.0,
+    "ast_hash": "dc69aa3bb8bb0f7f3abe126b95598d13",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/LICENSE.TXT": {
+    "mtime": 1408256363.0,
+    "ast_hash": "b6bf8854bb32c36ea5eb080e6dd7f834",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/README.TXT": {
+    "mtime": 1412334765.0,
+    "ast_hash": "820c17ed09b8a4409e9d296c9675e4c8",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/SPEAKERS.TXT": {
+    "mtime": 1408257937.0,
+    "ast_hash": "7f725fb73a5c3000b4876f130bc2fc69",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1272/128104/1272-128104.trans.txt": {
+    "mtime": 1408166238.0,
+    "ast_hash": "a417575f05c0afbadb1afdcaabb7a98b",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1272/135031/1272-135031.trans.txt": {
+    "mtime": 1408166240.0,
+    "ast_hash": "e033b16d98a3a058754069e3e55050fc",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1272/141231/1272-141231.trans.txt": {
+    "mtime": 1408166243.0,
+    "ast_hash": "4199f91b6f29c640c3525a183a9a7086",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1462/170138/1462-170138.trans.txt": {
+    "mtime": 1408166053.0,
+    "ast_hash": "3de9e6e32cc38b8640d69b5906f8a5d4",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1462/170142/1462-170142.trans.txt": {
+    "mtime": 1408166057.0,
+    "ast_hash": "742fd501813918c57afc989b0433129d",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1462/170145/1462-170145.trans.txt": {
+    "mtime": 1408166059.0,
+    "ast_hash": "20fc945a603b0bcc05513151e25d5359",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1673/143396/1673-143396.trans.txt": {
+    "mtime": 1408166048.0,
+    "ast_hash": "eec0e2b43198075e4fc7eaa9d98ff0dd",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1673/143397/1673-143397.trans.txt": {
+    "mtime": 1408166050.0,
+    "ast_hash": "965ec27dbdc4923082d8e83b7e436958",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/174/168635/174-168635.trans.txt": {
+    "mtime": 1408166218.0,
+    "ast_hash": "13b614c6789d0074f0f4548b9b118207",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/174/50561/174-50561.trans.txt": {
+    "mtime": 1408166214.0,
+    "ast_hash": "f3b368a73156b47f62be25e96cbd64ce",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/174/84280/174-84280.trans.txt": {
+    "mtime": 1408166216.0,
+    "ast_hash": "341c984d0c92dd97cb4982d115354c22",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1919/142785/1919-142785.trans.txt": {
+    "mtime": 1408166073.0,
+    "ast_hash": "0071332111856055d0c9a306864e401f",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1988/147956/1988-147956.trans.txt": {
+    "mtime": 1408166026.0,
+    "ast_hash": "d955bcfee01e0a6db5663ead74e6ffd7",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1988/148538/1988-148538.trans.txt": {
+    "mtime": 1408166028.0,
+    "ast_hash": "d3038391c8dff27b684e9a10e973d9e2",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1988/24833/1988-24833.trans.txt": {
+    "mtime": 1408166024.0,
+    "ast_hash": "1b8bf401bfb7f64e817938d8ab4732ae",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1993/147149/1993-147149.trans.txt": {
+    "mtime": 1408165964.0,
+    "ast_hash": "3ff38701fa18f0d3c00784a7417875ed",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1993/147964/1993-147964.trans.txt": {
+    "mtime": 1408165965.0,
+    "ast_hash": "51649fba225875703d5e2727104b2490",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1993/147965/1993-147965.trans.txt": {
+    "mtime": 1408165966.0,
+    "ast_hash": "e410de0c2c07c37281af45b3ebdab2ad",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/1993/147966/1993-147966.trans.txt": {
+    "mtime": 1408165967.0,
+    "ast_hash": "121d70aef14278f2e7414a2ad85c3bc5",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2035/147960/2035-147960.trans.txt": {
+    "mtime": 1408166038.0,
+    "ast_hash": "3228d30f05f922df2df702f59db94773",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2035/147961/2035-147961.trans.txt": {
+    "mtime": 1408166042.0,
+    "ast_hash": "b018eed9530dc5e9830bf8b6359f6d26",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2035/152373/2035-152373.trans.txt": {
+    "mtime": 1408166044.0,
+    "ast_hash": "e31644d79d643a41efb361d8829533b5",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2078/142845/2078-142845.trans.txt": {
+    "mtime": 1408166134.0,
+    "ast_hash": "1356db7c49177279203d205add665a31",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2086/149214/2086-149214.trans.txt": {
+    "mtime": 1408166123.0,
+    "ast_hash": "cf45d3af751dfd4a51db46ca047507ae",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2086/149220/2086-149220.trans.txt": {
+    "mtime": 1408166128.0,
+    "ast_hash": "07be1650d8ef2c32f20beffd3bf2e22a",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2277/149874/2277-149874.trans.txt": {
+    "mtime": 1408166002.0,
+    "ast_hash": "6e2c2415ccecdeaafb208e54b8a69701",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2277/149896/2277-149896.trans.txt": {
+    "mtime": 1408166005.0,
+    "ast_hash": "ef218fc5342f0406a13ebe6d5ea9f3db",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2277/149897/2277-149897.trans.txt": {
+    "mtime": 1408166008.0,
+    "ast_hash": "fd3c33db2bfb9b9014bbb50b85e0e5b1",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2412/153947/2412-153947.trans.txt": {
+    "mtime": 1408165987.0,
+    "ast_hash": "8670c2863f7f807c224e927ca912405f",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2412/153948/2412-153948.trans.txt": {
+    "mtime": 1408165989.0,
+    "ast_hash": "fba787ba1c7dfd3dd90b7fed0df846ae",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2412/153954/2412-153954.trans.txt": {
+    "mtime": 1408165991.0,
+    "ast_hash": "ff05dce9707c8680e8939c24d4325307",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2428/83699/2428-83699.trans.txt": {
+    "mtime": 1408166176.0,
+    "ast_hash": "3382f7dfcf8a2383abca2c301baa4fb4",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2428/83705/2428-83705.trans.txt": {
+    "mtime": 1408166179.0,
+    "ast_hash": "f5b29e68024fb6502903479113137090",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/251/118436/251-118436.trans.txt": {
+    "mtime": 1408166231.0,
+    "ast_hash": "14e31cc2ec3308029ecaae285d278e10",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/251/136532/251-136532.trans.txt": {
+    "mtime": 1408166233.0,
+    "ast_hash": "ddb587607d8b8bf89742e8a56a4cb2f6",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/251/137823/251-137823.trans.txt": {
+    "mtime": 1408166235.0,
+    "ast_hash": "fecf0630a62a5556e1a2817c4f4d01e4",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2803/154320/2803-154320.trans.txt": {
+    "mtime": 1408166112.0,
+    "ast_hash": "6305dedd1285af5d6f3abe6ebcd5bfd8",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2803/154328/2803-154328.trans.txt": {
+    "mtime": 1408166114.0,
+    "ast_hash": "f7c76f4c2a405b720d1d667026b71ec3",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2803/161169/2803-161169.trans.txt": {
+    "mtime": 1408166116.0,
+    "ast_hash": "2fc6693b9ee744992c910bdb998f76f5",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2902/9006/2902-9006.trans.txt": {
+    "mtime": 1408166247.0,
+    "ast_hash": "4805b2a312450eb735921446d62fdca2",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/2902/9008/2902-9008.trans.txt": {
+    "mtime": 1408166248.0,
+    "ast_hash": "ee472176d29c2d74c614dfee8bb4216b",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/3000/15664/3000-15664.trans.txt": {
+    "mtime": 1408166155.0,
+    "ast_hash": "5981967a2b4a92543e60ab109e322077",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/3081/166546/3081-166546.trans.txt": {
+    "mtime": 1408166096.0,
+    "ast_hash": "96e0b5b5d021a04c95b2b8ed040f5a8d",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/3170/137482/3170-137482.trans.txt": {
+    "mtime": 1408166109.0,
+    "ast_hash": "ff84519050d0a59bf798f2ff43e69f25",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/3536/23268/3536-23268.trans.txt": {
+    "mtime": 1408166066.0,
+    "ast_hash": "d5d6788370b290a0c804f0e615890c8a",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/3536/8226/3536-8226.trans.txt": {
+    "mtime": 1408166063.0,
+    "ast_hash": "bceffc4d87403737abcf7b92a33aff8b",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/3576/138058/3576-138058.trans.txt": {
+    "mtime": 1408166013.0,
+    "ast_hash": "3f15e7479c3c2de2d528d9ff037b1a2a",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/3752/4943/3752-4943.trans.txt": {
+    "mtime": 1408166166.0,
+    "ast_hash": "70dc6f3652a8b7c736ee1293bbb3a26d",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/3752/4944/3752-4944.trans.txt": {
+    "mtime": 1408166171.0,
+    "ast_hash": "8a3ae24c46c55070555d0fe763818c49",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/3853/163249/3853-163249.trans.txt": {
+    "mtime": 1408166103.0,
+    "ast_hash": "e3e6b7e734418e3f7ccf702a3eb1d545",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/422/122949/422-122949.trans.txt": {
+    "mtime": 1408166121.0,
+    "ast_hash": "09cc50603bdb3521b3c117d51e109451",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/5338/24615/5338-24615.trans.txt": {
+    "mtime": 1408165995.0,
+    "ast_hash": "a92949a9862fde8c7a1d1e535883b442",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/5338/24640/5338-24640.trans.txt": {
+    "mtime": 1408165996.0,
+    "ast_hash": "951c2dbf9d3ee681e0b70cda7b7a71b8",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/5338/284437/5338-284437.trans.txt": {
+    "mtime": 1408165999.0,
+    "ast_hash": "8a2788652947f205708bfd4b747e8be3",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/5536/43358/5536-43358.trans.txt": {
+    "mtime": 1408166145.0,
+    "ast_hash": "eb9bd7f73184083c0bd36930b24aa2ca",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/5536/43359/5536-43359.trans.txt": {
+    "mtime": 1408166147.0,
+    "ast_hash": "f17d6ba4f6324db94b4fcb5b14fa5724",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/5536/43363/5536-43363.trans.txt": {
+    "mtime": 1408166149.0,
+    "ast_hash": "002f2a3834bc80977cf4b2f8f3e4fd23",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/5694/64025/5694-64025.trans.txt": {
+    "mtime": 1408166198.0,
+    "ast_hash": "4663e640b9f85dcba06eb5639faf6bac",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/5694/64029/5694-64029.trans.txt": {
+    "mtime": 1408166201.0,
+    "ast_hash": "df5ca380decaa35fe5388e573647ea76",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/5694/64038/5694-64038.trans.txt": {
+    "mtime": 1408166203.0,
+    "ast_hash": "032f564e2724c886f845c449c2242a47",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/5895/34615/5895-34615.trans.txt": {
+    "mtime": 1408165979.0,
+    "ast_hash": "bc4376b6673a91954b8e4be285bffd8e",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/5895/34622/5895-34622.trans.txt": {
+    "mtime": 1408165981.0,
+    "ast_hash": "77a35d5494406c1b13bb2bb0963e3aba",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/5895/34629/5895-34629.trans.txt": {
+    "mtime": 1408165984.0,
+    "ast_hash": "f6a99118e6d5bd2192793c17f5687695",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6241/61943/6241-61943.trans.txt": {
+    "mtime": 1408166138.0,
+    "ast_hash": "a953fb53574a9395d467ebd76cda372c",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6241/61946/6241-61946.trans.txt": {
+    "mtime": 1408166140.0,
+    "ast_hash": "f31c470617b41e2998d385d2c265e0be",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6241/66616/6241-66616.trans.txt": {
+    "mtime": 1408166142.0,
+    "ast_hash": "8eaf040b9ae3eba3feceaf7030857165",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6295/244435/6295-244435.trans.txt": {
+    "mtime": 1408166162.0,
+    "ast_hash": "6494139519ba8f55fe16aa51967618c8",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6295/64301/6295-64301.trans.txt": {
+    "mtime": 1408166159.0,
+    "ast_hash": "f5bf4840cd194fb5273dc40651f3c729",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6313/66125/6313-66125.trans.txt": {
+    "mtime": 1408165970.0,
+    "ast_hash": "953cf5bccf52cdee84c791ba7cd615bd",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6313/66129/6313-66129.trans.txt": {
+    "mtime": 1408165973.0,
+    "ast_hash": "b6ad97019de9976856f93ca0da9dfca3",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6313/76958/6313-76958.trans.txt": {
+    "mtime": 1408165976.0,
+    "ast_hash": "5cd9d2327b7354e655d669434d805944",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6319/275224/6319-275224.trans.txt": {
+    "mtime": 1408166020.0,
+    "ast_hash": "48abebb5b29b74209b79c39842533867",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6319/57405/6319-57405.trans.txt": {
+    "mtime": 1408166016.0,
+    "ast_hash": "264c3d679e6856cd9569739a710d2811",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6319/64726/6319-64726.trans.txt": {
+    "mtime": 1408166018.0,
+    "ast_hash": "c25dc3e74b001c6d14557dbcdc801573",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6345/64257/6345-64257.trans.txt": {
+    "mtime": 1408166083.0,
+    "ast_hash": "1dafc9bb071eb37236ed55320c2ab402",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6345/93302/6345-93302.trans.txt": {
+    "mtime": 1408166085.0,
+    "ast_hash": "b3a24b10f769839ade0b005a72c8b0ac",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/6345/93306/6345-93306.trans.txt": {
+    "mtime": 1408166088.0,
+    "ast_hash": "c211db5ffe3c1e9d86346e7092fa6fc0",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/652/129742/652-129742.trans.txt": {
+    "mtime": 1408166191.0,
+    "ast_hash": "a5f96b7ab7860c4327d44ef75fc1bd43",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/652/130726/652-130726.trans.txt": {
+    "mtime": 1408166194.0,
+    "ast_hash": "3470c6c8a88dbcd807cb08a0fe0014bb",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/652/130737/652-130737.trans.txt": {
+    "mtime": 1408166195.0,
+    "ast_hash": "e1b57bd261a244d595c9b73f99685b22",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/777/126732/777-126732.trans.txt": {
+    "mtime": 1408166187.0,
+    "ast_hash": "40ffb9165dcc7ce80ae91acde93e3c8b",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/7850/111771/7850-111771.trans.txt": {
+    "mtime": 1408165956.0,
+    "ast_hash": "813b97d8d251d355fe5838e19546f5eb",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/7850/281318/7850-281318.trans.txt": {
+    "mtime": 1408165958.0,
+    "ast_hash": "b8d012b03c517cd0b48f6f527b46e72b",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/7850/286674/7850-286674.trans.txt": {
+    "mtime": 1408165959.0,
+    "ast_hash": "e41707de38f60cf339c5f42aca5e8041",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/7850/73752/7850-73752.trans.txt": {
+    "mtime": 1408165955.0,
+    "ast_hash": "03901a4a92eacbd13a85edf1a274a3c0",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/7976/105575/7976-105575.trans.txt": {
+    "mtime": 1408166207.0,
+    "ast_hash": "3d8cfd4e1bdefed297daaf077878c72f",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/7976/110124/7976-110124.trans.txt": {
+    "mtime": 1408166209.0,
+    "ast_hash": "f0885bf03761787c28e99516250ff9b2",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/7976/110523/7976-110523.trans.txt": {
+    "mtime": 1408166211.0,
+    "ast_hash": "412a861ae4076021444cd384bec9576b",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/8297/275154/8297-275154.trans.txt": {
+    "mtime": 1408166222.0,
+    "ast_hash": "8152052745249d547e6d1eee977bc8f0",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/8297/275155/8297-275155.trans.txt": {
+    "mtime": 1408166226.0,
+    "ast_hash": "cb99e921914e04116dae07b422f601e8",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/8297/275156/8297-275156.trans.txt": {
+    "mtime": 1408166228.0,
+    "ast_hash": "823a13460b666bd4542c20fadb1959b6",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/84/121123/84-121123.trans.txt": {
+    "mtime": 1408166032.0,
+    "ast_hash": "071e1e43dc0aae5878649341214e93a2",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/84/121550/84-121550.trans.txt": {
+    "mtime": 1408166036.0,
+    "ast_hash": "30c84a840a32067b0a9c16704dd07e8d",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/8842/302196/8842-302196.trans.txt": {
+    "mtime": 1408166076.0,
+    "ast_hash": "5e3b60c379e69d92c0719b4b7eb5bc81",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/8842/302201/8842-302201.trans.txt": {
+    "mtime": 1408166077.0,
+    "ast_hash": "a11d5ae399bc351e9a551e0232f6f2a1",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/8842/302203/8842-302203.trans.txt": {
+    "mtime": 1408166078.0,
+    "ast_hash": "e7d20e6e8f168fddb8f977d15bd67c32",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/librispeech/LibriSpeech/dev-clean/8842/304647/8842-304647.trans.txt": {
+    "mtime": 1408166080.0,
+    "ast_hash": "cee46e68c4e1c69b1e4a459daed61c94",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/corr-money-no-hfp.m4a": {
+    "mtime": 1783328141.4512138,
+    "ast_hash": "65c8dabe5a947edcefda8f63ad583d7c",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/corr-money-no-noisy.m4a": {
+    "mtime": 1783328141.4985425,
+    "ast_hash": "a92ef544c937cff5b9b2053fa823a1eb",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/corr-name-chain-hfp.m4a": {
+    "mtime": 1783328144.1224039,
+    "ast_hash": "03002dae6758a5995d50c624476cf61f",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/corr-name-chain-noisy.m4a": {
+    "mtime": 1783328144.1741817,
+    "ast_hash": "9681b84c23c0581d94f255ca09f196a5",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/corr-num-chain-hfp.m4a": {
+    "mtime": 1783328145.2805185,
+    "ast_hash": "9b25fa5126d35c9299970a3f96a508f1",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/corr-num-chain-noisy.m4a": {
+    "mtime": 1783328145.3314261,
+    "ast_hash": "39ee6c5a4180adfe3765b84fe03bfb5a",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/corr-time-no-hfp.m4a": {
+    "mtime": 1783328142.490214,
+    "ast_hash": "de288a680ffc398ea3187fe2ac251178",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/corr-time-no-noisy.m4a": {
+    "mtime": 1783328142.5490143,
+    "ast_hash": "dc7f3d09a4ddeec892602f3ac46c0ffb",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-day-hfp.m4a": {
+    "mtime": 1783328113.4134674,
+    "ast_hash": "72a81c2aa4f1099f805ceb9656cbe1f4",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-day-noisy.m4a": {
+    "mtime": 1783328113.4616454,
+    "ast_hash": "4a779751e22ddfc96cc25ab4f1bc312b",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-false-starts-hfp.m4a": {
+    "mtime": 1783328170.630501,
+    "ast_hash": "468b7adaf784d0bfd4209db625759a09",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-false-starts-noisy.m4a": {
+    "mtime": 1783328170.6867278,
+    "ast_hash": "6f69662ce7ce7751fbd7b470f761c846",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-heavy-stutter-hfp.m4a": {
+    "mtime": 1783328169.4414215,
+    "ast_hash": "9b417981fe1b32ff5a3c844748d9479e",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-heavy-stutter-noisy.m4a": {
+    "mtime": 1783328169.4948235,
+    "ast_hash": "e721cf1372027e30677b7f7b13a162fb",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-repeat-hfp.m4a": {
+    "mtime": 1783328115.6767287,
+    "ast_hash": "6442407e835e75fc54595d123964570c",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-repeat-noisy.m4a": {
+    "mtime": 1783328115.720833,
+    "ast_hash": "27bccb40d4a05385452dd15b4545bbfe",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-restart-hfp.m4a": {
+    "mtime": 1783328116.8514547,
+    "ast_hash": "6a4b0830ddb9c4ab527718dc7604ce48",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-restart-noisy.m4a": {
+    "mtime": 1783328116.9018137,
+    "ast_hash": "2339a59b1f19be881d44a9ce9c2c550c",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-scratch-hfp.m4a": {
+    "mtime": 1783328114.625113,
+    "ast_hash": "6fd476d1baa7dae2c3382ca178fc0db7",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-scratch-noisy.m4a": {
+    "mtime": 1783328114.6796875,
+    "ast_hash": "13ae0df9362939a4cdd240cd670c40be",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-selfcorrect-name-hfp.m4a": {
+    "mtime": 1783328112.2949026,
+    "ast_hash": "47fab52ca8aca2530373a3bb79c1163e",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-selfcorrect-name-noisy.m4a": {
+    "mtime": 1783328112.3414183,
+    "ast_hash": "800b4b258d5d2e5282432f830aa07820",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-selfcorrect-time-hfp.m4a": {
+    "mtime": 1783328111.1821108,
+    "ast_hash": "c9edcf9ebd53907c3f08b5fb33e33f0b",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/disf-selfcorrect-time-noisy.m4a": {
+    "mtime": 1783328111.2285557,
+    "ast_hash": "a4456e53b0cd8274c72d6a08d1f7c2e3",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/real-email-hfp.m4a": {
+    "mtime": 1783328129.9374278,
+    "ast_hash": "469dc547c0b0d7469436ef5990787e39",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/real-email-noisy.m4a": {
+    "mtime": 1783328130.03074,
+    "ast_hash": "ebf9b2c4e4c338eb830a647d0ed5a4ce",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/real-long-hfp.m4a": {
+    "mtime": 1783328134.5710015,
+    "ast_hash": "6fd865343369f87e21e5aa2ed5a9864f",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/real-long-noisy.m4a": {
+    "mtime": 1783328134.6553493,
+    "ast_hash": "60be839763d3935fb2a4bfc6558dc3b4",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/real-message-hfp.m4a": {
+    "mtime": 1783328131.4522688,
+    "ast_hash": "52b93c5fbd8203b4412f445d3cfba776",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/real-message-noisy.m4a": {
+    "mtime": 1783328131.5132303,
+    "ast_hash": "9e57e946e952980fbd95daf4cd46fad5",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/real-note-hfp.m4a": {
+    "mtime": 1783328132.70286,
+    "ast_hash": "5ecfe42c5ce9e1be5923cbeb91e8086d",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/aug/real-note-noisy.m4a": {
+    "mtime": 1783328132.7632961,
+    "ast_hash": "a1a1fbc272d1c947db7a03af6270a8ff",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0000.m4a": {
+    "mtime": 1783328088.6652713,
+    "ast_hash": "f556e43ede54a51428a13bcf8a33c6ea",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0001.m4a": {
+    "mtime": 1783328088.7130208,
+    "ast_hash": "f594617ea02617109eca4a6c4dfcb6f3",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0002.m4a": {
+    "mtime": 1783328088.780869,
+    "ast_hash": "88f78f117f4864f42523080a861a072d",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0003.m4a": {
+    "mtime": 1783328088.842213,
+    "ast_hash": "1675bd050c69f942d30a144748e9f867",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0004.m4a": {
+    "mtime": 1783328088.9778266,
+    "ast_hash": "e7ca3912786bd8a731793790993fe505",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0005.m4a": {
+    "mtime": 1783328089.0378532,
+    "ast_hash": "80ef2af7c7ab7d6b53966209759949ad",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0006.m4a": {
+    "mtime": 1783328089.0864093,
+    "ast_hash": "7de0b35c4ca8246e52dd92c7312a8806",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0007.m4a": {
+    "mtime": 1783328089.1513426,
+    "ast_hash": "56b1216ba37c2f020f0ced0ae7815d1c",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0008.m4a": {
+    "mtime": 1783328089.1980793,
+    "ast_hash": "a78bf3426d4406612a0edee341b7b2c8",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0009.m4a": {
+    "mtime": 1783328089.2889314,
+    "ast_hash": "c65d78ce2723c3a104e14a31d08fe2f9",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0010.m4a": {
+    "mtime": 1783328089.3418381,
+    "ast_hash": "6e312a7c3b3da03513d28b330e4e1203",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0011.m4a": {
+    "mtime": 1783328089.4256926,
+    "ast_hash": "dc75faf11200d55baeffd3fbc9d2fac7",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0012.m4a": {
+    "mtime": 1783328089.473756,
+    "ast_hash": "7373da97d769e794e16d7352c3a38774",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0013.m4a": {
+    "mtime": 1783328089.527869,
+    "ast_hash": "51fe4722fe70aebf60a0b9e9a496c9a3",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-128104-0014.m4a": {
+    "mtime": 1783328089.5659966,
+    "ast_hash": "13776ab587e49bdec7e05610c1f0d639",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-135031-0000.m4a": {
+    "mtime": 1783328089.6269267,
+    "ast_hash": "47852cba75a3d700540851fe66db0690",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-135031-0001.m4a": {
+    "mtime": 1783328089.6893559,
+    "ast_hash": "a204baf0fba55fd16edc9714e00699a0",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-135031-0002.m4a": {
+    "mtime": 1783328089.7531688,
+    "ast_hash": "ff07eea85056aff019926bbcc4c89022",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-135031-0003.m4a": {
+    "mtime": 1783328089.8028393,
+    "ast_hash": "7b90a912ee1a8e4d07b59d2eaf618a21",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/librispeech/1272-135031-0004.m4a": {
+    "mtime": 1783328089.853738,
+    "ast_hash": "667fb234c0977382dbcb57ab340f88ce",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/caps-proper.m4a": {
+    "mtime": 1783328122.4984987,
+    "ast_hash": "a678facd2c6820616e6c9ac7d6467e33",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/corr-money-no.m4a": {
+    "mtime": 1783328141.3955307,
+    "ast_hash": "b6559c502729fd21070d5df1aacf1bf4",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/corr-name-chain.m4a": {
+    "mtime": 1783328144.06538,
+    "ast_hash": "2f8b0b85ff0b0e5728b9c5448783403a",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/corr-num-chain.m4a": {
+    "mtime": 1783328145.219165,
+    "ast_hash": "1b429b6be3a4e1d6f3637565bc28fa6a",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/corr-time-no.m4a": {
+    "mtime": 1783328142.42827,
+    "ast_hash": "7f3e31a0d2057ee4680bad380a7ed2d4",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/disf-day.m4a": {
+    "mtime": 1783328113.3543122,
+    "ast_hash": "241ad93b524abc07beabf7d85b8d616c",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/disf-false-starts.m4a": {
+    "mtime": 1783328170.5696537,
+    "ast_hash": "71e0c37e2bbbf8f886026c597b234bf0",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/disf-heavy-stutter.m4a": {
+    "mtime": 1783328169.384146,
+    "ast_hash": "66a624a593d930849efabf1dbe7e2608",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/disf-repeat.m4a": {
+    "mtime": 1783328115.6201773,
+    "ast_hash": "c98c7b369a64e521cffe3784837bc094",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/disf-restart.m4a": {
+    "mtime": 1783328116.7914119,
+    "ast_hash": "f5fb9a9448fd0123302d8261e1d39ab9",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/disf-scratch.m4a": {
+    "mtime": 1783328114.5659075,
+    "ast_hash": "ddc6520efbffd1387f17b53f176280ad",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/disf-selfcorrect-name.m4a": {
+    "mtime": 1783328112.2360802,
+    "ast_hash": "0244db99cc668700b81116310c1a8a3a",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/disf-selfcorrect-time.m4a": {
+    "mtime": 1783328111.1200998,
+    "ast_hash": "da72e3c134d151ae0d6b186822e0f409",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/edge-email.m4a": {
+    "mtime": 1783328135.702897,
+    "ast_hash": "9a1c9e4c1dd1bb0ea87beeb7b1f4ae64",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/edge-gibberish.m4a": {
+    "mtime": 1783328138.8276258,
+    "ast_hash": "fc2c97e91134b1c1c6b5c31d85881031",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/edge-mixed.m4a": {
+    "mtime": 1783328140.2575738,
+    "ast_hash": "0e4729db2241202b91a0c62c8e3768df",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/edge-short.m4a": {
+    "mtime": 1783328136.600554,
+    "ast_hash": "b1c747dfeddda8b04942d01f8a1497aa",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/edge-single.m4a": {
+    "mtime": 1783328137.790045,
+    "ast_hash": "ddef06b19e6bfd917d86ca0801994910",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-already-clean.m4a": {
+    "mtime": 1783328110.0925517,
+    "ast_hash": "d587a61698d9713e41f239b4659e79a1",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-code-bash.m4a": {
+    "mtime": 1783328151.1178105,
+    "ast_hash": "a64aa1ddde9ebad4a6f3ecc1b87fb0ec",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-code.m4a": {
+    "mtime": 1783328105.3873038,
+    "ast_hash": "ec2ec420b0b9b8ae36ff033320afc1ba",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-command-delete.m4a": {
+    "mtime": 1783328147.567121,
+    "ast_hash": "a226b4feb408096a33b367edc809ade9",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-count.m4a": {
+    "mtime": 1783328153.1052346,
+    "ast_hash": "5022525715951fc8d590173e27548478",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-define-2.m4a": {
+    "mtime": 1783328154.066628,
+    "ast_hash": "e1453b46e9e660de7949a689796e870d",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-define.m4a": {
+    "mtime": 1783328101.2570393,
+    "ast_hash": "fa36a36e7ce970519770070aecbd5562",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-email-compose.m4a": {
+    "mtime": 1783328156.6613302,
+    "ast_hash": "d417d44a0cd33b7b7355bbb735cf2740",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-fact-moon.m4a": {
+    "mtime": 1783328099.2509618,
+    "ast_hash": "21bb1995a5d42b3e8218fc7ad0df1b80",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-fact-pop.m4a": {
+    "mtime": 1783328155.480697,
+    "ast_hash": "5f453ec24fd86d9120c73a94a395774a",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-fact-question.m4a": {
+    "mtime": 1783328098.1368012,
+    "ast_hash": "d95c96b2510c1754cf0412d2f814c3b1",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-inject-repeat.m4a": {
+    "mtime": 1783328146.47716,
+    "ast_hash": "d50eb5acb341750b040d62bc0d176def",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-injection.m4a": {
+    "mtime": 1783328107.5091338,
+    "ast_hash": "f104c6aaeef7bd322e049a1823b41757",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-instruction.m4a": {
+    "mtime": 1783328102.2631986,
+    "ast_hash": "cfbdd798ec70a4089c63832a2df7e61c",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-math-hard.m4a": {
+    "mtime": 1783328148.6971567,
+    "ast_hash": "b8e535315de1ef91d2415ec8ed900de7",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-math.m4a": {
+    "mtime": 1783328100.3041341,
+    "ast_hash": "7367050b0327f5e77e1fe613e579b48c",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-opinion.m4a": {
+    "mtime": 1783328157.634755,
+    "ast_hash": "35dde9d86e5a699c3a1efdae0a0ec4be",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-question.m4a": {
+    "mtime": 1783328097.1014302,
+    "ast_hash": "30dc7ac9adddd2fb294492f7e4357b05",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-roleplay-pirate.m4a": {
+    "mtime": 1783328158.654834,
+    "ast_hash": "bbb5ae014867ffe8aaa7e7fff3308108",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-roleplay.m4a": {
+    "mtime": 1783328106.4115229,
+    "ast_hash": "88191ab9767b5cd78744b9a642d59c6e",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-spell.m4a": {
+    "mtime": 1783328152.1329243,
+    "ast_hash": "29c9b253c4288fa9bbf23f67501224e4",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-summarize.m4a": {
+    "mtime": 1783328103.3441067,
+    "ast_hash": "7fac9573d9c52a59b58f70398529a558",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-translate-jp.m4a": {
+    "mtime": 1783328150.0268736,
+    "ast_hash": "f94f2febf2cfe84515e788aa83386281",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-translate.m4a": {
+    "mtime": 1783328104.3354683,
+    "ast_hash": "f42ab74eaaed92599777b573025e9df7",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/faith-verbatim.m4a": {
+    "mtime": 1783328108.5953622,
+    "ast_hash": "b3ad62830c79a0de073477e145658b0c",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/fill-basic.m4a": {
+    "mtime": 1783328117.9595606,
+    "ast_hash": "4a505acd088153a48301b93c8b019728",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/fill-like.m4a": {
+    "mtime": 1783328120.4366188,
+    "ast_hash": "81195ad035270b70eab1156c4ed823b7",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/fill-youknow.m4a": {
+    "mtime": 1783328119.1702616,
+    "ast_hash": "e502aab5be9cb0b941341ac23c557c93",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/filler-like-real.m4a": {
+    "mtime": 1783328172.9665635,
+    "ast_hash": "2b8196aa998404ba113a27042571720c",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/grammar-agreement-01.m4a": {
+    "mtime": 1783328175.5305188,
+    "ast_hash": "ffac71158ce28faa528971c65daa1c15",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/grammar-faithful-question-01.m4a": {
+    "mtime": 1783328179.2884328,
+    "ast_hash": "c1456b70bc5be15c881cba18382d267b",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/grammar-numbers-keep-01.m4a": {
+    "mtime": 1783328180.5331943,
+    "ast_hash": "07dc18c7d7846879782b7b9191e100cb",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/grammar-runon-01.m4a": {
+    "mtime": 1783328177.0008588,
+    "ast_hash": "38498f1ae4954d74b471fd22990017e2",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/grammar-tense-01.m4a": {
+    "mtime": 1783328178.1693692,
+    "ast_hash": "252d437305c48712d68d388270e0b283",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-chapter.m4a": {
+    "mtime": 1783328094.1566098,
+    "ast_hash": "d755c422dca205fc0b97f942dc9fef8a",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-currency.m4a": {
+    "mtime": 1783328083.453136,
+    "ast_hash": "bd5f53f76d064e3f3ef2e49048333039",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-decimal-pct.m4a": {
+    "mtime": 1783328161.9633143,
+    "ast_hash": "49132746b42855b22189d1a464835097",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-decimal.m4a": {
+    "mtime": 1783328090.038882,
+    "ast_hash": "317480a6b12903304c5542a37c3d9206",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-first-place.m4a": {
+    "mtime": 1783328095.1758657,
+    "ast_hash": "526d75e7379db1ec7e350cd7592d8f53",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-half.m4a": {
+    "mtime": 1783328093.1911464,
+    "ast_hash": "e0997b39c3022af4b6ab75720c54dce6",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-large.m4a": {
+    "mtime": 1783328086.5079708,
+    "ast_hash": "ba80ab08c630bfdad1b7231a97d2eb93",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-one-on-one.m4a": {
+    "mtime": 1783328168.3048089,
+    "ast_hash": "15af2c2fdd79e62b933622be76e5f085",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-one-sec.m4a": {
+    "mtime": 1783328166.0483212,
+    "ast_hash": "1f48cd23390f69b6683ae474c75b9a28",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-percent.m4a": {
+    "mtime": 1783328085.4916162,
+    "ast_hash": "8973ac0ba9830e59950f631289762fd9",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-phone.m4a": {
+    "mtime": 1783328167.2546518,
+    "ast_hash": "ecea8cc527b013728b59f4c3f31f74fa",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-range.m4a": {
+    "mtime": 1783328096.1349945,
+    "ast_hash": "4fda707143daf098bde7e33d350aad41",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-room-214.m4a": {
+    "mtime": 1783328165.0465744,
+    "ast_hash": "4f6e1b79f6bc1891befa4bb295fe10e2",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-room.m4a": {
+    "mtime": 1783328091.0287945,
+    "ast_hash": "0ce941abef686bc1b0264ae6190b4bd0",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-selfcorrect.m4a": {
+    "mtime": 1783328092.0669117,
+    "ast_hash": "0d9af543574f3e0389074855ab9360cd",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-time-am.m4a": {
+    "mtime": 1783328160.7183852,
+    "ast_hash": "7b5e6afef8361d1115bb24a0ad5d8e63",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-time.m4a": {
+    "mtime": 1783328084.4410055,
+    "ast_hash": "6428a80c6af7088a5b2c17419b0efa49",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-version-32.m4a": {
+    "mtime": 1783328162.9519618,
+    "ast_hash": "004ddefbf00a2e76004a288eb9ebf898",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-version.m4a": {
+    "mtime": 1783328088.9313402,
+    "ast_hash": "16f2175e3f713f93f7e1da6bc5cda0c8",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-year-2024.m4a": {
+    "mtime": 1783328163.9901588,
+    "ast_hash": "9b5cbbcb0c19da68ad563c1a374a8869",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/num-year.m4a": {
+    "mtime": 1783328087.8546627,
+    "ast_hash": "9aeace92f47a1bde5a4a5c41b5882de8",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/punct-question.m4a": {
+    "mtime": 1783328123.4822953,
+    "ast_hash": "3e967882faae79eff8adbc8de6a8d269",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/punct-runon-2.m4a": {
+    "mtime": 1783328174.39547,
+    "ast_hash": "948ccfdd9d10ae1bd31f6ee07989fbb2",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/punct-runon.m4a": {
+    "mtime": 1783328121.4706786,
+    "ast_hash": "65ba5c75751cd3eac0f299ab4c5fd865",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/real-email.m4a": {
+    "mtime": 1783328129.8670874,
+    "ast_hash": "39631b9412afca1081db0776087fb872",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/real-long.m4a": {
+    "mtime": 1783328134.490728,
+    "ast_hash": "db940eb1742d01e9bf6267adc2c73c29",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/real-message.m4a": {
+    "mtime": 1783328131.3896,
+    "ast_hash": "b7e70743c6ce6d52beedc48cd23ab097",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/real-note.m4a": {
+    "mtime": 1783328132.6453643,
+    "ast_hash": "dd783df77cebae7b2813d5dd63f4daed",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/vocab-acronym.m4a": {
+    "mtime": 1783328128.3722951,
+    "ast_hash": "b5cc336565db98e8fd2e9becd69fffa8",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/vocab-names.m4a": {
+    "mtime": 1783328127.2972956,
+    "ast_hash": "0147117549bcf601e4c1e3f8cb5c64e0",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/vocab-preserve.m4a": {
+    "mtime": 1783328124.5800488,
+    "ast_hash": "3a81f79555f36d8d74d307185926a7b1",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/vocab-rag.m4a": {
+    "mtime": 1783328126.1341696,
+    "ast_hash": "76322732337bd839433073f3ddabc081",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/audio/tts/vocab-tech.m4a": {
+    "mtime": 1783328171.8252537,
+    "ast_hash": "4eca74f3a78bce998138c99860d0e84c",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/results_verify.json": {
+    "mtime": 1783329035.8853576,
+    "ast_hash": "1448024de51441801617046bf2c9da5d",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/report.html": {
+    "mtime": 1783330543.8775606,
+    "ast_hash": "9764acffcaa164baec53a2c0182ad660",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/results.json": {
+    "mtime": 1783330343.1225405,
+    "ast_hash": "84cd08698b80bc781765ddb8df1f4adb",
+    "semantic_hash": ""
+  },
+  ".context/attachments/DJHVWT/image.png": {
+    "mtime": 1783330351.7727041,
+    "ast_hash": "fbf3edc55e5265909a70223c685d29ff",
+    "semantic_hash": ""
+  },
+  ".context/attachments/h0dtiO/image.png": {
+    "mtime": 1783330412.9824653,
+    "ast_hash": "166be637348d49ca6f3e4d9bdbc54468",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/package.json": {
+    "mtime": 1783351173.7717862,
+    "ast_hash": "255e0d48efb04c46c973e046c2076364",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/scripts/push-run.mjs": {
+    "mtime": 1783351639.6850982,
+    "ast_hash": "035b743844e480b419af113f39cba9cb",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/app.d.ts": {
+    "mtime": 1783331205.8786228,
+    "ast_hash": "e31b03538b7f8c4b04839ce14cca76b0",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/CaseCard.svelte": {
+    "mtime": 1783347990.9140246,
+    "ast_hash": "51237b5abfe89b3ad8c05d41905ca3b9",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/DiffText.svelte": {
+    "mtime": 1783331214.915408,
+    "ast_hash": "0e42bab4bb7c0ef7c1e9ef75d1261efe",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/OutcomeTiles.svelte": {
+    "mtime": 1783348666.0487854,
+    "ast_hash": "8a7ab7092cb6de33849f80cc0d24d542",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/TrendChart.svelte": {
+    "mtime": 1783347671.4220698,
+    "ast_hash": "7c028fc91d09002af01071e93570fb9a",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/WerBars.svelte": {
+    "mtime": 1783348647.4132683,
+    "ast_hash": "093e5d6da61aa7dee5fdffba9b8d2358",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/diff.ts": {
+    "mtime": 1783331119.4831047,
+    "ast_hash": "296df7600ee00854cce623602947adb6",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/scoring.ts": {
+    "mtime": 1783344735.2159739,
+    "ast_hash": "6a6d41266ed637fa0e1f01f288448bce",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/server/db.ts": {
+    "mtime": 1783331129.6926332,
+    "ast_hash": "a1ceba9d0c98733a49b39f22ef98f0c6",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/server/ingest.ts": {
+    "mtime": 1783331147.5347161,
+    "ast_hash": "d6ddb51a46e47e029e096faa35d53d68",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/server/runs.ts": {
+    "mtime": 1783347518.2118115,
+    "ast_hash": "a3e810c31ba5d3d3325ff697ffb85ab6",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/types.ts": {
+    "mtime": 1783347496.884516,
+    "ast_hash": "4b296746acc8bd5cb46990d6c7869699",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/+layout.svelte": {
+    "mtime": 1783356111.8626852,
+    "ast_hash": "07c3030cdf65f4848a0d38813f8f8ceb",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/+page.svelte": {
+    "mtime": 1783349464.0798717,
+    "ast_hash": "d7c0458d79e51068bfb0d9bbcf99447b",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/api/ingest/+server.ts": {
+    "mtime": 1783351595.429467,
+    "ast_hash": "3c8eee1c1b143d7f6650ee4bf27ab4a0",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/runs/[id]/+page.svelte": {
+    "mtime": 1783348692.0995755,
+    "ast_hash": "fed952a7bb8cdacc4dba616b4ca8adef",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/svelte.config.js": {
+    "mtime": 1783351128.5103686,
+    "ast_hash": "72db8b46e413a231ea05c87ef1ab5f4c",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/tsconfig.json": {
+    "mtime": 1783331044.693629,
+    "ast_hash": "40cafe82106feb1b2c7ab177fdd60406",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/vite.config.ts": {
+    "mtime": 1783331535.2249086,
+    "ast_hash": "3a85a97e4b9112ba46250a127125cf4e",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/README.md": {
+    "mtime": 1783333821.6390493,
+    "ast_hash": "491ecb780928ca0b6de3d1e9fb8a6a55",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/app.html": {
+    "mtime": 1783355561.442164,
+    "ast_hash": "5d27c927b4de05b4112b50d8d37105b4",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/run-eval.sh": {
+    "mtime": 1783333776.1216998,
+    "ast_hash": "71b7d9df9d19598628b5d04e64093173",
+    "semantic_hash": ""
+  },
+  ".context/attachments/7mEarn/image.png": {
+    "mtime": 1783335947.3144,
+    "ast_hash": "456a70bbd0e700ce0cd992e0aea7e0f4",
+    "semantic_hash": ""
+  },
+  ".context/attachments/ORBOK5/image.png": {
+    "mtime": 1783336430.6313913,
+    "ast_hash": "925e8d301d58730c125059fb12922358",
+    "semantic_hash": ""
+  },
+  ".context/attachments/iRpdPy/image.png": {
+    "mtime": 1783334576.504389,
+    "ast_hash": "03baba8411bdeee32238f2036c827630",
+    "semantic_hash": ""
+  },
+  "Sources/WhisperMaster/Transcription/SelfCorrectionCollapser.swift": {
+    "mtime": 1783345603.319998,
+    "ast_hash": "eb7bcf7dd2a21fb9f1f922853dc960fa",
+    "semantic_hash": ""
+  },
+  "Tests/WhisperMasterTests/SelfCorrectionCollapserTests.swift": {
+    "mtime": 1783345582.6110387,
+    "ast_hash": "708dc678e2fc6da200de5777eab4250d",
+    "semantic_hash": ""
+  },
+  "eval/text-cleanup/.eval-scratch/results.json": {
+    "mtime": 1783346163.5802777,
+    "ast_hash": "2bb41e6505ba4c1d0ae918541e210f82",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-07-06-eval-dashboard-redesign-design.md": {
+    "mtime": 1783347122.9808629,
+    "ast_hash": "29bfb647f5ca2b4578842df7267fdfe6",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/api.ts": {
+    "mtime": 1783347543.067919,
+    "ast_hash": "0fb6d4550328fbcbae4a82cab09ccee7",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/Pagination.svelte": {
+    "mtime": 1783347637.9013045,
+    "ast_hash": "c232d93bacc41445e6634b2731a09377",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/RunRow.svelte": {
+    "mtime": 1783348681.363506,
+    "ast_hash": "35923f30cc41fe576c79f72a315fb52f",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/Term.svelte": {
+    "mtime": 1783347612.81869,
+    "ast_hash": "6cae9e4ee29d96c3ee8085bb505c60b6",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/+page.ts": {
+    "mtime": 1783347785.2240958,
+    "ast_hash": "d44ade497f3634d7948f78bbe37ae7cf",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/api/runs/+server.ts": {
+    "mtime": 1783347464.2639744,
+    "ast_hash": "c23fd87f1c27bb6872d0c4f857c415f1",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/api/runs/[id]/+server.ts": {
+    "mtime": 1783347465.951104,
+    "ast_hash": "def8c3d69fe69075e68d2b6419d208f5",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/api/runs/[id]/cases/+server.ts": {
+    "mtime": 1783347470.0137813,
+    "ast_hash": "26b5ce656b64ff6943128ccc9c496b19",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/routes/runs/[id]/+page.ts": {
+    "mtime": 1783348007.7629464,
+    "ast_hash": "9ab5f5017f4a146822b183a6e02f4e9d",
+    "semantic_hash": ""
+  },
+  ".context/attachments/9k2VCC/image.png": {
+    "mtime": 1783349000.1351833,
+    "ast_hash": "2dbd39865d5ebd276e59e114d2f6bbdb",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/HeroDemo.svelte": {
+    "mtime": 1783349374.1993427,
+    "ast_hash": "9e2caeeab1b9cd43b62a070bdf4d61fa",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/src/lib/components/Pipeline.svelte": {
+    "mtime": 1783349397.1114976,
+    "ast_hash": "b21a4391766b1fa1ece1f1c44fb2cdea",
+    "semantic_hash": ""
+  },
+  ".context/attachments/kmoPJN/image.png": {
+    "mtime": 1783349113.9718223,
+    "ast_hash": "97062e52b78fd308cb0c06086b1be771",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/config.json": {
+    "mtime": 1783351194.0085094,
+    "ast_hash": "9d6a56a829ce7e1b2d055a6bf68fde45",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/functions/![-]/catchall.func/.vc-config.json": {
+    "mtime": 1783351194.0073202,
+    "ast_hash": "7b78489a879b75a999141bcfbd35fcd5",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/functions/![-]/catchall.func/package.json": {
+    "mtime": 1783351194.007389,
+    "ast_hash": "6138da8f9bd4f861c6157689d96b6d64",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/chunks/B4b8OeJh.js": {
+    "mtime": 1783351193.6402888,
+    "ast_hash": "db6c46350a555e099b274d4947349e2e",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/chunks/BB62e_mw.js": {
+    "mtime": 1783351193.6404274,
+    "ast_hash": "c288b0b875371dab32c913077bb767e6",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/chunks/BZSW2F25.js": {
+    "mtime": 1783351193.640536,
+    "ast_hash": "e5fd0a287cda6972d6c7178599fb9d72",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/chunks/B_bM--_A.js": {
+    "mtime": 1783351193.6406443,
+    "ast_hash": "8dcfad749404aee3ca9ef93e70c336ea",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/chunks/CUpI_kUe.js": {
+    "mtime": 1783351193.6407816,
+    "ast_hash": "bf7a8214185642b4e3a28eb2d58ae4e7",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/chunks/DBHeoC7k.js": {
+    "mtime": 1783351193.64103,
+    "ast_hash": "b5ecdb23817ee80cae2739c04833f79c",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/chunks/Dynpov7-.js": {
+    "mtime": 1783351193.641151,
+    "ast_hash": "311658b3121de785689c5fc1dca9d01b",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/chunks/L975NzWg.js": {
+    "mtime": 1783351193.6413343,
+    "ast_hash": "041a07c83cc0acd4725a4ab82a0cb1b8",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/chunks/a9YgtMPc.js": {
+    "mtime": 1783351193.6414561,
+    "ast_hash": "161b320cf23dec7625563584de7377e1",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/chunks/wKwrKdf3.js": {
+    "mtime": 1783351193.6416109,
+    "ast_hash": "6228ec0ef62206d285b161cfa1ec74ad",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/chunks/wbPk3Yxo.js": {
+    "mtime": 1783351193.6417344,
+    "ast_hash": "4e044f2f2b8750077fe64105c5206c5f",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/entry/app.BalvlYQ9.js": {
+    "mtime": 1783351193.6419508,
+    "ast_hash": "535f9d319d0cc85c97c6f12b69e2350e",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/entry/start.C533BoQt.js": {
+    "mtime": 1783351193.642057,
+    "ast_hash": "f1937ce79168243a6c4b94993ba9b4f7",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/nodes/0.D_WYTcJq.js": {
+    "mtime": 1783351193.6422286,
+    "ast_hash": "6c2df2b91b742cbeecdf94469bd64900",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/nodes/1.3ORhVP84.js": {
+    "mtime": 1783351193.6423888,
+    "ast_hash": "dde40ac15049e267d5e27e8dbf047c66",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/nodes/2.8Y2Vj3rF.js": {
+    "mtime": 1783351193.6424987,
+    "ast_hash": "e7155737d814fb53999d987e9f44320c",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/immutable/nodes/3.Dqrm0b0T.js": {
+    "mtime": 1783351193.6426902,
+    "ast_hash": "750fe5baeaebbf964953ce4226a192f2",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/output/static/_app/version.json": {
+    "mtime": 1783351193.6428285,
+    "ast_hash": "430c5cec1ce12614f17bcc430d1bb741",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/project.json": {
+    "mtime": 1783351237.1123576,
+    "ast_hash": "c4d758ae5538f854e832304a2bca5960",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/.vercel/README.txt": {
+    "mtime": 1783351237.1126704,
+    "ast_hash": "2b13c79d37d6ed82a3255b83b6815034",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/static/favicon.png": {
+    "mtime": 1783355542.0038633,
+    "ast_hash": "61c4495270a725238b90a501385d9905",
+    "semantic_hash": ""
+  },
+  "eval/dashboard/static/logo.png": {
+    "mtime": 1783355541.985182,
+    "ast_hash": "f891cc451bca000755acd53a27fc8511",
+    "semantic_hash": ""
+  },
+  ".context/attachments/wMwNV5/image.png": {
+    "mtime": 1783356052.2747107,
+    "ast_hash": "487d81faf54cfd0565f36df1f0e96a0d",
+    "semantic_hash": ""
+  }
+}

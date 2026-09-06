@@ -21,12 +21,8 @@ final class AgentLoopTests: XCTestCase {
 
     /// Returns the scripted replies in order, then nil (a dead model).
     private func scripted(_ replies: [String]) -> (AgentLoop.Generate, () -> Int) {
-        var index = 0
-        let generate: AgentLoop.Generate = { _, _ in
-            defer { index += 1 }
-            return index < replies.count ? replies[index] : nil
-        }
-        return (generate, { index })
+        let model = ScriptedModel(replies)
+        return (model.generate, { model.calls })
     }
 
     private func makeLoop(store: ConnectorInstanceStore,
@@ -36,6 +32,121 @@ final class AgentLoopTests: XCTestCase {
         let tools = ToolRegistry.available(store: store)
         return AgentLoop(tools: tools, router: router, generate: generate,
                          maxIterations: maxIterations)
+    }
+
+    // MARK: - Native tool-calling path
+
+    /// With `generateNative` set, the loop drives the native branch: it hands the
+    /// generator tool **schemas** (not the plain-line list), and parses the reply with
+    /// `NativeToolCallParser`. Same control flow, different render + parse — proven
+    /// here with no MLX.
+    func testNativePathCallsAToolThenAnswers() async {
+        let store = makeStore()
+        let model = ScriptedNativeModel([
+            "<tool_call>\n{\"name\": \"list_connectors\", \"arguments\": {}}\n</tool_call>",
+            "You have one calendar, Work.",
+        ])
+        let router = ToolRouter(store: store, requestApproval: { _ in .denied })
+        var loop = AgentLoop(tools: ToolRegistry.available(store: store),
+                             router: router, generate: { _, _ in nil }, maxIterations: 4)
+        loop.generateNative = model.generate
+        let outcome = await loop.run(question: "what's connected")
+
+        XCTAssertFalse(outcome.exhausted)
+        XCTAssertEqual(outcome.answer, "You have one calendar, Work.")
+        XCTAssertEqual(model.calls, 2)
+        XCTAssertEqual(outcome.turns.map(\.role), [.model, .tool, .model])
+        // The native branch renders JSON function schemas, not the plain-line list.
+        XCTAssertTrue(model.schemas.contains { $0.contains("\"list_connectors\"") },
+                      "the native path must hand the generator tool schemas")
+    }
+
+    /// A native-path reply that is a bare `{"answer":…}` envelope is read, not shown.
+    /// The two paths share one loop and one set of nudges, so a 4-bit model picks the
+    /// hand-rolled shape up and emits it here — and it used to arrive on the notch band
+    /// with its braces, then get read aloud that way.
+    func testANativeReplyThatIsAnAnswerEnvelopeIsUnwrapped() async {
+        let store = makeStore()
+        let model = ScriptedNativeModel([#"{"answer":"You have two meetings."}"#])
+        var loop = AgentLoop(tools: ToolRegistry.available(store: store),
+                             router: ToolRouter(store: store, requestApproval: { _ in .denied }),
+                             generate: { _, _ in nil }, maxIterations: 4)
+        loop.generateNative = model.generate
+        let outcome = await loop.run(question: "what's my day")
+
+        XCTAssertEqual(outcome.answer, "You have two meetings.")
+    }
+
+    /// …and a hand-rolled *call* emitted on the native path still executes, through the
+    /// same validator. Recognising the envelope is not the same as coercing arguments.
+    func testANativeReplyInTheHandRolledCallShapeStillRuns() async {
+        let store = makeStore()
+        let model = ScriptedNativeModel([
+            #"{"tool":"list_connectors","args":{}}"#,
+            "You have one calendar, Work.",
+        ])
+        var loop = AgentLoop(tools: ToolRegistry.available(store: store),
+                             router: ToolRouter(store: store, requestApproval: { _ in .denied }),
+                             generate: { _, _ in nil }, maxIterations: 4)
+        loop.generateNative = model.generate
+        let outcome = await loop.run(question: "what's connected")
+
+        XCTAssertEqual(outcome.turns.map(\.role), [.model, .tool, .model])
+        XCTAssertEqual(outcome.answer, "You have one calendar, Work.")
+    }
+
+    // MARK: - A command that answers before it acts
+
+    /// A spoken command answered with words and nothing else used to end the run at
+    /// the first generation, and the caller then filed the user's sentence as a note.
+    /// One correction turn recovers the command.
+    func testACommandThatAnswersFirstIsCorrectedAndThenActs() async {
+        let store = makeStore()
+        let (generate, calls) = scripted([
+            #"{"answer":"Sure, I'll check that for you."}"#,
+            #"{"tool":"list_connectors","args":{}}"#,
+            #"{"answer":"You have one calendar, Work."}"#,
+        ])
+        var loop = makeLoop(store: store, generate: generate)
+        loop.requiresToolBeforeAnswer = true
+        let outcome = await loop.run(question: "what's connected")
+
+        XCTAssertFalse(outcome.exhausted)
+        XCTAssertEqual(outcome.answer, "You have one calendar, Work.")
+        XCTAssertEqual(calls(), 3)
+        XCTAssertEqual(outcome.turns.map(\.role), [.model, .system, .model, .tool, .model])
+        XCTAssertTrue(outcome.turns[1].text.contains("Call a tool"),
+                      "the correction has to say what to do instead")
+    }
+
+    /// Once, not every time. A model that will not call anything after being told
+    /// plainly is not going to, and spinning on it burns the whole budget for the same
+    /// outcome — the caller discards a run that executed nothing either way.
+    func testTheCorrectionIsOfferedOnlyOnce() async {
+        let store = makeStore()
+        let (generate, calls) = scripted([
+            #"{"answer":"Sure thing."}"#,
+            #"{"answer":"Consider it done."}"#,
+        ])
+        var loop = makeLoop(store: store, generate: generate)
+        loop.requiresToolBeforeAnswer = true
+        let outcome = await loop.run(question: "remind me to call mom")
+
+        XCTAssertEqual(outcome.answer, "Consider it done.")
+        XCTAssertEqual(calls(), 2, "one correction, then the second answer stands")
+    }
+
+    /// A *question* is allowed to answer without calling anything — the flag is the
+    /// command path's, and turning it on for both would make "what can you do" a
+    /// three-generation run for no gain.
+    func testAQuestionIsNotCorrectedForAnsweringFirst() async {
+        let store = makeStore()
+        let (generate, calls) = scripted([#"{"answer":"Two meetings."}"#])
+        let outcome = await makeLoop(store: store, generate: generate)
+            .run(question: "what's my day")
+
+        XCTAssertEqual(outcome.answer, "Two meetings.")
+        XCTAssertEqual(calls(), 1)
     }
 
     // MARK: - Happy paths
@@ -65,6 +176,71 @@ final class AgentLoopTests: XCTestCase {
         XCTAssertEqual(outcome.turns.map(\.role), [.model, .tool, .model])
         XCTAssertTrue(outcome.turns[1].text.contains("Work"),
                       "the tool result must carry the connector's name")
+    }
+
+    // MARK: - Progress reporting
+
+    /// The notch's caption comes from these. Two rules matter: a step is reported
+    /// **before** the call, not after — reporting on completion would caption a
+    /// connector the loop has already finished waiting on, which is the exact
+    /// opposite of what a slow connector needs — and each call gets its own, so a
+    /// run spanning two connections names both in turn.
+    func testEachToolCallIsReportedBeforeItRuns() async {
+        let store = makeStore()
+        let (generate, _) = scripted([
+            #"{"tool":"list_connectors","args":{}}"#,
+            #"{"tool":"list_calendar_events","args":{"connector":"Work"}}"#,
+            #"{"answer":"Two meetings on Work."}"#,
+        ])
+        var loop = makeLoop(store: store, generate: generate)
+        var steps: [AgentActivity] = []
+        loop.onStep = { steps.append($0) }
+
+        _ = await loop.run(question: "what's my day")
+
+        XCTAssertEqual(steps, [
+            .thinking,
+            .running(tool: "list_connectors", target: nil),
+            .running(tool: "list_calendar_events", target: "Work"),
+        ])
+    }
+
+    /// `.thinking` is reported once, not before every generation. After a call
+    /// returns, the model is reasoning about *that connector's* result, so holding
+    /// its caption is both truthful and calmer than flipping back to the generic
+    /// line between every step.
+    func testTheGenericLineIsReportedOnceRatherThanBetweenEveryStep() async {
+        let store = makeStore()
+        let (generate, _) = scripted([
+            #"{"tool":"list_connectors","args":{}}"#,
+            #"{"answer":"One calendar."}"#,
+        ])
+        var loop = makeLoop(store: store, generate: generate)
+        var steps: [AgentActivity] = []
+        loop.onStep = { steps.append($0) }
+
+        _ = await loop.run(question: "what's connected")
+
+        XCTAssertEqual(steps.filter { $0 == .thinking }.count, 1)
+    }
+
+    /// A repeat the loop refuses never reached a connector, so captioning it would
+    /// name work that isn't happening.
+    func testARefusedRepeatIsNotReported() async {
+        let store = makeStore()
+        let (generate, _) = scripted([
+            #"{"tool":"list_connectors","args":{}}"#,
+            #"{"tool":"list_connectors","args":{}}"#,
+            #"{"answer":"One calendar."}"#,
+        ])
+        var loop = makeLoop(store: store, generate: generate)
+        var steps: [AgentActivity] = []
+        loop.onStep = { steps.append($0) }
+
+        _ = await loop.run(question: "what's connected")
+
+        XCTAssertEqual(steps.filter { $0 != .thinking }.count, 1,
+                       "the second identical call is refused, so it isn't announced")
     }
 
     // MARK: - Recovery
@@ -201,19 +377,42 @@ final class AgentLoopTests: XCTestCase {
     /// hold the notch open past it.
     func testBudgetExhaustionStopsTheLoop() async {
         let store = makeStore()
-        var clock = Date(timeIntervalSince1970: 0)
+        let clock = TestClock(Date(timeIntervalSince1970: 0))
         let (generate, calls) = scripted(Array(repeating: "not json", count: 10))
 
         var loop = makeLoop(store: store, generate: { text, prompt in
-            clock.addTimeInterval(30)      // each generation "takes" 30s
+            clock.advance(30)              // each generation "takes" 30s
             return await generate(text, prompt)
         })
         loop.budget = 20
-        loop.now = { clock }
+        loop.now = { clock.now }
 
         let outcome = await loop.run(question: "what's my day")
         XCTAssertTrue(outcome.exhausted)
         XCTAssertEqual(calls(), 1, "the second iteration is past the budget")
+    }
+
+    /// …and the budget also has to survive a generation that never comes back.
+    ///
+    /// It used to be checked only *between* iterations, with a bare `await` on the
+    /// model in between, so a wedged MLX call held the loop — and the notch's "Working
+    /// on it" — open for as long as it liked. The stalled generation is abandoned and
+    /// reads as a dead one: exhausted, and the caller falls back.
+    func testAStalledGenerationIsAbandonedAtTheBudget() async {
+        let store = makeStore()
+        var loop = makeLoop(store: store, generate: { _, _ in
+            try? await Task.sleep(nanoseconds: 5 * NSEC_PER_SEC)
+            return #"{"answer":"too late to matter"}"#
+        })
+        loop.budget = 0.2
+
+        let started = Date()
+        let outcome = await loop.run(question: "what's my day")
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertTrue(outcome.exhausted)
+        XCTAssertTrue(outcome.answer.isEmpty, "the abandoned reply must not land late")
+        XCTAssertLessThan(elapsed, 3, "the loop waited on the stalled model: \(elapsed)s")
     }
 
     /// No connections means no tools, and a loop with no tools has nothing to offer —

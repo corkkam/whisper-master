@@ -78,6 +78,92 @@ enum FnKeyBehavior: Int {
         current != .doNothing
     }
 
+    // MARK: - Claiming the key
+
+    /// Records that *we* turned the system behaviour off, and what it was before.
+    /// Two keys rather than one: "did we do this" has to survive the user setting
+    /// the pref back by hand, or we'd silently re-claim the key every launch and
+    /// there would be no way for them to keep the emoji picker.
+    private static let claimedKey = "WhisperMaster.fnUsage.claimed.v1"
+    private static let previousKey = "WhisperMaster.fnUsage.previous.v1"
+
+    /// What the system did with the Globe key before we claimed it, if we did.
+    static var claimedPreviousBehavior: FnKeyBehavior? {
+        guard UserDefaults.standard.bool(forKey: claimedKey) else { return nil }
+        return FnKeyBehavior(rawValue: UserDefaults.standard.integer(forKey: previousKey))
+    }
+
+    /// Take the Globe key for push-to-talk: set "Press 🌐 key to: Do Nothing" once,
+    /// remembering what it was so it can be handed back.
+    ///
+    /// **Why this is automatic rather than a prompt.** The key is only claimed when
+    /// the user has already chosen fn as their push-to-talk key, and the collision it
+    /// removes isn't cosmetic: the hands-free gesture is a *double*-tap, so on a
+    /// stock Mac latching hands-free opened and closed the emoji picker on the way,
+    /// stealing focus from whatever the dictation was aimed at. Asking permission for
+    /// each of those taps is the wrong shape — the choice of key *is* the consent.
+    ///
+    /// **It happens exactly once.** If the user later puts the emoji picker back, we
+    /// leave it: `claimed` stays true, so this returns without touching anything, and
+    /// the Settings hint takes over offering the manual fix. Reclaiming on every
+    /// launch would be an app overruling a person about their own keyboard.
+    ///
+    /// - Returns: true if this call is what changed the setting.
+    @discardableResult
+    static func claimFnKeyForPushToTalk() -> Bool {
+        guard !UserDefaults.standard.bool(forKey: claimedKey) else { return false }
+        guard let previous = current else {
+            // Unset means macOS is applying its own (non-"do nothing") default, so
+            // there *is* a conflict — but we don't know which behaviour to hand back.
+            // Claim it and record the emoji picker, which is that default.
+            UserDefaults.standard.set(true, forKey: claimedKey)
+            UserDefaults.standard.set(showEmoji.rawValue, forKey: previousKey)
+            return stopSystemFromUsingFnKey()
+        }
+        guard previous != .doNothing else { return false }
+        UserDefaults.standard.set(true, forKey: claimedKey)
+        UserDefaults.standard.set(previous.rawValue, forKey: previousKey)
+        return stopSystemFromUsingFnKey()
+    }
+
+    /// Give the Globe key back to macOS — the undo for `claimFnKeyForPushToTalk`,
+    /// offered in Recording settings so a claim we made automatically is always one
+    /// click from being reversed.
+    ///
+    /// - Returns: true if the setting now reads back as the restored behaviour.
+    @discardableResult
+    static func restoreSystemFnBehavior() -> Bool {
+        let previous = claimedPreviousBehavior ?? .showEmoji
+        CFPreferencesSetValue(
+            defaultsKey,
+            previous.rawValue as CFNumber,
+            kCFPreferencesAnyApplication,
+            kCFPreferencesCurrentUser,
+            kCFPreferencesAnyHost)
+        CFPreferencesSynchronize(
+            kCFPreferencesAnyApplication,
+            kCFPreferencesCurrentUser,
+            kCFPreferencesAnyHost)
+        DistributedNotificationCenter.default().postNotificationName(
+            NSNotification.Name("AppleKeyboardPreferencesChangedNotification"),
+            object: nil,
+            userInfo: nil,
+            deliverImmediately: true)
+        // Forget the claim either way: the user has asked for the system behaviour
+        // back, and leaving the flag set would let a later launch reclaim it.
+        UserDefaults.standard.set(false, forKey: claimedKey)
+        return current == previous
+    }
+
+    /// One line naming what we took, for the settings hint after a claim.
+    static var claimDescription: String {
+        switch claimedPreviousBehavior {
+        case .changeInputSource: "switching your input source"
+        case .startDictation: "Apple's own dictation"
+        default: "the emoji picker"
+        }
+    }
+
     /// One line naming what else the key currently does, for the settings hint.
     static var conflictDescription: String {
         switch current {

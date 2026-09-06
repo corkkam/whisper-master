@@ -12,17 +12,28 @@ import Foundation
 /// subscribed to, returns richer event data, and is the only path to *writing* events
 /// later.
 @MainActor
-struct GoogleCalendarProvider: EventReadingProvider {
+struct GoogleCalendarProvider: EventReadingProvider, AsyncEventReadingProvider {
     static let kind: ConnectorKind = .googleCalendar
 
     private static let base = "https://www.googleapis.com/calendar/v3"
 
     /// Confirms the grant by asking who it belongs to. The returned email is the
     /// instance identity and prefills the label.
+    ///
+    /// The token is **resolved**, not read straight off the credential: an access token
+    /// that has merely expired next to a refresh token that still works is a healthy
+    /// connection, and calling Google with the stale one reported it as invalid and
+    /// sent the user off to reconnect for nothing. `validate(instance:)` is the form
+    /// that can also keep what the refresh returned — this one has no id to save under.
     func validate(_ credential: ConnectorCredential,
                   config: ConnectorConfig) async -> ValidationResult {
-        guard let token = credential.accessToken else {
+        let token: String
+        do {
+            token = try await CredentialStrategy.refreshedIfNeeded(credential).token
+        } catch CredentialStrategy.ResolveError.noCredential {
             return .invalid("No access token on this connection.")
+        } catch {
+            return .invalid("This connection has expired — sign in to Google again.")
         }
         do {
             let json = try await ConnectorHTTP.getJSON(
@@ -43,18 +54,15 @@ struct GoogleCalendarProvider: EventReadingProvider {
     /// `async` unlike the EventKit provider, so `DaySummaryService` awaits it — the
     /// price of real data over a network rather than a local store.
     func todaysEventsAsync(for instance: ConnectorInstance, now: Date) async -> ProviderReadOutcome<[DayEvent]> {
-        let resolved: CredentialStrategy.Resolved
+        // Resolve-and-persist: a refresh may have produced new tokens, and they're
+        // written back once, here, rather than on every read.
+        let token: String
         do {
-            resolved = try await CredentialStrategy.resolve(for: instance)
+            token = try await CredentialStrategy.resolveAndPersist(for: instance)
         } catch {
             Log.connectors.error(
                 "google calendar: credential resolve failed for \(instance.displayLabel, privacy: .public): \(String(describing: error), privacy: .public)")
             return ProviderReadOutcome([], error: CredentialStrategy.connectorError(for: error))
-        }
-        // A refresh may have produced new tokens — persist once, here, rather than on
-        // every read.
-        if let updated = resolved.updatedCredential {
-            _ = ConnectorCredentials.save(updated, for: instance.id)
         }
 
         let calendarIDs = instance.config.googleCalendarIDs ?? ["primary"]
@@ -90,7 +98,7 @@ struct GoogleCalendarProvider: EventReadingProvider {
             ]
             guard let url = components.url else { continue }
             do {
-                let json = try await ConnectorHTTP.getJSON(url, token: resolved.token)
+                let json = try await ConnectorHTTP.getJSON(url, token: token)
                 events += Self.parseEvents(json, instanceLabel: instance.displayLabel)
             } catch let error as ConnectorHTTP.Failure {
                 failedCount += 1

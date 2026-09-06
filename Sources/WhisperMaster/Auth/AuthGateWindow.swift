@@ -37,7 +37,8 @@ final class AuthGateWindow {
         window.level = .normal
         window.hidesOnDeactivate = false
         window.isMovableByWindowBackground = true
-        // Inherits the app-wide appearance (`AppDelegate.applyAppearance`).
+        // Inherits the app-wide light appearance pinned in
+        // `AppDelegate.applicationDidFinishLaunching`.
         window.backgroundColor = Theme.canvasNSColor
     }
 

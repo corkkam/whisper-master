@@ -38,4 +38,10 @@ enum Log {
     /// them. A connector row can only ever say *that* it failed; this is where
     /// *why* is recoverable after the fact.
     static let connectors = Logger(subsystem: subsystem, category: "connectors")
+
+    /// The kunai agent surface — loopback discovery, the session socket, and the
+    /// answers sent back. Everything here is best-effort by design (a missing server
+    /// just means the surface stays dark), so this is the only place a failure is
+    /// recoverable after the fact.
+    static let agents = Logger(subsystem: subsystem, category: "agents")
 }

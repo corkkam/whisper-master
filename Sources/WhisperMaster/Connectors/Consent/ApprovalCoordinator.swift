@@ -16,8 +16,8 @@ final class ApprovalCoordinator {
     /// Resolves the suspended `requestApproval` call.
     private var continuation: CheckedContinuation<ApprovalOutcome, Never>?
 
-    /// How long a card waits before denying itself. A write must never sit indefinitely
-    /// holding an automation open, and silence is not consent.
+    /// How long a card waits before denying itself. A write must never sit
+    /// indefinitely holding the agent loop open, and silence is not consent.
     var timeout: TimeInterval = 60
     private var timeoutTask: Task<Void, Never>?
 
@@ -33,27 +33,50 @@ final class ApprovalCoordinator {
             self.timeoutTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(self?.timeout ?? 60))
                 guard !Task.isCancelled else { return }
-                // Timing out is a *denial*, never an allow — silence can't authorise a
-                // write.
-                self?.resolve(.denied)
+                // Timing out never authorises — silence can't consent to a write — but
+                // it is reported as itself rather than as a denial, so the tool result
+                // and the trace can say which of the two happened. See
+                // `ApprovalOutcome.timedOut`.
+                self?.resolve(.timedOut)
             }
         }
     }
 
-    /// The user answered on the card.
+    /// The one place a card ends, so every outcome is counted exactly once. Called
+    /// with the user's own choice from the card, and with `.timedOut` by the timer.
+    ///
+    /// The distinction is load-bearing for the design as well as for the copy: a card
+    /// nobody answers is a card in the wrong place, while a "No" is the consent model
+    /// working.
     func resolve(_ outcome: ApprovalOutcome) {
         timeoutTask?.cancel()
         timeoutTask = nil
+        // Read before `pending` is cleared. The tool name is a fixed catalog string,
+        // never an argument — the same rule the notch caption follows, and for the
+        // same reason: the arguments are the user's dictated content.
+        let tool = pending?.tool
         pending = nil
         continuation?.resume(returning: outcome)
         continuation = nil
+
+        if let tool {
+            let decision: AnalyticsEvent.ApprovalDecision
+            switch outcome {
+            case .allowedOnce: decision = .once
+            case .allowedAlways: decision = .always
+            case .denied: decision = .denied
+            case .timedOut: decision = .timedOut
+            }
+            Analytics.shared.send(.approvalDecided(tool: tool, decision: decision))
+        }
     }
 
-    /// A headless policy for automations, which have no one to ask.
-    ///
-    /// Denies anything without a standing grant: a scheduled task must never be the path
-    /// by which an unapproved write happens, because there's nobody watching when it
-    /// fires. The user grants "always allow" interactively first, and only then can an
-    /// automation use it.
-    static let denyUnattended: (PendingApproval) async -> ApprovalOutcome = { _ in .denied }
+    #if DEBUG
+    /// Puts a card up with nobody suspended behind it — the headless snapshot
+    /// renderer's only way in, since `request` suspends until the card is answered
+    /// and `ImageRenderer` draws synchronously right after. Never call this from the
+    /// running app: a card seeded this way answers no tool call, so resolving it
+    /// silently does nothing.
+    func seedPendingForSnapshot(_ approval: PendingApproval) { pending = approval }
+    #endif
 }

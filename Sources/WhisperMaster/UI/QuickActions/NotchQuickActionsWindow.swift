@@ -33,6 +33,7 @@ final class NotchQuickActionsWindow {
     private let layout = NotchQuickActionsLayout()
     private let onOpenNotes: (NotesComposerRequest?) -> Void
     private let onOpenSettings: () -> Void
+    private let onJoin: (URL) -> Void
 
     private var pollTimer: Timer?
     private var screenObserver: NSObjectProtocol?
@@ -47,14 +48,19 @@ final class NotchQuickActionsWindow {
     /// True while another notch surface owns the strip (onboarding). Keeps the poll
     /// off entirely rather than relying on suppression inside the model.
     private var isSuspended = false
+    /// Last screen the hover zone / panel was placed on, so a pointer that
+    /// stays put does not rewrite the frame every 0.06 s.
+    private var appliedScreenNumber: NSNumber?
 
     init(
         state: AppState,
+        onJoin: @escaping (URL) -> Void = { _ in },
         onOpenNotes: @escaping (NotesComposerRequest?) -> Void,
         onOpenSettings: @escaping () -> Void
     ) {
         self.onOpenNotes = onOpenNotes
         self.onOpenSettings = onOpenSettings
+        self.onJoin = onJoin
         model = NotchQuickActionsModel(state: state)
 
         panel = NSPanel(
@@ -73,7 +79,7 @@ final class NotchQuickActionsWindow {
         panel.hasShadow = false
         panel.isMovable = false
 
-        host = NSHostingView(rootView: NotchQuickActionsView(model: model))
+        host = NSHostingView(rootView: NotchQuickActionsView(model: model, onJoin: onJoin))
         host.autoresizingMask = [.width, .height]
         panel.contentView = host
 
@@ -125,6 +131,10 @@ final class NotchQuickActionsWindow {
     private func tick() {
         guard !isSuspended else { return }
         guard let screen = targetScreen else { return }
+        let number = PointerScreen.number(of: screen)
+        if number != appliedScreenNumber {
+            reposition()
+        }
         let geometry = NotchGeometry.measure(screen)
         let pointer = NSEvent.mouseLocation
 
@@ -162,13 +172,15 @@ final class NotchQuickActionsWindow {
 
     // MARK: - Geometry
 
-    /// Prefer the display that actually has a notch; fall back to the main one.
+    /// The display the pointer is on — hover opens the band on that screen's
+    /// notch (or its top-center, if the display has no notch).
     private var targetScreen: NSScreen? {
-        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
+        PointerScreen.current()
     }
 
     private func reposition() {
         guard let screen = targetScreen else { return }
+        appliedScreenNumber = PointerScreen.number(of: screen)
 
         let geometry = NotchGeometry.measure(screen)
         // Sized to what the band is actually holding — resolved here, at the open, so
@@ -192,6 +204,14 @@ final class NotchQuickActionsWindow {
             onOpenSettings: { [weak self] in
                 guard let self else { return }
                 self.onOpenSettings()
+                self.dismiss()
+            },
+            onJoin: { [weak self] url in
+                guard let self else { return }
+                self.onJoin(url)
+                // The call is coming to the front; the band has done its job. Same
+                // disposition as the two rows above — every action on this panel
+                // ends the glance.
                 self.dismiss()
             }
         )

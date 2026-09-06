@@ -1,5 +1,11 @@
 # Text-cleanup model eval
 
+**How the eval is implemented and how to run it:** [`../README.md`](../README.md).
+This file is the leftover Ollama bake-off notes plus the destination-suite
+commands. Ship decisions go through `run-eval.sh` + `eval-score`, not `run.py`.
+
+---
+
 Decide whether a small on-device LLM can reliably clean up dictated text
 (fix "one day" vs "1 day", strip fillers, resolve self-corrections, punctuate)
 **without** rephrasing, answering, or dropping content. We test with Ollama to
@@ -49,5 +55,26 @@ Needs the Ollama app running (or `ollama serve`). Writes `report.md`
 
 ## Prompt
 
-`prompt.txt` is the system prompt (few-shot). It's as important as the model —
-tune it here and re-run before concluding a model "can't do it."
+`prompt.txt` is the shipped light system prompt (few-shot). Destination
+prompts live beside it (`prompt-slack.txt`, `prompt-email.txt`,
+`prompt-code.txt`) and must stay verbatim with `CleanupPrompt` in the app.
+Tune a prompt here, copy it into Swift, and re-run before concluding a
+model "can't do it."
+
+## App-format suite (Wispr Flow–style destinations)
+
+`flow-cases.jsonl` grades Slack / email / code formatting — the same
+"one utterance, different paste destinations" hinge the engine was built
+for. These targets are **eval-only**; they are not Settings toggles and
+must not be wired into the paste path.
+
+```bash
+# existing light + polish baseline
+bash eval/text-cleanup/run-eval.sh eval/text-cleanup/cases.jsonl "light+polish"
+
+# destination suite
+bash eval/text-cleanup/run-eval.sh eval/text-cleanup/flow-cases.jsonl "flow destinations"
+```
+
+`EvalRunner` iterates `CleanupTarget.allCases` and only runs the targets
+each case lists, so a destination run does not re-score light/polish.

@@ -30,83 +30,58 @@ enum BrandAsset {
         return Bundle.main
     }()
 
-    static let logo: NSImage? = {
-        guard let url = resourceBundle?.url(forResource: "WhisperMasterLogo", withExtension: "png") else { return nil }
-        return NSImage(contentsOf: url)
-    }()
+    static let logo: NSImage? = tile(named: "WhisperMasterLogo")
 
-    /// The brand level-meter mark for use as a status-bar (tray) icon, as a
-    /// **template** image: the dark squircle is dropped, leaving just the bars'
-    /// silhouette so macOS tints it to match the system appearance. This is
-    /// essential on the translucent menu bar (macOS 26+), where an opaque
-    /// full-color logo tile looks pasted-on rather than part of the bar.
+    private static func tile(named name: String) -> NSImage? {
+        guard let url = resourceBundle?.url(forResource: name, withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }
+
+    // Laid out for the boxes `BrandLogo` actually asks for (34pt sidebar, 58pt
+    // About), stored at 4×. Full-bleed — `BrandLogo` clips the corner itself.
+    private static let smallTile: NSImage? = tile(named: "WhisperMasterLogoSmall")
+    private static let mediumTile: NSImage? = tile(named: "WhisperMasterLogoMedium")
+
+    /// The tile to show at `points`.
+    ///
+    /// ⚠️ The mark is a field of dots, and **a dot field cannot be downscaled** —
+    /// the same rule that makes the tray glyph its own asset. Handing SwiftUI
+    /// the 1024 tile and letting `.resizable()` fit it into 34pt put ~450 dots
+    /// into 34 points and the logo rendered as a brown smudge. So each box gets
+    /// a tile whose field was laid out for it (`Scripts/make-logo.swift`), and
+    /// this ladder is hand-stepped to match the sizes that exist rather than
+    /// interpolated. Add a call site at a new size and give it a tier.
+    static func appTile(points: CGFloat) -> NSImage? {
+        if points <= 44, let small = smallTile { return small }
+        if points <= 96, let medium = mediumTile { return medium }
+        return mediumTile ?? logo
+    }
+
+    /// The orb for use as a status-bar (tray) icon, as a **template** image:
+    /// black at varying alpha on a clear ground, so macOS tints it to match the
+    /// system appearance. That is essential on the translucent menu bar
+    /// (macOS 26+), where an opaque full-colour tile looks pasted on rather
+    /// than part of the bar.
+    ///
+    /// ⚠️ This is its **own asset**, not the tile with its ground masked out.
+    /// The mark is a field of ~450 dots (`Scripts/make-logo.swift`); a
+    /// brightness cut over it keeps every one of them, and 450 dots in an 18pt
+    /// box is a smudge. `make-logo.swift` draws the tray glyph separately at a
+    /// density tuned for that box — six latitude rings, bold ink — the same way
+    /// the orb itself ships two hand-tuned presets rather than one scaled
+    /// design.
     static func trayTemplateImage(points: CGFloat) -> NSImage? {
-        guard let glyphMask, glyphMask.height > 0 else { return nil }
-        // The cropped mask isn't exactly square; fit it to `points` tall rather
-        // than stretching it into a square box.
-        let aspect = CGFloat(glyphMask.width) / CGFloat(glyphMask.height)
-        let image = NSImage(cgImage: glyphMask, size: NSSize(width: points * aspect, height: points))
+        guard let glyph else { return nil }
+        let image = NSImage(cgImage: glyph, size: NSSize(width: points, height: points))
         image.isTemplate = true
         return image
     }
 
-    /// The logo with everything but the meter bars masked out (black on a clear
-    /// background), cropped to the bars, computed once. The mark's ground is
-    /// near-black (`#07090e`, plus a dim ember glow at the bottom) and the bars
-    /// are vivid, so a brightness cut separates them: any pixel whose brightest
-    /// channel clears the threshold is glyph, everything else is dropped. The
-    /// threshold sits well above the brightest glow pixel and well below either
-    /// bar colour, so neither the ground nor the anti-aliased squircle edge can
-    /// leak in.
-    private static let glyphMask: CGImage? = {
-        guard let logo,
-              let source = logo.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    private static let glyph: CGImage? = {
+        guard let url = resourceBundle?.url(forResource: "WhisperMasterTrayGlyph", withExtension: "png"),
+              let image = NSImage(contentsOf: url)
         else { return nil }
-
-        let width = source.width
-        let height = source.height
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        guard let context = CGContext(
-            data: &pixels,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: width * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-        context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
-
-        let brightnessThreshold = 0.5
-        var minX = width, minY = height, maxX = -1, maxY = -1
-        for index in stride(from: 0, to: pixels.count, by: 4) {
-            let alpha = Double(pixels[index + 3]) / 255
-            // Un-premultiply so anti-aliased edges are judged on their own colour.
-            var r = 0.0, g = 0.0, b = 0.0
-            if alpha > 0 {
-                r = Double(pixels[index]) / 255 / alpha
-                g = Double(pixels[index + 1]) / 255 / alpha
-                b = Double(pixels[index + 2]) / 255 / alpha
-            }
-            let isGlyph = alpha > 0.5 && max(r, g, b) > brightnessThreshold
-
-            pixels[index] = 0
-            pixels[index + 1] = 0
-            pixels[index + 2] = 0
-            pixels[index + 3] = isGlyph ? 255 : 0
-
-            guard isGlyph else { continue }
-            let pixel = index / 4
-            let x = pixel % width, y = pixel / width
-            minX = min(minX, x); maxX = max(maxX, x)
-            minY = min(minY, y); maxY = max(maxY, y)
-        }
-        guard let mask = context.makeImage() else { return nil }
-        // Crop to the bars so the tray glyph fills its 18pt box instead of
-        // inheriting the squircle's generous margin.
-        guard maxX >= minX, maxY >= minY else { return mask }
-        let box = CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
-        return mask.cropping(to: box) ?? mask
+        return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
     }()
 }
 
@@ -123,7 +98,7 @@ struct BrandLogo: View {
 
     var body: some View {
         Group {
-            if let image = BrandAsset.logo {
+            if let image = BrandAsset.appTile(points: size) {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)

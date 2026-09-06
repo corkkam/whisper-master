@@ -128,12 +128,27 @@ enum AnalyticsConfig {
     /// Admin → Custom definitions → Custom dimensions (event-scoped) or they
     /// stay invisible outside a single event's detail view. Geo/country still
     /// comes from the request IP, so it needs nothing here.
+    ///
+    /// **`channel` is why stable and beta are separable at all.** All three
+    /// channels post to one GA data stream — separate streams per channel would
+    /// isolate them but destroy the one report that matters most, "beta vs
+    /// stable side by side" — so the split has to be a dimension. It's read from
+    /// `ReleaseChannel`, i.e. the **bundle id this binary shipped with**, not
+    /// `BetaAccess.currentChannel`, which answers the different question of which
+    /// appcast Sparkle should poll and requires a signed-in Clerk user. Analytics
+    /// must attribute an event to the build that produced it, including before
+    /// sign-in and including a stable build run by a flagged beta user.
+    ///
+    /// It also makes locally-installed `dev` builds filterable — without it,
+    /// every developer relaunch inflates the stable numbers with no way to
+    /// exclude it after the fact.
     static var googleBaseParameters: [String: String] {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         return [
             "app_version": AnalyticsIdentity.currentVersion,
             "os_version": "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)",
             "platform": "macos",
+            "channel": ReleaseChannel.current.rawValue,
         ]
     }
 

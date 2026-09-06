@@ -145,15 +145,23 @@ final class ConnectorConsentTests: XCTestCase {
         XCTAssertEqual(approval.headline, "Post to #ops on Work")
     }
 
-    /// The card must show the payload, and must not spend a line on the connector
-    /// argument that's already in the headline.
-    func testApprovalDetailLinesExcludeTheConnectorArgument() {
+    /// `create_calendar_event` scopes its grant to the connection itself, so target
+    /// and label are the same string — and saying it twice read as a bug.
+    func testApprovalHeadlineDoesNotRepeatTheConnectionAsItsOwnTarget() {
+        let approval = PendingApproval(
+            tool: "create_calendar_event", instanceID: personalID, instanceLabel: "Personal",
+            target: "Personal", arguments: ["title": "Work"])
+        XCTAssertEqual(approval.headline, "Add an event to Personal")
+    }
+
+    /// The card must show the payload, and must not spend its one line on the
+    /// connector argument that's already in the headline.
+    func testApprovalDetailShowsTheMessageAndNotTheRouting() {
         let approval = PendingApproval(
             tool: "send_message", instanceID: workID, instanceLabel: "Work",
             target: "#ops",
             arguments: ["channel": "#ops", "text": "ship it", ToolDescriptor.instanceArgument: "Work"])
-        let keys = approval.detailLines.map(\.0)
-        XCTAssertEqual(keys, ["channel", "text"])
+        XCTAssertEqual(approval.detail, "\u{201C}ship it\u{201D}")
     }
 
     // MARK: - Coordinator
@@ -194,12 +202,49 @@ final class ConnectorConsentTests: XCTestCase {
         XCTAssertEqual(firstOutcome, .allowedOnce)
     }
 
-    /// Silence is never consent.
-    func testUnattendedPolicyDeniesEverything() async {
-        let approval = PendingApproval(tool: "send_message", instanceID: workID,
-                                       instanceLabel: "Work", target: "#ops", arguments: [:])
-        let outcome = await ApprovalCoordinator.denyUnattended(approval)
-        XCTAssertEqual(outcome, .denied)
+    /// Silence is not a "No". Both refuse the write — that part is the safety rule —
+    /// but a card nobody answered is a card in the wrong place, and reporting it as a
+    /// decision the user made hides that entirely.
+    func testAnUnansweredCardTimesOutAsItsOwnOutcomeRatherThanADenial() async {
+        let coordinator = ApprovalCoordinator()
+        coordinator.timeout = 0.05
+        let approval = PendingApproval(
+            tool: "send_message", instanceID: workID, instanceLabel: "Work",
+            target: "#ops", arguments: [:])
+
+        let outcome = await coordinator.request(approval)
+
+        XCTAssertEqual(outcome, .timedOut)
+        XCTAssertNotEqual(outcome, .denied, "nobody said no")
+        XCTAssertNil(coordinator.pending)
+    }
+
+    /// …and the model is told which one happened, because the two mean different
+    /// things to whoever reads the transcript afterwards.
+    func testATimedOutCardIsWordedApartFromADeclinedOne() async {
+        let store = ConnectorInstanceStore(load: false)
+        store.persistenceEnabled = false
+        store.add(ConnectorInstance(
+            kind: .appleCalendar, label: "Personal", identity: "iCloud",
+            config: .calendars(identifiers: ["cal-1"], sourceTitle: "iCloud")))
+        let call = ToolCall(tool: "create_calendar_event",
+                            arguments: ["title": "Design review", "when": "tomorrow at 3pm"])
+        let clock = TestClock(Date(timeIntervalSince1970: 1_754_000_000))
+
+        let declined = await ToolRouter(store: store, requestApproval: { _ in .denied },
+                                        now: { clock.now }).run(call)
+        XCTAssertEqual(declined.text, "The user declined that.")
+        XCTAssertEqual(declined.authorization, .denied)
+
+        let unanswered = await ToolRouter(
+            store: store,
+            requestApproval: { _ in clock.advance(60); return .timedOut },
+            now: { clock.now }).run(call)
+        XCTAssertFalse(unanswered.ok, "an unanswered card authorises nothing")
+        XCTAssertEqual(unanswered.authorization, .timedOut)
+        XCTAssertTrue(unanswered.text.contains("Nobody answered"), unanswered.text)
+        XCTAssertEqual(unanswered.approvalMilliseconds, 60_000,
+                       "the wait belongs to the card, so the call can report its own time")
     }
 
     // MARK: - Catalog integrity

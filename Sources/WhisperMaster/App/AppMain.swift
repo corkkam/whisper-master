@@ -22,6 +22,31 @@ struct WhisperMasterApp {
         }
         #endif
 
+        // The assistant suite: the hand-rolled JSON prompt against the model's native
+        // tool-calling, on the real qwen. Same early-exit posture as the snapshot hook
+        // — before any AppKit, TCC or mesh setup — which is what lets this one run
+        // headless by exec'ing the binary, unlike EvalRunner.
+        //
+        // NOT behind `#if DEBUG`, deliberately, and for the same reason EvalRunner is
+        // not: `Scripts/release.sh` grades the bundle it just built, and that bundle
+        // is Release. A suite that only exists in Debug cannot grade a release. The
+        // hook is inert unless WM_AGENT_TOOL_EVAL is set.
+        if ProcessInfo.processInfo.environment["WM_AGENT_TOOL_EVAL"] != nil {
+            // Pump the main run loop (which services the main actor) until the async
+            // harness finishes — a semaphore would deadlock the main-actor work the
+            // harness schedules. The heavy MLX compute runs on `MlxCleanupService`'s
+            // own actor, off main, so pumping stays responsive between awaits.
+            let done = AgentToolEval.Done()
+            Task { @MainActor in
+                await AgentToolEval.run()
+                done.set()
+            }
+            while !done.get() {
+                RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            }
+            return
+        }
+
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

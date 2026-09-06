@@ -170,6 +170,22 @@ final class OAuthPKCETests: XCTestCase {
         XCTAssertEqual(GoogleOAuthConfig.Scope.calendarEvents,
                        "https://www.googleapis.com/auth/calendar.events")
     }
+
+    /// The Gmail sign-in asks for the mailbox read and the address to label it with,
+    /// and nothing else. A typo here doesn't fail until Google answers `invalid_scope`
+    /// *after* the browser has opened, and a wider scope would be a broader grant than
+    /// the card promises — the app never sends mail.
+    func testGmailScopesAreTheReadOnlyPair() {
+        XCTAssertEqual(GoogleOAuthConfig.Scope.gmailReadonly,
+                       "https://www.googleapis.com/auth/gmail.readonly")
+        XCTAssertEqual(GoogleOAuthConfig.Scope.gmailConnect,
+                       [GoogleOAuthConfig.Scope.gmailReadonly,
+                        GoogleOAuthConfig.Scope.userinfoEmail])
+        XCTAssertFalse(GoogleOAuthConfig.Scope.gmailConnect.contains {
+            $0.contains("gmail.send") || $0.contains("gmail.modify")
+                || $0.contains("gmail.compose") || $0 == "https://mail.google.com/"
+        })
+    }
 }
 
 /// The label prefilled after a Google sign-in. Pure, and worth pinning because a

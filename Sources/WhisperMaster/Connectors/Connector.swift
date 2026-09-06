@@ -67,17 +67,17 @@ enum ConnectorKind: String, CaseIterable, Identifiable, Codable, Sendable {
     /// One-line description shown under the name in Settings.
     var blurb: String {
         switch self {
-        case .gmail: return "Unread and important mail in your day summary."
-        case .googleCalendar: return "Today’s events. Read live from macOS Calendar."
-        case .outlook: return "Calendar and mail. Calendar reads via macOS Calendar."
-        case .slack: return "Mentions and unreads across your workspaces."
+        case .gmail: return "Unread and recent mail, by a token you paste."
+        case .googleCalendar: return "Today’s events. Read live from macOS Calendar or Google sign-in."
+        case .outlook: return "Calendar via macOS Calendar (Exchange / Microsoft 365)."
+        case .slack: return "Recent messages across the channels your bot can see."
         case .appleCalendar: return "Apple Calendar and any .ics subscription on this Mac."
-        case .notion: return "Pages and tasks assigned to you."
-        case .linear: return "Issues assigned to you and due today."
-        case .googleDrive: return "Recent and shared files."
-        case .github: return "Review requests and assigned issues."
-        case .zoom: return "Upcoming meetings and join links."
-        case .asana: return "Tasks due today."
+        case .notion: return "Pages and databases shared with your integration."
+        case .linear: return "Open issues assigned to you."
+        case .googleDrive: return "Recent Drive files, by a token you paste."
+        case .github: return "Open issues and PRs assigned to you."
+        case .zoom: return "Today’s meetings from a server-to-server Zoom app."
+        case .asana: return "Open tasks assigned to you."
         }
     }
 

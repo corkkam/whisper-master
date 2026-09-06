@@ -92,14 +92,28 @@ enum OAuthFlowError: Error, Equatable {
 final class OAuthPKCEFlow: NSObject {
     private var session: ASWebAuthenticationSession?
 
-    /// Run the full flow and return the tokens.
+    /// Which Google account an authorization is for.
     ///
-    /// - Parameter forceAccountPicker: send `prompt=select_account consent`.
-    ///   **Essential for this feature**: without it Google silently reuses the
-    ///   already-signed-in account, so a user trying to add "Google Calendar Work"
-    ///   after "Personal" would get a second copy of Personal and never understand why.
+    /// This is the difference between "connect an account" and "this Mac already holds
+    /// a grant for sam@acme.com — ask that account for one more scope", and it changes
+    /// three things at once (the prompt, `include_granted_scopes`, and whether the web
+    /// session is ephemeral), which is why it's one value rather than three flags that
+    /// can be set inconsistently.
+    enum AccountChoice: Equatable, Sendable {
+        /// Force the chooser. **Essential when adding an account**: without it Google
+        /// silently reuses the already-signed-in one, so a user adding "Google Calendar
+        /// Work" after "Personal" would get a second copy of Personal and never
+        /// understand why.
+        case chooseAccount
+        /// Incremental authorization against an account already connected here: Google
+        /// is asked only for the scopes this grant doesn't carry, and the consent screen
+        /// names just those. `email` goes out as `login_hint`.
+        case reuse(email: String)
+    }
+
+    /// Run the full flow and return the tokens.
     func authorize(scopes: [String],
-                   forceAccountPicker: Bool = true) async throws -> OAuthTokenResponse {
+                   account: AccountChoice = .chooseAccount) async throws -> OAuthTokenResponse {
         guard let clientID = GoogleOAuthConfig.clientID,
               let redirectURI = GoogleOAuthConfig.redirectURI,
               let redirectScheme = GoogleOAuthConfig.redirectScheme
@@ -108,26 +122,13 @@ final class OAuthPKCEFlow: NSObject {
         let pkce = PKCEChallenge()
         let state = PKCEChallenge.randomVerifier(byteCount: 16)
 
-        var components = URLComponents(url: GoogleOAuthConfig.authorizationEndpoint, resolvingAgainstBaseURL: false)!
-        var query: [URLQueryItem] = [
-            .init(name: "client_id", value: clientID),
-            .init(name: "redirect_uri", value: redirectURI),
-            .init(name: "response_type", value: "code"),
-            .init(name: "scope", value: scopes.joined(separator: " ")),
-            .init(name: "code_challenge", value: pkce.challenge),
-            .init(name: "code_challenge_method", value: pkce.method),
-            .init(name: "state", value: state),
-            // Without offline access there's no refresh token, and the connection
-            // would quietly die an hour after it was made.
-            .init(name: "access_type", value: "offline"),
-        ]
-        if forceAccountPicker {
-            query.append(.init(name: "prompt", value: "select_account consent"))
-        }
-        components.queryItems = query
-        guard let authURL = components.url else { throw OAuthFlowError.notConfigured }
+        guard let authURL = Self.authorizationURL(
+            clientID: clientID, redirectURI: redirectURI, scopes: scopes,
+            challenge: pkce.challenge, method: pkce.method, state: state, account: account)
+        else { throw OAuthFlowError.notConfigured }
 
-        let callback = try await present(authURL: authURL, scheme: redirectScheme)
+        let callback = try await present(authURL: authURL, scheme: redirectScheme,
+                                         account: account)
 
         let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
         // Verify state before touching the code — an unmatched state means this
@@ -156,7 +157,53 @@ final class OAuthPKCEFlow: NSObject {
 
     // MARK: - Internals
 
-    private func present(authURL: URL, scheme: String) async throws -> URL {
+    /// Build the authorization URL.
+    ///
+    /// Pure and `nonisolated` so the query — where a missing parameter fails as a
+    /// consent screen that asks for the wrong thing, or a grant that arrives with no
+    /// refresh token and dies an hour later — is directly testable without a browser.
+    nonisolated static func authorizationURL(clientID: String,
+                                             redirectURI: String,
+                                             scopes: [String],
+                                             challenge: String,
+                                             method: String,
+                                             state: String,
+                                             account: AccountChoice) -> URL? {
+        var components = URLComponents(url: GoogleOAuthConfig.authorizationEndpoint,
+                                       resolvingAgainstBaseURL: false)!
+        var query: [URLQueryItem] = [
+            .init(name: "client_id", value: clientID),
+            .init(name: "redirect_uri", value: redirectURI),
+            .init(name: "response_type", value: "code"),
+            .init(name: "scope", value: scopes.joined(separator: " ")),
+            .init(name: "code_challenge", value: challenge),
+            .init(name: "code_challenge_method", value: method),
+            .init(name: "state", value: state),
+            // Without offline access there's no refresh token, and the connection
+            // would quietly die an hour after it was made.
+            .init(name: "access_type", value: "offline"),
+        ]
+        switch account {
+        case .chooseAccount:
+            query.append(.init(name: "prompt", value: "select_account consent"))
+        case .reuse(let email):
+            query.append(.init(name: "login_hint", value: email))
+            // Carry the scopes this account already granted into the new token, so the
+            // consent screen names only what's actually new.
+            query.append(.init(name: "include_granted_scopes", value: "true"))
+            // `consent` without `select_account`: don't re-ask *which* account — we
+            // know — but **do** force the consent screen. Google returns a
+            // `refresh_token` only when it does, and each instance keeps its own grant;
+            // a second Gmail connection that came back access-token-only would work for
+            // an hour and then be unrepairable except by reconnecting.
+            query.append(.init(name: "prompt", value: "consent"))
+        }
+        components.queryItems = query
+        return components.url
+    }
+
+    private func present(authURL: URL, scheme: String,
+                         account: AccountChoice) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(
                 url: authURL, callbackURLScheme: scheme
@@ -171,9 +218,14 @@ final class OAuthPKCEFlow: NSObject {
                 }
             }
             session.presentationContextProvider = self
-            // A fresh session per attempt: reusing the shared web credential would let
-            // Google skip the account picker, defeating `forceAccountPicker`.
-            session.prefersEphemeralWebBrowserSession = true
+            // A fresh session per attempt when adding an account: reusing the shared web
+            // credential would let Google skip the picker, defeating `.chooseAccount`.
+            //
+            // Reusing a grant wants the opposite. An ephemeral session carries no Google
+            // cookies, so `login_hint` would only *prefill* the address and the user
+            // would still be made to sign in from scratch — which is precisely the work
+            // reusing an existing grant exists to save.
+            session.prefersEphemeralWebBrowserSession = (account == .chooseAccount)
             self.session = session
             session.start()
         }

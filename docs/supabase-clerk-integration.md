@@ -1,3 +1,11 @@
+> **Superseded, 2026-08-21.** The sync routes described here as living on the
+> eval dashboard now live in the landing-page repo (`app/api/usage`,
+> `app/api/usage/[userId]`, `app/api/notes`, auth in `lib/sync/auth.ts`), and
+> `eval/dashboard/` has been deleted. The Supabase schema, the Clerk
+> verification model and the migration steps below are all still accurate; only
+> the file paths and the deploy have moved. Kept as the record of how the
+> migration was done.
+
 # Supabase + Clerk integration — beta/stable channel, access gate, sync
 
 Implements the macOS-app side of the handoff (Supabase Option A) plus the

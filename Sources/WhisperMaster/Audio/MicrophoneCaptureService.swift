@@ -233,13 +233,35 @@ final class MicrophoneCaptureService {
     func stop() {
         guard isCapturing else { return }
         configChangeWork?.cancel()
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        quiesceGraph()
         clearHandlers()
         isCapturing = false
     }
 
     // MARK: - Graph
+
+    /// Bring the graph to rest: stop IO, *then* take the tap off.
+    ///
+    /// **The order is load-bearing and is the opposite of the obvious one.**
+    /// Removing the input node's last tap while the engine is still running leaves
+    /// that node with no consumers, so AVFAudio reconfigures the live graph and
+    /// clears the IO unit's input callback — but the HAL's IO thread is still
+    /// cycling, because nothing has stopped it yet. It then calls through the
+    /// callback pointer that was just nulled: `EXC_BAD_ACCESS` at `pc = 0x0` on
+    /// `com.apple.audio.IOThread.client`, with the main thread caught one frame
+    /// later spinning in `AudioOutputUnitStop` waiting for that same thread to
+    /// drain. `stop()` first closes the window: it stops IO *and* waits for the
+    /// thread to leave the callback, so the tap is removed from a graph where
+    /// nothing can be mid-call.
+    ///
+    /// This is the one place the graph is torn down, for the same reason
+    /// `installTapAndStart` is the one place it's armed — teardown happens on the
+    /// user's stop, on a lost route, and on a rebuild, and the ordering above has
+    /// to hold on all three.
+    private func quiesceGraph() {
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+    }
 
     /// Install the tap and start the engine, using the handlers already stored.
     /// The one place the graph is armed — `start()` and the route-change recovery
@@ -301,8 +323,7 @@ final class MicrophoneCaptureService {
     /// formats. The tap handlers are left alone; the caller decides whether to
     /// re-arm them.
     private func rebuildEngine() {
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        quiesceGraph()
         engine = AVAudioEngine()
         // The notification is per-engine, so it has to follow the new object.
         observeConfigurationChanges()
@@ -320,8 +341,7 @@ final class MicrophoneCaptureService {
     /// then rather than a second teardown.
     private func abandonCapture() {
         configChangeWork?.cancel()
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        quiesceGraph()
         clearHandlers()
         isCapturing = false
         onCaptureLost?()

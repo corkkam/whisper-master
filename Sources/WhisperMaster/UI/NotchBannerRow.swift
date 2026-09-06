@@ -14,19 +14,29 @@ struct NotchBannerRow<Subtitle: View, Trailing: View>: View {
     private let accessibilityText: String
     private let subtitle: Subtitle
     private let trailing: Trailing
+    private let textGivesWayToTrailing: Bool
 
     /// Full control: a custom subtitle (e.g. an inline keycap) plus trailing
     /// controls. The string/no-trailing conveniences below cover the common case.
+    ///
+    /// `textGivesWayToTrailing` decides what happens when the two don't both fit.
+    /// The default (false) sizes the text to its content, which is right for a
+    /// banner whose words we wrote and whose length we therefore know. Pass **true**
+    /// where the text is user- or model-authored and unbounded: the text truncates
+    /// at the tail instead of pushing the controls out past the band's clip, where
+    /// they'd be invisible and unclickable.
     init(
         icon: String,
         title: String,
         accessibilityText: String,
+        textGivesWayToTrailing: Bool = false,
         @ViewBuilder subtitle: () -> Subtitle,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.icon = icon
         self.title = title
         self.accessibilityText = accessibilityText
+        self.textGivesWayToTrailing = textGivesWayToTrailing
         self.subtitle = subtitle()
         self.trailing = trailing()
     }
@@ -48,11 +58,17 @@ struct NotchBannerRow<Subtitle: View, Trailing: View>: View {
                         .foregroundStyle(Theme.Notch.textSecondary)
                 }
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+                .truncationMode(.tail)
+                // `false` here is a no-op, so the flexible case is just the absence
+                // of the intrinsic-width demand.
+                .fixedSize(horizontal: !textGivesWayToTrailing, vertical: false)
             }
             // Read the message as one element; trailing controls stay separate.
             .accessibilityElement(children: .combine)
             .accessibilityLabel(accessibilityText)
+            // Laid out *after* the controls, so they take their natural size and the
+            // text fills whatever is left rather than the other way round.
+            .layoutPriority(textGivesWayToTrailing ? -1 : 0)
 
             trailing
         }

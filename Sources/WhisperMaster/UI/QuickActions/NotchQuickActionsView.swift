@@ -2,7 +2,8 @@ import SwiftUI
 
 /// The quick-actions band: what the notch holds when you rest the pointer on it.
 ///
-/// Two columns — **reminders** ahead of you and **notes** you touched last — over a
+/// Two columns — **today**, as one ordered run of events and reminders
+/// interleaved by time, and the **notes** you pinned or touched last — over a
 /// row of the three things you'd otherwise open the window for. It is a *glance plus
 /// one tap*, not a second Notes app: three rows a column, one action each, and the
 /// only mutation available inline is ticking a reminder off — and back on, since a
@@ -21,6 +22,9 @@ struct NotchQuickActionsView: View {
     var onOpenNotes: (NotesComposerRequest?) -> Void = { _ in }
     /// Opens the Settings window — the gear in the header row.
     var onOpenSettings: () -> Void = {}
+    /// Opens a meeting's conference link. Injected so the view stays AppKit-free,
+    /// same as the dictation surface's.
+    var onJoin: (URL) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -55,29 +59,35 @@ struct NotchQuickActionsView: View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             header
             HStack(alignment: .top, spacing: Theme.Space.lg) {
+                // Resolved once per render into a local, so every row in a frame
+                // agrees about what "now" is — five rows each calling `Date()`
+                // would be five slightly different days.
+                let instant = Date()
+                let day = model.day(at: instant)
+                NotchDayTimelineColumn(
+                    rows: day.rows,
+                    hidden: day.hidden,
+                    now: instant,
+                    isChecked: { model.isChecked($0) },
+                    onToggle: { model.toggle($0) },
+                    onJoin: onJoin)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 column(
-                    title: "Next up",
-                    isEmpty: model.reminders.isEmpty,
-                    emptyLine: "Nothing due."
-                ) {
-                    ForEach(model.reminders) { reminder in
-                        ReminderQuickRow(
-                            reminder: reminder,
-                            isChecked: model.isChecked(reminder.id)
-                        ) {
-                            model.toggle(reminder)
-                        }
-                    }
-                }
-                column(
-                    title: "Recent notes",
+                    title: model.showsPinned ? "Pinned & recent" : "Recent notes",
                     isEmpty: model.recentNotes.isEmpty,
                     emptyLine: "No notes yet."
                 ) {
                     ForEach(model.recentNotes) { note in
-                        NoteQuickRow(note: note) { onOpenNotes(nil) }
+                        NoteQuickRow(
+                            note: note,
+                            onOpen: { onOpenNotes(nil) },
+                            onUnpin: { model.unpin(note) })
                     }
                 }
+                // Fixed, and narrower than the day: the notes column is what you
+                // *also* get, and letting it take half the band made a five-row day
+                // wrap while three note titles sat in white space.
+                .frame(width: layout.notesColumnWidth)
             }
             Spacer(minLength: 0)
             actions
@@ -147,75 +157,59 @@ struct NotchQuickActionsView: View {
 
 // MARK: - Rows
 
-/// A reminder at a glance: tick it off on the left, read it on the right. The
-/// checkbox is the one inline mutation the band offers — it needs no keyboard, and
-/// "done" is the answer a due reminder is usually waiting for.
-///
-/// It ticks **both ways**. A ticked row stays in place, struck through, for the
-/// rest of the glance (`NotchQuickActionsModel.ticked`) rather than vanishing on
-/// the click — on a bezel panel with no undo affordance, a one-way tick means a
-/// mis-click can only be fixed by opening the real window.
-private struct ReminderQuickRow: View {
-    let reminder: ReminderItem
-    let isChecked: Bool
-    let onToggle: () -> Void
-
-    private var isOverdue: Bool { reminder.dueDate <= Date() }
-
-    var body: some View {
-        HStack(spacing: 7) {
-            Button(action: onToggle) {
-                Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(isChecked ? Theme.Notch.success : Theme.Notch.text)
-            }
-            .iconButton(size: 20, tooltip: isChecked ? "Mark not done" : "Mark done")
-            .accessibilityLabel(
-                isChecked
-                    ? "Mark “\(reminder.displayTitle)” not done"
-                    : "Mark “\(reminder.displayTitle)” done")
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text(reminder.displayTitle)
-                    .font(Typography.notchBody)
-                    .foregroundStyle(isChecked ? Theme.Notch.textSecondary : Theme.Notch.text)
-                    .strikethrough(isChecked)
-                Text(isChecked ? "Done" : NotchQuickActionsFormat.due(reminder.dueDate))
-                    .font(Typography.notchCaption)
-                    .foregroundStyle(
-                        isChecked || !isOverdue ? Theme.Notch.textSecondary : Theme.Notch.warning)
-            }
-            .lineLimit(1)
-            .accessibilityElement(children: .combine)
-
-            Spacer(minLength: 0)
-        }
-    }
-}
-
 /// A note at a glance. Tapping it opens the real editor — the band has no business
 /// holding a text field.
+///
+/// A **pinned** note wears the pin glyph in ember and carries an unpin affordance, so
+/// the surface that shows a pin also offers the way to take it off. A note is pinned
+/// *to* the notch, so being unable to unpin it from the notch would mean walking to
+/// the window to undo something the notch is the whole point of.
 private struct NoteQuickRow: View {
     let note: Note
     let onOpen: () -> Void
+    var onUnpin: () -> Void = {}
+
+    @State private var isHovering = false
 
     var body: some View {
-        Button(action: onOpen) {
-            HStack(spacing: 7) {
-                Image(systemName: "text.alignleft")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Theme.Notch.textTertiary)
-                Text(note.displayTitle)
-                    .font(Typography.notchBody)
-                    .foregroundStyle(Theme.Notch.text)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
+        HStack(spacing: 7) {
+            Button(action: onOpen) {
+                HStack(spacing: 7) {
+                    Image(systemName: note.isPinned ? "pin.fill" : "text.alignleft")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(note.isPinned ? Theme.Notch.accent : Theme.Notch.textTertiary)
+                    Text(note.displayTitle)
+                        .font(Typography.notchBody)
+                        .foregroundStyle(Theme.Notch.text)
+                        .lineLimit(1)
+                    // A spoken note says so — the recording is the thing that makes
+                    // it verifiable, and the glyph is how you know there is one
+                    // before you open the window.
+                    if note.hasAudio {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Theme.Notch.textTertiary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .accessibilityLabel(note.isPinned
+                ? "Open pinned note “\(note.displayTitle)”"
+                : "Open note “\(note.displayTitle)”")
+
+            if note.isPinned, isHovering {
+                Button(action: onUnpin) {
+                    Image(systemName: "pin.slash")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .iconButton(size: 18, tooltip: "Unpin from the notch")
+                .accessibilityLabel("Unpin “\(note.displayTitle)” from the notch")
+            }
         }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .accessibilityLabel("Open note “\(note.displayTitle)”")
+        .onHover { isHovering = $0 }
     }
 }
 

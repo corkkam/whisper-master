@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// Recording section: push-to-talk key + the behavior toggles.
+/// Dictation section: the push-to-talk key + the behavior toggles. The coding
+/// agents controls that used to sit under this moved to their own sub-page
+/// (`AgentSettingsView`); the notch toggles moved into the General card.
 struct RecordingSettingsView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
@@ -8,37 +10,34 @@ struct RecordingSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
-            SectionLabel("Recording")
+            SectionLabel("Dictation")
             SettingsCard {
                 SettingsRow("Push-to-talk key",
-                            subtitle: "Press and hold to dictate from anywhere on your Mac. "
-                                + "Double-tap to keep dictating hands-free; double-tap again to stop.") {
+                            subtitle: "Press and hold to dictate anywhere on your Mac. "
+                                + "Double-tap to keep dictating hands-free.") {
                     hotkeyMenu
                 }
-                if showsFnConflictHint { fnConflictHint }
+                if showsFnConflictHint {
+                    fnConflictHint
+                } else if showsFnClaimedNote {
+                    fnClaimedNote
+                }
                 RowDivider()
                 SettingsRow("Hold-to-talk",
                             subtitle: "Hold the key while you speak. Off makes it a toggle.") {
                     ThemeToggle(isOn: $state.holdToTalkEnabled, label: "Hold-to-talk")
                 }
                 RowDivider()
+                SettingsRow("Pause music while you speak",
+                            subtitle: "Music and video stop when you start dictating, "
+                                + "and play again when you are done.") {
+                    ThemeToggle(isOn: $state.pauseMediaWhileListening,
+                                label: "Pause music while you speak")
+                }
+                RowDivider()
                 SettingsRow("Play start / stop sound",
                             subtitle: "Subtle click when recording begins or ends.") {
                     ThemeToggle(isOn: $state.soundEnabled, label: "Play start / stop sound")
-                }
-            }
-
-            SectionLabel("Notch")
-
-            SettingsCard {
-                SettingsRow("Quick actions on hover",
-                            subtitle: "Rest the pointer on the notch to see what's due and the notes you touched last. Never while you're dictating.") {
-                    ThemeToggle(isOn: $state.quickActionsEnabled, label: "Quick actions on hover")
-                }
-                RowDivider()
-                SettingsRow("Gentle reminders",
-                            subtitle: "A quiet nudge in the notch if you haven't dictated in a while.") {
-                    ThemeToggle(isOn: $state.remindersEnabled, label: "Gentle reminders")
                 }
             }
         }
@@ -56,6 +55,44 @@ struct RecordingSettingsView: View {
         // token is what re-evaluates this after our own write.
         _ = fnConflictToken
         return state.hotkey == .fn && FnKeyBehavior.conflictsWithPushToTalk
+    }
+
+    /// Shown once the app has taken the Globe key and the setting actually reads back
+    /// as ours. **Changing a system-wide preference silently would be the wrong kind
+    /// of helpful** — the note is how the user finds out it happened, and the button
+    /// beside it is how they undo it.
+    private var showsFnClaimedNote: Bool {
+        _ = fnConflictToken
+        return state.hotkey == .fn && FnKeyBehavior.claimedPreviousBehavior != nil
+    }
+
+    private var fnClaimedNote: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.success)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("The Globe key is yours alone — Whisper Master turned off "
+                    + "\(FnKeyBehavior.claimDescription) so it can't fire on the "
+                    + "double-tap that latches hands-free.")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !isSnapshot {
+                    Button("Give it back to macOS") {
+                        FnKeyBehavior.restoreSystemFnBehavior()
+                        fnConflictToken += 1
+                        Analytics.shared.send(.fnKeyClaim(restored: true))
+                    }
+                    .textButton()
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
+                .fill(Theme.successSoft)
+        )
     }
 
     /// Bumped after we write the system pref so `showsFnConflictHint` — which reads

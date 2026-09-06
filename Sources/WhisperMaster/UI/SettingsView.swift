@@ -15,9 +15,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     // Folded under Settings ("More"):
     case insights
     case engine
-    case history
+    case agents
+    case traces
     case permissions
     case mesh
+    case lab
     case about
 
     var id: String { rawValue }
@@ -25,7 +27,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// The four items shown in the sidebar.
     static let primary: [SettingsSection] = [.today, .notes, .connectors, .settings]
     /// The pages folded into the Settings screen's "More" list.
-    static let secondary: [SettingsSection] = [.insights, .engine, .history, .permissions, .mesh, .about]
+    static let secondary: [SettingsSection] = [.insights, .engine, .agents, .traces, .permissions, .mesh, .lab, .about]
 
     var isPrimary: Bool { SettingsSection.primary.contains(self) }
 
@@ -35,6 +37,17 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     func isAvailable(connectorsAndNotes: Bool) -> Bool {
         switch self {
         case .notes, .connectors: return connectorsAndNotes
+        // Nearby Macs is on hold: peer discovery, the proximity beacons and the
+        // remote-transcription listener all work, but none of it is finished
+        // enough to hand to a user, so the page reads "Coming soon" on every
+        // channel rather than shipping a half-built network surface. Nothing is
+        // deleted — flip this back to `true` to bring the panel out again.
+        case .mesh: return false
+        // The Model Lab is a dev-build bench, not an unreleased product surface:
+        // it is *absent* rather than "coming soon", because promising a stable
+        // user a page that downloads 2 GB models would be promising the wrong
+        // thing (see `FeatureFlags.modelLabAvailable`).
+        case .lab: return FeatureFlags.modelLabAvailable
         default: return true
         }
     }
@@ -42,10 +55,22 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     /// Whether this section can be opened in *this* build.
     ///
     /// Connectors and Notes & Reminders are not yet released on stable (see
-    /// `FeatureFlags`) — they stay listed in the sidebar but read "Coming soon"
-    /// and don't respond. Everything else is always available.
+    /// `FeatureFlags`), and Nearby Macs is not released anywhere — they stay
+    /// listed but read "Coming soon" and don't respond. Everything else is
+    /// always available.
     var isAvailable: Bool {
         isAvailable(connectorsAndNotes: FeatureFlags.connectorsAndNotesAvailable)
+    }
+
+    /// Whether this page appears in the Settings "More" list at all.
+    ///
+    /// An unreleased *product* page stays listed and reads "Soon": the roadmap is
+    /// deliberately visible, and dropping the row would make the feature look
+    /// cancelled rather than pending. The Model Lab is not a roadmap entry — it
+    /// is a bench for whoever is building the app — so on any other channel it is
+    /// simply absent rather than promised.
+    var isListed: Bool {
+        self != .lab || FeatureFlags.modelLabAvailable
     }
 
     /// The sidebar item that should read as selected for this section (a
@@ -60,9 +85,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .settings: return "Settings"
         case .insights: return "Insights"
         case .engine: return "Voice engine"
-        case .history: return "History"
+        case .agents: return "Coding agents"
+        case .traces: return "Traces"
         case .permissions: return "Permissions"
         case .mesh: return "Nearby Macs"
+        case .lab: return "Model Lab"
         case .about: return "About"
         }
     }
@@ -87,9 +114,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .settings: return "Everything you can tune, in one warm place."
         case .insights: return "Your dictation at a glance — words, speed, and streaks."
         case .engine: return "Everything runs on-device. Your audio never leaves this Mac."
-        case .history: return "Your recent transcriptions, kept locally."
+        case .agents: return "Dictate straight to a Claude Code session on this Mac."
+        case .traces: return "What actually happened to the last few things you said."
         case .permissions: return "Whisper Master only asks for what it needs to work."
         case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
+        case .lab: return "Bench open-source models against the real suites, on this Mac."
         case .about: return "Voice dictation that stays on your Mac."
         }
     }
@@ -102,9 +131,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .settings: return "Preferences"
         case .insights: return "Overview"
         case .engine: return "On-device"
-        case .history: return "Activity"
+        case .agents: return "On this Mac"
+        case .traces: return "Activity"
         case .permissions: return "Privacy"
         case .mesh: return "Mesh"
+        case .lab: return "Dev build"
         case .about: return "Whisper Master"
         }
     }
@@ -118,9 +149,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .settings: return "slider.horizontal.3"
         case .insights: return "chart.bar"
         case .engine: return "waveform"
-        case .history: return "clock"
+        case .agents: return "terminal"
+        case .traces: return "list.bullet.indent"
         case .permissions: return "lock.shield"
         case .mesh: return "laptopcomputer"
+        case .lab: return "flask"
         case .about: return "info.circle"
         }
     }
@@ -140,11 +173,19 @@ struct SettingsView: View {
     var initialSection: SettingsSection = .today
 
     @State private var selection: SettingsSection
+    /// Which half of Notes & Reminders is showing. Held here, above both the sidebar
+    /// sub-rows and the page's tab bar, so the two are one selection.
+    @State private var notesTab: NotesTab = .overview
+    /// Whether the sidebar's Notes group is expanded. Starts open — a collapsed
+    /// group on first run hides the feature's two halves behind a chevron nobody
+    /// knows to click.
+    @State private var notesExpanded = true
     @State private var hasAutoFocusedSetup = false
     @State private var micGranted = false
     @State private var micDenied = false
     @State private var accessibilityGranted = false
     @Environment(\.isSnapshot) private var isSnapshot
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let permissions = PermissionsManager()
 
     init(
@@ -233,6 +274,15 @@ struct SettingsView: View {
             VStack(spacing: 3) {
                 ForEach(SettingsSection.primary) { section in
                     navRow(section)
+                    // Notes & Reminders is the one primary that holds two distinct
+                    // things, so it's the one that expands. The sub-rows select the
+                    // same `notesTab` the page's own tab bar drives, so the sidebar
+                    // and the content can never disagree about which half is up.
+                    if section == .notes, section.isAvailable, notesExpanded {
+                        ForEach(NotesTab.allCases) { candidate in
+                            notesSubRow(candidate)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 12)
@@ -240,8 +290,18 @@ struct SettingsView: View {
             Spacer(minLength: 16)
 
             VStack(spacing: 12) {
+                // Only present when Sparkle has actually found something, so the
+                // sidebar says nothing at all on a current build.
+                if let version = state.availableUpdateVersion {
+                    SidebarUpdateCard(version: version, install: checkForUpdates)
+                }
                 SidebarMicCard(state: state, viewModel: viewModel)
-                SidebarAccountRow(isSnapshot: isSnapshot, signOut: signOut)
+                SidebarAccountRow(
+                    isSnapshot: isSnapshot,
+                    updateVersion: state.availableUpdateVersion,
+                    signOut: signOut,
+                    checkForUpdates: checkForUpdates
+                )
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 16)
@@ -259,6 +319,12 @@ struct SettingsView: View {
         let isSelected = isAvailable && selection.sidebarParent == section
         return Button {
             guard isAvailable else { return }
+            // Tapping the Notes group both opens the page and expands the group.
+            // Re-tapping it while already there collapses — a group header that can
+            // only ever open is a one-way door.
+            if section == .notes {
+                notesExpanded = selection == .notes ? !notesExpanded : true
+            }
             selection = section
         } label: {
             HStack(spacing: 12) {
@@ -279,17 +345,20 @@ struct SettingsView: View {
                     .layoutPriority(1)
                 Spacer(minLength: 4)
                 if !isAvailable {
-                    Text("Soon")
-                        .font(Typography.sans(10.5, .bold))
-                        .tracking(0.4)
+                    RowTag("Soon")
+                } else if section == .notes {
+                    // A chevron rather than a second button: the row's own tap goes
+                    // to the page, and this rotates to say the group underneath it
+                    // is open. It's inside the row's label, so it can't steal the
+                    // row's hit area — the tap below toggles the group *and*
+                    // navigates, which is what a group header should do.
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(Theme.textTertiary)
-                        .lineLimit(1)
-                        .fixedSize()
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule(style: .continuous).fill(Theme.textTertiary.opacity(0.12))
-                        )
+                        .rotationEffect(.degrees(notesExpanded ? 90 : 0))
+                        .animation(
+                            Theme.Motion.respecting(reduceMotion, Theme.Motion.quick),
+                            value: notesExpanded)
                 }
             }
             .padding(.horizontal, 12)
@@ -316,6 +385,50 @@ struct SettingsView: View {
         // unreleased row would still show the hand.
         .pointerCursor()
         .disabled(!isAvailable)
+    }
+
+    /// A child row under the Notes group: Overview / Notes / Reminders.
+    ///
+    /// Visually subordinate on purpose — indented, smaller type, and a *rule* down
+    /// the left rather than the parent's pill-and-glow. Giving a child the same
+    /// selected treatment as a top-level item would make the sidebar read as seven
+    /// peers instead of four sections, one of which is open.
+    private func notesSubRow(_ candidate: NotesTab) -> some View {
+        let isSelected = selection == .notes && notesTab == candidate
+        return Button {
+            notesTab = candidate
+            selection = .notes
+        } label: {
+            HStack(spacing: 9) {
+                // The indent rule, lit for the selected child.
+                Rectangle()
+                    .fill(isSelected ? Theme.accent : Theme.line)
+                    .frame(width: 2, height: 16)
+                Image(systemName: candidate.icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(isSelected ? Theme.accentText : Theme.textTertiary)
+                    .frame(width: 14, alignment: .center)
+                Text(candidate.title)
+                    .font(Typography.sans(13, isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? Theme.accentText : Theme.textTertiary)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+            }
+            .padding(.leading, 22)
+            .padding(.trailing, 12)
+            .padding(.vertical, 6)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: Theme.pillRadius, style: .continuous)
+                        .fill(Theme.accentSoft.opacity(0.7))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .accessibilityLabel("Notes and reminders: \(candidate.title)")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
     // MARK: - Detail
@@ -347,9 +460,22 @@ struct SettingsView: View {
             .padding(.horizontal, 40)
             .padding(.top, 34)
             .padding(.bottom, 48)
-            .frame(maxWidth: 780)
+            .frame(maxWidth: contentMaxWidth)
             .frame(maxWidth: .infinity, alignment: .center)
         }
+    }
+
+    /// How wide the content column is allowed to get.
+    ///
+    /// 780 is a reading measure — right for pages that are prose and settings rows,
+    /// and wrong for the notes canvas, which is a *grid of cards beside a reminders
+    /// column*. At 780 that bifurcation collapses to one sticky per row with the
+    /// reminders squeezed beside it, so the notes page gets a wider measure. The
+    /// window is 80% of the screen (`applyDefaultWindowFrame`), so the room exists.
+    /// The lab joins notes at the wider measure for the same reason: it is a
+    /// table of models beside a rail of cases, not a reading column.
+    private var contentMaxWidth: CGFloat {
+        selection == .notes || selection == .lab ? 1180 : 780
     }
 
     private func header(_ section: SettingsSection) -> some View {
@@ -404,13 +530,13 @@ struct SettingsView: View {
             // unreachable there — but a stale `requestedSettingsSection` must not
             // be able to render an unreleased panel.
             if selection.isAvailable {
-                NotesSettingsView(state: state)
+                NotesSettingsView(state: state, tab: $notesTab)
             } else {
                 ComingSoonPanel(section: .notes)
             }
         case .connectors:
             if selection.isAvailable {
-                ConnectorsSettingsView(viewModel: viewModel, state: state)
+                ConnectorsSettingsView(state: state)
             } else {
                 ComingSoonPanel(section: .connectors)
             }
@@ -418,10 +544,22 @@ struct SettingsView: View {
             GeneralSettingsView(viewModel: viewModel, state: state, openSubPage: { selection = $0 })
         case .engine:
             EngineSettingsView(viewModel: viewModel, state: state)
+        case .agents:
+            AgentSettingsView(state: state)
         case .mesh:
-            MeshSettingsView(viewModel: viewModel, state: state)
-        case .history:
-            HistorySettingsView(viewModel: viewModel, state: state)
+            if selection.isAvailable {
+                MeshSettingsView(viewModel: viewModel, state: state)
+            } else {
+                ComingSoonPanel(section: .mesh)
+            }
+        case .lab:
+            if selection.isAvailable {
+                LabSettingsView(state: state)
+            } else {
+                ComingSoonPanel(section: .lab)
+            }
+        case .traces:
+            TracesSettingsView(viewModel: viewModel, state: state)
         case .insights:
             InsightsSettingsView(viewModel: viewModel, state: state)
         case .permissions:
@@ -459,6 +597,76 @@ struct SettingsView: View {
         micGranted = micStatus == .granted
         micDenied = micStatus == .denied
         accessibilityGranted = permissions.accessibilityGranted()
+    }
+}
+
+// MARK: - Sidebar update card
+
+/// "There is a new version" in the sidebar, and the one click that installs it.
+///
+/// It is drawn only while `AppState.availableUpdateVersion` is set, which the
+/// AppDelegate's Sparkle delegate writes from a **silent** check
+/// (`checkForUpdateInformation()`), so a waiting update announces itself in the
+/// window without a Sparkle panel appearing over whatever the user was doing.
+/// The tap runs the ordinary `checkForUpdates` action — Sparkle then shows its
+/// own release notes and Install button, which is the surface that owns the
+/// download, the signature check and the relaunch.
+///
+/// Accent-tinted rather than a plain glass card: it is news, and it sits beside
+/// the mic card, which must stay the loudest thing at the foot of the sidebar —
+/// hence the smaller glyph and the two tight lines.
+private struct SidebarUpdateCard: View {
+    let version: String
+    var install: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: install) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle().fill(Theme.accentFill)
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.accentOn)
+                }
+                .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Update ready")
+                        .font(Typography.heading(13, relativeTo: .callout))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("Version \(version)")
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 4)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Theme.accentText)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 10)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Theme.accentSoft)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(
+                                Theme.accent.opacity(hovering ? 0.42 : 0.22), lineWidth: 1)
+                    )
+                    .shadow(color: Theme.Ember.base.opacity(0.18), radius: 10, x: 0, y: 4)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel("Update ready, version \(version)")
+        .accessibilityHint("Installs the update")
+        .pointerCursor()
     }
 }
 
@@ -551,7 +759,9 @@ private struct SidebarMicCard: View {
 /// stable stand-in.
 private struct SidebarAccountRow: View {
     let isSnapshot: Bool
+    var updateVersion: String?
     var signOut: () -> Void = {}
+    var checkForUpdates: () -> Void = {}
 
     @State private var showAccount = false
 
@@ -559,7 +769,16 @@ private struct SidebarAccountRow: View {
         row
             // Anchored above the row (it lives at the sidebar's bottom edge).
             .popover(isPresented: $showAccount, arrowEdge: .top) {
-                AccountPopover(signOut: signOut)
+                AccountPopover(
+                    updateVersion: updateVersion,
+                    signOut: signOut,
+                    checkForUpdates: {
+                        // Sparkle's window is app-modal-ish and this popover sits
+                        // above it, so close ours before handing over.
+                        showAccount = false
+                        checkForUpdates()
+                    }
+                )
             }
     }
 

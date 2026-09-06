@@ -48,17 +48,45 @@ final class AppState {
     static let historyDefaultsKey = "WhisperMaster.transcriptHistory.v1"
     static let historyLimit = 50
     static let vocabularyDefaultsKey = "WhisperMaster.customVocabulary.v1"
-    static let appearanceDefaultsKey = "WhisperMaster.appearance.v1"
+    // `WhisperMaster.appearance.v1` held the retired light/dark/system preference.
+    // The app is light-only now (`NSApp.appearance` is pinned to `.aqua` at
+    // launch), so the key is left on disk and never read — same reasoning as the
+    // retired hotkey key below. Don't reuse the name.
     static let hotkeyDefaultsKey = "WhisperMaster.hotkey.v1"
+    /// The coding-agent key. Stored as the raw option name, or "" for off, so the
+    /// absence of the key means "never chosen" and an empty string means "chosen
+    /// off" — two states a plain optional string cannot tell apart.
+    static let agentHotkeyDefaultsKey = "WhisperMaster.agentHotkey.v1"
+    /// Where a spoken prompt opens a new agent session when nothing is running.
+    static let agentDirectoryDefaultsKey = "WhisperMaster.agentDirectory.v1"
+    /// Whether a finished turn's reply arrives as the full expanded band.
+    static let agentExpandedRepliesDefaultsKey = "WhisperMaster.agentExpandedReplies.v1"
     // `WhisperMaster.dayQueryHotkey.v1` was the retired second push-to-talk key.
     // Left on disk rather than migrated away — it is never read, and deleting a key
     // buys nothing. Don't reuse the name for something else.
     static let holdToTalkDefaultsKey = "WhisperMaster.holdToTalk.v1"
+    static let pauseMediaDefaultsKey = "WhisperMaster.pauseMediaWhileListening.v1"
     static let remindersEnabledDefaultsKey = "WhisperMaster.remindersEnabled.v1"
     static let quickActionsDefaultsKey = "WhisperMaster.quickActions.v1"
+    static let nowSurfaceDefaultsKey = "WhisperMaster.nowSurface.v1"
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
     static let remoteDictationEnabledDefaultsKey = "WhisperMaster.remoteDictationEnabled.v1"
     static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
+
+    /// The persisted analytics opt-in, readable **without building an `AppState`**.
+    ///
+    /// `AppDelegate` needs this at the very top of `applicationDidFinishLaunching`
+    /// so the crash handler is installed before the launch work that is most
+    /// likely to crash (model load, Metal warm-up). Reading it off `viewModel`
+    /// there would force the lazy `DictationViewModel` — and the whole engine
+    /// graph behind it — to initialize earlier than it does today, which is a
+    /// launch-order change nobody asked for. `init` below uses the same property,
+    /// so the default can never drift between the two readers.
+    /// `nonisolated` because it reads `UserDefaults` and no actor state — the
+    /// point is to answer without an `AppState` existing at all.
+    nonisolated static var persistedAnalyticsEnabled: Bool {
+        UserDefaults.standard.object(forKey: analyticsEnabledDefaultsKey) as? Bool ?? true
+    }
     static let usageSyncEnabledDefaultsKey = "WhisperMaster.usageSyncEnabled.v1"
     static let notesSyncEnabledDefaultsKey = "WhisperMaster.notesSyncEnabled.v1"
     static let reminderDefaultAlertStyleDefaultsKey = "WhisperMaster.reminderDefaultAlertStyle.v1"
@@ -68,7 +96,10 @@ final class AppState {
     static let llmCleanupDefaultsKey = "WhisperMaster.llmCleanup.v1"
     static let llmGrammarPolishDefaultsKey = "WhisperMaster.llmGrammarPolish.v1"
     static let speakAnswersDefaultsKey = "WhisperMaster.speakAnswers.v1"
-    static let speakAutomationAnswersDefaultsKey = "WhisperMaster.speakAutomationAnswers.v1"
+    // `WhisperMaster.speakAutomationAnswers.v1` governed whether scheduled
+    // automations spoke when they fired. Automations are gone, so it is left on disk
+    // and never read — same posture as the retired hotkey and appearance keys above.
+    // Don't reuse the name.
     static let answerVoiceEngineDefaultsKey = "WhisperMaster.answerVoiceEngine.v1"
     static let systemVoiceDefaultsKey = "WhisperMaster.systemVoice.v1"
     static let naturalVoiceDefaultsKey = "WhisperMaster.naturalVoice.v1"
@@ -131,6 +162,39 @@ final class AppState {
     }
     var holdToTalkEnabled: Bool = true {
         didSet { UserDefaults.standard.set(holdToTalkEnabled, forKey: Self.holdToTalkDefaultsKey) }
+    }
+
+    /// Pause whatever is playing while the app is listening or answering. On by
+    /// default: the microphone hears the speakers, so dictating over a podcast
+    /// transcribes the podcast as well as the user. See `Media/MediaPauser`.
+    var pauseMediaWhileListening: Bool = true {
+        didSet { UserDefaults.standard.set(pauseMediaWhileListening, forKey: Self.pauseMediaDefaultsKey) }
+    }
+
+    /// The key that talks to a coding agent, or nil for off.
+    ///
+    /// A second physical key rather than another chord, and **user-chosen rather
+    /// than fixed**, because it has to stay off whatever the person already uses for
+    /// dictation — which is not the default on most installs. `nil` is a real state:
+    /// somebody with no kunai should not be holding a key aside for it.
+    ///
+    /// Talking to an agent genuinely needs its own way in. Everything else in the
+    /// notch is either an interrupt that arrives on its own or a re-label of a
+    /// dictation already in flight; this one *starts* something, and nothing can
+    /// infer that from the words (see the prohibition on inferring intent in the
+    /// root `CLAUDE.md`).
+    var agentHotkey: HotkeyManager.HotkeyOption? = nil {
+        didSet {
+            UserDefaults.standard.set(agentHotkey?.rawValue ?? "", forKey: Self.agentHotkeyDefaultsKey)
+        }
+    }
+
+    /// The agent key, but only when it is actually usable: a key that collides with
+    /// push-to-talk would swallow one of the two, and the dictation key wins because
+    /// it is the one the whole app is named for.
+    var effectiveAgentHotkey: HotkeyManager.HotkeyOption? {
+        guard let agentHotkey, agentHotkey != hotkey else { return nil }
+        return agentHotkey
     }
     /// True while a double-tap has latched the running dictation open, so it keeps
     /// listening with the key released. Transient (never persisted); set by the
@@ -211,6 +275,16 @@ final class AppState {
     /// reminder's default time is one click from adjustable. Transient; consumed
     /// (and cleared) by `SettingsView` the moment it flips.
     var requestedSettingsSection: SettingsSection?
+    /// The version string of an update Sparkle has found and the user has not
+    /// installed yet, or nil when this build is current. Written **only** by the
+    /// AppDelegate's `SPUUpdaterDelegate` callbacks; read by the sidebar's update
+    /// card and the account popup, so the two entry points can never disagree
+    /// about whether there is something to install.
+    ///
+    /// Transient on purpose — never persisted. A marker written to disk would
+    /// outlive the update that answered it and light the sidebar on a build that
+    /// is already current, and Sparkle re-checks on every launch anyway.
+    var availableUpdateVersion: String?
     /// One-shot request to open a *fresh* note / reminder editor once the Notes &
     /// Reminders page is on screen — set by the notch quick-actions panel, which
     /// sits on the bezel as a non-activating panel and so can't host a text field
@@ -269,17 +343,26 @@ final class AppState {
     /// One-shot flag the Settings "Retry" button sets; drained by the manager on
     /// the next refresh tick to re-attempt a failed load.
     var cleanupRetryRequested: Bool = false
-    /// Light / dark / follow-the-system. Persisted; applied app-wide by
-    /// `AppDelegate.applyAppearance()`, which sets `NSApp.appearance` — the one
-    /// lever that cascades to every window. The dictation pill deliberately
-    /// opts out and stays ink, since it draws on the physical bezel.
-    var appearance: AppAppearance = .system {
-        didSet {
-            guard appearance != oldValue else { return }
-            UserDefaults.standard.set(appearance.rawValue, forKey: Self.appearanceDefaultsKey)
-        }
-    }
 
+    // MARK: - The assistant model (a different model, and a different question)
+
+    /// Live progress of the **assistant** model's download. Same hard rule as
+    /// `cleanupModelDownload`: Settings only, never the notch or the tray.
+    /// Transient; written by `AssistantModelManager`.
+    var assistantModelDownload: ModelInstaller.Progress?
+    /// Whether the assistant model is loaded and usable. This is **not**
+    /// `cleanupModelReady` — since the two jobs split onto two models, cleanup
+    /// readiness says nothing about whether the chord can reach a model that
+    /// tool-calls, and reading one for the other is how the Settings hint came to
+    /// claim the assistant was present when it was not.
+    var assistantModelReady: Bool = false
+    /// Set when the assistant model's download or load fails after retries, so
+    /// Settings can be honest and offer a retry.
+    var assistantModelFailed: Bool = false
+    /// One-shot flag the Settings "Download"/"Retry" button sets. This is also the
+    /// **only** way the 2 GB fetch starts without the user having used the chord —
+    /// nothing here downloads at launch.
+    var assistantModelDownloadRequested: Bool = false
     /// Whether gentle "you haven't used me in a while" reminders are enabled.
     /// Persisted; **on by default** — the app lives in the notch with no window to
     /// come back to, so an install nobody is reminded of is an install nobody uses.
@@ -293,6 +376,18 @@ final class AppState {
     /// toggle is the way out for anyone whose pointer lives up there.
     var quickActionsEnabled: Bool = true {
         didSet { UserDefaults.standard.set(quickActionsEnabled, forKey: Self.quickActionsDefaultsKey) }
+    }
+    /// Whether the notch carries the one thing that is relevant right now — a
+    /// meeting about to start, a reminder that has gone past — in the menu-bar row
+    /// beside whatever the app itself is doing.
+    ///
+    /// Persisted; **on by default**, and it is a hard off-switch: with it off
+    /// `NowStore` never ranks anything and the leading slot is never drawn, so the
+    /// bezel goes back to speaking only when spoken to. Deliberately separate from
+    /// `hidePillWhenIdle`, which is about the dictation indicator: one is "do not
+    /// show me the app", the other is "do not show me my day".
+    var nowSurfaceEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(nowSurfaceEnabled, forKey: Self.nowSurfaceDefaultsKey) }
     }
     /// Keep this Mac awake so the phone can reach it for remote dictation even
     /// after it's been sitting locked and idle. Persisted; **opt-in** — off by
@@ -328,7 +423,7 @@ final class AppState {
     /// Run the finished transcript through the on-device qwen "smart cleanup"
     /// pass (fixes self-corrections/false starts). Persisted; **opt-in** — off
     /// until the user turns it on (onboarding or Settings), since it downloads a
-    /// ~1.8 GB model. Dictation works normally whether or not it's ready.
+    /// ~2.3 GB model. Dictation works normally whether or not it's ready.
     var llmCleanupEnabled: Bool = false {
         didSet { UserDefaults.standard.set(llmCleanupEnabled, forKey: Self.llmCleanupDefaultsKey) }
     }
@@ -355,10 +450,21 @@ final class AppState {
             }
         }
     }
-    /// Share anonymous usage analytics (PostHog). **On by default —
-    /// opt-out.** Safe to default on because the data carries no PII: never
-    /// transcripts, only app version, OS, and coarse feature counts. Users can
-    /// switch it off in Settings → About. Toggling starts/stops the SDK live.
+    /// Share usage analytics (PostHog + GA4). **On by default — opt-out.**
+    ///
+    /// ⚠️ **This is no longer anonymous.** It was, when the only identifier was a
+    /// random per-install UUID; since `Analytics.identify` the person profile
+    /// carries the **Clerk user id and email**, because "which customer uses which
+    /// feature" cannot be answered by a per-install id. The *events* are still
+    /// content-free — never a transcript, a note, or a recording, only app version,
+    /// OS, and coarse bucketed feature counts — but they are attributable to a
+    /// named account.
+    ///
+    /// The on-by-default posture predates that change and is worth revisiting: an
+    /// opt-out default is a much easier argument for anonymous counts than for
+    /// account-linked ones. This switch is now the only thing standing between the
+    /// sinks and the network, and the Settings copy no longer claims anonymity.
+    /// Toggling starts/stops the SDK live.
     var analyticsEnabled: Bool = true {
         didSet {
             UserDefaults.standard.set(analyticsEnabled, forKey: Self.analyticsEnabledDefaultsKey)
@@ -388,11 +494,55 @@ final class AppState {
     /// is why the old always-on "Create by voice" toggle is gone. An ordinary
     /// dictation that merely opens with "remind me…" is now just text again.
     var commandCaptureArmed: Bool = false
+
+    /// True while the agent key is holding a capture whose words go to a coding
+    /// agent rather than being typed. Transient; mirrored from the view model so the
+    /// band can say which session it is about to send to.
+    var agentCaptureArmed: Bool = false
+
+    /// Replies arrive as the full expanded band rather than the one-line banner.
+    /// Off by default: the expanded band is a paragraph of screen, and the one-line
+    /// banner with click-to-expand is the calmer default. Written through to the
+    /// controller, which is what actually acts on it at the moment a turn ends.
+    var agentExpandedRepliesEnabled: Bool = false {
+        didSet {
+            UserDefaults.standard.set(
+                agentExpandedRepliesEnabled, forKey: Self.agentExpandedRepliesDefaultsKey)
+            agents.expandRepliesByDefault = agentExpandedRepliesEnabled
+        }
+    }
+
+    /// The repository a spoken prompt opens a **new** session in, when nothing is
+    /// running yet.
+    ///
+    /// Deliberately empty by default rather than falling back to the home directory:
+    /// starting a coding agent loose in `~` is the kind of helpful guess that ends in
+    /// a bad afternoon. With nothing set and nothing running, the words are held in
+    /// the undelivered banner instead, which says what to do.
+    var agentDefaultDirectory: String = "" {
+        didSet {
+            UserDefaults.standard.set(
+                agentDefaultDirectory, forKey: Self.agentDirectoryDefaultsKey)
+        }
+    }
+
+    /// Where a new session opens: the explicit setting, else the directory of a
+    /// session that already exists, so the common case needs no setup at all.
+    var resolvedAgentDirectory: String? {
+        let configured = agentDefaultDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configured.isEmpty { return configured }
+        return agents.lastKnownDirectory
+    }
     /// True while the assistant is carrying out a finished command — the tool-calling
     /// loop is running. The band is already up (`isPolishing` holds it there for the
     /// thinking orb); this is what stops it captioning the work "Polishing", which
     /// would describe a rewrite that isn't happening.
     var commandAgentRunning: Bool = false
+    /// What that loop is doing right now, so the band can name the connector it's
+    /// waiting on ("Checking Personal") instead of saying "Working on it" for the
+    /// whole run. Nil outside a run, and while the loop is between steps the last
+    /// one stands — see `AgentLoop.onStep`.
+    var agentActivity: AgentActivity?
     /// Default alert style new reminders inherit (per-reminder overridable).
     /// Persisted as the enum raw value. This is the "configure in settings" knob.
     var reminderDefaultAlertStyle: ReminderAlertStyle = .notification {
@@ -435,22 +585,185 @@ final class AppState {
     /// `AppDelegate` (`notesStore.activate`) once auth resolves.
     let notesStore = NotesStore(load: false)
 
+    /// Playback for the recordings behind spoken notes. One per app, so starting a
+    /// second note's audio stops the first. Playback only — it never touches the
+    /// capture graph (see `NoteAudioPlayer`).
+    let noteAudioPlayer = NoteAudioPlayer()
+
+    /// What actually happened to the last few dictations and assistant captures,
+    /// behind the Traces page. Written only from the view model, like `usageStore`.
+    ///
+    /// Device-wide rather than per-account, deliberately, and unlike the three stores
+    /// above: a trace describes *this machine's* pipeline — which model was loaded,
+    /// which app took the paste, whether Accessibility answered — and none of that
+    /// follows a person to another Mac. It also has to survive being read while
+    /// signed out, since "it stopped working" is a thing people investigate before
+    /// they think to check who they're signed in as.
+    let traces = TraceStore(load: true)
+
     /// The user's connector **instances** behind the Connectors tab — many named
     /// connections per kind ("Google Calendar Work"). Like `usageStore` and
     /// `notesStore`: starts empty and is scoped to the signed-in account by
     /// `AppDelegate` (`connectorStore.activate(userID:)`) once auth resolves.
     let connectorStore = ConnectorInstanceStore(load: false)
 
-    /// Saved automations + their run history. Per-account like the others.
-    let automationStore = AutomationStore(load: false)
-
     /// The one write awaiting the user's consent, surfaced as a notch card.
     let approvals = ApprovalCoordinator()
 
-    /// Opt-in, off by default — same posture as `llmCleanupEnabled`. When off, a day
-    /// query answers from the deterministic `DaySummaryService` and no tool is ever
-    /// called.
-    var connectorAgentEnabled: Bool = false {
+    /// The coding-agent surface: kunai sessions on this Mac, and whatever one of
+    /// them is currently waiting on a person for.
+    ///
+    /// Starts dormant — `start()` is called from the app layer once, post-auth — so
+    /// `swift test` and the headless snapshot renderer can build an `AppState`
+    /// without opening a socket or polling a port. Same posture as
+    /// `UsageStore(load: false)`.
+    let agents = AgentSurfaceController()
+
+    /// Whether the ambient row is showing something clickable.
+    ///
+    /// The **one** answer both the window-level interactivity guard
+    /// (`AppDelegate.reconcile`) and the view's own `allowsHitTesting` read, so the
+    /// two cannot drift. It is deliberately a *superset* of the view's precise
+    /// test: it does not know whether the surface is currently in its row form, and
+    /// a window that is interactive while the view declines the hit passes the
+    /// click straight through — the black fill and every non-control part of the
+    /// row are explicitly non-hittable for exactly that reason.
+    var ambientRowTakesClicks: Bool {
+        guard nowSurfaceEnabled, let item = now.item else { return false }
+        return item.reminderID != nil
+            || (item.joinURL != nil && (item.kind == .meetingNow || item.kind == .meetingSoon))
+    }
+
+    /// What is relevant right now — today's calendar and the reminders around it,
+    /// ranked down to the one thing the ambient notch row carries.
+    ///
+    /// Starts dormant for the same reason `agents` does: building an `AppState`
+    /// under `swift test` or the headless renderer must not open an `EKEventStore`
+    /// or arm a timer. `start()` runs post-auth, beside the rest of the bring-up.
+    let now: NowStore
+
+    /// The Model Lab: the dev build's bench for open-source models. Dormant —
+    /// it reads no disk and loads no model until the page is opened
+    /// (`activate()`), so building an `AppState` in a test or the snapshot
+    /// renderer costs nothing. Same posture as `agents` and `UsageStore`.
+    let lab = LabController(load: false)
+
+    /// Whether a coding agent is holding a turn open waiting for an answer.
+    ///
+    /// This yields to `approvals.pending` and to nothing else above it: both are
+    /// consent cards with a caller suspended behind them, but the connector card is
+    /// the immediate consequence of something the user just said out loud and it
+    /// denies itself on a timeout, so it must not be the one that waits.
+    var shouldShowAgentAsk: Bool {
+        agents.ask != nil && approvals.pending == nil
+    }
+
+    /// Whether the user has the agent surface open to look at it. Below the ask,
+    /// because a question someone is waiting on outranks browsing, and suppressed
+    /// while dictating so the band can report the recording it is holding.
+    var shouldShowAgentGlance: Bool {
+        // `revealedAt == nil` is what keeps a *sent prompt* from ever landing on the
+        // list: a reveal is a receipt for the turn (row while working, one banner
+        // line when it ends), and falling through to the session list in between
+        // read as the notch flashing unrelated content.
+        agents.isGlanceOpen && agents.revealedAt == nil
+            && !shouldShowAgentAsk && approvals.pending == nil
+            && phase == .idle && !agentCaptureArmed
+    }
+
+    /// A session revealed by a send that is still mid-turn.
+    ///
+    /// It gets the slim **row** rather than the full tail, because a turn runs for
+    /// minutes and a panel-height band over the menu bar for minutes is an
+    /// obstruction rather than ambient awareness. The tail comes back the moment
+    /// there is a finished reply to read.
+    ///
+    /// Only a *revealed* session does this. A glance the user opened deliberately
+    /// shows what they asked for, running or not.
+    /// A finished turn's one-line answer. The whole of the response, because the
+    /// paste was suppressed — the same job the spoken-command confirmation does.
+    /// **The exact complement of `shouldShowAgentWorking`, on purpose.** These two
+    /// used to disagree: the reply also required the session not to be `running`,
+    /// and the 3s poll carries a state up to three seconds stale — so between the
+    /// socket delivering the answer and the poll catching up, *neither* band
+    /// qualified and the surface went dark, then came back. That was the flicker.
+    /// A new turn clearing `lastReply` (`sendPrompt`, and the `running` transition
+    /// in `applyState`) is what keeps the complement honest without a state test
+    /// here.
+    var shouldShowAgentReply: Bool {
+        agents.isGlanceOpen && agents.revealedAt != nil
+            && agents.openSession != nil
+            && agents.lastReply != nil
+            && !shouldShowAgentAsk && approvals.pending == nil
+            && phase == .idle && !agentCaptureArmed
+    }
+
+    /// A one-line pointer to a session that is **not** on screen: it needs a
+    /// permission answered, or it finished while you were looking elsewhere.
+    ///
+    /// It sits low in the ladder on purpose. Every band above it is either something
+    /// with a caller suspended behind it, something the user scheduled, or text that
+    /// would otherwise be lost — this is only news, and news must never take the
+    /// menu bar from any of those. It is also suppressed entirely while dictating:
+    /// the band's job during a recording is to report the recording.
+    var shouldShowAgentNudge: Bool {
+        guard agentNudgesEnabled, let raisedAt = agents.nudgeAt, agents.nudge != nil
+        else { return false }
+        guard Date().timeIntervalSince(raisedAt) < AgentSurfaceController.nudgeHold
+        else { return false }
+        return canShowAgentNudge
+    }
+
+    /// Whether the band is free to carry a nudge. Split out so the refresh loop can
+    /// *pause* the nudge's clock while something else is up, rather than letting a
+    /// message the user never saw run out of time.
+    var canShowAgentNudge: Bool {
+        !shouldShowAgentAsk && !shouldShowAgentGlance && !shouldShowAgentWorking
+            && !shouldShowAgentReply
+            && approvals.pending == nil
+            && !shouldShowDueReminderBanner
+            && !shouldShowCommandConfirmation
+            && !shouldShowDaySummary
+            && !shouldShowUndeliveredBanner
+            && phase == .idle && !agentCaptureArmed && !commandCaptureArmed
+    }
+
+    /// One line in Settings, on by default. It is a new class of interruption, so it
+    /// gets a hard off switch — but only one, and it is not a decision anyone has to
+    /// make before the feature works.
+    var agentNudgesEnabled: Bool = true {
+        didSet {
+            UserDefaults.standard.set(agentNudgesEnabled, forKey: Self.agentNudgesDefaultsKey)
+        }
+    }
+
+    static let agentNudgesDefaultsKey = "WhisperMaster.agentNudges.v1"
+
+    /// From the moment a prompt is delivered until its reply lands, the revealed
+    /// band always has something to show. Keying this on the session's *state*
+    /// left a gap — the `running` frame arrives a beat after the send, and a
+    /// missed frame left the band dark while the agent visibly worked. "No reply
+    /// yet" is the honest test: it is what the receipt is waiting on.
+    var shouldShowAgentWorking: Bool {
+        // `openSession != nil` is load-bearing: the row cannot render without a
+        // session, and a state that says "show" while the branch has nothing to
+        // draw is exactly the empty black strip that was reported.
+        agents.isGlanceOpen && agents.revealedAt != nil
+            && agents.openSession != nil
+            && agents.lastReply == nil
+            && !shouldShowAgentAsk && approvals.pending == nil
+            && phase == .idle && !agentCaptureArmed
+    }
+
+    /// **On by default.** A connector the user went and connected is one they want
+    /// used — walling the assistant off from it was the commonest "the assistant
+    /// ignores me" cause, and the toggle is the way out for anyone who wants the
+    /// connection for the app but not for the model. When off, a day query answers
+    /// from the deterministic `DaySummaryService` and no tool is ever called.
+    ///
+    /// It gates the *tool set*, not the connection: with nothing connected it
+    /// changes nothing, and writes still go through the approval card either way.
+    var connectorAgentEnabled: Bool = true {
         didSet { UserDefaults.standard.set(connectorAgentEnabled, forKey: Self.connectorAgentDefaultsKey) }
     }
 
@@ -466,18 +779,6 @@ final class AppState {
     /// ordinary dictation can never trigger it.
     var speakAnswersEnabled: Bool = true {
         didSet { UserDefaults.standard.set(speakAnswersEnabled, forKey: Self.speakAnswersDefaultsKey) }
-    }
-
-    /// Also speak answers from *scheduled* automations.
-    ///
-    /// **Off by default**, and deliberately a separate switch: a spoken answer you asked
-    /// for is expected, while a Mac that starts talking on its own during a meeting is
-    /// the failure case. Nobody can consent to that by turning on the switch above.
-    var speakAutomationAnswersEnabled: Bool = false {
-        didSet {
-            UserDefaults.standard.set(
-                speakAutomationAnswersEnabled, forKey: Self.speakAutomationAnswersDefaultsKey)
-        }
     }
 
     var answerVoiceEngine: AnswerVoiceEngine = .system {
@@ -510,26 +811,39 @@ final class AppState {
     var naturalVoiceRetryRequested: Bool = false
 
     init() {
+        // First, because it borrows two stores that are already initialised by
+        // their own inline initialisers and nothing below may touch `self` before
+        // every `let` is set.
+        now = NowStore(connectors: connectorStore, notes: notesStore)
         history = Self.loadHistory()
         answerLog = AnswerLog.load()
         customVocabulary = Self.loadVocabulary()
-        // Follow the system appearance unless the user has pinned one.
-        appearance = (UserDefaults.standard.string(forKey: Self.appearanceDefaultsKey))
-            .flatMap(AppAppearance.init(rawValue:)) ?? .system
         // The push-to-talk key is persisted; absent means a fresh install, which
         // takes the fn default. There is only one key now — the assistant is the
         // fn+control chord, not a second physical key — so no collision to break.
         hotkey = (UserDefaults.standard.string(forKey: Self.hotkeyDefaultsKey))
             .flatMap(HotkeyManager.HotkeyOption.init(rawValue:)) ?? .fn
+        // The agent key is off until chosen. Deliberately not defaulted to a free
+        // key: reserving a modifier on every Mac for a server almost nobody runs is
+        // the kind of quiet imposition the fn-claim rules exist to prevent.
+        agentHotkey = (UserDefaults.standard.string(forKey: Self.agentHotkeyDefaultsKey))
+            .flatMap { $0.isEmpty ? nil : HotkeyManager.HotkeyOption(rawValue: $0) }
+        agentDefaultDirectory =
+            UserDefaults.standard.string(forKey: Self.agentDirectoryDefaultsKey) ?? ""
+        agentExpandedRepliesEnabled =
+            UserDefaults.standard.bool(forKey: Self.agentExpandedRepliesDefaultsKey)
+        // On unless turned off: an absent key must not read as "off", or the feature
+        // is dark for everyone who has never opened Settings.
+        agentNudgesEnabled =
+            UserDefaults.standard.object(forKey: Self.agentNudgesDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         holdToTalkEnabled = UserDefaults.standard.object(forKey: Self.holdToTalkDefaultsKey) as? Bool ?? true
-        // Opt-in: off until the user has explicitly turned it on.
-        connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? false
+        pauseMediaWhileListening =
+            UserDefaults.standard.object(forKey: Self.pauseMediaDefaultsKey) as? Bool ?? true
+        // Opt-out: a connected connector is used unless the user turns this off.
+        connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? true
         // Opt-out: you asked out loud, so an answer you can hear is the default.
         speakAnswersEnabled = UserDefaults.standard.object(forKey: Self.speakAnswersDefaultsKey) as? Bool ?? true
-        // Opt-in: a Mac that talks unprompted is nobody's default.
-        speakAutomationAnswersEnabled = UserDefaults.standard
-            .object(forKey: Self.speakAutomationAnswersDefaultsKey) as? Bool ?? false
         answerVoiceEngine = (UserDefaults.standard.string(forKey: Self.answerVoiceEngineDefaultsKey))
             .flatMap(AnswerVoiceEngine.init(rawValue:)) ?? .system
         systemVoiceIdentifier = UserDefaults.standard.string(forKey: Self.systemVoiceDefaultsKey) ?? ""
@@ -539,12 +853,13 @@ final class AppState {
         remindersEnabled = UserDefaults.standard.object(forKey: Self.remindersEnabledDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         quickActionsEnabled = UserDefaults.standard.object(forKey: Self.quickActionsDefaultsKey) as? Bool ?? true
+        nowSurfaceEnabled = UserDefaults.standard.object(forKey: Self.nowSurfaceDefaultsKey) as? Bool ?? true
         // Opt-in: off until the user has explicitly turned it on.
         keepAwakeForRemote = UserDefaults.standard.object(forKey: Self.keepAwakeForRemoteDefaultsKey) as? Bool ?? false
         // Opt-in: no listening socket until the user explicitly asks for one.
         remoteDictationEnabled = UserDefaults.standard.object(forKey: Self.remoteDictationEnabledDefaultsKey) as? Bool ?? false
         // Opt-out: on unless the user has explicitly turned it off.
-        analyticsEnabled = UserDefaults.standard.object(forKey: Self.analyticsEnabledDefaultsKey) as? Bool ?? true
+        analyticsEnabled = Self.persistedAnalyticsEnabled
         // Opt-out: on unless the user has explicitly turned it off.
         usageSyncEnabled = UserDefaults.standard.object(forKey: Self.usageSyncEnabledDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
@@ -557,7 +872,7 @@ final class AppState {
         removeFillerWordsEnabled = UserDefaults.standard.object(forKey: Self.removeFillerWordsDefaultsKey) as? Bool ?? true
         // Opt-out: on unless the user has explicitly turned it off.
         learnCorrectionsEnabled = UserDefaults.standard.object(forKey: Self.learnCorrectionsDefaultsKey) as? Bool ?? true
-        // Opt-in: off until the user has explicitly turned it on (~1.8 GB model).
+        // Opt-in: off until the user has explicitly turned it on (~2.3 GB model).
         llmCleanupEnabled = UserDefaults.standard.object(forKey: Self.llmCleanupDefaultsKey) as? Bool ?? false
         llmGrammarPolishEnabled = UserDefaults.standard.object(forKey: Self.llmGrammarPolishDefaultsKey) as? Bool ?? false
         // On by default; absent key means a fresh install → enabled.
@@ -577,6 +892,23 @@ final class AppState {
 
     var canStop: Bool {
         phase == .recording
+    }
+
+    /// The app is either listening or talking, so the user's own media should be
+    /// out of the way (`MediaPauser`).
+    ///
+    /// It deliberately spans the *whole* exchange rather than the recording alone:
+    /// an assistant question is a held chord, then an agent run, then an answer read
+    /// out loud, and music coming back between those stages is worse than music that
+    /// never stopped. A `.failed` phase counts as finished — the band is showing an
+    /// error, nobody is speaking.
+    var holdsMediaPlayback: Bool {
+        switch phase {
+        case .preparingModels, .recording, .stopping:
+            return true
+        case .idle, .failed:
+            return commandAgentRunning || isSpeakingAnswer
+        }
     }
 
     /// Show the interactive "when should this reminder be?" quick-prompt. Highest
@@ -606,6 +938,7 @@ final class AppState {
             && download == nil
             && preparingEngine == nil
             && approvals.pending == nil
+            && !shouldShowAgentAsk
             && !shouldShowReminderTimePrompt
             && !shouldShowUndeliveredBanner
     }
@@ -777,12 +1110,15 @@ final class AppState {
         if phase != .idle { return true }
         if download != nil || preparingEngine != nil { return true }
         if approvals.pending != nil { return true }
+        if shouldShowAgentAsk || shouldShowAgentGlance || shouldShowAgentWorking
+            || shouldShowAgentReply { return true }
         return shouldShowReminderTimePrompt
             || shouldShowDueReminderBanner
             || shouldShowCommandConfirmation
             || shouldShowDaySummary
             || shouldShowBluetoothBanner
             || shouldShowUndeliveredBanner
+            || shouldShowAgentNudge
             || shouldShowLearnedBanner
             || shouldShowCleanupReadyBanner
             || shouldShowReminder
@@ -857,11 +1193,6 @@ final class AppState {
     func clearAnswerLog() {
         answerLog = []
         AnswerLog.persist([])
-    }
-
-    func removeHistoryEntry(_ id: UUID) {
-        history.removeAll { $0.id == id }
-        Self.persistHistory(history)
     }
 
     private static func loadHistory() -> [TranscriptHistoryEntry] {

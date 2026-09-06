@@ -19,24 +19,30 @@ struct NotchBluetoothBanner: View {
         ) {
             Spacer(minLength: Theme.Space.sm)
 
-            Button(action: useBuiltInMic) {
-                Text("Use built-in")
-                    .font(Typography.notchTitle)
-                    .foregroundStyle(Theme.Notch.surface)
-                    .padding(.horizontal, Theme.Space.md)
-                    .padding(.vertical, 6)
-                    .background(Capsule().fill(Theme.Notch.text))
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
+            // **The band's own capsule, not a filled button.** This was a solid bone
+            // pill with near-black text — the loudest element on any notch surface,
+            // and nothing else in the app draws one. On the banner width it also had
+            // too little room, so the label wrapped to two lines inside the pill. It
+            // is now the same quiet capsule the approval card answers with, on one
+            // line, which is the house form for "a control on the bezel".
+            Button("Use built-in", action: useBuiltInMic)
+                .buttonStyle(.plain)
+                .font(Typography.notchCaption)
+                .foregroundStyle(Theme.Notch.text)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(Theme.Notch.text.opacity(0.12)))
+                .pointerCursor()
 
             // Icon-only visually, but keeps a text label for VoiceOver.
             Button("Dismiss", systemImage: "xmark", action: dismiss)
                 .labelStyle(.iconOnly)
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(Theme.Notch.textTertiary)
                 .buttonStyle(.plain)
-                .frame(width: 22, height: 22)
+                .frame(width: 20, height: 20)
                 .contentShape(Rectangle())
                 .pointerCursor()
         }

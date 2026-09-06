@@ -1,6 +1,6 @@
 ---
 name: eval-pipeline
-description: Run and interpret the Whisper Master text-cleanup evaluation — the in-app EvalRunner, eval-score/EvalScoreKit scoring, cases.jsonl authoring, audio case generation, and the SvelteKit/Prisma run-history dashboard on Vercel. Use when running an eval, changing the cleanup pipeline, or working under eval/.
+description: Run and interpret the Whisper Master text-cleanup evaluation — the in-app EvalRunner, eval-score/EvalScoreKit scoring, cases.jsonl authoring, audio case generation, the per-release grading hook in Scripts/release.sh, and the public run history at whisper.corkkam.com/eval. Use when running an eval, changing the cleanup pipeline, cutting a release, or working under eval/.
 ---
 
 # Evaluation engine
@@ -17,18 +17,37 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
   `WM_EVAL_OUT`), launch the built app **via LaunchServices (`open`), not the raw
   binary**, and after the MLX model loads it runs every text case through the
   shipped deterministic passes (`TranscriptSpacingRepair` → `SelfCorrectionCollapser`
-  → `DeterministicITN` → `FillerWordFilter` → `VocabularyPostProcessor`) + both LLM modes (`light`,
-  `polish`) with the **real** `CleanupFaithfulnessGuard`, grouped by target so the
+  → `DeterministicITN` → `FillerWordFilter` → `VocabularyPostProcessor`) + every
+  requested `CleanupTarget` (`light`, `polish`, and eval-only `slack`/`email`/`code`)
+  with the **real** `CleanupFaithfulnessGuard`, grouped by target so the
   KV cache stays primed, and writes `results.json` (per-stage outputs, guard
   verdict, per-stage latency). **Directly exec'ing the bundle's Mach-O crashes**
   (TCC can't find the Info.plist usage strings → the mesh CoreBluetooth scan hard-
   crashes); pass env vars to `open` via `launchctl setenv`.
 - **`eval-score`** — a dependency-free SwiftPM library (`EvalScoreKit`: `EvalCase`
-  schema loader, `WER`, `Scorer`) + CLI (`swift run eval-score <results.json>
-  <cases.jsonl>`). Objective scoring only: keyword `must_contain`/`must_not_contain`
-  + WER threshold, with failures attributed to **ASR vs cleanup**. The **guard
+  schema loader, `WER`, `Scorer`, `Metrics`) + CLI (`swift run eval-score
+  <results.json> <cases.jsonl> [--json]`). Objective scoring only: keyword
+  `must_contain`/`must_not_contain` + WER threshold, with failures attributed to
+  **ASR vs cleanup**.
+  - **Beside the verdict it reports the *shape* of every output** (`Metrics`):
+    retention, edit rate, novel-word rate, guard fallback rate, ms/word,
+    reference WER, no-op rows — plus a per-category roll-up and a
+    severity-weighted pass rate. **None of them is a pass/fail criterion**; the
+    band belongs to the target, not to the metric. They exist because a keyword
+    rule only sees what somebody thought to assert: the 2026-08-21 long-form
+    truncation dropped three fifths of a 525-word input and **passed every
+    rule**, and a retention of 0.40 is what says so without anyone having written
+    an assertion for the missing sentence. The CLI closes with a **"passed the
+    rules, worth a look"** list built from exactly that.
+  - **`Metrics.novelWords` excludes what the pipeline is built to do** — digit
+    runs (ITN), joined initialisms ("a p i" → "api"), apostrophe variants, and
+    function words. An invented *fact* is never a closed-class word, so excluding
+    grammar costs no detection and kills nearly every false positive. **Do not
+    replace the enumerated contraction list with a substring test**: the version
+    that did excluded "paris" because it contains "is", and `MetricsTests` locks
+    the case that caught it. The **guard
   verdict is diagnostic, not a pass/fail criterion** (Swift `Scorer` + the
-  dashboard `scoring.ts` port, kept in sync): a guard *rejection* means the safe
+  `lib/eval/scoring.ts` port on the landing site, kept in sync): a guard *rejection* means the safe
   deterministic fallback was used, and for a faithfulness case that fallback is
   the correct result that satisfies the keyword rules — so it must not be marked
   failed; an unfaithful *acceptance* is still caught by `must_not_contain`. Unit
@@ -39,7 +58,9 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
   sub-agents.
 - **Cases** (`cases.jsonl`, generalized schema: `input:{text|audio}`, `targets`,
   `reference`, `asr_reference`, keyword rules). `targets` is the extension hinge:
-  `light`+`polish` today, `slack`/`email`/`code` later with no engine change.
+  `light`+`polish` ship; `slack`/`email`/`code` are eval-only destinations
+  (à la Wispr Flow) in `CleanupTarget` + `flow-cases.jsonl`. Adding another
+  destination is a case on the enum + a prompt + cases that list it.
   Audio cases are generated into git-ignored `.eval-scratch/` by two scripts:
   `make_audio.sh` (TTS every text case via `say`; ffmpeg-gated Bluetooth-HFP +
   pink-noise augmentation for the realistic/disfluency subset) and
@@ -54,35 +75,69 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
   france" → "…Paris") — fixed by an anti-answer rule in the guard (reject a
   mid-sentence capitalized entity the input never had); `polish` stays
   off-by-default/experimental regardless.
-- **Run history + public dashboard (`eval/dashboard/`):** a SvelteKit + Prisma 6 +
-  MongoDB Atlas app that stores runs over time and renders them for a **public**
-  audience. `src/lib/scoring.ts` is a TS port of `EvalScoreKit` so runs score
-  identically (guard verdict diagnostic, as above).
-  - **Deployed on Vercel** (`@sveltejs/adapter-vercel`, nodejs20.x) at
-    **https://whisper-eval-dashboard.vercel.app**; the GitHub integration
-    **auto-deploys from `dev`** (Vercel project **Root Directory = `eval/dashboard`**
-    + an ignored-build-step `git diff --quiet HEAD^ HEAD -- .` so it only rebuilds
-    when the dashboard changes). Manual redeploy: `vercel --prod` from
-    `eval/dashboard`. **`dev` must carry the `adapter-vercel` + auth commits** or a
-    deploy builds wrong/unsecured.
-  - **Prisma on Vercel:** `binaryTargets = ["native","rhel-openssl-3.0.x"]` in
-    `schema.prisma`, and `build` runs `prisma generate` first (Vercel caches deps
-    and can skip postinstall).
-  - **Env** (Vercel prod+preview *and* local `.env`): `DATABASE_URL` — any Atlas
-    cluster is a replica set, but **the SRV string must include a db name in the
-    path** (`…mongodb.net/evaldash?…`) or Prisma rejects it P1013 — and
-    `INGEST_TOKEN`.
-  - **Reads are public; writes are not.** `POST /api/ingest` requires an
-    `x-ingest-token` header equal to `INGEST_TOKEN` (else 401); `push-run` sends it
-    (from the env or the dashboard `.env`).
-  - **Data:** SSR-hybrid **`@tanstack/svelte-query` v6** (runes) — `load` SSRs page 1
-    as `initialData`, the client paginates with `keepPreviousData` against
-    `GET /api/runs?page=` and `GET /api/runs/[id]/cases?page=` (Prisma stays behind
-    those endpoints). UI matches the app's **light-only Daylight** theme (white
-    canvas, brick `#c0381a`; Fraunces/Inter, mono for transcripts only); the home
-    hero is a rotating real before/after "watch it work" demo + a pipeline flow.
-  - **Ingest is not automatic:** after an eval writes `results.json` it must be
-    pushed — one-shot `eval/text-cleanup/run-eval.sh [cases.jsonl] [label]`
-    (launches the app via `launchctl setenv` + `open`, waits for `results.json`,
-    pushes; `DASHBOARD_URL` retargets to prod, `NO_PUSH=1` skips). `push-run` is the
-    manual equivalent. Local dev: `npm run db:push` then `npm run dev`.
+- **Run history + public page (`whisper.corkkam.com/eval`):** served by the
+  landing-page repo (`../whisper-master-landing-page`), route `app/eval/`, data
+  in `lib/eval/` on the shared **Supabase** project (`eval_runs` /
+  `eval_results`, migration `0010`). `lib/eval/scoring.ts` there is a TS port of
+  `EvalScoreKit` so runs score identically (guard verdict diagnostic, as above);
+  it is verified against the stored history and matches exactly.
+  - **Reads are public; writes are not.** `POST /api/eval/ingest` requires an
+    `x-ingest-token` header equal to `EVAL_INGEST_TOKEN` and **fails closed** —
+    with the token unset every upload is refused (503), not accepted. The token
+    is a Vercel **production** variable, a GitHub Actions secret on this repo,
+    and a line in this repo's `.env`. Deliberately **not** set on Vercel preview,
+    so a preview deployment cannot publish a run.
+  - Eval reads are pinned to the Supabase `public` schema in every environment,
+    unlike the rest of that app, which reads `dev` on preview. There is no such
+    thing as the preview's eval history.
+  - **CI runs the suites** (`.github/workflows/eval.yml`, `workflow_dispatch`, or
+    a push to a `feature/eval-**` branch that touches the workflow, the runner
+    or the cases). Proven on macos-26 on 2026-08-21: model downloaded and
+    checksum-verified, app built with xcodebuild, **both** the headless
+    assistant suite and the LaunchServices-dependent cleanup suite completed —
+    13 minutes with a warm model cache, about 25 cold. The model is cached on
+    the checksum the app itself verifies, so a model bump invalidates it rather
+    than serving old weights.
+  - **Every release grades itself.** `Scripts/release.sh` runs the text suite
+    against the bundle it just built and pushes the scores tagged with
+    `EVAL_VERSION` and `EVAL_CHANNEL`, so `/eval` can answer "how did
+    1.1.0-beta.9 score". On for **stable and beta**, off for `dev`;
+    `RUN_EVAL=0`/`1` overrides, `EVAL_REQUIRED=1` makes it a gate. It runs last
+    and is non-fatal by design — a flaky twenty-minute eval must not be able to
+    skip the DMG, the What's New manifest, or the release tag.
+  - **A run pushed with the wrong rules file scores higher, silently.** A case
+    with no `must_contain`/`must_not_contain` entry can only fail on word error.
+    The audio suite's ids are prefixed (`tts-`, `hfp-`, `noisy-`, `ls-`) and
+    exist only in the generated `.eval-scratch/audio_cases.jsonl`; pushing an
+    audio run with the baseline `cases.jsonl` turns 77/140 into 87/140 and drops
+    all 19 cleanup-attributed failures. The ingest route now returns how many
+    cases carry no rule and `push-run.mjs` prints a warning.
+  - **Ingest is not automatic outside a release:** after an eval writes
+    `results.json` it must be pushed — one-shot
+    `eval/text-cleanup/run-eval.sh [cases.jsonl] [label]` (launches the app via
+    `launchctl setenv` + `open`, waits for `results.json`, pushes; `DASHBOARD_URL`
+    retargets, `NO_PUSH=1` skips). `eval/text-cleanup/push-run.mjs` is the manual
+    equivalent.
+  - **The old SvelteKit dashboard is gone from this repo.** `eval/dashboard/`
+    was deleted once `/api/usage` and `/api/notes` moved to the landing site and
+    `UsageSyncConfig` / `NotesSyncConfig` were repointed at
+    `whisper.corkkam.com`. The Vercel project at
+    `whisper-eval-dashboard.vercel.app` **must stay deployed** until 1.1.0-beta.7
+    and .8 age out, because those builds have the old URL compiled in. Its next
+    auto-deploy from `dev` will fail with the directory missing, which is
+    harmless — Vercel keeps serving the last successful deployment — but the
+    tidy fix is to disconnect that project's Git integration. It is on a
+    **different Vercel account**, so nothing on this machine can do that or read
+    its env.
+  - **The scorer's own semantics changed on 2026-08-23 and the port has to follow.**
+    A `must_contain` term of word characters now matches on **word boundaries**
+    (`Scorer.matches`), because a substring found the forbidden filler `"um"`
+    inside "number" and "documentation". `lib/eval/scoring.ts` on the landing site
+    must carry the same `matches` and the same `novelWords` / `rowMetrics` /
+    `CATEGORY_WEIGHT` / `percentileIndex`, or the page scores a stored run
+    differently from the `eval-score` output that produced it. The new
+    `Aggregate` fields are **optional on read**: runs ingested before that date
+    lack them, and a missing measurement must not render as a measurement of
+    zero. `category` and `reference` come from the **cases file**, not only from
+    `results.json` — the runner has only just started writing `category` and it
+    never writes `reference`.

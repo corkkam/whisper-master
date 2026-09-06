@@ -30,13 +30,24 @@ enum SnapshotMode {
 
         // Full window (top-tab masthead + body). The detail ScrollView may
         // collapse in ImageRenderer, so the per-section panels below carry the body.
-        for section in [SettingsSection.settings, .history, .engine] {
+        for section in [SettingsSection.settings, .traces, .engine] {
             render(
                 SettingsView(viewModel: viewModel, state: state, initialSection: section)
                     .frame(width: 900, height: 700),
                 to: dir.appendingPathComponent("window-\(section.rawValue).png")
             )
         }
+
+        // Notes gets its own full-window render, wider than the rest: it's the only
+        // section with an expandable sidebar group, and the only way to check that the
+        // group's sub-rows read as subordinate to their parent is to see them beside
+        // the other four nav items. 900pt would also squeeze the canvas into one
+        // column and hide the layout being checked.
+        render(
+            SettingsView(viewModel: viewModel, state: state, initialSection: .notes)
+                .frame(width: 1320, height: 820),
+            to: dir.appendingPathComponent("window-notes.png")
+        )
 
         // Each section's panel on its own (ImageRenderer collapses flexible
         // ScrollViews, so we render the fixed detail container instead).
@@ -47,20 +58,63 @@ enum SnapshotMode {
             )
         }
 
+        // Notes & Reminders is three surfaces behind one section — the split
+        // overview, the sticky canvas, and the reminders list — so the one
+        // `panel-notes` render above only covers a third of it.
+        for tab in NotesTab.allCases {
+            render(
+                detailContainer(section: .notes, viewModel: viewModel, state: state, notesTab: tab),
+                to: dir.appendingPathComponent("panel-notes-\(tab.rawValue).png")
+            )
+        }
+
+        // Traces is two tabs, and its whole content is in the *expanded* row — the
+        // stage chain, the rejected rewrite, the decision ladder, the tool calls. The
+        // `panel-traces` render above shows two collapsed rows and none of that, so
+        // each tab gets a render with its first row open.
+        for (tab, open) in [
+            // The rejected-polish row, which is the dictation tab's whole reason to
+            // exist; and *both* assistant rows, since the calls block only appears on
+            // the one that actually reached a connector.
+            (TraceTab.dictation, Set(state.traces.dictation.dropFirst().map(\.id))),
+            (TraceTab.assistant, Set(state.traces.assistant.map(\.id))),
+        ] {
+            render(
+                tracesContainer(state: state, viewModel: viewModel, tab: tab, expanded: open),
+                to: dir.appendingPathComponent("panel-traces-\(tab.rawValue)-open.png")
+            )
+        }
+
+        // The Model Lab is two tabs behind one section, and the `panel-lab`
+        // render above only ever shows the first. The leaderboard is where the
+        // memory trace and the ranked table live, so it gets its own pass.
+        state.lab.tab = .leaderboard
+        render(
+            detailContainer(section: .lab, viewModel: viewModel, state: state),
+            to: dir.appendingPathComponent("panel-lab-leaderboard.png"))
+        state.lab.tab = .compare
+
         // The account popup that hangs off the sidebar profile row (it replaced
-        // the Account page, so it has no section panel of its own).
-        let accountPopover = AccountPopoverCard(
-            displayName: "Alex Rivera",
-            email: "alex@whispermaster.app",
-            accountID: "user_2aBcDeFgHiJkLmN",
-            memberSince: "Joined June 2026",
-            imageURL: nil,
-            signOut: {}
-        )
-        .background(Theme.surface)
-        .padding(20)
-        .background(Color(white: 0.9))
-        render(accountPopover, to: dir.appendingPathComponent("panel-account-popover.png"))
+        // the Account page, so it has no section panel of its own). Rendered
+        // twice: the ordinary "Check for updates" button, and the state it takes
+        // once Sparkle has found something — the two are one control and the
+        // whole point of the second render is that they stay a pair.
+        for (name, version) in [("panel-account-popover", String?.none),
+                                ("panel-account-popover-update", "1.2.0")] {
+            let accountPopover = AccountPopoverCard(
+                displayName: "Alex Rivera",
+                email: "alex@whispermaster.app",
+                accountID: "user_2aBcDeFgHiJkLmN",
+                memberSince: "Joined June 2026",
+                imageURL: nil,
+                signOut: {},
+                updateVersion: version
+            )
+            .background(Theme.surface)
+            .padding(20)
+            .background(Color(white: 0.9))
+            render(accountPopover, to: dir.appendingPathComponent("\(name).png"))
+        }
 
         // Onboarding, in the notch — one render per beat, plus the two states
         // inside the microphone beat that the orb is doing the work in.
@@ -95,6 +149,18 @@ enum SnapshotMode {
                 accessibilityGranted: true,
                 launchAtLoginEnabled: true)
         }
+        // The finished form of the last beat: engine ready, so the sub-line hands
+        // off to the assistant chord instead of reporting download progress.
+        let engineBefore = state.preparedEngine
+        state.preparedEngine = state.selectedEngine
+        renderOnboarding(dir, name: "onboarding-4b-ready-engine-done", state: state) {
+            .snapshot(
+                step: .ready,
+                micGranted: true,
+                accessibilityGranted: true,
+                launchAtLoginEnabled: true)
+        }
+        state.preparedEngine = engineBefore
 
         // The hover quick-actions band: what the notch holds when the pointer rests
         // on it. Both states, since the empty one is what a fresh account sees.
@@ -186,6 +252,399 @@ enum SnapshotMode {
             s.daySummaryWasSpoken = true
             s.isSpeakingAnswer = true
         }
+        // The assistant working, captioned by the connector it's waiting on rather
+        // than by one static "Working on it" for the whole 30-second budget. The
+        // chord suppresses the paste, so this row is the only thing saying the words
+        // went anywhere.
+        renderPill(dir, name: "pill-7b-agent-reading-calendar") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.commandAgentRunning = true
+            s.agentActivity = .running(tool: "list_calendar_events", target: "Personal")
+        }
+        // An unqualified read merges every calendar, so it says so rather than
+        // naming one of them.
+        renderPill(dir, name: "pill-7c-agent-all-calendars") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.commandAgentRunning = true
+            s.agentActivity = .running(tool: "list_calendar_events", target: nil)
+        }
+        // A second connector in the same run — the caption follows the work across.
+        renderPill(dir, name: "pill-7d-agent-posting-to-slack") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.commandAgentRunning = true
+            s.agentActivity = .running(tool: "send_message", target: "#eng-standup")
+        }
+        // The regression check on the wing: a long connection name must widen the
+        // bar, not slide under the camera housing. If the caption here is clipped or
+        // runs into the housing, `maxStateLabelWing` is too small.
+        renderPill(dir, name: "pill-7e-agent-long-connector-name") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.commandAgentRunning = true
+            s.agentActivity = .running(
+                tool: "list_calendar_events", target: "Personal Google Calendar")
+        }
+        // The consent card for a connector write — the one banner that carries three
+        // buttons beside its two lines, so it takes the *wide* surface. These two
+        // renders are the regression check on the card that shipped unreadable: raw
+        // arguments ("start: 2026-08-08T09:00:00+05:30 · title: Work · when: …")
+        // under "Add an event to Personal on Personal", laid out at banner width
+        // with `fixedSize`, which ran the words off both edges and pushed Once /
+        // Always / No out past the band's clip where they couldn't be clicked.
+        renderPill(dir, name: "pill-9-approval-calendar") { s in
+            s.phase = .idle
+            let start = Date()
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "create_calendar_event",
+                instanceID: UUID(),
+                instanceLabel: "Personal",
+                target: "Personal",
+                arguments: [
+                    "title": "Work",
+                    "when": "tomorrow at nine",
+                    "start": ConnectorHTTP.iso8601(from: start),
+                    "end": ConnectorHTTP.iso8601(from: start.addingTimeInterval(30 * 60)),
+                    ToolDescriptor.instanceArgument: "Personal",
+                ]))
+        }
+        // A dictated message body has no length limit, so this is the case that
+        // decides whether the payload gives way or the answers do. The three buttons
+        // must be whole and on-band; the quoted text truncates at the tail.
+        renderPill(dir, name: "pill-9b-approval-long-message") { s in
+            s.phase = .idle
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "send_message",
+                instanceID: UUID(),
+                instanceLabel: "Work",
+                target: "#eng-standup",
+                arguments: [
+                    "channel": "#eng-standup",
+                    "text": "Running about ten minutes late this morning, please start "
+                        + "without me and I'll catch up on the thread afterwards.",
+                    ToolDescriptor.instanceArgument: "Work",
+                ]))
+        }
+        // A coding agent asking to run a command. Same three answers as the connector
+        // card above, because it is the same question: the payload is unbounded, so
+        // it must be the words that give way and never the buttons.
+        renderPill(dir, name: "pill-10-agent-run") { s in
+            s.phase = .idle
+            s.agents.seedForSnapshot(
+                ask: .approval(
+                    AgentApproval(
+                        requestID: "r1", tool: "Bash",
+                        headline: "Run  rm -rf build/ && swift build -c release",
+                        detail: "whisper-master")),
+                sessions: [
+                    AgentSession(
+                        id: "s1", repo: "whisper-master", state: .awaitingPermission),
+                    AgentSession(
+                        id: "s2", repo: "kunai", state: .running,
+                        activity: "Editing loop.go",
+                        turnStartedAt: Int64(Date().addingTimeInterval(-17).timeIntervalSince1970 * 1000)),
+                    AgentSession(id: "s3", repo: "landing-page", state: .idle),
+                ])
+        }
+        // The choice card: options are model-authored sentences, so they stack and
+        // the band grows a row at a time. This is the case that proves a choice is
+        // not the approval card with different words.
+        renderPill(dir, name: "pill-10b-agent-choice") { s in
+            s.phase = .idle
+            s.agents.seedForSnapshot(
+                ask: .choice(
+                    AgentChoice(
+                        requestID: "r2",
+                        questions: [
+                            .init(
+                                text: "How should the retry back off?",
+                                header: "Retry", multiSelect: false,
+                                options: [
+                                    "Exponential, capped at 30s",
+                                    "Fixed 5s between attempts",
+                                    "Give up after the first failure",
+                                ])
+                        ],
+                        context: "whisper-master"),
+                ),
+                sessions: [
+                    AgentSession(id: "s1", repo: "whisper-master", state: .awaitingPermission),
+                    AgentSession(id: "s2", repo: "kunai", state: .idle),
+                ])
+        }
+        // The surface you open rather than the one that interrupts you: a tap of the
+        // agent key. Rows, not cards — the version with three equal cards read as a
+        // dropdown menu pinned under the notch.
+        renderPill(dir, name: "pill-10c-agent-glance") { s in
+            s.phase = .idle
+            s.agents.seedGlanceForSnapshot(sessions: [
+                AgentSession(
+                    id: "s1", repo: "whisper-master", state: .awaitingPermission,
+                    activity: "Run  rm -rf build/"),
+                AgentSession(
+                    id: "s2", repo: "kunai", state: .running,
+                    activity: "Editing internal/session/loop.go",
+                    turnStartedAt: Int64(
+                        Date().addingTimeInterval(-17).timeIntervalSince1970 * 1000)),
+                AgentSession(id: "s3", repo: "landing-page", state: .idle),
+            ])
+        }
+        // Mid-turn: the slim row, not the panel. A turn runs for minutes, and a
+        // panel-height band over the menu bar for minutes is an obstruction rather
+        // than ambient awareness. This must stay the same height as the dictation
+        // row it borrows its shape from.
+        renderPill(dir, name: "pill-10e-agent-working") { s in
+            s.phase = .idle
+            s.agents.seedGlanceForSnapshot(
+                sessions: [
+                    AgentSession(
+                        id: "s1", repo: "whisper-master", state: .running,
+                        activity: "Editing NotchGlow.swift",
+                        turnStartedAt: Int64(
+                            Date().addingTimeInterval(-17).timeIntervalSince1970 * 1000))
+                ],
+                openSessionID: "s1")
+            s.agents.reveal(sessionID: "s1")
+        }
+        // ---- The ambient row: what is relevant right now, in the leading wing ----
+        // The notch at rest with a meeting inside its horizon. No orb: nothing is
+        // running, and an orb here would claim otherwise.
+        renderPill(dir, name: "pill-11-now-meeting") { s in
+            s.phase = .idle
+            s.now.seed(events: mockDay())
+        }
+        // A reminder that has gone past. Ember, because it is the user's own thing,
+        // and it carries the checkbox — the one control the ambient row offers.
+        renderPill(dir, name: "pill-11b-now-overdue") { s in
+            s.phase = .idle
+            seedOverdueReminder(s)
+            s.now.seed(events: [])
+        }
+        // Both at once: dictating *and* a meeting three minutes out. This is the
+        // case the whole surface exists for — the state word demotes to a chip
+        // beside the orb so the day can keep the leading wing.
+        renderPill(dir, name: "pill-11c-now-while-dictating") { s in
+            s.phase = .recording
+            s.audioLevel = 0.4
+            s.now.seed(events: mockDay())
+        }
+        // A coding agent mid-turn with a reminder overdue. Same swap, and the proof
+        // that a running agent no longer pushes the day off the bezel.
+        renderPill(dir, name: "pill-11d-now-while-agent-works") { s in
+            s.phase = .idle
+            seedOverdueReminder(s)
+            s.now.seed(events: [])
+            s.agents.seedGlanceForSnapshot(
+                sessions: [
+                    AgentSession(
+                        id: "s1", repo: "whisper-master", state: .running,
+                        activity: "Editing NotchGlow.swift",
+                        turnStartedAt: Int64(
+                            Date().addingTimeInterval(-72).timeIntervalSince1970 * 1000))
+                ],
+                openSessionID: "s1")
+            s.agents.reveal(sessionID: "s1")
+        }
+        // The finished turn, as one banner line: the same icon-title-subtitle shape
+        // every other band in this app uses. It replaced a dense transcript with role
+        // labels and monospaced tool rows, which was a log file on the bezel.
+        renderPill(dir, name: "pill-10d-agent-reply") { s in
+            s.phase = .idle
+            s.agents.seedReplyForSnapshot(
+                session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
+                reply: "Cleared the build and rewrote the route assertion to wait on the "
+                    + "rebuilt engine instead of a fixed delay.",
+                duration: 192)
+        }
+        // The same reply, clicked open (or arriving open via the Settings toggle):
+        // full markdown as prose and code, what changed, and where the rest lives.
+        renderPill(dir, name: "pill-10f-agent-reply-expanded") { s in
+            s.phase = .idle
+            s.agents.seedReplyForSnapshot(
+                session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
+                reply: """
+                    Ran both. Here's what's available:
+
+                    ## Toolchain
+
+                    | tool | version |
+                    |---|---|
+                    | swift | 6.3.3, arm64-apple-macosx26.0 |
+                    | xcodebuild | Xcode 26.6, build 17F113 |
+                    | xcodegen | 2.44.1 |
+
+                    ## Worktrees
+
+                    ```
+                    ~/conductor/workspaces/whisper-master/hat-yai        mic-testing-transcribes-wrong  fdb7411
+                    ~/conductor/workspaces/whisper-master/pattaya        feat/notch-agent-surface       7140bb5
+                    ~/conductor/workspaces/whisper-master/san-francisco  ux-onbaord-better              dd1a7cd
+                    ```
+
+                    All 42 tests pass. The flake was the fixed delay racing the \
+                    engine rebuild on slower runs.
+
+                    ## What is still parked
+
+                    1. **1.1.0 is stuck mid-release.** Beta.4 shipped the audio \
+                    crash fix, `release/1.1.0` is still open on origin, and nothing \
+                    has been merged to `main` or tagged.
+                    2. **A bug branch that may or may not be dead.** \
+                    `mic-testing-transcribes-wrong` is parked in the `hat-yai` \
+                    worktree, and CLAUDE.md describes that bug as fixed.
+                    3. **Four worktrees carrying unmerged branches**, which is more \
+                    parked work than the branch list suggested.
+                    """,
+                duration: 192,
+                prompt: "Fix the flaky audio route test, and clear the build first.",
+                turnEvents: Array(sessionTranscriptEvents.dropFirst()))
+            s.agents.toggleReplyExpansion()
+        }
+        // The commonest turn of all: a question that called no tools and changed
+        // nothing. There is no run to put in a rail, so the question goes full
+        // width and the answer takes the whole card — a 306pt strip holding one
+        // line beside a full answer was a third of the surface doing nothing.
+        // The glance with a session on another machine. Sessions live on the machine
+        // that runs them, so a client talking only to its own Mac saw only its own.
+        renderPill(dir, name: "pill-10m-agent-glance-fleet") { s in
+            s.phase = .idle
+            var remote = AgentSession(
+                id: "s9", repo: "kunai", state: .running,
+                activity: "Editing internal/session/loop.go",
+                turnStartedAt: Int64(Date().addingTimeInterval(-42).timeIntervalSince1970 * 1000))
+            remote.machineID = "linux-1"
+            remote.machineLabel = "linux"
+            s.agents.seedGlanceForSnapshot(sessions: [
+                AgentSession(
+                    id: "s1", repo: "whisper-master", state: .awaitingPermission,
+                    activity: "Run  swift test"),
+                remote,
+                AgentSession(id: "s3", repo: "landing-page", state: .idle),
+            ])
+        }
+        // Another session, out of sight, blocked on a permission. A pointer, not the
+        // card: we hold one socket, so we do not have that session's question, and
+        // rendering a guess at it would be worse than saying nothing.
+        renderPill(dir, name: "pill-10k-agent-nudge-needs-you") { s in
+            s.phase = .idle
+            s.agents.seedNudgeForSnapshot(
+                AgentAttention.Event(sessionID: "s2", repo: "kunai", kind: .needsYou),
+                sessions: [
+                    AgentSession(id: "s1", repo: "whisper-master", state: .running),
+                    AgentSession(id: "s2", repo: "kunai", state: .awaitingPermission),
+                ])
+        }
+        renderPill(dir, name: "pill-10l-agent-nudge-finished") { s in
+            s.phase = .idle
+            s.agents.seedNudgeForSnapshot(
+                AgentAttention.Event(sessionID: "s3", repo: "landing-page", kind: .finished),
+                sessions: [AgentSession(id: "s3", repo: "landing-page", state: .idle)])
+        }
+        // The shape a real answer actually has: bold section headers, bullet lists,
+        // and a closing paragraph. Before the parser split on blank lines this whole
+        // reply was one prose block, so the verdict swallowed it and the line cap cut
+        // everything after the first bullet.
+        renderPill(dir, name: "pill-10j-agent-reply-sections") { s in
+            s.phase = .idle
+            s.agents.seedReplyForSnapshot(
+                session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
+                reply: """
+                    Contents of `/Users/ninja/coding/whisper-master`:
+
+                    **Source & build**
+
+                    - `Sources/` — the app code
+                    - `Tests/` — SwiftPM test target
+                    - `Resources/` — Info.plist, assets
+                    - `Scripts/` — bundle/release/install/dmg scripts
+                    - `project.yml` — XcodeGen source of truth
+                    - `.build/`, `build/` — build output
+
+                    **Other top-level dirs**
+
+                    - `eval/` — text-cleanup evaluation engine
+                    - `docs/` — specs and docs
+                    - `.claude/`, `.context/`, `.github/`, `.vscode/`
+
+                    **Files**
+
+                    - `CLAUDE.md` (90k), `README.md`, `whats-new.json`
+                    - `.env`, `.env.example`, `.gitignore`, `.DS_Store`
+                    - `DeveloperID.p12` — signing cert
+
+                    Also, there's no `graphify-out/` here despite the CLAUDE.md graphify \
+                    section, so the graph hasn't been generated in this clone.
+                    """,
+                duration: 14,
+                prompt: "Tell me, what are the things available in the directory? Again, it's a test.")
+            s.agents.toggleReplyExpansion()
+        }
+        // Prose only, filling the body exactly: the case where the foot rule was
+        // drawn straight through the last line of the answer.
+        renderPill(dir, name: "pill-10i-agent-reply-prose") { s in
+            s.phase = .idle
+            s.agents.seedReplyForSnapshot(
+                session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
+                reply: """
+                    Got it — testing wrapped.
+
+                    Whenever you want to get back to actual work, the 1.1.0 release and \
+                    those four parked worktrees are still sitting there.
+                    """,
+                duration: 3,
+                prompt: "That is all for now, thanks.")
+            s.agents.toggleReplyExpansion()
+        }
+        // The small turn: a fence and one short sentence under it. It is the shape
+        // that read as "two things floating in a wide band" — the verdict slot empty
+        // because the reply did not open with prose.
+        renderPill(dir, name: "pill-10h-agent-reply-small") { s in
+            s.phase = .idle
+            s.agents.seedReplyForSnapshot(
+                session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
+                reply: """
+                    ```
+                    CLAUDE.md  README.md  project.yml  Package.swift  Package.resolved
+                    whats-new.json  .env  .env.example  .gitignore  DeveloperID.p12
+                    ```
+
+                    11 files at the root, and none of them are generated.
+                    """,
+                duration: 4,
+                prompt: "Please again tell me what are the things there.")
+            s.agents.toggleReplyExpansion()
+        }
+        renderPill(dir, name: "pill-10g-agent-reply-answer-only") { s in
+            s.phase = .idle
+            s.agents.seedReplyForSnapshot(
+                session: AgentSession(id: "s1", repo: "whisper-master", state: .idle),
+                reply: """
+                    Too vague for me to guess well — "things" could be files, \
+                    directories, tools, branches, issues, or capabilities. I've covered \
+                    each of those at some point.
+
+                    Per directory:
+
+                    ```
+                    Sources/     WhisperMaster/ → 21 modules
+                    Tests/       WhisperMasterTests/ → 50 test files + Fixtures/
+                    Resources/   AppIcon.icns  Info.plist  WhisperMaster.entitlements
+                    Scripts/     14 files — bundle.sh release.sh install.sh dev-install.sh
+                    eval/        dashboard/  text-cleanup/
+                    docs/        design/  superpowers/  supabase-clerk-integration.md
+                    .github/     CI workflows
+                    ```
+
+                    Generated or scratch, nothing meaningful inside: `.build/`, \
+                    `build/`, `.context/`, `.swiftpm/`, `WhisperMaster.xcodeproj/`, \
+                    `.git/`.
+                    """,
+                duration: 9,
+                prompt: "So tell me what are there in the directories.")
+            s.agents.toggleReplyExpansion()
+        }
         renderPill(dir, name: "pill-7-polishing") { s in
             s.phase = .idle
             s.isPolishing = true
@@ -246,7 +705,7 @@ enum SnapshotMode {
     /// no user sees. The width clamp makes these images wide; that is the real
     /// surface width.
     private static let snapshotNotch = NotchGeometry(
-        notchWidth: 208, notchHeight: 37.5, screenWidth: 1710
+        notchWidth: 208, notchHeight: 37.5, screenWidth: 1710, screenHeight: 1107
     )
 
     /// Render the notch pill in a single state onto a neutral backdrop.
@@ -271,6 +730,24 @@ enum SnapshotMode {
         render(view, to: dir.appendingPathComponent("\(name).png"))
     }
 
+    /// A believable turn for the session-view snapshot, built from real wire frames
+    /// so the render exercises the same reducer the app does.
+    private static var sessionTranscriptEvents: [KunaiWire.Event] {
+        let json = [
+            #"{"seq":1,"t":"user","text":"Fix the flaky audio route test, and clear the build first."}"#,
+            #"{"seq":2,"t":"assistant","blocks":[{"type":"tool_use","id":"t1","name":"Bash"}]}"#,
+            #"{"seq":3,"t":"permission","request_id":"r1","tool_use_id":"t1","tool_name":"Bash","input":{"command":"rm -rf build/"}}"#,
+            #"{"seq":4,"t":"permission_resolved","request_id":"r1","tool_use_id":"t1","behavior":"allow"}"#,
+            #"{"seq":5,"t":"assistant","blocks":[{"type":"tool_use","id":"t2","name":"Edit"}]}"#,
+            #"{"seq":6,"t":"permission","request_id":"r2","tool_use_id":"t2","tool_name":"Edit","input":{"file_path":"/x/Sources/UI/NotchGlow.swift"}}"#,
+            #"{"seq":7,"t":"tool_result","tool_use_id":"t2"}"#,
+            #"{"seq":8,"t":"assistant","blocks":[{"type":"text","text":"Cleared the build and rewrote the route assertion."}]}"#,
+        ]
+        return json.compactMap {
+            try? JSONDecoder().decode(KunaiWire.Event.self, from: Data($0.utf8))
+        }
+    }
+
     private static func renderPill(_ dir: URL, name: String, configure: (AppState) -> Void) {
         let state = AppState()
         state.hidePillWhenIdle = false
@@ -291,30 +768,57 @@ enum SnapshotMode {
     }
 
     @ViewBuilder
-    private static func sectionView(_ section: SettingsSection, viewModel: DictationViewModel, state: AppState) -> some View {
+    private static func sectionView(
+        _ section: SettingsSection,
+        viewModel: DictationViewModel,
+        state: AppState,
+        notesTab: NotesTab = .overview
+    ) -> some View {
         switch section {
         case .today: TodayView(viewModel: viewModel, state: state)
         case .insights: InsightsSettingsView(viewModel: viewModel, state: state)
-        case .notes: NotesSettingsView(state: state)
-        case .connectors: ConnectorsSettingsView(viewModel: viewModel, state: state)
+        case .notes: NotesSettingsView(state: state, tab: .constant(notesTab))
+        case .connectors: ConnectorsSettingsView(state: state)
         case .settings: GeneralSettingsView(viewModel: viewModel, state: state)
         case .engine: EngineSettingsView(viewModel: viewModel, state: state)
-        case .mesh: MeshSettingsView(viewModel: viewModel, state: state)
-        case .history: HistorySettingsView(viewModel: viewModel, state: state)
+        case .agents: AgentSettingsView(state: state)
+        // Renders what a user actually reaches. Nearby Macs is on hold, so its
+        // page is the coming-soon panel — a snapshot of the real mesh view would
+        // show a surface no build opens.
+        case .mesh:
+            if SettingsSection.mesh.isAvailable {
+                MeshSettingsView(viewModel: viewModel, state: state)
+            } else {
+                ComingSoonPanel(section: .mesh)
+            }
+        case .traces: TracesSettingsView(viewModel: viewModel, state: state)
         case .permissions:
             PermissionsSettingsView(permissions: PermissionsManager(), micGranted: true, micDenied: false, accessibilityGranted: false)
+        case .lab: LabSettingsView(state: state)
         case .about: AboutSettingsView(state: state)
         }
     }
 
-    private static func detailContainer(section: SettingsSection, viewModel: DictationViewModel, state: AppState) -> some View {
+    /// The Traces page in the same chrome `detailContainer` gives every section, but
+    /// with the tab and the open row chosen — neither of which is reachable from
+    /// `sectionView`, since both are view state a person would click into.
+    private static func tracesContainer(
+        state: AppState,
+        viewModel: DictationViewModel,
+        tab: TraceTab,
+        expanded: Set<UUID>
+    ) -> some View {
         VStack(alignment: .leading, spacing: 26) {
             VStack(alignment: .leading, spacing: 7) {
-                KickerLabel(section.kicker)
-                Text(section.title).font(Typography.largeTitle).tracking(Typography.largeTitleTracking).foregroundStyle(Theme.textPrimary)
-                Text(section.subtitle).font(Typography.body).foregroundStyle(Theme.textSecondary)
+                KickerLabel(SettingsSection.traces.kicker)
+                Text(SettingsSection.traces.title)
+                    .font(Typography.largeTitle).tracking(Typography.largeTitleTracking)
+                    .foregroundStyle(Theme.textPrimary)
+                Text(SettingsSection.traces.subtitle)
+                    .font(Typography.body).foregroundStyle(Theme.textSecondary)
             }
-            sectionView(section, viewModel: viewModel, state: state)
+            TracesSettingsView(viewModel: viewModel, state: state,
+                               initialTab: tab, initiallyExpanded: expanded)
         }
         .frame(width: 680, alignment: .leading)
         .padding(.horizontal, 44)
@@ -323,10 +827,154 @@ enum SnapshotMode {
         .background(WarmBackground())
     }
 
+    private static func detailContainer(
+        section: SettingsSection,
+        viewModel: DictationViewModel,
+        state: AppState,
+        notesTab: NotesTab = .overview
+    ) -> some View {
+        // The notes canvas is laid out against the wider measure the real window
+        // gives it (`SettingsView.contentMaxWidth`), so rendering it at the 680pt
+        // reading measure would snapshot a layout the app never shows.
+        // The notes canvas and the Model Lab both lay out against the wider
+        // measure the real window gives them (`SettingsView.contentMaxWidth`).
+        let width: CGFloat = section == .notes || section == .lab ? 1080 : 680
+        return VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 7) {
+                KickerLabel(section.kicker)
+                Text(section.title).font(Typography.largeTitle).tracking(Typography.largeTitleTracking).foregroundStyle(Theme.textPrimary)
+                Text(section.subtitle).font(Typography.body).foregroundStyle(Theme.textSecondary)
+            }
+            sectionView(section, viewModel: viewModel, state: state, notesTab: notesTab)
+        }
+        .frame(width: width, alignment: .leading)
+        .padding(.horizontal, 44)
+        .padding(.vertical, 40)
+        .frame(width: width + 88, alignment: .topLeading)
+        .background(WarmBackground())
+    }
+
+    /// A believable day for the ambient row and the hover timeline: two finished
+    /// meetings, one about to start (with a real Zoom link so the Join pill is
+    /// drawn rather than described), and one in the evening.
+    ///
+    /// Times are relative to the render, so the row is always inside its horizon
+    /// and the snapshot shows the state worth reviewing instead of a dark notch.
+    private static func mockDay(now: Date = Date()) -> [DayEvent] {
+        [
+            DayEvent(
+                id: "m1", title: "Standup",
+                start: now.addingTimeInterval(-4 * 3600),
+                end: now.addingTimeInterval(-4 * 3600 + 900),
+                isAllDay: false, calendarTitle: "Work", sourceTitle: "Google",
+                instanceLabel: "Work"),
+            DayEvent(
+                id: "m2", title: "1:1 with Priya",
+                start: now.addingTimeInterval(-2 * 3600),
+                end: now.addingTimeInterval(-2 * 3600 + 1800),
+                isAllDay: false, calendarTitle: "Work", sourceTitle: "Google",
+                instanceLabel: "Work"),
+            DayEvent(
+                id: "m3", title: "Design review",
+                start: now.addingTimeInterval(6 * 60),
+                end: now.addingTimeInterval(66 * 60),
+                isAllDay: false, calendarTitle: "Work", sourceTitle: "Google",
+                instanceLabel: "Work",
+                joinURL: URL(string: "https://acme.zoom.us/j/9182736450")),
+            DayEvent(
+                id: "m4", title: "Dinner with Sam",
+                start: now.addingTimeInterval(5 * 3600),
+                end: now.addingTimeInterval(7 * 3600),
+                isAllDay: false, calendarTitle: "Personal", sourceTitle: "iCloud",
+                instanceLabel: "Personal"),
+        ]
+    }
+
+    /// One reminder, twenty minutes late — the ambient row's other rung.
+    private static func seedOverdueReminder(_ state: AppState) {
+        state.notesStore.persistenceEnabled = false
+        state.notesStore.upsertReminder(
+            ReminderItem(
+                title: "Rotate the R2 key",
+                dueDate: Date(timeIntervalSinceNow: -20 * 60)))
+    }
+
+    /// One invented bench run: the shipped normalizer against a candidate, with
+    /// the kinds of disagreement the compare view exists to show.
+    private static func mockLabRun() -> LabRun {
+        func result(_ id: String, _ name: String, outputs: [(String, String, Bool, Int)],
+                    load: Int, peak: Int64, disk: Int64) -> LabModelResult {
+            var out = LabModelResult(modelID: id, modelName: name)
+            out.loadMs = load
+            out.peakGPUBytes = peak
+            out.loadGPUBytes = peak - 40_000_000
+            out.peakFootprintBytes = peak + 1_900_000_000
+            out.diskBytes = disk
+            out.memory = (0 ..< 8).map { step in
+                LabMemorySample(
+                    atMs: step * 900,
+                    activeBytes: peak - Int64(step % 3) * 30_000_000,
+                    cacheBytes: 60_000_000, peakBytes: peak,
+                    footprintBytes: peak + 1_900_000_000)
+            }
+            out.cases = outputs.map { id, text, passed, ms in
+                LabCaseResult(
+                    id: id, category: String(id.split(separator: "-").first ?? "case"),
+                    target: "light", inputKind: "text", prompt: text,
+                    deterministic: text, modelOutput: text, finalOutput: text,
+                    guardAccepted: true, passed: passed,
+                    reasons: passed ? [] : ["missing 'room 205'"],
+                    attribution: passed ? nil : "cleanup",
+                    latencyMs: ms, promptTokens: 42, generatedTokens: 28,
+                    tokensPerSecond: Double(28_000 / max(ms, 1)))
+            }
+            return out
+        }
+
+        let baseline = result(
+            "s1-mini-4bit", "S1-mini",
+            outputs: [
+                ("num-room-two-oh-five", "Meet me in room 2:05 after standup.", false, 104),
+                ("corr-name-chain", "Call Jane about the invoice.", true, 96),
+                ("faith-translate-es", "Translate good morning into Spanish.", true, 118),
+                ("num-one-day", "Remind me in one day to check the logs.", true, 88),
+            ],
+            load: 1_400, peak: 410_000_000, disk: 335_000_000)
+
+        let candidate = result(
+            "qwen3-1.7b-4bit", "Qwen3-1.7B",
+            outputs: [
+                ("num-room-two-oh-five", "Meet me in room 205 after standup.", true, 168),
+                ("corr-name-chain", "Call Jane about the invoice.", true, 152),
+                ("faith-translate-es", "Buenos dias.", false, 194),
+                ("num-one-day", "Remind me in one day to check the logs.", true, 149),
+            ],
+            load: 2_100, peak: 1_200_000_000, disk: 986_000_000)
+
+        var run = LabRun(
+            id: 47, suite: .cleanup, startedAt: Date(timeIntervalSinceNow: -900),
+            finishedAt: Date(timeIntervalSinceNow: -120),
+            appVersion: AppInfo.version, machine: "Apple M3 Max, 36 GB")
+        run.models = [baseline, candidate]
+        return run
+    }
+
     private static func seedMockData(_ state: AppState) {
         state.phase = .idle
         state.audioLevel = 0
+        // Mock, so the sidebar's update card is in every window render. On a real
+        // build this is nil until Sparkle's silent check finds something, and the
+        // card is absent — the snapshots deliberately show the loud state, which
+        // is the one worth reviewing.
+        state.availableUpdateVersion = "1.2.0"
         state.customVocabulary = ["RAG", "Parakeet", "Lyzr"]
+        // A finished bench, so the Model Lab photographs as a populated page.
+        // Seeded in memory only (`seedForSnapshot` never writes), and every
+        // figure here is invented for layout — the lab's real numbers come from
+        // a run on this Mac.
+        state.lab.seedForSnapshot(
+            runs: [mockLabRun()],
+            installedIDs: ["s1-mini-4bit", "qwen3-1.7b-4bit", "qwen3-4b-instruct-2507-4bit"])
         state.history = [
             TranscriptHistoryEntry(text: "Let's ship the redesign and get feedback from the team before the demo on Friday.", createdAt: Date(timeIntervalSinceNow: -300), engineRawValue: TranscriberEngine.slidingWindow.rawValue),
             TranscriptHistoryEntry(text: "Remember to sync the FluidAudio version across Package.swift and project.yml.", createdAt: Date(timeIntervalSinceNow: -3600), engineRawValue: TranscriberEngine.slidingWindow.rawValue),
@@ -342,13 +990,16 @@ enum SnapshotMode {
                 provenance: "From Work, Personal",
                 askedAt: Date(timeIntervalSinceNow: -420)),
             AnsweredQuestion(
-                question: "Morning briefing",
+                question: "what needs me today",
                 answer: "Two things need you today: the release notes, and Friday's demo script.",
-                askedAt: Date(timeIntervalSinceNow: -9000),
-                source: .automation),
+                askedAt: Date(timeIntervalSinceNow: -9000)),
         ]
+        seedTraces(state.traces)
         seedUsage(state.usageStore)
         seedNotes(state.notesStore)
+        // The quick-actions band's left column is the day, so it needs one — the
+        // renderer never starts `NowStore`, so nothing would read EventKit anyway.
+        state.now.seed(events: mockDay())
         // Two *differently named* Google Calendar instances plus an iCal one, so the
         // multi-instance UI — the whole point of the redesign — is visible in the
         // headless renderer rather than only on a Mac with real accounts attached.
@@ -366,31 +1017,175 @@ enum SnapshotMode {
             kind: .appleCalendar, label: "iCloud", identity: "iCloud",
             config: .calendars(identifiers: ["mock-icloud"], sourceTitle: "iCloud")))
         state.connectorStore.calendarAccessGranted = true
-        // The assistant, one standing permission and one automation, so the whole
-        // Connectors page renders headlessly rather than only its top half.
+        // The assistant on plus one standing permission, so the Connectors page's
+        // grant list and the Settings page's assistant sections both render
+        // headlessly rather than only their empty states.
         state.connectorAgentEnabled = true
         state.cleanupModelReady = true
+        // Smart cleanup on, so the card renders expanded — the "Polish my English"
+        // row and its Experimental tag only exist inside that branch.
+        state.llmCleanupEnabled = true
         let mockSlack = state.connectorStore.add(ConnectorInstance(
             kind: .slack, label: "Work chat", identity: "Acme / whisper"))
         state.connectorStore.addGrant(
             Grant(tool: "send_message", instanceID: mockSlack.id, target: "#standup"))
-        state.automationStore.persistenceEnabled = false
-        state.automationStore.add(ScheduledTask(
-            title: "Morning briefing",
-            instructions: "what's on my work calendar today",
-            schedule: .daily(hour: 8, minute: 30)))
     }
 
     /// A couple of believable notes + reminders so the Notes & Reminders panel
     /// renders with real-looking content (never touches a real per-account file).
+    /// Traces worth *looking* at: one dictation whose polish was accepted, one whose
+    /// rewrite the guard threw away (the case the surface exists for), and two
+    /// assistant captures — one that read a connector, one that was filed as a note
+    /// because the model was never loaded. A seed of three happy rows would render a
+    /// page that never shows the states worth designing for.
+    private static func seedTraces(_ store: TraceStore) {
+        let engine = TranscriberEngine.slidingWindow.rawValue
+        let polished = DictationTrace(
+            startedAt: Date(timeIntervalSinceNow: -300),
+            engineRawValue: engine,
+            durationSeconds: 9,
+            rawTranscript: "um let's ship the redesign and uh get feedback from the team before the demo on friday",
+            stages: [
+                TraceStage(label: "Spacing repair", text: "um let's ship the redesign and uh get feedback from the team before the demo on friday", changed: false),
+                TraceStage(label: "Self-corrections", text: "um let's ship the redesign and uh get feedback from the team before the demo on friday", changed: false),
+                TraceStage(label: "Numbers & formatting", text: "um let's ship the redesign and uh get feedback from the team before the demo on Friday.", changed: true),
+                TraceStage(label: "Filler words", text: "Let's ship the redesign and get feedback from the team before the demo on Friday.", changed: true, note: "2 removed"),
+                TraceStage(label: "Your vocabulary", text: "Let's ship the redesign and get feedback from the team before the demo on Friday.", changed: false),
+            ],
+            finalText: "Let's ship the redesign and get feedback from the team before the demo on Friday.",
+            polish: PolishTrace(
+                outcome: .applied, mode: "Light cleanup",
+                before: "Let's ship the redesign and get feedback from the team before the demo on Friday.",
+                after: "Let's ship the redesign and get the team's feedback before Friday's demo.",
+                reason: "The rewrite was faithful, so it was used.", milliseconds: 840),
+            delivery: DeliveryTrace(route: "native", appName: "Linear"))
+        let rejected = DictationTrace(
+            startedAt: Date(timeIntervalSinceNow: -3600),
+            engineRawValue: engine,
+            durationSeconds: 6,
+            rawTranscript: "what's the capital of france",
+            stages: [
+                TraceStage(label: "Spacing repair", text: "what's the capital of france", changed: false),
+                TraceStage(label: "Numbers & formatting", text: "What's the capital of France?", changed: true),
+                TraceStage(label: "Your vocabulary", text: "What's the capital of France?", changed: false),
+            ],
+            finalText: "What's the capital of France?",
+            polish: PolishTrace(
+                outcome: .rejected, mode: "Polish my English",
+                before: "What's the capital of France?",
+                after: "The capital of France is Paris.",
+                reason: "The rewrite introduced a name you didn't say — the tell for answering a question.",
+                milliseconds: 910),
+            delivery: DeliveryTrace(route: "web", appName: "Safari"))
+
+        let answered = AssistantTrace(
+            askedAt: Date(timeIntervalSinceNow: -420),
+            heard: "what are my unread emails",
+            asked: "What are my unread emails?",
+            stages: [
+                TraceStage(label: "Numbers & formatting", text: "What are my unread emails?", changed: true),
+            ],
+            decisions: [
+                TraceDecision(title: "Agent", detail: "Answered from list_mail.", taken: true),
+            ],
+            connectorsAllowed: true,
+            toolsOffered: ["create_note", "create_reminder", "list_reminders", "list_mail", "list_calendar_events"],
+            calls: [
+                ToolCallTrace(
+                    tool: "list_mail", arguments: ["connector": "corkkam"],
+                    connectors: ["corkkam"], ok: true,
+                    result: "Design review notes (unread · Priya) [corkkam]\nInvoice #2841 (unread · Stripe) [corkkam]",
+                    milliseconds: 2_140),
+            ],
+            turns: [
+                TraceTurn(role: "model", text: #"{"tool":"list_mail","args":{"connector":"corkkam"}}"#),
+                TraceTurn(role: "system", text: "Answer now with {\"answer\":\"...\"} if that is enough, otherwise call another tool."),
+                TraceTurn(role: "model", text: #"{"answer":"Two unread: design review notes from Priya, and a Stripe invoice."}"#),
+            ],
+            answer: "Two unread: design review notes from Priya, and a Stripe invoice.",
+            provenance: "From corkkam",
+            milliseconds: 6_300)
+        let posted = AssistantTrace(
+            askedAt: Date(timeIntervalSinceNow: -1800),
+            heard: "post the release notes to ops",
+            asked: "Post the release notes to ops.",
+            decisions: [
+                TraceDecision(title: "Agent", detail: "Acted on it using send_message.", taken: true),
+            ],
+            connectorsAllowed: true,
+            toolsOffered: ["create_note", "create_reminder", "list_reminders", "send_message"],
+            calls: [
+                ToolCallTrace(
+                    tool: "send_message", arguments: ["channel": "#ops", "text": "Release notes are up."],
+                    connectors: ["Work chat"], ok: true,
+                    result: "Sent to #ops.",
+                    milliseconds: 380,
+                    approvalMilliseconds: 7_200,
+                    authorization: .allowedOnce),
+            ],
+            answer: "Posted the release notes to #ops.",
+            provenance: "Sent to Work chat",
+            createdSomething: true,
+            milliseconds: 9_100)
+        let filed = AssistantTrace(
+            askedAt: Date(timeIntervalSinceNow: -9000),
+            heard: "remind me to send the release notes at five",
+            asked: "Remind me to send the release notes at five.",
+            decisions: [
+                TraceDecision(
+                    title: "Agent",
+                    detail: "Skipped — the on-device model isn't loaded. Turn on Smart cleanup in Settings → General to download and load it.",
+                    taken: false),
+                TraceDecision(title: "Day summary", detail: "Skipped — this doesn't read as a question about your day.", taken: false),
+                TraceDecision(
+                    title: "Filed as a reminder",
+                    detail: "Nothing above could act on this, and a capture made with the chord is never pasted — so the words were kept in Notes & Reminders rather than lost.",
+                    taken: true),
+            ],
+            answer: "Reminder saved.",
+            provenance: "Saved to Notes & Reminders",
+            createdSomething: true,
+            milliseconds: 180)
+        store.seed(dictation: [polished, rejected], assistant: [answered, posted, filed])
+    }
+
     private static func seedNotes(_ store: NotesStore) {
         store.persistenceEnabled = false
+        // A spread that exercises the canvas rather than just filling it: a pinned
+        // note (leads the grid, shows the notch band), spoken notes carrying a
+        // transcript distinct from the body, and typed notes with neither. The
+        // `colorIndex` is set explicitly so the PNGs are stable — the default is
+        // derived from a random UUID, which would reshuffle the palette every run
+        // and make every snapshot diff look like a redesign.
+        //
+        // `audio` names files that don't exist, which is the point: the card must
+        // render the recording affordance and still refuse to promise playback for a
+        // file this Mac doesn't have (the synced-note case).
+        store.upsertNote(Note(
+            title: "Wifi password",
+            body: "The guest network password is basalt-harbour-19.",
+            isPinned: true,
+            transcript: "take a note that the guest network password is basalt harbour nineteen",
+            audio: NoteAudio(fileName: "mock-wifi.wav", durationMs: 7_400),
+            colorIndex: 0))
         store.upsertNote(Note(
             title: "Demo script",
-            body: "Open with the notch pill, then dictate into Slack to show live paste."))
+            body: "Open with the notch pill, then dictate into Slack to show live paste.",
+            colorIndex: 1))
+        store.upsertNote(Note(
+            title: "Parakeet window",
+            body: "Preview track is 1.5s; accurate track stays at 11s — don't lower it.",
+            transcript: "note that the preview track is one point five seconds and the accurate track stays at eleven seconds, don't lower it",
+            audio: NoteAudio(fileName: "mock-parakeet.wav", durationMs: 12_900),
+            colorIndex: 2))
         store.upsertNote(Note(
             title: "Follow-ups",
-            body: "Ping design about the Daylight tokens; sync FluidAudio version."))
+            body: "Ping design about the Daylight tokens; sync FluidAudio version.",
+            colorIndex: 3))
+        store.upsertNote(Note(
+            title: "",
+            body: "Ask Priya whether the compliance deck needs the on-device diagram.",
+            colorIndex: 4))
         store.upsertReminder(ReminderItem(
             title: "Stand-up",
             body: "Daily team sync",
@@ -403,6 +1198,20 @@ enum SnapshotMode {
             dueDate: Date(timeIntervalSinceNow: 7_200),
             alertStyle: .alarm,
             soundName: "Sosumi"))
+        // Overdue and completed: the two states the row renders differently from a
+        // plain future reminder, so both are in the PNGs rather than only in prose.
+        store.upsertReminder(ReminderItem(
+            title: "Send the compliance deck",
+            dueDate: Date(timeIntervalSinceNow: -5_400),
+            alertStyle: .notification,
+            soundName: "Glass"))
+        store.upsertReminder(ReminderItem(
+            title: "Renew the developer certificate",
+            dueDate: Date(timeIntervalSinceNow: -90_000),
+            alertStyle: .notification,
+            soundName: "Glass",
+            isCompleted: true,
+            completedAt: Date(timeIntervalSinceNow: -3_000)))
     }
 
     /// Feed the Insights dashboard believable history: several dictations a day
@@ -449,46 +1258,33 @@ enum SnapshotMode {
         }
     }
 
-    /// Renders each surface **twice**, once per appearance, as `<name>-light.png`
-    /// and `<name>-dark.png`. Since the theme became dual-mode, a single-mode
-    /// snapshot only covers half the regression surface.
+    /// Renders one surface to `<name>.png`.
     ///
-    /// Two things have to agree for the tokens to resolve correctly: SwiftUI's
-    /// `colorScheme` environment (read by the glass recipes) and AppKit's
-    /// current drawing appearance (read by the dynamic `NSColor` providers
-    /// behind every token). Setting only one of them silently renders a mixed
-    /// palette.
+    /// The app is light-only, so there's a single appearance to cover — this used
+    /// to render every surface twice (`-light`/`-dark`) back when the theme was
+    /// dual-mode. The drawing appearance is still set explicitly rather than
+    /// inherited: `performAsCurrentDrawingAppearance` is what any AppKit-backed
+    /// colour resolves against, and the headless renderer has no window to take
+    /// it from.
     private static func render<V: View>(_ view: V, to url: URL) {
-        for scheme in [ColorScheme.light, .dark] {
-            let suffix = scheme == .dark ? "dark" : "light"
-            let name = url.deletingPathExtension().lastPathComponent
-            let target = url
-                .deletingLastPathComponent()
-                .appendingPathComponent("\(name)-\(suffix).png")
+        guard let appearance = NSAppearance(named: .aqua) else { return }
 
-            guard let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua) else { continue }
-
-            var image: NSImage?
-            appearance.performAsCurrentDrawingAppearance {
-                let renderer = ImageRenderer(
-                    content: view
-                        .environment(\.isSnapshot, true)
-                        .environment(\.colorScheme, scheme)
-                )
-                renderer.scale = 2
-                image = renderer.nsImage
-            }
-
-            guard let image,
-                  let tiff = image.tiffRepresentation,
-                  let rep = NSBitmapImageRep(data: tiff),
-                  let png = rep.representation(using: .png, properties: [:]) else {
-                print("Failed to render \(target.lastPathComponent)")
-                continue
-            }
-            try? png.write(to: target)
-            print("Wrote \(target.lastPathComponent)")
+        var image: NSImage?
+        appearance.performAsCurrentDrawingAppearance {
+            let renderer = ImageRenderer(content: view.environment(\.isSnapshot, true))
+            renderer.scale = 2
+            image = renderer.nsImage
         }
+
+        guard let image,
+              let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else {
+            print("Failed to render \(url.lastPathComponent)")
+            return
+        }
+        try? png.write(to: url)
+        print("Wrote \(url.lastPathComponent)")
     }
 }
 #endif

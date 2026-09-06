@@ -4,6 +4,14 @@ import Observation
 /// Drives the hover quick-actions panel: whether it's open, and what the two
 /// columns are holding.
 ///
+/// **The left column is the day, not a list of reminders.** It used to be a
+/// reminders column beside a notes column, which answered two thirds of "what is
+/// on my plate" and left the calendar — which the app has read all along for the
+/// spoken day summary — out of the one surface built for exactly that question.
+/// Events and reminders are now interleaved by time in a single ordered column
+/// (`NowTimeline`), because they are one question and two lists make the reader
+/// merge them by eye.
+///
 /// **The open/close decision lives in `NotchHoverGesture`** — a pure dwell/grace
 /// machine (crossing the notch on the way to the menu bar must not open anything),
 /// unit-tested on its own. This type is the wiring around it: what the two columns
@@ -14,7 +22,9 @@ import Observation
 @MainActor
 @Observable
 final class NotchQuickActionsModel {
-    /// Most rows a column shows. Past this it stops being a glance.
+    /// Most rows the **notes** column shows. Past this it stops being a glance.
+    /// The day column has its own, wider limit (`NowTimeline.displayLimit`) — it is
+    /// the reason to open the panel, so it gets the room.
     static let columnLimit = 3
 
     var isOpen: Bool { gesture.isOpen }
@@ -40,24 +50,49 @@ final class NotchQuickActionsModel {
 
     private var notes: NotesStore { state.notesStore }
 
-    /// Live reminders that are still ahead of the user (or overdue and unanswered),
-    /// soonest first — the ones worth a glance. Completed ones are done with, bar
-    /// any ticked off in this glance, which stay put so they can be un-ticked.
-    var reminders: [ReminderItem] {
-        notes.visibleReminders
-            .filter { !$0.isCompleted || ticked[$0.id] != nil }
-            .prefix(Self.columnLimit)
-            .map { $0 }
+    private var now: NowStore { state.now }
+
+    /// Today in one ordered column — events and reminders interleaved by time,
+    /// what has gone dimmed rather than dropped, windowed onto what is ahead.
+    ///
+    /// Resolved once per access against a single `Date()`, and the view reads it
+    /// once per render into a local, so every row in a given frame agrees about
+    /// what "now" is.
+    func day(at instant: Date = Date()) -> (rows: [NowTimelineRow], hidden: Int) {
+        NowTimeline.window(now.timeline(now: instant, keeping: Set(ticked.keys)))
     }
 
-    /// Most recently touched notes.
+    /// What the notes column holds: **pinned notes first**, then the most recently
+    /// touched, capped at the column limit.
+    ///
+    /// Pinning is the user's own claim that a note is worth keeping in reach, and
+    /// this band is the surface that's always in reach — so a pinned note appears
+    /// here rather than only in the window. `NotesStore.visibleNotes` already orders
+    /// pinned-then-recent, so the prefix picks them up without a second sort; the
+    /// column label changes to say so when any of them are pinned, because a pinned
+    /// note under a "recent" heading reads as a coincidence.
     var recentNotes: [Note] {
         notes.visibleNotes.prefix(Self.columnLimit).map { $0 }
     }
 
+    /// Whether the notes column is showing anything pinned — drives its label.
+    var showsPinned: Bool {
+        recentNotes.contains(where: \.isPinned)
+    }
+
     /// Rows in the longer of the two columns — what the band's depth is sized to.
     var visibleRowCount: Int {
-        max(reminders.count, recentNotes.count)
+        max(day().rows.count, recentNotes.count)
+    }
+
+    /// Unpin a note straight from the band.
+    ///
+    /// The only note mutation the panel offers, and it's here for the same reason the
+    /// reminder checkbox is: it needs no keyboard, and "get this off my notch" is the
+    /// one thing a user wants to do to a pinned note *from* the notch. Pinning in the
+    /// first place still happens in the window, where the note is in front of them.
+    func unpin(_ note: Note) {
+        notes.setPinned(note.id, false)
     }
 
     /// Whether there's an account loaded at all. Signed out, the stores are empty by

@@ -31,11 +31,7 @@ final class CommandAgentTests: XCTestCase {
     }
 
     private func scripted(_ replies: [String]) -> AgentLoop.Generate {
-        var index = 0
-        return { _, _ in
-            defer { index += 1 }
-            return index < replies.count ? replies[index] : nil
-        }
+        ScriptedModel(replies).generate
     }
 
     private func service(notes: NotesStore,
@@ -117,6 +113,24 @@ final class CommandAgentTests: XCTestCase {
         XCTAssertNil(result, "talking is not acting")
         XCTAssertTrue(notes.visibleNotes.isEmpty)
         XCTAssertTrue(notes.visibleReminders.isEmpty)
+    }
+
+    /// …but it is told so once before the run is written off. A 4-bit model opening
+    /// with "Sure, I'll remember that" is common, and it used to cost the command: one
+    /// generation spent, nil back, and the deterministic path filing the sentence.
+    func testAnAnswerFirstCommandIsGivenOneChanceToAct() async {
+        let notes = notesStore()
+        let result = await service(notes: notes, connectors: emptyConnectors()).perform(
+            "remind me to buy milk at six",
+            generate: scripted([
+                #"{"answer":"Sure, I'll remember that."}"#,
+                #"{"tool":"create_reminder","args":{"title":"Buy milk","when":"at six"}}"#,
+                #"{"answer":"Reminder set for six."}"#,
+            ]))
+
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.createdSomething, true)
+        XCTAssertEqual(notes.visibleReminders.count, 1)
     }
 
     /// …but a loop that runs dry *after* creating something has still carried the
@@ -216,12 +230,124 @@ final class CommandAgentTests: XCTestCase {
                        "the user's own notes are not a connector to credit")
     }
 
+    // MARK: - What counts as having acted
+
+    /// **A connector write is something happening.** The tally was derived from the
+    /// local runner's effects alone, so a Slack message that genuinely went out left
+    /// `didCreateSomething` false — and an exhausted loop then told the user nothing
+    /// had happened about a message that had already been sent.
+    ///
+    /// The router is stubbed because no provider can complete a real write under
+    /// `swift test`.
+    func testAConnectorWriteCountsAsHavingActed() async {
+        let connectors = StubConnectorRouter(
+            ToolResult(ok: true, text: "Sent to #ops.", instanceLabels: ["Work chat"]))
+        let router = CommandToolRouter(local: LocalToolRunner(notes: notesStore()),
+                                       connectors: connectors)
+
+        let result = await router.run(ToolCall(
+            tool: "send_message", arguments: ["channel": "#ops", "text": "hi"]))
+
+        XCTAssertTrue(result.ok)
+        XCTAssertTrue(router.didCreateSomething, "the message went out")
+        XCTAssertEqual(router.lastResult, "Sent to #ops.",
+                       "so an exhausted loop has the tool's own report to fall back on")
+        XCTAssertEqual(router.effects,
+                       [.connectorWrite(tool: "send_message", instanceLabels: ["Work chat"])])
+    }
+
+    /// A write the user declined, or one the provider refused, reached the connector
+    /// and changed nothing — the deterministic fallback must still get the words.
+    func testAFailedConnectorWriteDoesNotCount() async {
+        let connectors = StubConnectorRouter(.failure("The user declined that."))
+        let router = CommandToolRouter(local: LocalToolRunner(notes: notesStore()),
+                                       connectors: connectors)
+
+        _ = await router.run(ToolCall(
+            tool: "send_message", arguments: ["channel": "#ops", "text": "hi"]))
+
+        XCTAssertFalse(router.didCreateSomething)
+        XCTAssertTrue(router.effects.isEmpty)
+    }
+
+    /// Reading still doesn't count: the answer is the whole of its result.
+    func testAConnectorReadDoesNotCount() async {
+        let connectors = StubConnectorRouter(
+            ToolResult(ok: true, text: "Nothing on the calendar today.",
+                       instanceLabels: ["Work"]))
+        let router = CommandToolRouter(local: LocalToolRunner(notes: notesStore()),
+                                       connectors: connectors)
+
+        _ = await router.run(ToolCall(tool: "list_calendar_events", arguments: [:]))
+
+        XCTAssertFalse(router.didCreateSomething)
+        XCTAssertTrue(router.effects.isEmpty)
+    }
+
     /// A local tool has no consent card to bind a grant to, so it must never be
     /// dispatched through the connector router.
     func testTheConnectorRouterRefusesALocalTool() async {
         let router = ToolRouter(store: emptyConnectors(), requestApproval: { _ in .denied })
         let result = await router.run(ToolCall(tool: "create_note", arguments: ["body": "hi"]))
         XCTAssertFalse(result.ok)
+    }
+
+    // MARK: - What the run records
+
+    /// The run that looks like "the model answered without calling a tool" is very
+    /// often a model that tried ten times and never emitted valid JSON. Nothing was
+    /// journalled for those attempts — no call was ever made — so without the turns
+    /// the trace describes the wrong failure.
+    func testTheModelsOwnTurnsAreKeptWhenItNeverReachedATool() async {
+        let run = await service(notes: notesStore(), connectors: emptyConnectors()).run(
+            "buy milk",
+            generate: scripted(Array(repeating: "{tool: create_note}", count: 3)))
+
+        XCTAssertNil(run.result)
+        XCTAssertTrue(run.calls.isEmpty, "nothing was ever called")
+        XCTAssertEqual(run.turns.map(\.role), ["model", "system", "model", "system",
+                                               "model", "system"],
+                       "each malformed attempt and the correction it earned")
+        XCTAssertEqual(run.turns.first?.text, "{tool: create_note}")
+    }
+
+    /// A tool's own output is already in `calls`; keeping it in the turns as well
+    /// would store every result twice in a list that is read whole at launch.
+    func testTurnsAreClampedAndLeaveTheToolResultsToTheJournal() async {
+        let long = String(repeating: "x", count: TraceText.limit + 200)
+        let run = await service(notes: notesStore(), connectors: emptyConnectors()).run(
+            "note this",
+            generate: scripted([
+                long,
+                #"{"tool":"create_note","args":{"body":"the right one"}}"#,
+                #"{"answer":"Saved."}"#,
+            ]))
+
+        XCTAssertFalse(run.turns.contains { $0.role == "tool" })
+        XCTAssertEqual(run.calls.count, 1, "the tool result lives in the journal")
+        XCTAssertTrue(run.turns[0].text.hasSuffix("(truncated)"))
+        XCTAssertLessThan(run.turns[0].text.count, long.count)
+    }
+
+    /// The chord suppresses the paste, so the band is the whole answer. A connector
+    /// that couldn't be read has to be stated by us — a 3B asked to summarise "couldn't
+    /// be read" alongside two real results will drop it, and "Nothing to report" then
+    /// reads as a quiet day. Same tail the deterministic day summary uses.
+    func testAConnectorThatCouldNotBeReadIsNamedInTheProvenance() {
+        XCTAssertEqual(
+            CommandAgentService.detailLine(effects: [], served: ["corkkam"],
+                                           unreadable: ["Work"]),
+            "From corkkam  ·  couldn't read Work")
+        XCTAssertEqual(
+            CommandAgentService.detailLine(effects: [], served: [], unreadable: []),
+            "On-device assistant",
+            "nothing to admit, nothing appended")
+        XCTAssertEqual(
+            CommandAgentService.detailLine(
+                effects: [.connectorWrite(tool: "send_message", instanceLabels: ["Work chat"])],
+                served: [], unreadable: ["Personal", "Work"]),
+            "Sent to Work chat  ·  couldn't read Personal, Work",
+            "a write still names where it went first")
     }
 
     // MARK: - What the band shows

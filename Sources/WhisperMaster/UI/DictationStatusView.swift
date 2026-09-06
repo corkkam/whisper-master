@@ -21,6 +21,13 @@ struct DictationStatusView: View {
     /// rather than in a band below it. `nil` keeps the band's own metrics.
     var rowOrbSize: CGFloat?
     var rowVerticalInset: CGFloat?
+    /// Ceiling on the leading state word in the row form, where it has to stay
+    /// inside the wing beside the camera housing. `nil` in the band form, which
+    /// runs below the housing and has the whole surface to use.
+    var rowLabelMaxWidth: CGFloat?
+    /// The day, for the leading edge. Present only in the row form, and only when
+    /// something is actually inside its horizon — see `NotchNowRow`.
+    var ambient: NotchAmbientSlot?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -67,7 +74,8 @@ struct DictationStatusView: View {
         // suddenly re-caption itself as an ordinary dictation mid-command.
         activity.label(
             holdToTalk: keyIsHoldingItOpen,
-            commandCapture: state.commandCaptureArmed || state.commandAgentRunning)
+            commandCapture: state.commandCaptureArmed || state.commandAgentRunning,
+            agentActivity: state.agentActivity)
     }
 
     /// Whether the *key* is what's keeping the band open. False in toggle mode and
@@ -91,7 +99,10 @@ struct DictationStatusView: View {
             label: liveStateWord,
             accessibilityLabel: liveStateWord,
             orbSize: rowOrbSize,
-            verticalInset: rowVerticalInset
+            verticalInset: rowVerticalInset,
+            labelMaxWidth: rowLabelMaxWidth,
+            ambient: ambient,
+            stateIsLive: activity == .listening
         )
     }
 

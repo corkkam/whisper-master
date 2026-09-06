@@ -8,9 +8,6 @@ import UserNotifications
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var window: NSWindow?
-    /// Last appearance pushed onto `NSApp`, so the 0.5s refresh loop can spot a
-    /// change without reassigning (and re-rendering) every tick.
-    private var appliedAppearance: AppAppearance?
     /// What the tray currently shows, so the same 0.5s loop only rebuilds the icon /
     /// rewrites the tooltip and menu header when the state behind them changed. The
     /// icon is keyed by SF Symbol name, with `""` standing for the brand logo.
@@ -21,10 +18,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Watches the fn + control chord — "what I'm about to say goes to the
     /// assistant, not the cursor" (see `setupHotkey`).
     private var commandChordMonitor: ModifierChordMonitor?
+    /// Watches the user-chosen key that talks to a coding agent. Nil whenever no key
+    /// is chosen, or the chosen one collides with push-to-talk — a monitor for a key
+    /// we would refuse to act on is a monitor that should not exist.
+    private var agentHotkeyManager: HotkeyManager?
+    /// The key `agentHotkeyManager` is currently installed for, so the reconcile on
+    /// the refresh tick is a no-op unless the preference actually changed.
+    private var installedAgentHotkey: HotkeyManager.HotkeyOption?
+    /// Esc-to-dismiss for the agent bands. Two monitors because a global one never
+    /// sees events while our own panel is key.
+    private var escKeyMonitorGlobal: Any?
+    private var escKeyMonitorLocal: Any?
     private let permissionsManager = PermissionsManager()
     private lazy var viewModel = DictationViewModel(
         hotkeyUpdater: { [weak self] hotkey in
             self?.hotkeyManager?.setHotkey(hotkey)
+            self?.claimFnKeyIfChosen(hotkey)
         }
     )
     private let transcriptionServer = RemoteTranscriptionServer()
@@ -78,6 +87,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var historyMenuItem: NSMenuItem?
     private var historySeparator: NSMenuItem?
     private var renderedHistoryIDs: [UUID] = []
+    /// The coding-agent section of the tray menu, and the signature of what is
+    /// currently drawn in it. Change-guarded like the history submenu: this is
+    /// rebuilt on a 0.5s tick, and the answer is identical on nearly every one.
+    private var agentsMenu: NSMenu?
+    private var agentsMenuItem: NSMenuItem?
+    private var renderedAgentRows: [String] = []
 
     /// Sparkle auto-updater. `startingUpdater: true` begins scheduled update
     /// checks (gated by `SUEnableAutomaticChecks` in Info.plist) against the
@@ -89,6 +104,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Analytics first, because it installs the crash handler.
+        //
+        // The rest of this method is the launch work most likely to crash — the
+        // engine graph, Metal warm-up, the MLX model — and a handler installed
+        // after it would miss exactly the crashes worth catching. Read straight
+        // from `UserDefaults` rather than `viewModel.state`, which would force
+        // the lazy view model up here and reorder launch. No-op, and no handler,
+        // when the user has analytics off.
+        Analytics.shared.configure(enabled: AppState.persistedAnalyticsEnabled)
+
+        // Did the *previous* run crash? Consumes the sentinel, then scans for the
+        // OS's own report off-main. Must run before `markLaunch` overwrites it.
+        CrashReporter.reportPreviousCrashIfNeeded()
+        CrashReporter.markLaunch()
+
         // Configure Clerk before anything reads `Clerk.shared`. Sign-in gates
         // the whole app: the LAN transcription server, the mesh, onboarding, and
         // the settings window are all deferred until the user authenticates
@@ -102,7 +132,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the registration, which otherwise silently stops us opening at login.
         LaunchAtLogin.shared.reconcileOnLaunch()
 
-        applyAppearance()
+        // The app is light-only — there is no dark mode and no appearance
+        // preference. This has to be *pinned* rather than left alone: with a nil
+        // appearance the windows inherit the Mac's setting, so a user in system
+        // dark mode would get dark AppKit chrome (menus, text fields, scrollers,
+        // focus rings) around our paper-ground tokens. Setting it on `NSApp`
+        // cascades to every window we create, and the notch bands opt back out by
+        // pinning `.darkAqua` on their own panels — they sit on the physical
+        // bezel, which is a hardware fact rather than a mode.
+        NSApp.appearance = NSAppearance(named: .aqua)
 
         setupMainMenu()
         setupStatusItem()
@@ -146,9 +184,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await EvalRunner.runIfRequested() }
         }
 
-        // Anonymous, opt-in usage analytics (off unless the user enabled it in
-        // Settings). Configure from the persisted flag, then record this launch.
-        Analytics.shared.configure(enabled: viewModel.state.analyticsEnabled)
+        // Dev-only: when WM_LAB_BENCH is set, run that Model Lab suite against
+        // the named models, print the table, and exit. The bench cannot run under
+        // `swift test` (MLX needs xcodebuild), so this is how it is proven.
+        if LabHeadlessBench.isRequested {
+            Task { await LabHeadlessBench.runIfRequested() }
+        }
+
+        // The launch signals themselves. `Analytics.shared.configure` already ran
+        // at the top of this method (it installs the crash handler); this only
+        // records the launch, which needs `permissionsManager` and so belongs
+        // after setup.
         reportLaunchAnalytics()
 
         // Put up the sign-in gate. At cold launch there's never a live session
@@ -226,7 +272,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.state.usageStore.activate(userID: "dev-local")
             viewModel.state.notesStore.activate(userID: "dev-local")
             viewModel.state.connectorStore.activate(userID: "dev-local")
-            viewModel.state.automationStore.activate(userID: "dev-local")
             return
         }
         // No key configured, or a definitively signed-out session → stay gated.
@@ -243,7 +288,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.state.usageStore.activate(userID: user.id)
             viewModel.state.notesStore.activate(userID: user.id)
             viewModel.state.connectorStore.activate(userID: user.id)
-            viewModel.state.automationStore.activate(userID: user.id)
+            // Attach the account to analytics on the same reconcile that scopes the
+            // stores, so the two can never disagree about who is signed in.
+            // `identify` is idempotent, which it has to be — this runs twice a
+            // second for the life of the session.
+            Analytics.shared.identify(
+                AnalyticsAccount(
+                    id: user.id,
+                    email: user.primaryEmailAddress?.emailAddress,
+                    // Clerk leaves both name halves optional, and a first name with
+                    // no last name is common; join what exists rather than
+                    // rendering "Jane nil".
+                    name: [user.firstName, user.lastName]
+                        .compactMap { $0 }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " ")
+                )
+            )
         } else if Clerk.shared.isLoaded {
             presentAuthGate()
             // Signed out — hide the app and drop the loaded account so neither the
@@ -252,8 +313,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.state.usageStore.deactivate()
             viewModel.state.notesStore.deactivate()
             viewModel.state.connectorStore.deactivate()
-        viewModel.state.automationStore.deactivate()
-            viewModel.state.automationStore.deactivate()
+            // Drop the person too, or the next user of this Mac inherits the last
+            // one's profile.
+            Analytics.shared.resetIdentity()
         }
         // Still loading a persisted session: leave the launch-time gate (which
         // shows a spinner) as-is until `isLoaded` resolves.
@@ -280,6 +342,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !didProceedAfterAuth else { return }
         didProceedAfterAuth = true
 
+        // Take the Globe key off macOS if that's the push-to-talk key. Here rather
+        // than in `setupHotkey` deliberately: this writes a system-wide preference,
+        // and doing that to someone who has only ever seen the sign-in gate would be
+        // changing their Mac before they'd decided to use the app.
+        claimFnKeyIfChosen(viewModel.state.hotkey)
+
         // Voice engine: download only if the model isn't already on disk, else
         // just load it. Runs in parallel with the single-step permissions
         // screen — model prep only needs the network, not mic/accessibility.
@@ -293,6 +361,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         reconcileRemoteServer()
         // Discover other Macs running Whisper Master on the network (the mesh).
         meshCoordinator.start()
+
+        // Watch for coding agents on this Mac. Held behind the gate with the rest of
+        // the bring-up, and dormant until now so `swift test` and the headless
+        // snapshot renderer never open a socket. If no kunai answers on loopback the
+        // poll finds nothing and the surface stays dark, which is the correct
+        // outcome on almost every install.
+        viewModel.state.agents.start()
+
+        // Read the calendar and start ranking the day. Dormant until now for the
+        // same reason `agents` is: building an `AppState` under `swift test` or the
+        // headless renderer must not open an `EKEventStore` or arm a timer. With no
+        // calendar grant it reads nothing and the ambient row simply never appears.
+        viewModel.state.now.start()
+
+        // Ask the appcast whether there is an update, without showing anything.
+        // `checkForUpdateInformation()` is the one Sparkle entry point that has no
+        // user driver behind it: it only fires the delegate callbacks below, which
+        // set `availableUpdateVersion` and light the sidebar card. Held behind the
+        // gate with the rest of the bring-up because `allowedChannels` reads the
+        // signed-in user's flag, so a check made before the session loads would
+        // miss the beta channel.
+        updaterController.updater.checkForUpdateInformation()
 
         let userID = currentOnboardingUserID()
 
@@ -342,7 +432,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.state.usageStore.deactivate()
         viewModel.state.notesStore.deactivate()
         viewModel.state.connectorStore.deactivate()
-        viewModel.state.automationStore.deactivate()
+        // The day belongs to the account that was signed in — stop reading it and
+        // clear what is held, or the next person to sign in sees the last one's
+        // meetings on the bezel.
+        viewModel.state.now.stop()
         Task {
             do {
                 try await Clerk.shared.auth.signOut()
@@ -395,6 +488,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// gone — with nothing left on screen to explain it or any way to stop it.
     func applicationWillTerminate(_ notification: Notification) {
         viewModel.stopSpeaking()
+        // Whatever we paused for a dictation goes back to playing — otherwise
+        // quitting mid-session leaves the speakers silent with nothing left running
+        // to explain why.
+        viewModel.releaseHeldMedia()
+        // The other half of crash detection. macOS calls this for ⌘Q, the tray
+        // Quit item, and logout — but never for a crash, which is precisely the
+        // discrimination `CrashReporter` relies on. A Force Quit skips it too and
+        // is therefore reported as an unclean exit with `hasReport=false`.
+        CrashReporter.markCleanExit()
     }
 
     /// Fire the launch-time analytics signals. No-ops entirely when the user
@@ -540,6 +642,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         historyMenu = historySub
         historyMenuItem = historyItem
 
+        // **The agents' entry point that is not a shortcut.** The glance opens with a
+        // user-chosen key that is off by default, so on a fresh install there was no
+        // way to reach the sessions at all. The tray is always there, needs nothing
+        // configured, and is where people already look to see what an app is doing.
+        // It hides itself when kunai is not running, so a Mac without one is
+        // unchanged.
+        let agentsItem = NSMenuItem(title: "Coding Agents", action: nil, keyEquivalent: "")
+        let agentsSub = NSMenu()
+        agentsItem.submenu = agentsSub
+        agentsItem.isHidden = true
+        menu.addItem(agentsItem)
+        agentsMenu = agentsSub
+        agentsMenuItem = agentsItem
+
         let separator = NSMenuItem.separator()
         menu.addItem(separator)
         historySeparator = separator
@@ -619,25 +735,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshStatusItem()
     }
 
-    /// Push the user's light/dark choice onto the whole app. Setting
-    /// `NSApp.appearance` cascades to every window, so this is the only place
-    /// appearance is decided; `nil` hands control back to the system setting.
-    /// Idempotent — the refresh loop calls it every tick.
-    private func applyAppearance() {
-        let wanted = viewModel.state.appearance
-        guard wanted != appliedAppearance else { return }
-        appliedAppearance = wanted
-        NSApp.appearance = wanted.nsAppearance
-        // The window background is an AppKit colour, so nudge it to re-resolve.
-        window?.backgroundColor = Theme.canvasNSColor
-    }
-
     private func refreshStatusItem() {
         // Flip the sign-in gate in step with the Clerk session — this timer is
         // our bridge from Clerk's @Observable state to AppKit, same as for
         // AppState below.
         reconcileAuthGate()
-        applyAppearance()
+
+        // Hand the user's music back once the whole exchange is over (the pause itself
+        // happens on the key press, in `startRecording`). **Above the tray guard on
+        // purpose:** giving the speakers back cannot depend on the menu bar having a
+        // status item — an early return there would leave the Mac silent with no way
+        // to explain it.
+        viewModel.reconcileMediaPlayback()
 
         guard let item = statusItem, let button = item.button else { return }
         let state = viewModel.state
@@ -647,7 +756,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // second for the life of the process; reassigning `button.image` every tick
         // built a fresh `NSImage` each time and pushed a status-item update through
         // the menu-bar server for a picture that is identical ~99% of ticks. Same
-        // reasoning as `appliedAppearance` above. (`nil` symbol → the brand logo, the
+        // reasoning as the other `applied…` caches above. (`nil` symbol → the brand logo, the
         // calm idle/ready state; active states keep their SF Symbol so status stays
         // glanceable.) The key is cached only on a successful assignment, so a failed
         // image lookup is retried on the next tick rather than latched.
@@ -680,19 +789,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // open it), the undelivered hint's Copy button, or a write-approval
         // card — where clicks matter.
         pillWindow?.setInteractive(
-            state.approvals.pending != nil
+            // The ambient row's checkbox and Join pill. This is the one entry here
+            // that can be true for minutes at a stretch rather than for a beat, so
+            // `DictationPillContent` marks the black fill and every non-control
+            // part of the row non-hittable — otherwise the surface would swallow
+            // menu-bar clicks for the whole ten minutes before a meeting.
+            state.ambientRowTakesClicks
+                || state.approvals.pending != nil
+                // The nudge is a pointer to another session, so it has to be
+                // tappable — a band that says "tap to answer" and swallows the tap
+                // is worse than no band.
+                || state.shouldShowAgentNudge
+                || state.shouldShowAgentAsk
+                || state.shouldShowAgentGlance
+                || state.shouldShowAgentReply
+                // The working row carries the stop button. Without this the window
+                // stays click-through and a click on "stop" falls through to
+                // whatever menu-bar item sits behind the band — which is how
+                // pressing stop opened a menu-bar assistant instead.
+                || state.shouldShowAgentWorking
                 || state.shouldShowBluetoothBanner
                 || state.shouldShowCommandConfirmation
                 || state.shouldShowDueReminderBanner
                 || state.shouldShowUndeliveredBanner)
 
+        // Keep the optional coding-agent key in step with the preference, and give
+        // the menu bar back once a revealed session has been read.
+        reconcileAgentHotkey()
+        if state.agents.revealHasExpired() { state.agents.closeGlance() }
+        reconcileAgentNudge()
+
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
-
-        // Fire any due automation off the same tick. openworker runs this in an
-        // always-on server; a menu-bar app reuses the poll it already has. Cheap when
-        // nothing is due, which is nearly always.
-        viewModel.tickAutomations()
 
         // Reconcile the optional cleanup model with its toggle (edge-triggered
         // inside, so this is a no-op unless the user just flipped it).
@@ -701,21 +829,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Mirror any changed usage rollups to the cloud (debounced + single-
         // flight inside; no-ops when the toggle is off, offline, or nothing
         // changed). The local store already has the data — this is just backup.
-        //
-        // Both sync calls are additionally gated on Regulated Mode. `&&` rather
-        // than relying on the preference alone: a Mac that had sync on before an
-        // MDM profile arrived would otherwise keep pushing until the user
-        // happened to open Settings. Notes sync matters most of the three
-        // egresses — a note is dictated text, so this is the one that would
-        // actually carry client content off the machine.
-        usageSync.syncIfNeeded(enabled: state.usageSyncEnabled && RegulatedMode.allowsUsageSync)
+        usageSync.syncIfNeeded(enabled: state.usageSyncEnabled)
 
         // Notes & reminders: pull the account's items once per activation (so a
         // second Mac catches up), then mirror local changes up. Both are debounced
         // + single-flight inside; no-ops when the toggle is off or nothing changed.
-        let notesSyncAllowed = state.notesSyncEnabled && RegulatedMode.allowsNotesSync
-        notesSync.pullIfNeeded(enabled: notesSyncAllowed)
-        notesSync.syncIfNeeded(enabled: notesSyncAllowed)
+        notesSync.pullIfNeeded(enabled: state.notesSyncEnabled)
+        notesSync.syncIfNeeded(enabled: state.notesSyncEnabled)
 
         // Fire any reminders that have come due (poll-driven — the app is a
         // persistent menu-bar process, so this is the reliable path).
@@ -817,6 +937,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         refreshHistoryMenu()
+        refreshAgentsMenu()
+    }
+
+    /// Redraw the agents section, only when what it says has changed.
+    private func refreshAgentsMenu() {
+        guard let agentsMenu, let agentsMenuItem else { return }
+        let controller = viewModel.state.agents
+        let sessions = controller.sessions
+        // Absent is the normal state: no kunai, no section. A greyed-out menu for a
+        // server almost nobody runs is clutter on every other Mac.
+        let visible = controller.isAvailable && !sessions.isEmpty
+        if agentsMenuItem.isHidden == visible { agentsMenuItem.isHidden = !visible }
+        guard visible else {
+            if !renderedAgentRows.isEmpty {
+                renderedAgentRows = []
+                agentsMenu.removeAllItems()
+            }
+            return
+        }
+
+        let now = Date()
+        let rows = sessions.map { "\($0.id)|\($0.repo)|\($0.statusLabel(now: now))" }
+        // The elapsed stamp changes every second, so compare on the *state* rather
+        // than the label — otherwise this rebuilds the menu twice a second forever,
+        // which is exactly what the change guard exists to prevent.
+        let signature = sessions.map {
+            "\($0.id)|\($0.repo)|\($0.machineLabel)|\($0.state.rawValue)"
+        }
+        guard signature != renderedAgentRows else { return }
+        renderedAgentRows = signature
+        _ = rows
+
+        agentsMenu.removeAllItems()
+        for session in sessions {
+            let item = NSMenuItem(
+                title: Self.agentMenuTitle(for: session, now: now),
+                action: #selector(openAgentSession(_:)),
+                keyEquivalent: "")
+            item.target = self
+            item.representedObject = session.id
+            if session.state == .awaitingPermission {
+                item.image = NSImage(
+                    systemSymbolName: "hand.raised.fill", accessibilityDescription: nil)
+            }
+            agentsMenu.addItem(item)
+        }
+    }
+
+    /// "whisper-master — Working 12s", or "kunai (linux) — Needs you" when the
+    /// session is on another machine. The machine only appears when it is not this
+    /// one, so the common case stays uncluttered.
+    private static func agentMenuTitle(for session: AgentSession, now: Date) -> String {
+        let name = session.repo.isEmpty ? "agent" : session.repo
+        let where_ = session.isRemote ? " (\(session.machineLabel))" : ""
+        return "\(name)\(where_) — \(session.statusLabel(now: now))"
+    }
+
+    /// Open one session on the band from the tray. Same door the nudge uses, so
+    /// there is one way in and it behaves identically however it was reached.
+    @objc private func openAgentSession(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        viewModel.state.agents.focus(sessionID: id)
     }
 
     private func refreshHistoryMenu() {
@@ -893,6 +1075,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return f
     }()
 
+    /// Keep the other-session nudge honest on the same tick everything else runs on.
+    ///
+    /// Two jobs, and they are opposites. While the band is busy the nudge's clock is
+    /// **pinned**, because a window that runs down behind an approval card is a
+    /// message the user never received. Once it has had its time on screen it is
+    /// **dropped**, so a stale pointer cannot reappear the next time the band frees
+    /// up. Same paused-clock shape the due reminder uses.
+    private func reconcileAgentNudge() {
+        let state = viewModel.state
+        guard state.agents.nudge != nil else { return }
+        guard state.canShowAgentNudge else {
+            state.agents.holdNudge()
+            return
+        }
+        guard let raisedAt = state.agents.nudgeAt else { return }
+        if Date().timeIntervalSince(raisedAt) >= AgentSurfaceController.nudgeHold {
+            state.agents.dismissNudge()
+        }
+    }
+
     private func trayAppearance(for state: AppState) -> (String?, String, String) {
         if state.preparingEngine != nil {
             let percent = Int((state.download?.fractionCompleted ?? 0) * 100)
@@ -911,6 +1113,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .idle:
             if !state.selectedEngine.isInstalled {
                 return ("arrow.down.circle", "Whisper Master — voice engine not installed", "Voice engine not installed")
+            }
+            // **The one agent state the menu bar reflects.** An agent blocked on a
+            // permission you cannot see is the failure this whole feature exists to
+            // prevent, and the tray is the surface that is always there — no
+            // shortcut, no band, no timing. Everything else about the agents stays
+            // in the notch, because a menu-bar icon that changed on every tool call
+            // would be noise.
+            if state.agents.otherSessionNeedsYou {
+                return (
+                    "hand.raised.fill", "Whisper Master — an agent needs you",
+                    "An agent needs you")
+            }
+            if state.agents.runningSessionCount > 0 {
+                let count = state.agents.runningSessionCount
+                let label = count == 1 ? "1 agent working" : "\(count) agents working"
+                return (nil, "Whisper Master — \(label)", label)
             }
             return (nil, "Whisper Master — ready", "Ready")
         }
@@ -940,8 +1158,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
-        // Appearance is app-wide (`applyAppearance`), so the window inherits it
-        // rather than pinning light — `canvasNSColor` resolves per mode.
+        // Appearance is pinned app-wide to `.aqua` in
+        // `applicationDidFinishLaunching`, so the window inherits light without
+        // pinning it here.
         window.backgroundColor = Theme.canvasNSColor
         window.contentViewController = host
         window.isReleasedWhenClosed = false
@@ -981,6 +1200,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // The checkbox on a reminder that just came due — ticks it off, or
                 // puts it back if the tick was a misfire.
                 self?.toggleDueReminder()
+            },
+            onCompleteNowReminder: { [weak self] id in
+                // The checkbox on the ambient row: a reminder that is merely late,
+                // not one that just fired. `refreshNow` follows the write because
+                // the row is re-ranked on a one-minute tick, and waiting up to a
+                // minute for it to leave reads as the tap having done nothing.
+                guard let self else { return }
+                self.viewModel.state.notesStore.completeReminder(id)
+                self.viewModel.state.now.refreshNow()
+            },
+            onJoin: { [weak self] url in
+                self?.openConferenceLink(url)
             })
         pillWindow?.show()
 
@@ -990,6 +1221,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // something of its own to say — see `AppState.notchIsOccupied`.
         quickActionsWindow = NotchQuickActionsWindow(
             state: viewModel.state,
+            onJoin: { [weak self] url in
+                self?.openConferenceLink(url)
+            },
             onOpenNotes: { [weak self] request in
                 guard let self else { return }
                 self.viewModel.state.requestedSettingsSection = .notes
@@ -1005,6 +1239,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the built-in mic (keeps earphones in hi-fi). Read-only detection.
         bluetoothInputMonitor = BluetoothInputMonitor(state: viewModel.state)
         bluetoothInputMonitor?.start()
+    }
+
+    /// Take the Globe key off macOS when it's the push-to-talk key.
+    ///
+    /// The collision this removes is worst on the **hands-free double-tap**: with the
+    /// stock "Press 🌐 key to: Show Emoji", latching hands-free popped the emoji
+    /// picker open and shut, which steals focus from the very app the dictation is
+    /// aimed at. Our monitors observe `flagsChanged` without consuming it — swallowing
+    /// the key would take a HID-level tap that also breaks fn+F-key and fn+arrow — so
+    /// the system preference is the only lever there is.
+    ///
+    /// Once, and only for fn: `FnKeyBehavior.claimFnKeyForPushToTalk` records the
+    /// claim and the prior value, so a user who puts the emoji picker back keeps it,
+    /// and Recording settings offers a one-click hand-back.
+    private func claimFnKeyIfChosen(_ hotkey: HotkeyManager.HotkeyOption) {
+        guard hotkey == .fn else { return }
+        if FnKeyBehavior.claimFnKeyForPushToTalk() {
+            Log.app.info("claimed the Globe key for push-to-talk (was: system behavior)")
+            // Counted against the `restored: true` side, which is emitted from the
+            // Settings hand-back button. A claim rate that is healthy and a restore
+            // rate that is high together mean the claim is unwelcome — which is the
+            // one thing that would say this feature should ask first.
+            Analytics.shared.send(.fnKeyClaim(restored: false))
+        }
     }
 
     private func setupHotkey() {
@@ -1044,6 +1302,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // started (the two presses are never simultaneous), which is why the view
         // model handles the edges rather than this closure. Same sign-in gate as
         // dictation.
+        //
+        // ⚠️ It is installed **here**, unconditionally, and must stay that way. It
+        // spent a release nested inside `reconcileAgentHotkey()` below, downstream of
+        // that function's two early returns — and since the coding-agent key is off by
+        // default, the guard fired on every fresh install and the chord was never
+        // created at all. fn + control simply dictated. The assistant does not depend
+        // on the agent key, so nothing about its installation may.
         commandChordMonitor = ModifierChordMonitor(chord: .command) { [weak self] event in
             guard let self else { return }
             switch event {
@@ -1052,6 +1317,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.viewModel.handleCommandChordEngaged()
             case .released:
                 self.viewModel.handleCommandChordReleased()
+            }
+        }
+
+        // The agent key is optional and user-chosen, so it is installed by the same
+        // reconcile the refresh loop runs rather than once here.
+        reconcileAgentHotkey()
+
+        // Esc dismisses whatever agent band is up — the reply, the glance, the
+        // working row. Observation, not consumption: a global monitor cannot
+        // swallow the key, and does not need to; the band closing is the whole
+        // effect. The turn itself keeps running server-side (the stop button on
+        // the working row is what interrupts).
+        escKeyMonitorGlobal = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
+            self?.handleEscIfAgentSurfaceShowing(event)
+        }
+        escKeyMonitorLocal = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
+            self?.handleEscIfAgentSurfaceShowing(event)
+            return event
+        }
+    }
+
+    private func handleEscIfAgentSurfaceShowing(_ event: NSEvent) {
+        guard event.keyCode == 53 else { return }
+        let state = viewModel.state
+        guard state.shouldShowAgentReply || state.shouldShowAgentGlance
+            || state.shouldShowAgentWorking
+        else { return }
+        state.agents.closeGlance()
+    }
+
+    /// Install, move or remove the coding-agent key to match the preference.
+    ///
+    /// Change-guarded like everything else on the 0.5s path: this runs twice a second
+    /// for the life of the process and the answer is identical on nearly every tick.
+    ///
+    /// A key that collides with push-to-talk resolves to `nil` (see
+    /// `AppState.effectiveAgentHotkey`) and the monitor comes down, rather than two
+    /// monitors fighting over one physical key — dictation wins, because it is the
+    /// thing the app is for.
+    private func reconcileAgentHotkey() {
+        let wanted = viewModel.state.effectiveAgentHotkey
+        guard wanted != installedAgentHotkey else { return }
+        installedAgentHotkey = wanted
+
+        guard let wanted else {
+            agentHotkeyManager = nil
+            return
+        }
+        if let agentHotkeyManager {
+            agentHotkeyManager.setHotkey(wanted)
+            return
+        }
+        // Same claim as push-to-talk: with the stock "Press 🌐 to show Emoji", every
+        // press of the agent key would also open the emoji picker and steal focus
+        // from the app the user is watching.
+        claimFnKeyIfChosen(wanted)
+
+        agentHotkeyManager = HotkeyManager(
+            hotkey: wanted,
+            // No hands-free latch: a held key that keeps listening after release is
+            // right for typing a paragraph, and wrong for a key whose release is what
+            // sends the words somewhere.
+            latchesOnDoubleTap: false,
+            holdToTalk: { true }
+        ) { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .start:
+                guard self.ensureCanDictate() else { return }
+                self.viewModel.handleAgentKeyStart()
+            case .stop:
+                self.viewModel.handleAgentKeyStop()
+            case .handsFree, .toggle:
+                break
             }
         }
     }
@@ -1209,14 +1550,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension AppDelegate: SPUUpdaterDelegate {
-    /// Choose the appcast feed dynamically from the signed-in user's beta flag.
-    /// Sparkle calls this on the main thread before every check, so it always
-    /// tracks the *current* Clerk session: a beta user (or one just flipped
-    /// stable server-side) lands on the right feed without a relaunch. Returning
-    /// nil would fall back to the static `SUFeedURL` in Info.plist; we always
-    /// return a concrete channel so the two never drift.
-    nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
-        MainActor.assumeIsolated { BetaAccess.currentChannel.feedURLString }
+    /// Admit beta appcast items for a user carrying the Clerk `betaAccess` flag.
+    /// Sparkle calls this on the main thread before every check, so it tracks the
+    /// *current* Clerk session: a flag flipped server-side moves the user between
+    /// the tracks on the next check, with no relaunch and no reinstall.
+    ///
+    /// ⚠️ This replaced a `feedURLString(for:)` override that pointed beta users
+    /// at a second appcast. That could never work: the beta feed served a
+    /// re-badged `…mac.beta` bundle, and Sparkle rejects an archive whose bundle
+    /// neither matches the host's file name nor its bundle id, so the update was
+    /// offered, downloaded, and then refused. One feed plus a channel tag is the
+    /// mechanism Sparkle actually provides for this. There is no feed override
+    /// now — `SUFeedURL` in Info.plist is correct for stable and beta alike, and
+    /// `Scripts/channel.sh` bakes the dev feed into the dev bundle.
+    nonisolated func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+        MainActor.assumeIsolated { BetaAccess.allowedChannels }
+    }
+
+    /// Light the sidebar's update card. Sparkle calls this for **every** kind of
+    /// check — the silent `checkForUpdateInformation()` below, the scheduled
+    /// background check, and a manual one — so the card appears without any
+    /// window being thrown at the user, which is the whole point of it.
+    nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        MainActor.assumeIsolated {
+            viewModel.state.availableUpdateVersion = item.displayVersionString
+        }
+    }
+
+    /// Put the card away again when the feed says this build is current — the
+    /// user updated from somewhere else, or the release was pulled.
+    nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        MainActor.assumeIsolated { viewModel.state.availableUpdateVersion = nil }
     }
 }
 
@@ -1319,6 +1683,24 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
     ///
     /// Ticking goes through `completeReminder`, so a repeating reminder rolls to
     /// its next occurrence rather than being retired. Un-ticking hands back the
+    /// Open a meeting's conference link.
+    ///
+    /// Re-checked against `ConferenceLink.isJoinable` at the point of opening, not
+    /// only where it was extracted. The URL travels from an event body through a
+    /// value type and a SwiftUI closure to get here, and `NSWorkspace.open` will
+    /// happily launch a `file://` or a custom scheme — so the allowlist is applied
+    /// again at the one call that acts on it. A link that fails the check is
+    /// dropped silently: the button is only ever drawn for one that passed, so a
+    /// failure here means something upstream is wrong rather than that the user
+    /// needs telling.
+    private func openConferenceLink(_ url: URL) {
+        guard ConferenceLink.isJoinable(url) else {
+            Log.app.error("Refused to open a non-conference link from the notch")
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
     /// snapshot the band has been holding since it fired — the only copy of the
     /// occurrence a repeat's roll-forward moved past.
     private func toggleDueReminder() {

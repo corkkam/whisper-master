@@ -35,6 +35,31 @@ final class ReminderModelTests: XCTestCase {
         XCTAssertFalse(ReminderItem(dueDate: now.addingTimeInterval(-10), firedAt: now).isDue(asOf: now))
     }
 
+    /// A reminder stored before `completedAt` existed must still decode — the
+    /// synthesized conformance only stays safe here because the field is Optional.
+    /// If this ever fails, the fix is to hand-write `ReminderItem`'s `Codable` the
+    /// way `Note`'s is, not to make the new field non-optional.
+    func testALegacyReminderWithNoCompletedAtStillDecodes() throws {
+        let json = """
+        {"id":"1EEE5C9E-1B1B-4A0A-9F42-000000000001","title":"legacy","body":"",
+         "dueDate":700000000,"alertStyle":"notification","soundName":"Glass",
+         "repeatRule":"none","isCompleted":true,
+         "createdAt":699000000,"updatedAt":699500000}
+        """
+        let decoded = try JSONDecoder().decode(ReminderItem.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.title, "legacy")
+        XCTAssertTrue(decoded.isCompleted)
+        XCTAssertNil(decoded.completedAt)
+        // With no stamp of its own it still sorts in the archive, by its last write.
+        XCTAssertEqual(decoded.archivedAt, decoded.updatedAt)
+    }
+
+    func testIsRepeatingMatchesTheRepeatRule() {
+        XCTAssertFalse(ReminderItem(repeatRule: .none).isRepeating)
+        XCTAssertTrue(ReminderItem(repeatRule: .daily).isRepeating)
+        XCTAssertTrue(ReminderItem(repeatRule: .weekly).isRepeating)
+    }
+
     func testDisplayTitleFallbacks() {
         XCTAssertEqual(Note(title: "", body: "first line\nsecond").displayTitle, "first line")
         XCTAssertEqual(Note(title: "  ", body: "   ").displayTitle, "Untitled note")

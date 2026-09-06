@@ -126,13 +126,39 @@ struct IconButton: View {
 }
 
 /// A labeled row: title (+ optional subtitle) on the left, a control on the right.
+/// A small capsule beside a row or nav label — "Soon", "Experimental".
+///
+/// Deliberately quiet: tertiary ink on a wash of itself, never the accent. It
+/// reports a row's *status*, so it must not compete with the row's own control.
+/// One definition for every such tag — the sidebar's "Soon" and a settings row's
+/// "Experimental" are the same object and must not drift apart.
+struct RowTag: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(Typography.sans(10.5, .bold))
+            .tracking(0.4)
+            .foregroundStyle(Theme.textTertiary)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Capsule(style: .continuous).fill(Theme.textTertiary.opacity(0.12)))
+    }
+}
+
 struct SettingsRow<Control: View>: View {
     let title: String
+    var tag: String?
     var subtitle: String?
     @ViewBuilder var control: Control
 
-    init(_ title: String, subtitle: String? = nil, @ViewBuilder control: () -> Control) {
+    init(_ title: String, tag: String? = nil, subtitle: String? = nil, @ViewBuilder control: () -> Control) {
         self.title = title
+        self.tag = tag
         self.subtitle = subtitle
         self.control = control()
     }
@@ -140,9 +166,12 @@ struct SettingsRow<Control: View>: View {
     var body: some View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(Typography.headline).tracking(Typography.headlineTracking)
-                    .foregroundStyle(Theme.textPrimary)
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(Typography.headline).tracking(Typography.headlineTracking)
+                        .foregroundStyle(Theme.textPrimary)
+                    if let tag { RowTag(tag) }
+                }
                 if let subtitle {
                     Text(subtitle)
                         .font(Typography.subheadline)
@@ -203,9 +232,9 @@ struct ThemeToggle: View {
     var label: String = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The unlit knob: near-white on paper, haze on ink, so it stays legible as
-    /// a *knob* against the sunken track in both modes.
-    private static let knobOff = Color.dynamic(light: 0xffffff, dark: 0xaab3c4)
+    /// The unlit knob: near-white, so it stays legible as a *knob* against the
+    /// sunken track.
+    private static let knobOff = Color(hex: 0xffffff)
 
     var body: some View {
         Button {
@@ -240,6 +269,68 @@ struct StatusDot: View {
     var size: CGFloat = 8
     var body: some View {
         Circle().fill(color).frame(width: size, height: size)
+    }
+}
+
+/// A compact state capsule — a dot plus two or three words — for the trailing edge
+/// of a list row.
+///
+/// This exists because a status rendered as a *third line of grey caption text*
+/// (what the connector rows used to do) reads as more prose, not as a state: the
+/// eye has to parse a sentence to answer "is this thing working?". A tinted pill
+/// answers that at a glance and leaves the row two lines tall. Keep the text to a
+/// few words — anything that needs a sentence belongs in an inline alert strip
+/// under the row, where it has the width to be read.
+struct StatusPill: View {
+    let text: String
+    var tone: Tone = .neutral
+
+    /// §1: signal (not ember) for a healthy machine state, danger for a broken one,
+    /// neutral for "deliberately off" — a paused connector is not a warning.
+    enum Tone {
+        case positive, neutral, warning, danger
+
+        var ink: Color {
+            switch self {
+            case .positive: return Theme.accent2
+            case .neutral: return Theme.textTertiary
+            case .warning: return Theme.warning
+            case .danger: return Theme.danger
+            }
+        }
+
+        var fill: Color {
+            switch self {
+            case .positive: return Theme.successSoft
+            case .neutral: return Theme.surfaceSunken
+            case .warning: return Theme.warningSoft
+            case .danger: return Theme.dangerSoft
+            }
+        }
+
+        var dot: Color {
+            switch self {
+            case .positive: return Theme.success
+            case .neutral: return Theme.Neutral.n400
+            case .warning: return Theme.warning
+            case .danger: return Theme.danger
+            }
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            StatusDot(color: tone.dot, size: 6)
+            Text(text)
+                .font(Typography.caption)
+                .foregroundStyle(tone.ink)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Capsule(style: .continuous).fill(tone.fill))
+        .fixedSize()
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -305,47 +396,3 @@ private struct ButtonLabel: View {
     }
 }
 
-/// System / Light / Dark, as a segmented pill. Focus and selection are the
-/// machine telling you where you are, so the selected segment is a signal-tinted
-/// glow rather than a bright border.
-struct AppearancePicker: View {
-    @Binding var selection: AppAppearance
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var slider
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(AppAppearance.allCases) { mode in
-                let isSelected = mode == selection
-
-                Button { selection = mode } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: mode.icon)
-                            .font(.system(size: 11, weight: .semibold))
-                        Text(mode.title)
-                            .font(Typography.caption)
-                    }
-                    .foregroundStyle(isSelected ? Theme.accentOn : Theme.textTertiary)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 7)
-                    .background {
-                        if isSelected {
-                            Capsule()
-                                .fill(Theme.accentFill)
-                                .matchedGeometryEffect(id: "appearance", in: slider)
-                        }
-                    }
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(mode.title)
-                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-                .pointerCursor()
-            }
-        }
-        .padding(3)
-        .background(Capsule().fill(Theme.surfaceGlass))
-        .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
-        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: selection)
-    }
-}

@@ -49,6 +49,25 @@ protocol ConnectorProvider: Sendable {
                   config: ConnectorConfig) async -> ValidationResult
 }
 
+extension ConnectorProvider {
+    /// Check the credential **already stored** for an instance.
+    ///
+    /// `validate(_:config:)` judges the bytes it is handed, which is what a freshly
+    /// pasted secret or a just-completed sign-in needs. A stored credential needs this
+    /// form instead: only the instance id can reach the Keychain, so it's the only one
+    /// that can refresh an expired grant *and* keep what the refresh returned. Checking
+    /// a saved connection through the credential form works but re-refreshes every time.
+    func validate(instance: ConnectorInstance) async -> ValidationResult {
+        do {
+            _ = try await CredentialStrategy.resolveAndPersist(for: instance)
+        } catch {
+            return .invalid("This connection needs signing in again.")
+        }
+        let credential = ConnectorCredentials.load(for: instance.id) ?? ConnectorCredential()
+        return await validate(credential, config: instance.config)
+    }
+}
+
 /// What a read produced, plus the failure state to record on the instance.
 ///
 /// The error is returned rather than thrown so a fan-out can partially succeed: one
@@ -76,6 +95,15 @@ protocol EventReadingProvider: ConnectorProvider {
     func todaysEvents(for instance: ConnectorInstance, now: Date) -> ProviderReadOutcome<[DayEvent]>
 }
 
+/// Network-backed event reads. Same shape as `EventReadingProvider`, but async —
+/// Google Calendar API and Zoom meetings both need a round-trip, and a sync protocol
+/// would force them to return empty forever (which is what happened for any
+/// non-Google network calendar before this existed).
+@MainActor
+protocol AsyncEventReadingProvider: ConnectorProvider {
+    func todaysEventsAsync(for instance: ConnectorInstance, now: Date) async -> ProviderReadOutcome<[DayEvent]>
+}
+
 /// Which kinds actually have an implementation behind them.
 ///
 /// This is the honesty gate for the whole catalog. `ConnectorCatalog` describes every
@@ -91,6 +119,9 @@ enum ProviderRegistry {
     private static let github = GitHubProvider()
     private static let notion = NotionProvider()
     private static let asana = AsanaProvider()
+    private static let gmail = GmailProvider()
+    private static let googleDrive = GoogleDriveProvider()
+    private static let zoom = ZoomProvider()
 
     /// Providers keyed by kind.
     ///
@@ -106,17 +137,22 @@ enum ProviderRegistry {
         case .github: return github
         case .notion: return notion
         case .asana: return asana
-        // Gmail, Drive and Zoom are catalogued but have no read implementation yet, so
-        // they stay unconnectable rather than offering a connection that reads nothing.
-        case .gmail, .googleDrive, .zoom: return nil
+        case .gmail: return gmail
+        case .googleDrive: return googleDrive
+        case .zoom: return zoom
         }
     }
 
     /// The provider for a specific instance, honouring its config. This is the one to
     /// use for reads; `provider(for kind:)` is for the pre-connection catalog.
     static func provider(for instance: ConnectorInstance) -> (any ConnectorProvider)? {
+        // An instance made by the app's Google sign-in can only be refreshed while that
+        // client id is still in the build — the refresh call is made *with* it. Without
+        // one the connection can't be served at all, and saying so here is what turns it
+        // into a visible failure state rather than reads that quietly return nothing.
+        if instance.config.isManagedGoogleGrant, !GoogleOAuthConfig.isConfigured { return nil }
         if instance.kind == .googleCalendar, instance.config.googleCalendarIDs != nil {
-            return GoogleOAuthConfig.isConfigured ? googleCalendar : nil
+            return googleCalendar
         }
         return provider(for: instance.kind)
     }
@@ -129,6 +165,10 @@ enum ProviderRegistry {
         provider(for: instance) as? any EventReadingProvider
     }
 
+    static func asyncEventProvider(for instance: ConnectorInstance) -> (any AsyncEventReadingProvider)? {
+        provider(for: instance) as? any AsyncEventReadingProvider
+    }
+
     static func itemProvider(for instance: ConnectorInstance) -> (any ItemReadingProvider)? {
         provider(for: instance) as? any ItemReadingProvider
     }
@@ -139,8 +179,35 @@ enum ProviderRegistry {
         GoogleOAuthConfig.isConfigured ? googleCalendar : nil
     }
 
+    /// The Gmail provider, on the same gate as `googleCalendarAPI`: a mailbox is only
+    /// reachable through a managed Google grant, so without a client id in the build
+    /// the sign-in step stays out of the UI rather than failing mid-flow.
+    static var gmailAPI: GmailProvider? {
+        GoogleOAuthConfig.isConfigured ? gmail : nil
+    }
+
+    /// The kinds this build offers to connect: **Apple Calendar, Google Calendar,
+    /// Gmail, Slack**, and nothing else for now.
+    ///
+    /// Every other catalogued kind keeps its descriptor, its provider and its tests —
+    /// it is the *offer* that is narrowed, not the code deleted. Four connectors that
+    /// are each worth trusting beat eleven where most are a token-paste form nobody
+    /// has used end to end, and the catalog still shows the rest under "Coming soon"
+    /// so the roadmap stays visible.
+    ///
+    /// This gate governs **new** connections only. `provider(for instance:)`
+    /// deliberately does not consult it, so a connection a beta user already made
+    /// keeps reading instead of going quietly dead.
+    static let shippedKinds: Set<ConnectorKind> = [.appleCalendar, .googleCalendar, .gmail, .slack]
+
+    /// Whether the catalog may offer this kind today — it has a working provider
+    /// *and* it is in the shipped set. This is what the Add-connector sheet asks.
+    static func isConnectable(_ kind: ConnectorKind) -> Bool {
+        shippedKinds.contains(kind) && hasProvider(for: kind)
+    }
+
     /// Catalog entries the user can actually connect right now.
     static var connectableKinds: [ConnectorKind] {
-        ConnectorKind.allCases.filter(hasProvider(for:))
+        ConnectorKind.allCases.filter(isConnectable)
     }
 }

@@ -4,25 +4,48 @@ import MLXLLM
 import MLXLMCommon
 import Tokenizers
 
-/// On-device transcript cleanup using qwen2.5-3B via MLX.
+/// On-device transcript cleanup via MLX. Two instances, two models: `shared` is
+/// S1-mini on the dictation hot path, `general` is Qwen3-4B-Instruct-2507 for the
+/// callers that need to tool-call.
 ///
 /// An `actor` so the (large, single) model loads once and is shared without
 /// races. It is deliberately dumb: given a loaded model it cleans a string; it
 /// knows nothing about downloads/toggles/UI (that's `CleanupModelManager`).
 ///
-/// **System-prompt KV caching.** The cleanup system prompt is ~600 tokens and is
-/// identical on every call. Re-prefilling it each time dominates latency, so we
-/// prefill it once into a persistent KV cache (this doubles as Metal-kernel
-/// warmup) and per call feed only the *delta* tokens — the user turn — then
-/// `trimPromptCache` back to the system offset. Correct by construction: the
-/// `[system]` tokenization (no generation prompt) is a strict prefix of the
-/// `[system, user]` tokenization, so the delta is just a slice.
+/// **⚠️ Each cleanup gets a fresh KV cache, and that is a correctness rule, not a
+/// performance choice.** A persistent system-prompt cache was reused across calls
+/// and trimmed back afterwards. `trimPromptCache` takes one count for all 28 of
+/// Qwen3's per-layer caches, so once the layers drift out of sync no count is
+/// right, and **one dictation's keys survived into the next one's generation** —
+/// the eval caught text from an earlier transcript appearing verbatim in a later
+/// output. Whatever that does to quality, a local dictation app must not let one
+/// recording's content bleed into another's pasted text.
+///
+/// It also flattered the eval: cases were feeding each other context, so scores
+/// were better than any real user's first dictation could be. See
+/// `generateFresh`.
 ///
 /// `clean` returns `nil` on any problem (not ready, timeout, failure, empty) so
 /// the caller falls straight back to the deterministic text — cleanup can only
 /// ever help, never block.
 actor MlxCleanupService {
+    /// The **cleanup** model: S1-mini, on the dictation hot path.
     static let shared = MlxCleanupService()
+
+    /// The **general instruct** model, for the two callers that need one — the
+    /// connector agent and the intent classifier. A separate instance because it is
+    /// a separate model with a separate KV cache; sharing one would thrash the cache
+    /// between two system prompts on every chord.
+    static let general = MlxCleanupService()
+
+    /// Load the general model **only if it is already on disk**. Never downloads:
+    /// see `CleanupModel.General`. Cheap and idempotent, so the assistant paths can
+    /// just call it before they generate.
+    static func prepareGeneralIfInstalled() async {
+        guard CleanupModel.General.isInstalled else { return }
+        await general.prepare(
+            configuration: ModelConfiguration(directory: CleanupModel.General.directory))
+    }
 
     /// Safety net against a runaway decode, not a normal-path limit. Generous so
     /// a merely-slow generation still cleans rather than silently falling back.
@@ -44,6 +67,24 @@ actor MlxCleanupService {
         /// modes (light cleanup vs grammar polish) the prompt changes, so the KV
         /// prefix is stale and must be re-primed.
         var primedPrompt: String?
+
+        /// **Every layer, not just the first.**
+        ///
+        /// This is the bug that made long-form cleanup fail after a few hundred
+        /// generations while the identical input in isolation came out clean.
+        /// Qwen3 keeps one `KVCache` per layer — 28 of them — and both the primed
+        /// check and the post-generation trim asked only `cache.first`. But
+        /// `trimPromptCache` trims each layer independently and a layer can trim
+        /// **less than it was asked for**. Layer 0 landing back on `systemOffset`
+        /// therefore proved nothing about layers 1…27, which kept residue from the
+        /// previous transcript. The next call then attended to another dictation's
+        /// keys — which is exactly what the eval saw: content from elsewhere in the
+        /// text appearing at the top of the output, and sentences repeating.
+        ///
+        /// Residue also compounds, which is why a short run never showed it.
+        func isAtSystemOffset(_ offset: Int) -> Bool {
+            !cache.isEmpty && cache.allSatisfy { $0.offset == offset }
+        }
     }
 
     private enum LoadState {
@@ -120,7 +161,7 @@ actor MlxCleanupService {
     ///
     /// Dropping the container releases the weight arrays, but MLX pools freed
     /// Metal buffers for reuse instead of returning them to the OS — so the
-    /// ~1.8 GB stays resident until we explicitly clear that pool. Order matters:
+    /// ~2.3 GB stays resident until we explicitly clear that pool. Order matters:
     /// release the container first, then clear the cache so the just-freed
     /// buffers are actually handed back.
     func release() {
@@ -130,28 +171,273 @@ actor MlxCleanupService {
         MLX.GPU.clearCache()
     }
 
+    /// What a generation actually cost. The dictation path throws this away — it
+    /// wants the text and nothing else — but the Model Lab bench is *about* the
+    /// cost, and a bench that re-implements generation to measure it would be
+    /// measuring something other than what ships. So the cost rides back out of
+    /// the same call, and `clean` drops it.
+    struct GenerationCost: Sendable, Equatable {
+        var promptTokens = 0
+        var generatedTokens = 0
+        var promptSeconds: Double = 0
+        var generateSeconds: Double = 0
+        /// How many model calls this took. More than one means the text was long
+        /// enough to be chunked.
+        var passes = 0
+
+        var tokensPerSecond: Double {
+            generateSeconds > 0 ? Double(generatedTokens) / generateSeconds : 0
+        }
+
+        static func + (lhs: Self, rhs: Self) -> Self {
+            Self(promptTokens: lhs.promptTokens + rhs.promptTokens,
+                 generatedTokens: lhs.generatedTokens + rhs.generatedTokens,
+                 promptSeconds: lhs.promptSeconds + rhs.promptSeconds,
+                 generateSeconds: lhs.generateSeconds + rhs.generateSeconds,
+                 passes: lhs.passes + rhs.passes)
+        }
+    }
+
     /// Clean one transcript. Returns `nil` (→ caller keeps original) if the model
     /// isn't ready, input is empty, or generation times out / throws. Output is
     /// *not* trusted here — `CleanupFaithfulnessGuard` vets it upstream.
-    func clean(_ text: String, systemPrompt: String = CleanupPrompt.system) async -> String? {
-        guard case .ready(let container) = state else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+    /// `target` selects S1-mini's control-line *axes* rather than a second system
+    /// prompt, so every target shares one primed KV cache.
+    func clean(
+        _ text: String, systemPrompt: String = CleanupPrompt.system,
+        target: CleanupTarget = .light
+    ) async -> String? {
+        await cleanMeasured(text, systemPrompt: systemPrompt, target: target).text
+    }
 
+    /// `clean`, with what it cost. Same path, same result — see `GenerationCost`.
+    func cleanMeasured(
+        _ text: String, systemPrompt: String = CleanupPrompt.system,
+        target: CleanupTarget = .light
+    ) async -> (text: String?, cost: GenerationCost) {
+        guard case .ready(let container) = state else { return (nil, GenerationCost()) }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return (nil, GenerationCost()) }
+
+        // **A long dictation is cleaned in pieces, not truncated.** Past ~390 words
+        // of output the `maxTokens` ceiling below cut the generation mid-sentence,
+        // and the faithfulness guard's 30% floor was far too loose to notice — see
+        // `TranscriptChunker`. Splitting at sentence boundaries keeps every pass in
+        // the range the model was trained for.
+        //
+        // Not for `.email`: that context lays out a greeting, body and sign-off
+        // across the *whole* text, so cleaning it in pieces would produce a greeting
+        // per chunk. An over-long email keeps the single pass it always had.
+        if CleanupPrompt.axes(for: target).2 == .general,
+           TranscriptChunker.needsChunking(trimmed) {
+            return await cleanInPieces(trimmed, systemPrompt: systemPrompt, target: target)
+        }
+
+        return await cleanOnePass(trimmed, systemPrompt: systemPrompt, target: target,
+                                  container: container)
+    }
+
+    /// Load the model **for the lab**: the same load as `prepare`, but reported.
+    /// Returns how long the weights took to arrive and warm, which is not part of
+    /// any case's latency and is very much part of living with a model.
+    func prepareTimed(
+        configuration: ModelConfiguration,
+        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async -> Int {
+        let started = DispatchTime.now()
+        await prepare(configuration: configuration, onProgress: onProgress)
+        return Int(Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e6)
+    }
+
+    /// Clean each piece and rejoin. **A piece that fails keeps its own raw text**
+    /// rather than vanishing: the alternative is silently returning three quarters
+    /// of someone's paragraph, which is the exact failure this path exists to stop.
+    /// The guard upstream still vets the joined result as a whole.
+    private func cleanInPieces(
+        _ text: String, systemPrompt: String, target: CleanupTarget
+    ) async -> (text: String?, cost: GenerationCost) {
+        guard case .ready(let container) = state else { return (nil, GenerationCost()) }
+        let pieces = TranscriptChunker.chunks(text)
+        guard !pieces.isEmpty else { return (nil, GenerationCost()) }
+
+        var out: [String] = []
+        var anyCleaned = false
+        var total = GenerationCost()
+        for piece in pieces {
+            let (cleaned, cost) = await cleanOnePass(piece, systemPrompt: systemPrompt,
+                                                     target: target, container: container)
+            total = total + cost
+            if let cleaned, !cleaned.isEmpty {
+                anyCleaned = true
+                out.append(cleaned)
+            } else {
+                // S1-mini returns an empty string for filler-only input, which its
+                // card calls a valid result. At chunk scale that is nearly always a
+                // failed pass rather than a genuinely empty paragraph, and keeping
+                // the words is the safe reading of an ambiguous one.
+                out.append(piece)
+            }
+        }
+        // If nothing cleaned, this is a failed run, not a cleanup that changed
+        // nothing — say so, so the caller keeps the deterministic text.
+        guard anyCleaned else { return (nil, total) }
+        return (out.joined(separator: " "), total)
+    }
+
+    private func cleanOnePass(
+        _ trimmed: String, systemPrompt: String, target: CleanupTarget,
+        container: ModelContainer
+    ) async -> (text: String?, cost: GenerationCost) {
         let wordCount = trimmed.split { $0 == " " || $0 == "\n" || $0 == "\t" }.count
         let maxTokens = min(512, max(48, wordCount * 2 + 32))
 
-        let box = self.box
         do {
-            let raw = try await container.perform { (context: ModelContext) in
-                try Self.generateCached(
-                    context: context, box: box, user: trimmed,
+            // The control line is part of the input format, not decoration: without
+            // it the model has no styling/structure/context to normalise against.
+            let user = CleanupPrompt.userTurn(trimmed, target: target)
+            let (raw, cost) = try await container.perform { (context: ModelContext) in
+                try Self.generateFresh(
+                    context: context, user: user,
+                    maxTokens: maxTokens, systemPrompt: systemPrompt)
+            }
+            return (Self.sanitize(raw), cost)
+        } catch {
+            return (nil, GenerationCost())
+        }
+    }
+
+    /// Generate against the model's **native** tool-calling posture: structured
+    /// messages plus function schemas rendered through the chat template's `tools`
+    /// mechanism, so Qwen3 emits its own `<tool_call>{"name":…,"arguments":…}</tool_call>`
+    /// format rather than the hand-rolled `{"tool":…}` shape.
+    ///
+    /// Deliberately separate from `clean`, and it must stay that way: **no KV-cache
+    /// reuse.** The prompt — messages *and* tools — differs every turn, so there is no
+    /// stable prefix to reuse, and touching `box` here would corrupt the cleanup
+    /// path's primed system-prompt cache. A fresh cache is built per call.
+    ///
+    /// Returns `nil` on any problem, exactly like `clean`, so the loop can fall back
+    /// to the hand-rolled path. `messages` is `[role, content]` pairs; `toolSchemasJSON`
+    /// is one JSON function schema per tool. Both are plain value types so they cross
+    /// the actor boundary without a Sendable escape hatch — the `[String: Any]`
+    /// `ToolSpec` the tokenizer wants is rebuilt here, inside the actor.
+    func generateWithTools(
+        messages: [[String: String]],
+        toolSchemasJSON: [String],
+        maxTokens: Int = 512
+    ) async -> String? {
+        await generateWithToolsMeasured(
+            messages: messages, toolSchemasJSON: toolSchemasJSON, maxTokens: maxTokens).text
+    }
+
+    /// `generateWithTools`, with what it cost — the tool-calling bench's half of
+    /// `cleanMeasured`. Same path, same result.
+    func generateWithToolsMeasured(
+        messages: [[String: String]],
+        toolSchemasJSON: [String],
+        maxTokens: Int = 512
+    ) async -> (text: String?, cost: GenerationCost) {
+        guard case .ready(let container) = state else { return (nil, GenerationCost()) }
+        guard !messages.isEmpty else { return (nil, GenerationCost()) }
+
+        let tools: [ToolSpec] = toolSchemasJSON.compactMap {
+            (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any]
+        }
+        let chatMessages: [Message] = messages.map { message -> Message in
+            ["role": message["role"] ?? "user", "content": message["content"] ?? ""]
+        }
+
+        do {
+            let (raw, cost) = try await container.perform {
+                (context: ModelContext) -> (String, GenerationCost) in
+                let tokens = try context.tokenizer.applyChatTemplate(
+                    messages: chatMessages, chatTemplate: nil, addGenerationPrompt: true,
+                    truncation: false, maxLength: nil,
+                    tools: tools.isEmpty ? nil : tools,
+                    // Same `enable_thinking: false` every other render passes. Without
+                    // it a template that honours the flag opens a reasoning block, and
+                    // the tool call — if it survives at all — arrives after a wall of
+                    // text the parser has to dig through.
+                    additionalContext: Self.templateContext)
+                let input = LMInput(tokens: MLXArray(tokens.map { Int32($0) }))
+                // A fresh cache, never the primed cleanup one.
+                let cache = context.model.newCache(parameters: nil)
+                let params = GenerateParameters(maxTokens: maxTokens, temperature: 0)
+                let iterator = try TokenIterator(
+                    input: input, model: context.model, cache: cache, parameters: params)
+                let start = Date()
+                let result = MLXLMCommon.generate(
+                    input: input, context: context, iterator: iterator
+                ) { (_: [Int]) in
+                    Date().timeIntervalSince(start) > Self.timeoutSeconds ? .stop : .more
+                }
+                Stream.gpu.synchronize()
+                return (result.output, GenerationCost(
+                    promptTokens: tokens.count,
+                    generatedTokens: result.tokens.count,
+                    promptSeconds: result.promptTime,
+                    generateSeconds: result.generateTime,
+                    passes: 1))
+            }
+            return (Self.sanitize(raw), cost)
+        } catch {
+            return (nil, GenerationCost())
+        }
+    }
+
+    /// Generate for the **agent loop**: the conversation exactly as written, against
+    /// the agent's own system prompt, with a fixed token ceiling.
+    ///
+    /// **The agent must not go through `clean`, and this is why.** `clean` is the
+    /// transcript-cleanup path, and it does three things to its input that are correct
+    /// for a dictation and wrong for a tool-calling turn:
+    ///
+    /// - it prepends the cleanup **control line**
+    ///   (`[Styling: …] [Structure: prose] [Context: general]`), which tells the model
+    ///   to normalise prose in the same breath the agent prompt tells it to emit one
+    ///   JSON object and nothing else;
+    /// - it sizes `maxTokens` from the **input** word count (`words * 2 + 32`, floor
+    ///   48), which is the right rule for a rewrite — output length tracks input
+    ///   length — and the wrong one here, where the shortest command can need the
+    ///   longest call. The floor of 48 happened to cover every case in the bench, so
+    ///   this is a latent fault rather than a measured one; a fixed ceiling costs
+    ///   nothing and removes it;
+    /// - it **chunks** anything past `TranscriptChunker.maxWords` (240) into pieces,
+    ///   generates each one separately and joins them with a space. **This one is
+    ///   measured.** Given a 460-word conversation — one day's calendar merged across
+    ///   two connections — `ToolCallParser` then took the first balanced JSON object
+    ///   out of the joined text and dropped the rest: the answer covered the work
+    ///   calendar alone and gave its range as 01:00–07:00 against data saying
+    ///   01:00–09:00. Reproduced on both runs. Nothing reported the loss.
+    ///
+    /// None of that is `clean`'s fault — it was never the agent's generator. Returns
+    /// `nil` on the same terms as `clean`, so the loop's budget race and fallback are
+    /// unchanged. `AgentToolEval`'s `via clean` arm is the regression guard.
+    func generateAgent(
+        _ user: String, systemPrompt: String, maxTokens: Int = 384
+    ) async -> String? {
+        guard case .ready(let container) = state else { return nil }
+        let trimmed = user.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        do {
+            // `generateFresh` also returns the run's token/latency cost, which the
+            // Model Lab records per case. The agent loop has nowhere to put it.
+            let (raw, _) = try await container.perform { (context: ModelContext) in
+                try Self.generateFresh(
+                    context: context, user: trimmed,
                     maxTokens: maxTokens, systemPrompt: systemPrompt)
             }
             return Self.sanitize(raw)
         } catch {
             return nil
         }
+    }
+
+    /// The shipped path has two toggles, not five targets.
+    func clean(
+        _ text: String, systemPrompt: String = CleanupPrompt.system, grammarPolish: Bool
+    ) async -> String? {
+        await clean(text, systemPrompt: systemPrompt, target: grammarPolish ? .polish : .light)
     }
 
     // MARK: - Cached generation
@@ -168,12 +454,14 @@ actor MlxCleanupService {
     }
 
     private static func ensurePrimed(context: ModelContext, box: CacheBox, systemPrompt: String) throws {
-        if box.primed, box.primedPrompt == systemPrompt, box.cache.first?.offset == box.systemOffset { return }
+        if box.primed, box.primedPrompt == systemPrompt,
+           box.isAtSystemOffset(box.systemOffset) { return }
 
         let sysTokens = try context.tokenizer.applyChatTemplate(
             messages: [["role": "system", "content": systemPrompt]],
             chatTemplate: nil, addGenerationPrompt: false,
-            truncation: false, maxLength: nil, tools: nil)
+            truncation: false, maxLength: nil, tools: nil,
+            additionalContext: Self.templateContext)
         box.systemOffset = sysTokens.count
         box.cache = context.model.newCache(parameters: nil)
 
@@ -188,8 +476,69 @@ actor MlxCleanupService {
         box.primedPrompt = systemPrompt
     }
 
+    /// Generate a cleanup against a **fresh cache**, prompt tokenized whole.
+    ///
+    /// This replaced a persistent system-prompt KV cache that was reused across
+    /// calls and trimmed back afterwards, and removing it fixed two opposite bugs
+    /// that the eval caught from both ends:
+    ///
+    /// - **Reuse corrupted long-form output.** Qwen3 keeps one `KVCache` per layer
+    ///   — 28 — and `trimPromptCache` takes a single count for all of them, so when
+    ///   the layers drift out of sync no number is right. Trimming by layer 0's
+    ///   figure left the rest long, and the next call attended to the *previous*
+    ///   transcript's keys: 207 words back from a 521-word dictation in one run, a
+    ///   sentence repeated 19 times in another.
+    /// - **Re-priming degraded short output.** Detecting the drift and re-prefilling
+    ///   instead measurably made cleanups worse — "translate good morning into
+    ///   spanish" lost the word "translate"; another case came back untouched. The
+    ///   delta arithmetic against a re-primed prefix does not reliably reproduce the
+    ///   prompt the model was trained on.
+    ///
+    /// **The optimisation had also stopped paying.** It was written for a ~600-token
+    /// system prompt where re-prefilling dominated latency. S1-mini's trained system
+    /// prompt is ~45 tokens, so there is almost nothing left to save — and it was
+    /// buying that nothing with every failure mode above. Measured after the change:
+    /// no latency regression.
+    ///
+    /// What is left is what the model card's own reference implementation does:
+    /// tokenize `[system, user]`, generate, done.
+    private static func generateFresh(
+        context: ModelContext, user: String, maxTokens: Int, systemPrompt: String
+    ) throws -> (String, GenerationCost) {
+        let tokens = try context.tokenizer.applyChatTemplate(
+            messages: [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": user],
+            ],
+            chatTemplate: nil, addGenerationPrompt: true,
+            truncation: false, maxLength: nil, tools: nil,
+            additionalContext: Self.templateContext)
+
+        let input = LMInput(tokens: MLXArray(tokens.map { Int32($0) }))
+        let params = GenerateParameters(maxTokens: maxTokens, temperature: 0)
+        let cache = context.model.newCache(parameters: nil)
+        let iterator = try TokenIterator(
+            input: input, model: context.model, cache: cache, parameters: params)
+
+        let start = Date()
+        let result = MLXLMCommon.generate(input: input, context: context, iterator: iterator) {
+            (_: [Int]) in Date().timeIntervalSince(start) > timeoutSeconds ? .stop : .more
+        }
+        Stream.gpu.synchronize()
+        let cost = GenerationCost(
+            promptTokens: tokens.count,
+            generatedTokens: result.tokens.count,
+            promptSeconds: result.promptTime,
+            generateSeconds: result.generateTime,
+            passes: 1)
+        return (result.output, cost)
+    }
+
     /// Generate a cleanup for `user` reusing the cached system prefix, then trim
     /// the cache back to the system offset for the next call.
+    ///
+    /// **Unused by the cleanup path** — see `generateFresh` for why. Kept only
+    /// because `primeSystemPrompt` still warms Metal at load time.
     private static func generateCached(
         context: ModelContext, box: CacheBox, user: String, maxTokens: Int, systemPrompt: String
     ) throws -> String {
@@ -202,7 +551,8 @@ actor MlxCleanupService {
                 ["role": "user", "content": user],
             ],
             chatTemplate: nil, addGenerationPrompt: true,
-            truncation: false, maxLength: nil, tools: nil)
+            truncation: false, maxLength: nil, tools: nil,
+            additionalContext: Self.templateContext)
         guard full.count > box.systemOffset else { return "" }
         let delta = Array(full[box.systemOffset...])
 
@@ -217,14 +567,38 @@ actor MlxCleanupService {
         Stream.gpu.synchronize()
 
         // Restore the cache to just the system prefix for the next call. If that
-        // can't be done cleanly, drop priming so the next call re-prefills.
-        let offset = box.cache.first?.offset ?? box.systemOffset
-        let extra = offset - box.systemOffset
-        if extra > 0 { trimPromptCache(box.cache, numTokens: extra) }
-        if box.cache.first?.offset != box.systemOffset { box.primed = false }
+        // can't be done cleanly on **every** layer, drop priming so the next call
+        // re-prefills from scratch — see `CacheBox.isAtSystemOffset`. Trimming is
+        // per-layer and can come up short, and a layer left long is another
+        // transcript's keys bleeding into the next generation.
+        // `trimPromptCache` takes ONE count for every layer, so when the layers
+        // disagree no single number is right: layer 0's figure leaves the others
+        // long (the original bug — another transcript's keys survive into the next
+        // call), and the maximum over-trims layer 0 and eats part of the system
+        // prefix (measured: four short cases regressed). When they disagree the
+        // correct move is to trim nothing and rebuild, which costs ~45 tokens.
+        let offsets = Set(box.cache.map(\.offset))
+        if offsets.count == 1, let offset = offsets.first {
+            let extra = offset - box.systemOffset
+            if extra > 0 { trimPromptCache(box.cache, numTokens: extra) }
+        }
+        if !box.isAtSystemOffset(box.systemOffset) {
+            box.primed = false
+            // Cheap now and worth knowing: S1-mini's system prompt is ~45 tokens,
+            // so re-priming costs almost nothing. It was ~600 under the old model,
+            // which is the only reason this reuse machinery exists at all.
+            Log.modelPrep.debug("Cleanup KV cache would not trim cleanly; re-priming")
+        }
 
         return result.output
     }
+
+    /// **`enable_thinking: false`.** S1-mini carries a Qwen3 chat template, which
+    /// defaults to emitting a `<think>` block. Left on, every cleaned transcript
+    /// arrives wrapped in reasoning the guard correctly refuses, so the pass looks
+    /// broken rather than off. The model card names this as the single commonest
+    /// integration bug, and it is invisible until you read the raw output.
+    private static let templateContext: [String: Any] = ["enable_thinking": false]
 
     // MARK: - Helpers
 
@@ -232,6 +606,12 @@ actor MlxCleanupService {
     /// adds despite the prompt. Returns `nil` for an empty result.
     private static func sanitize(_ raw: String) -> String? {
         var out = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Second line of defence for the thinking block: if a template ever ignores
+        // `enable_thinking`, keep what follows the block rather than pasting the
+        // model's reasoning into someone's message.
+        if let close = out.range(of: "</think>") {
+            out = String(out[close.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if out.count >= 2, let first = out.first, let last = out.last,
            (first == "\"" && last == "\"") || (first == "\u{201C}" && last == "\u{201D}") {
             out = String(out.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)

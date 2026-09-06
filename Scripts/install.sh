@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="Whisper Master"
-APP_BIN="WhisperMaster"
+cd "$(dirname "$0")/.."
+
+# Release channel (stable|beta|dev) → CH_APP_NAME. Sourced for the same reason
+# bundle.sh does it: bundle.sh stages a channel-named .app ("Whisper Master
+# Dev.app"), so an installer with the stable name hardcoded could only ever find
+# a stable build — it failed with "missing after build" on any other channel.
+source "$(dirname "$0")/channel.sh"
+
+APP_NAME="$CH_APP_NAME"
 SRC_APP="build/${APP_NAME}.app"
 DST_APP="/Applications/${APP_NAME}.app"
 RELAUNCH="${RELAUNCH:-1}"
 REBUILD="${REBUILD:-1}"
-
-cd "$(dirname "$0")/.."
 
 if [[ "$REBUILD" == "1" || ! -d "$SRC_APP" ]]; then
     echo ">> Building .app via bundle.sh"
@@ -20,15 +25,24 @@ if [[ ! -d "$SRC_APP" ]]; then
     exit 1
 fi
 
-if pgrep -x "$APP_BIN" >/dev/null 2>&1; then
-    echo ">> Quitting running ${APP_NAME}"
-    osascript -e "tell application \"${APP_NAME}\" to quit" >/dev/null 2>&1 || true
-    sleep 0.6
-    if pgrep -x "$APP_BIN" >/dev/null 2>&1; then
-        echo ">> Force killing leftover process"
-        pkill -x "$APP_BIN" || true
-        sleep 0.3
-    fi
+# Quit any running instance of THIS channel's app, whoever built it.
+#
+# ⚠️ The executable name is not a reliable key. bundle.sh leaves it
+# "WhisperMaster" on every channel, but an Xcode Run of the dev scheme produces
+# "WhisperMasterDev" — so `pgrep -x WhisperMaster` silently matched nothing, the
+# old process kept running while this script deleted and replaced its bundle
+# underneath it, and `open` then just re-activated that stale process. The app
+# went on serving resources from the build we had already removed, which reads as
+# "the new logo didn't apply" when in fact the new logo was never loaded.
+#
+# So: ask by bundle id (channel-specific, build-system agnostic), then fall back
+# to killing whatever is executing out of the install path.
+echo ">> Quitting any running ${APP_NAME}"
+osascript -e "tell application id \"${CH_BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
+sleep 0.6
+if pkill -f "^${DST_APP}/Contents/MacOS/" 2>/dev/null; then
+    echo ">> Force killed a leftover process running from ${DST_APP}"
+    sleep 0.3
 fi
 
 if [[ -d "$DST_APP" ]]; then

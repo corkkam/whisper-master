@@ -18,20 +18,31 @@ final class DictationPillWindow {
     /// Ticks the due-reminder banner's checkbox on or off. Injected by
     /// `AppDelegate`, which holds the pre-tick snapshot an un-tick restores.
     private let onToggleDueReminder: () -> Void
+    private let onCompleteNowReminder: (UUID) -> Void
+    private let onJoin: (URL) -> Void
 
     private var screenObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
+    private var followTimer: Timer?
+    /// Last screen the panel was placed on, so a 0.25s tick that finds the
+    /// pointer still there is a no-op (a frame write every tick is a permanent
+    /// background cost).
+    private var appliedScreenNumber: NSNumber?
 
     init(
         state: AppState,
         onOpenNotes: @escaping () -> Void = {},
         onCopyUndelivered: @escaping () -> Void = {},
-        onToggleDueReminder: @escaping () -> Void = {}
+        onToggleDueReminder: @escaping () -> Void = {},
+        onCompleteNowReminder: @escaping (UUID) -> Void = { _ in },
+        onJoin: @escaping (URL) -> Void = { _ in }
     ) {
         self.state = state
         self.onOpenNotes = onOpenNotes
         self.onCopyUndelivered = onCopyUndelivered
         self.onToggleDueReminder = onToggleDueReminder
+        self.onCompleteNowReminder = onCompleteNowReminder
+        self.onJoin = onJoin
 
         panel = NSPanel(
             contentRect: .zero,
@@ -55,16 +66,20 @@ final class DictationPillWindow {
             state: state,
             onOpenNotes: onOpenNotes,
             onCopyUndelivered: onCopyUndelivered,
-            onToggleDueReminder: onToggleDueReminder))
+            onToggleDueReminder: onToggleDueReminder,
+            onCompleteNowReminder: onCompleteNowReminder,
+            onJoin: onJoin))
         host.autoresizingMask = [.width, .height]
         panel.contentView = host
 
         observeEnvironment()
+        startFollowing()
         reposition()
     }
 
     func show() {
         panel.orderFrontRegardless()
+        startFollowing()
     }
 
     func hide() {
@@ -84,13 +99,31 @@ final class DictationPillWindow {
         panel.ignoresMouseEvents = !interactive
     }
 
-    /// Prefer the display that actually has a notch; fall back to the main one.
+    /// The display the pointer is on, so a multi-monitor setup shows the band
+    /// on the screen being used. A notchless external still gets the band at
+    /// top-center (`NotchGeometry.measure` already handles a missing notch).
     private var targetScreen: NSScreen? {
-        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
+        PointerScreen.current()
+    }
+
+    private func startFollowing() {
+        guard followTimer == nil else { return }
+        let timer = Timer(timeInterval: PointerScreen.followInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.followPointerScreen() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        followTimer = timer
+    }
+
+    private func followPointerScreen() {
+        guard let screen = targetScreen else { return }
+        guard PointerScreen.number(of: screen) != appliedScreenNumber else { return }
+        reposition()
     }
 
     private func reposition() {
         guard let screen = targetScreen else { return }
+        appliedScreenNumber = PointerScreen.number(of: screen)
 
         let geometry = NotchGeometry.measure(screen)
         let size = layout.panelSize(for: geometry)
@@ -103,7 +136,9 @@ final class DictationPillWindow {
             layout: layout,
             onOpenNotes: onOpenNotes,
             onCopyUndelivered: onCopyUndelivered,
-            onToggleDueReminder: onToggleDueReminder)
+            onToggleDueReminder: onToggleDueReminder,
+            onCompleteNowReminder: onCompleteNowReminder,
+            onJoin: onJoin)
     }
 
     private func observeEnvironment() {
@@ -129,6 +164,7 @@ final class DictationPillWindow {
     }
 
     deinit {
+        followTimer?.invalidate()
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
         }

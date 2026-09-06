@@ -28,6 +28,8 @@ final class NotchOnboardingWindow {
     /// SwiftUI body is re-subscribed on every body pass — and the mic check
     /// re-evaluates that body ~20×/s, which would starve the tick.
     private var pollTimer: Timer?
+    private var followTimer: Timer?
+    private var appliedScreenNumber: NSNumber?
 
     init(
         state: AppState,
@@ -77,12 +79,15 @@ final class NotchOnboardingWindow {
         panel.orderFrontRegardless()
         model.refresh()
         startPolling()
+        startFollowing()
     }
 
     /// Hide the band, stop polling and release the mic check. Safe to call twice.
     func close() {
         pollTimer?.invalidate()
         pollTimer = nil
+        followTimer?.invalidate()
+        followTimer = nil
         model.teardown()
         panel.orderOut(nil)
     }
@@ -99,13 +104,29 @@ final class NotchOnboardingWindow {
         pollTimer = timer
     }
 
-    /// Prefer the display that actually has a notch; fall back to the main one.
+    /// The display the pointer is on — same rule as the dictation pill.
     private var targetScreen: NSScreen? {
-        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
+        PointerScreen.current()
+    }
+
+    private func startFollowing() {
+        guard followTimer == nil else { return }
+        let timer = Timer(timeInterval: PointerScreen.followInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.followPointerScreen() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        followTimer = timer
+    }
+
+    private func followPointerScreen() {
+        guard let screen = targetScreen else { return }
+        guard PointerScreen.number(of: screen) != appliedScreenNumber else { return }
+        reposition()
     }
 
     private func reposition() {
         guard let screen = targetScreen else { return }
+        appliedScreenNumber = PointerScreen.number(of: screen)
 
         let geometry = NotchGeometry.measure(screen)
         let size = layout.panelSize(for: geometry)
@@ -159,6 +180,7 @@ final class NotchOnboardingWindow {
 
     deinit {
         pollTimer?.invalidate()
+        followTimer?.invalidate()
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
         }

@@ -1,0 +1,111 @@
+# Model Lab (`Sources/WhisperMaster/Lab/`)
+
+Loaded when Claude works under this directory. The dev build's bench: install
+several open-source MLX models, run the app's real suites against each one, and
+compare them on quality, latency and memory.
+
+### What it is for
+
+One question — **is this candidate better than what ships** — and the page is
+shaped around it. `Compare` (baseline against candidate, case by case, with the
+words) is the default half; the ranked table is the other tab; the history rail
+is the third piece, because a bench nobody can look back at cannot say whether
+last month's change held.
+
+### The gate, and why it is repeated
+
+`FeatureFlags.modelLabAvailable` is `ReleaseChannel.current == .dev`, which also
+covers a bare `swift build` run and the headless snapshot renderer. The page is
+**absent** on other channels rather than "Coming soon" (`SettingsSection.isListed`):
+it is not a roadmap entry, it is a bench for whoever is building the app.
+
+**`LabModelOverride` repeats that gate, and that repetition is the load-bearing
+one.** The UI being unreachable is a convenience; the model not loading is the
+guarantee. It is fenced three ways: refused on any channel but `dev`, validated
+against the filesystem on every read (a deleted model falls back to the shipped
+one instead of wedging cleanup on a missing directory), and it stores a
+**catalogue id**, never a path. It is read from `CleanupModel.directory` and
+`CleanupModel.General.directory` — deliberately low, so the installer's
+`isInstalled` check, the manager's retry loop and the Settings hint all get one
+consistent answer to "which model is this". `CleanupModel.shippedDirectory` is
+where the installer still writes.
+
+### Nothing is duplicated, and that is deliberate
+
+Every number the lab reports comes from the code that ships, not from a copy:
+
+- **Generation** — `MlxCleanupService.cleanMeasured` / `generateWithToolsMeasured`
+  are the same path `clean` / `generateWithTools` take, returning the
+  `GenerationCost` the dictation path throws away. A bench that re-implemented
+  generation to measure it would be measuring something else.
+- **The deterministic passes** — `LabDeterministicPipeline.run` (in
+  `LabBenchRunner.swift`), which `EvalRunner` now calls too. The ordering rule it
+  encodes (collapse self-corrections *before* ITN) only holds while every copy
+  agrees, and there were two copies.
+- **Scoring** — `EvalScoreKit`'s `Scorer`, `EvalCase` and `WER`, the eval's own
+  mechanical arbiter. SwiftPM builds it as a module (`Package.swift`) and the Lab
+  sources import it under `#if SWIFT_PACKAGE`; the Xcode app target compiles the
+  same files in-target (`project.yml` → `eval/text-cleanup/EvalScore`), where
+  there is nothing to import. **Keep both in step when adding a file there.**
+- **The tool set and the tool cases** — `LabToolBench` and
+  `LabSuiteLoader.toolCases`, shared with `AgentToolEval`. Two benches drifting
+  apart on which commands they ask about would make their numbers incomparable,
+  which is the only reason to have two.
+- **The guard** — the real `CleanupFaithfulnessGuard`, with the target's own
+  `allowsRephrase`.
+
+**The subjective quality call is still Claude Code's, outside the app.** The lab
+scores keyword rules, WER and tool correctness, and exports a run in exactly the
+`results.json` shape `eval-score` and the run-history dashboard already read
+(`LabRunExport`), so nothing downstream had to change.
+
+### The case files are found, not bundled
+
+`LabPaths` resolves the checkout: `WM_LAB_REPO`, then a folder the user picked
+(`WhisperMaster.lab.repoPath.v1`), then the repo this binary was compiled from
+(`#filePath`). A candidate is only accepted when `cases.jsonl` is really in it, so
+a wrong folder says so when it is chosen rather than at the start of a 15 minute
+run. Bundling the suites would mean two versions of every case and a build step to
+keep them equal; this is a dev surface on the machine that built it.
+
+### Measurement rules
+
+- **One model resident at a time.** Two models loaded together share one GPU
+  allocator, so neither one's peak is its own and the comparison silently becomes
+  a comparison of load order. Each model is loaded, warmed, run, released, and
+  MLX's buffer pool cleared before the next — which is why a four-model run pays
+  four load times.
+- **Peak GPU is a delta over the pre-load baseline, not MLX's raw high-water
+  mark.** MLX accounts for the whole process, and the shipped cleanup model is
+  usually already resident (Smart cleanup on), so the raw figure would charge its
+  335 MB to every candidate — by a different amount depending on what else
+  happened to be loaded. The run bar says so when that is the case.
+- **GPU memory and process footprint are both reported, because they answer
+  different questions.** `MLX.GPU.snapshot()` is what the model costs;
+  `phys_footprint` is what the app costs the machine (Activity Monitor's number),
+  and includes the ASR models and the UI. Either one alone misleads.
+- **Memory is sampled at case boundaries, not on a timer.** A timer racing an MLX
+  generation adds Metal traffic to the thing being measured; the peak comes from
+  MLX's own high-water mark, so nothing is missed between samples.
+- **ASR runs once per audio case, not once per model.** The recording does not
+  change between models; only the cleanup does.
+- **A suite that cannot load fails loudly.** A bench that quietly ran 40 of 92
+  cases and reported 100% is worse than one that refuses to start.
+
+### Suites
+
+`cleanup` and `polish` (the same `cases.jsonl` through the two shipped prompts),
+`destinations` (`flow-cases.jsonl`, one row per declared target — the target joins
+the id, or three rows collide), `tools` (16 spoken commands, native tool schemas,
+first turn only, **assistant-role models only**), and `audio` (the committed
+recordings through the real streaming transcriber, scored on WER).
+
+### Testing
+
+`ModelLabTests` covers the pure half — catalogue, paths, loader, statistics,
+comparison, run store, export shape, and the override's fences. **MLX cannot run
+under `swift test`**, which is why the decisions live in pure types and only
+generation sits behind the actor; `LabMemorySource` is the seam for the same
+reason. The page renders headlessly as `panel-lab.png` and
+`panel-lab-leaderboard.png` from mock data seeded by `SnapshotMode`
+(`seedForSnapshot` never writes to disk).
