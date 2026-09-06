@@ -171,6 +171,20 @@ rm -rf "$STAGE"; mkdir -p "$STAGE"
 # below.
 if curl -fsS "${R2_PUBLIC_BASE_URL%/}/$CH_APPCAST_NAME" -o "$STAGE/appcast.xml"; then
     echo ">> Seeded stage from published $CH_APPCAST_NAME ($(grep -c '<item>' "$STAGE/appcast.xml") existing item(s))"
+    # ⚠️ Seed BOTH names, because we cannot know which one generate_appcast will
+    # read. Newer versions derive the feed filename from the app's SUFeedURL, so
+    # on the dev channel they open "appcast-dev.xml", never see the history we
+    # just wrote to "appcast.xml", and emit a fresh one-item feed. The rename
+    # block below then finds both files, keeps the channel-named one and deletes
+    # the seeded one — so the seeding step silently did nothing and the upload
+    # wiped the feed. That is what happened to 1.2.0-dev.1 on 2026-09-06: the run
+    # logged "Seeded stage ... (1 existing item(s))" and "Wrote 1 new update ...
+    # removed 0 old updates in appcast-dev.xml", and the published feed came back
+    # holding one item. Stable and beta were never exposed to it: they are served
+    # as "appcast.xml", so the seed and the derived name already agree.
+    if [[ "$CH_APPCAST_NAME" != "appcast.xml" ]]; then
+        cp "$STAGE/appcast.xml" "$STAGE/$CH_APPCAST_NAME"
+    fi
 else
     rm -f "$STAGE/appcast.xml"
     echo ">> No published $CH_APPCAST_NAME to seed from — generating a fresh feed"
@@ -210,8 +224,9 @@ else
     "$GEN_APPCAST" "$STAGE" "${GEN_ARGS[@]}"
 fi
 
-# generate_appcast always writes "appcast.xml". A channel served under another
-# name (dev) is renamed before upload. Beta now shares stable's appcast.xml, so
+# generate_appcast writes "appcast.xml" on older versions and the SUFeedURL-derived
+# name on newer ones. A channel served under another name (dev) is renamed before
+# upload if it needs it. Beta now shares stable's appcast.xml, so
 # it does NOT rename — its items are told apart by <sparkle:channel>, not by
 # living in a separate file.
 if [[ "$CH_APPCAST_NAME" != "appcast.xml" ]]; then
