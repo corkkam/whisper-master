@@ -25,9 +25,27 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
   (TCC can't find the Info.plist usage strings → the mesh CoreBluetooth scan hard-
   crashes); pass env vars to `open` via `launchctl setenv`.
 - **`eval-score`** — a dependency-free SwiftPM library (`EvalScoreKit`: `EvalCase`
-  schema loader, `WER`, `Scorer`) + CLI (`swift run eval-score <results.json>
-  <cases.jsonl>`). Objective scoring only: keyword `must_contain`/`must_not_contain`
-  + WER threshold, with failures attributed to **ASR vs cleanup**. The **guard
+  schema loader, `WER`, `Scorer`, `Metrics`) + CLI (`swift run eval-score
+  <results.json> <cases.jsonl> [--json]`). Objective scoring only: keyword
+  `must_contain`/`must_not_contain` + WER threshold, with failures attributed to
+  **ASR vs cleanup**.
+  - **Beside the verdict it reports the *shape* of every output** (`Metrics`):
+    retention, edit rate, novel-word rate, guard fallback rate, ms/word,
+    reference WER, no-op rows — plus a per-category roll-up and a
+    severity-weighted pass rate. **None of them is a pass/fail criterion**; the
+    band belongs to the target, not to the metric. They exist because a keyword
+    rule only sees what somebody thought to assert: the 2026-08-21 long-form
+    truncation dropped three fifths of a 525-word input and **passed every
+    rule**, and a retention of 0.40 is what says so without anyone having written
+    an assertion for the missing sentence. The CLI closes with a **"passed the
+    rules, worth a look"** list built from exactly that.
+  - **`Metrics.novelWords` excludes what the pipeline is built to do** — digit
+    runs (ITN), joined initialisms ("a p i" → "api"), apostrophe variants, and
+    function words. An invented *fact* is never a closed-class word, so excluding
+    grammar costs no detection and kills nearly every false positive. **Do not
+    replace the enumerated contraction list with a substring test**: the version
+    that did excluded "paris" because it contains "is", and `MetricsTests` locks
+    the case that caught it. The **guard
   verdict is diagnostic, not a pass/fail criterion** (Swift `Scorer` + the
   `lib/eval/scoring.ts` port on the landing site, kept in sync): a guard *rejection* means the safe
   deterministic fallback was used, and for a faithfulness case that fallback is
@@ -100,3 +118,15 @@ Spec + plan: `docs/superpowers/specs/2026-07-06-eval-engine-design.md`,
     read with the CLI on this machine — which is why the history was moved to
     Supabase rather than re-pointed at Atlas. Do not push runs there; do not add
     features there.
+  - **The scorer's own semantics changed on 2026-08-23 and the port has to follow.**
+    A `must_contain` term of word characters now matches on **word boundaries**
+    (`Scorer.matches`), because a substring found the forbidden filler `"um"`
+    inside "number" and "documentation". `lib/eval/scoring.ts` on the landing site
+    must carry the same `matches` and the same `novelWords` / `rowMetrics` /
+    `CATEGORY_WEIGHT` / `percentileIndex`, or the page scores a stored run
+    differently from the `eval-score` output that produced it. The new
+    `Aggregate` fields are **optional on read**: runs ingested before that date
+    lack them, and a missing measurement must not render as a measurement of
+    zero. `category` and `reference` come from the **cases file**, not only from
+    `results.json` — the runner has only just started writing `category` and it
+    never writes `reference`.

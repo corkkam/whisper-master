@@ -67,4 +67,60 @@ final class DeterministicITNTests: XCTestCase {
         XCTAssertEqual(DeterministicITN.normalize("twenty one"), "21")
         XCTAssertEqual(DeterministicITN.normalize("one hundred and five"), "105")
     }
+
+    // MARK: - Emails, and the locative "at" that is not an @
+
+    func testSpokenEmailJoins() {
+        XCTAssertEqual(DeterministicITN.normalize("email me at shobhit at gmail dot com"),
+                       "email me at shobhit@gmail.com")
+        XCTAssertEqual(DeterministicITN.normalize("ninja at gmail dot com"),
+                       "ninja@gmail.com")
+        // Known limitation, unchanged by this work: a *dotted local part* is not
+        // assembled, because "smith" is not a TLD and nothing else joins it. The
+        // address still forms from the last segment.
+        XCTAssertEqual(DeterministicITN.normalize("mail john dot smith at gmail dot com"),
+                       "mail john dot smith@gmail.com")
+    }
+
+    /// Found by the eval: "the repo is at github dot com" became
+    /// `the repo is@github.com`, because the only test on the local-part was
+    /// `isWordy` and "is" is wordy. A sentence turned into a plausible-looking
+    /// address is the worst kind of wrong -- nothing downstream questions it.
+    func testLocativeAtIsNotAnEmail() {
+        XCTAssertEqual(DeterministicITN.normalize("the repo is at github dot com"),
+                       "the repo is at github.com")
+        XCTAssertEqual(DeterministicITN.normalize("the docs live at example dot com"),
+                       "the docs live at example.com")
+        XCTAssertEqual(DeterministicITN.normalize("we meet at zoom dot us"),
+                       "we meet at zoom.us")
+        XCTAssertEqual(DeterministicITN.normalize("mail me at example dot com"),
+                       "mail me at example.com")
+    }
+
+    /// The already-collapsed-domain branch takes the same guard, or the bug just
+    /// moves to whichever form the ASR happened to emit.
+    func testLocativeAtIsNotAnEmailWhenTheAsrCollapsedTheDomain() {
+        XCTAssertEqual(DeterministicITN.normalize("the repo is at github.com"),
+                       "the repo is at github.com")
+        XCTAssertEqual(DeterministicITN.normalize("ping sam at example.com"),
+                       "ping sam@example.com")
+    }
+
+    // MARK: - Spoken domains that are not addresses
+
+    func testSpokenDomainBecomesADomain() {
+        XCTAssertEqual(DeterministicITN.normalize("the repo is at github dot com slash corkkam"),
+                       "the repo is at github.com slash corkkam")
+        XCTAssertEqual(DeterministicITN.normalize("go to example dot co dot uk"),
+                       "go to example.co.uk")
+    }
+
+    /// "dot" is an ordinary English word. The TLD set is closed so that prose
+    /// is never rewritten into a hostname.
+    func testOrdinaryDotIsLeftAlone() {
+        XCTAssertEqual(DeterministicITN.normalize("take the dot product first"),
+                       "take the dot product first")
+        XCTAssertEqual(DeterministicITN.normalize("connect the dot to the line"),
+                       "connect the dot to the line")
+    }
 }

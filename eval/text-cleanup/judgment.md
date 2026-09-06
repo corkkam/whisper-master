@@ -242,3 +242,310 @@ the chunker is what keeps a >390-word output off the 512-token ceiling.
 Adopt. It is better on every axis measured, and the two remaining text failures were
 already failing. Before turning Smart cleanup **on by default** — which 335 MB and
 100 ms otherwise justify — close the install path and decide the non-English question.
+
+---
+
+# Judgment — what the new parameters found
+
+Run: 2026-08-23. No model or prompt changed here. What changed is the **scorer**:
+it now reports the shape of every output beside the keyword verdict, and the
+keyword matcher was fixed. Every number below comes from the real pipeline
+through `EvalRunner` on the installed 1.1.0-beta.9 bundle, scored by
+`eval-score`.
+
+## The scorer was failing cases on its own matcher
+
+`must_contain` / `must_not_contain` were plain case-insensitive substring checks.
+**Seven cases forbid the filler `"um"`, and a substring finds it inside "number",
+"summary" and "documentation".** `"uh"` is inside "although". `"AM"` and `"PM"`
+are inside "same", "example" and "campaign". `"20"`, `"25"` and `"30"` are inside
+"2025" and "$300". 42 assertion terms across the three case files are under three
+characters.
+
+This section of the file already carried one symptom of it, read as something
+else: `real-email` was recorded as failing because "the ASR emitted `UM` in
+capitals". That may also be true, but the same case fails whenever the transcript
+contains the word **number** — and it is a case about a dictated email, so it
+will.
+
+A word-character term now matches on word boundaries; a term with punctuation or
+whitespace stays a plain substring, so `"\n- "`, `"1."`, `"Best,"`, `"$25"` and
+`"github.com/corkkam"` are unchanged. The CLI prints every assertion the two
+matchers read differently, so nothing about this is silent.
+
+## Four defects in the pipeline, each located precisely
+
+### 1. A dictated card number cannot survive the cleanup path
+
+`sens-card` — "card number four one one one one one one one one one one one one
+one one one" — comes out **as those English words**, on both targets.
+
+The mechanism is exact, and the eval separates it from the neighbouring case that
+works:
+
+| case | spoken digits | words in → out | retention | guard |
+|---|---|---|---|---|
+| `sens-2fa` | 6 | 8 → 4 (`924173`) | 0.44 | **accepted** |
+| `sens-card` | 16 | 18 → 3 | ~0.17 | **rejected** |
+
+`DeterministicITN` deliberately leaves a run of digit words alone rather than sum
+it, so digitizing is the model's job — and digitizing *N* spoken digits collapses
+*N* words into one token. `CleanupFaithfulnessGuard.minRetentionRatio` is 0.30, so
+a six-digit code clears the floor and a sixteen-digit one cannot. **A card number,
+IBAN, account number or serial dictated aloud is structurally impossible to
+paste.** This is a guard-tuning decision with its own history, so it is reported
+rather than changed here; the shape of a fix is a digit-sequence exemption, not a
+lower floor.
+
+### 2. `joinEmails` turns "is at <domain>" into an email address
+
+`uri-url` — "the repo is at github dot com slash corkkam slash whisper master" —
+leaves `DeterministicITN` as:
+
+```
+the repo is@github.com slash corkkam slash whisper master
+```
+
+`joinEmails` treats the token before "at" as an email local-part, so **any
+sentence of the form "<word> at <domain> dot com" becomes a bogus address**. The
+model then produced `The repo is @github.com/corkkam/whisper/master.` A local-part
+guard — a handle or name, not an arbitrary verb like "is" — is the fix.
+
+Worth noting how this was found: the case's *first* assertion was `must_contain:
+["github.com"]`, and the mangled output satisfied it. The case passed. It only
+became a finding once the assertion was tightened to forbid `is@`.
+
+### 3. `polish` translates code-switched speech, and the guard accepts it
+
+The most serious of the four.
+
+```
+in : haan so the deployment kal ho jayega but we need the review first
+out: The deployment is happening tomorrow, but we need the review first.
+```
+
+Guard **accepted**. The Hindi was translated to English, "haan" was dropped, and
+words the speaker never said were put in their place. Under `light` the guard
+rejected and the deterministic text shipped, which is the correct outcome — so
+this is specific to the rephrasing target. It is the same class of failure the
+anti-answer rule was added for, and the guard has no equivalent test for a
+language change. Weighted ×2 as `multilingual`.
+
+### 4. `light` spends nine seconds on a long input and pastes the raw words
+
+`long-standup`, 224 words:
+
+| target | LLM ms | out/in | guard |
+|---|---|---|---|
+| light | **9125** | 1.00 | **rejected** |
+| polish | 7971 | 0.91 | accepted |
+
+Nine seconds of generation, discarded, and the unpunctuated deterministic text is
+what reaches the user. `long-two-topics` (139 words) is fine on both (0.97 /
+0.92), so this is not simply length. A rejection is the *safe* failure and that
+part is working as designed — but paying nine seconds for it is a latency bug in
+its own right, and the p99 column is where it shows: **9125 ms against a 445 ms
+median.**
+
+A related inconsistency: `uri-path` ("slash users slash lappy slash code slash
+whisper") is correctly rendered `/users/lappy/code/whisper` under `light`, and
+under `polish` the guard rejects and the user gets the word "slash" five times.
+
+## What the metrics said that no rule could
+
+- **`light` is close to a no-op on real text.** Against the recorded diagnostic
+  set, **10 of 12 rows** came back word-identical while costing 293 ms median. On
+  the 24 new cases it is **12 of 24**. That is not a defect — a normalizer that
+  leaves clean text alone is behaving — but "half the calls change nothing" is a
+  fact about the product that no pass rate was reporting.
+- **Retention flagged a credential losing a token.** `sens-api-key` under `light`:
+  "s k dash live dash four seven two nine" → "S-K-Live-4729", a dropped "dash",
+  where `polish` kept it. Retention 0.58. **The keyword rule passed it** — it
+  asserted `4729`, and `4729` is there.
+- **Retention is diagnostic, not a gate, and `disf-cross-sentence` is why.**
+  Retention 0.40, and it is *correct*: collapsing "ship it on friday actually no
+  let me start over we should ship it monday" to "We should ship it Monday" is
+  supposed to halve the word count. Any run of this suite that gated on retention
+  would fail the best output in it.
+- **`ms/word` is the comparable latency figure.** 45.7 ms/word on light against a
+  445 ms median: the median moves with the length mix of the suite, and this does
+  not.
+
+## Known over-count, left in the open
+
+`uri-version-tag` reports `v1` as a novel word — "v one point 2 point 3" →
+"v1.2.3" is a legitimate join across the ITN, and the initialism rule does not
+reach across the intervening cardinal. One glance per run, and it is the right
+trade against making the rule loose enough to hide a real invention. The three
+false positives that *were* worth fixing — "6b", "c'est", "15th" — are fixed and
+locked by tests.
+
+## The full baseline, and what the matcher change actually cost
+
+The 92 existing cases were then run end to end (8 batches of 12, installed
+1.1.0-beta.9) and scored under **both** matchers, because a change to pass/fail
+semantics has to be measured rather than argued:
+
+| matcher | pass |
+|---|---|
+| substring (old) | 175/184 |
+| word boundary (new) | 169/184 |
+| word boundary, after fixing 3 cases | **175/184** |
+
+**Net zero.** The six flipped rows were three cases asserting a
+first-letter-dropped stem — `'arakeet'` for Parakeet, `'etrieves'` for retrieves,
+`'erfect'` for Perfect — to sidestep capitalization. Matching has always been
+case-insensitive, so the trick was never needed; it just stopped meaning anything
+once word-character terms began matching on word boundaries. They name the whole
+word now.
+
+**And the `"um"` hazard did not fire on this run.** Zero rows were *fixed* by the
+change. Eight outputs contain an um-inside-a-word ("summarize", "documents",
+"bumped", "Documentation") and none of them belongs to a case that forbids `"um"`.
+So the hazard is real and latent, not currently active — and the `real-email`
+finding recorded earlier in this file is **not** an instance of it: that was an
+audio run, and the capital-`UM`-from-ASR reading of it stands.
+
+### `long-migration-update` truncates again, and the guard accepts it
+
+The finding this case was built for, reproduced:
+
+| target | LLM ms | out/in | guard | stops at |
+|---|---|---|---|---|
+| light | **13243** | 0.85 (445/521w) | **accepted** | "the deck is about 80" |
+| polish | 13354 | 0.79 (414/521w) | **accepted** | "the deck is about" |
+
+Both cut mid-sentence, ~76 words short of the tail, and `.cutOff` did not fire —
+so the mangled text is what reaches the user rather than the safe deterministic
+fallback. Earlier in this file the same case is recorded passing on merit at 515
+of 521 words. **The condition differs**: that measurement was one 92-case run,
+this one is batched 12 at a time, so the case ran with far fewer prior
+generations. With a fresh cache per cleanup that should not matter, and it did.
+Reported as measured; the cause is not established here.
+
+### The "worth a look" list was mostly noise, and now is not
+
+It ran to 16 entries on the baseline, of which 13 were correct outputs. Two
+exemptions fixed that, both measured rather than guessed:
+
+- **A collapsed disfluency is supposed to lose words.** Seven `disfluency` cases
+  sit at retention 0.50–0.64 and are right to. `disf-cross-sentence` at 0.40 is
+  the best output in the suite.
+- **A rephrasing target is allowed novel content.** `polish` writing "went"/"saw"
+  for a tense fix is its job, so the novel-word check applies to non-rephrasing
+  targets only — which is where an invention is a finding.
+
+16 → **3**, and all three are real: `num-phone` at 0.50 on both targets, and
+`edge-mixed` at 0.62 under polish. `num-phone` is worth its place, because it is
+the *same mechanism* as `sens-card` — spoken digits collapsing into one token —
+passing at 0.50 where the card number fails at 0.17. The two cases bracket the
+guard's floor from either side.
+
+### The model reverts the ITN on small counts
+
+New, and only visible through the novel-word metric: `light` turns the
+deterministic "we need 3 things" back into "we need **three** things", and
+"Two separate things" from "2". The ITN digitizes and the model un-digitizes. Both
+readings are defensible English; what is not defensible is that the two stages
+disagree, so which one wins depends on whether the LLM pass ran.
+
+## Combined suite: 116 cases, 232 rows, 215 pass
+
+`light 110/116`, `polish 105/116`, attribution `asr 0, cleanup 17`. Weighted
+`186.5/197.5` and `177.0/197.5`.
+
+**The number to look at is `no-op rows`: 79 of 116 on `light`.** Two thirds of
+the suite's light rows come back word-identical. On the recorded diagnostic set of
+real dictations it was 10 of 12. A normalizer that leaves clean text alone is
+behaving correctly — but "the model changes nothing on two thirds of calls, for
+338 ms median and 9.1 s at p99" is a product fact that no pass rate in this file
+has ever reported, and it is the first thing worth acting on.
+
+### The suite cannot assert casing, and should be able to
+
+`vocab-preserve` expects the custom term "Parakeet" and the pipeline emits
+"parakeet". **No assertion in the suite can see that**, because matching is
+case-insensitive everywhere — which is exactly why the case reached for
+`'arakeet'` in the first place. A case-sensitive assertion form is the obvious
+next parameter; it is not built here.
+
+---
+
+# Judgment — the casing gap closed, and two more defects
+
+Run: 2026-08-23, same recorded results rescored. Three things landed since the
+section above: a case-sensitive assertion form, a fix for `joinEmails`, and a
+spoken-domain pass. Two of them found defects immediately.
+
+## Casing was unassertable, and the pipeline is getting it wrong
+
+`must_contain_exact` / `must_not_contain_exact` compare without lowercasing, and
+`vocab-preserve` fails on **both** targets the moment it can:
+
+```
+in : we deployed the parakeet model to production
+out: We deployed the parakeet model to production.
+```
+
+The custom vocabulary term is **Parakeet**. The pipeline emits it lowercase, and
+no rule in the suite could see that, because every assertion lowercased both
+sides — which is also why the case had reached for the stem `'arakeet'`. Combined
+suite goes 215/232 → **213/232**, and both new reds are real.
+
+`vocab-acronym` now carries the exact form too. It was already failing on
+`must_contain: ["API"]`, so this adds a reason rather than a failure.
+
+The existing 114 cases are untouched: both lists default to empty, so a case that
+does not opt in means exactly what it meant before.
+
+## `joinEmails` fixed, and the missing pass behind it
+
+The bug from the section above — "the repo is at github dot com" becoming
+`is@github.com` — had two halves, and only fixing the first one leaves the case
+red for a different reason.
+
+**Half one: the locative "at".** The only test on the local-part was `isWordy`,
+and "is" is wordy. `neverALocalPart` is now a closed-class list of words after
+which "at" is locative rather than an `@`: forms of *be*, locative verbs
+("live", "meet", "hosted"), and pronouns. The deliberate trade is recorded next
+to it — a genuine `me@example.com` dictated aloud will not join, because "mail me
+at example dot com" is far commoner, and a sentence turned into a plausible
+address is the worse failure: the words are gone, where a missed join leaves them
+readable.
+
+**Half two: there was no way to write a domain that is not an email.** Domain
+collapsing lived *inside* `joinEmails`, so once the address was correctly refused
+the transcript kept the literal words "dot com". `joinDomains` is now its own pass
+running before it, and `joinEmails` therefore only ever handles one shape.
+
+```
+the repo is at github dot com slash corkkam  ->  the repo is at github.com slash corkkam
+go to example dot co dot uk                  ->  go to example.co.uk
+take the dot product first                   ->  unchanged
+```
+
+**The TLD set is closed on purpose.** "dot" is an ordinary English word — "the dot
+product", "dot matrix", "connect the dots" — so the only safe trigger is a
+following token that can only be a TLD. Putting a word with an English meaning in
+that set ("in", "is", "so", "no", "at") would rewrite prose into a hostname.
+
+Known limitation, unchanged and now written down in the test: a **dotted local
+part** is not assembled. "mail john dot smith at gmail dot com" gives
+`mail john dot smith@gmail.com`, because "smith" is not a TLD and nothing else
+joins it.
+
+`DeterministicITNTests` 13/13; full suite **977 tests, 0 failures**.
+
+## Still open
+
+- **The guard's retention floor for digit sequences** (`sens-card`). Unchanged —
+  it is a tuning decision with its own history in this file.
+- **`polish` translating code-switched speech.** Unchanged. The guard has no
+  language-change test, only the anti-answer rule.
+- **`long-migration-update` truncating with `.cutOff` accepting it.** Unchanged,
+  and the cause is still not established: reproduce both the batched and the
+  single-run conditions before touching it.
+- **`light` is a no-op on two thirds of rows.** A product decision, not a bug.
+- **Surfacing the new metrics on `/eval`.** The data layer ships; the page does
+  not render any of it yet, because that is a UI change and goes through mocks
+  first.

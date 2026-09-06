@@ -126,6 +126,15 @@ decide that question again.** They separate on the turn that reads a result:
   default needs a case the bench can show, not the argument that the chat template
   is more in-distribution.
 
+**⚠️ A keyword rule only sees what somebody thought to assert.** The 2026-08-21
+long-form truncation dropped three fifths of a 525-word input and passed every
+`must_contain` in its case. So `eval-score` reports the *shape* of each output
+beside the verdict — retention, edit rate, novel-word rate, guard fallback rate,
+ms/word, reference WER — none of them a pass/fail criterion, because the
+acceptable band belongs to the target and not to the metric. When you add a case,
+give it a `category`: it carries the severity weight and the per-category roll-up,
+and a suite total can otherwise stay green while a whole category goes red.
+
 ### Toolchain & prerequisites
 
 - **Apple Silicon, macOS 14+.** Build is **arm64-only**; deployment target macOS 14.0. Developed on macOS 26 / **Xcode 26.5**; Swift language mode **5.0** (`SWIFT_VERSION` in `project.yml`).

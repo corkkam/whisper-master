@@ -8,6 +8,14 @@ public struct EvalCase {
     public let id, category: String
     public let inputText, inputAudio, reference, asrReference: String?
     public let targets, mustContain, mustNotContain: [String]
+    /// Case-**sensitive** variants. Every other assertion in the suite is
+    /// case-insensitive, which means nothing could see a casing defect:
+    /// `vocab-preserve` expects the custom term "Parakeet", the pipeline emits
+    /// "parakeet", and `must_contain: ["Parakeet"]` passes. That is also why
+    /// three cases had reached for a first-letter-dropped stem. These two lists
+    /// compare exactly, so casing becomes assertable without changing what the
+    /// existing 100-odd cases mean.
+    public let mustContainExact, mustNotContainExact: [String]
 
     public static func decode(_ line: String) throws -> EvalCase {
         guard let obj = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
@@ -33,7 +41,9 @@ public struct EvalCase {
             reference: obj["reference"] as? String, asrReference: asrRef,
             targets: obj["targets"] as? [String] ?? ["light", "polish"],
             mustContain: obj["must_contain"] as? [String] ?? [],
-            mustNotContain: obj["must_not_contain"] as? [String] ?? [])
+            mustNotContain: obj["must_not_contain"] as? [String] ?? [],
+            mustContainExact: obj["must_contain_exact"] as? [String] ?? [],
+            mustNotContainExact: obj["must_not_contain_exact"] as? [String] ?? [])
     }
 
     public static func load(_ path: String) throws -> [EvalCase] {
