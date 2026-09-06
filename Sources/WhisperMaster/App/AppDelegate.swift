@@ -184,6 +184,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await EvalRunner.runIfRequested() }
         }
 
+        // Dev-only: when WM_LAB_BENCH is set, run that Model Lab suite against
+        // the named models, print the table, and exit. The bench cannot run under
+        // `swift test` (MLX needs xcodebuild), so this is how it is proven.
+        if LabHeadlessBench.isRequested {
+            Task { await LabHeadlessBench.runIfRequested() }
+        }
+
         // The launch signals themselves. `Analytics.shared.configure` already ran
         // at the top of this method (it installs the crash handler); this only
         // records the launch, which needs `permissionsManager` and so belongs

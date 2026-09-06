@@ -42,7 +42,14 @@ let package = Package(
                 .product(name: "MLXLLM", package: "mlx-swift-examples"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-examples"),
                 .product(name: "ClerkKit", package: "clerk-ios"),
-                .product(name: "ClerkKitUI", package: "clerk-ios")
+                .product(name: "ClerkKitUI", package: "clerk-ios"),
+                // The eval's mechanical scorer, so the in-app Model Lab grades a
+                // bench with the same rules the offline pipeline does instead of
+                // a second copy of them. Pure Swift, no MLX, no app imports.
+                // Under Xcode these files are compiled straight into the app
+                // target (project.yml), where there is no module to import — see
+                // the `#if SWIFT_PACKAGE` guards in Sources/WhisperMaster/Lab.
+                "EvalScoreKit"
             ],
             path: "Sources/WhisperMaster",
             resources: [

@@ -80,7 +80,9 @@ and validate it against the audio bench above before shipping.
 A quality-first eval for the cleanup pipeline: durable logic in Swift, disposable
 glue in shell, Claude Code as the judge, with run history on a public dashboard.
 Full details: **`.claude/skills/eval-pipeline/SKILL.md`**. Verify any change to the
-cleanup pipeline against the real thing via `eval/text-cleanup/run-eval.sh`.
+cleanup pipeline against the real thing via `eval/text-cleanup/run-eval.sh`, or
+in-app on a dev build via the **Model Lab** (below), which grades with the same
+`EvalScoreKit` rules and exports the same `results.json`.
 
 ### Assistant tool-calling bench (`WM_AGENT_TOOL_EVAL`)
 
@@ -656,6 +658,31 @@ shortcut at all**.
   is a bench in the style of `AudioReplayTests` — it talks to whatever kunai is actually
   installed and **skips rather than fails** when there is none, so CI and a fresh clone
   stay green. Snapshots: `pill-10-agent-run`, `pill-10b-agent-choice`.
+
+### Model Lab (`Lab/`, dev builds only)
+
+A bench inside the app: install several open-source MLX models, run the real
+suites (cleanup, polish, destinations, tool calling, audio WER) against each one,
+and compare them on score, latency and memory. Reachable only when
+`FeatureFlags.modelLabAvailable` — `ReleaseChannel.current == .dev`, which also
+covers a bare `swift build` and the snapshot renderer. Details:
+**`Sources/WhisperMaster/Lab/CLAUDE.md`**.
+
+**⚠️ Three rules from that file hold outside it.** A dev build can point the
+shipped cleanup or assistant slot at another model, and that override is read
+inside `CleanupModel.directory` / `CleanupModel.General.directory` — it is refused
+on every channel but `dev`, validated against the filesystem on each read, and
+stores a catalogue id rather than a path; `CleanupModel.shippedDirectory` is where
+the installer still writes. The lab **duplicates nothing**: generation goes
+through `MlxCleanupService.cleanMeasured` (the same path `clean` takes, returning
+the cost it discards), the deterministic passes through
+`LabDeterministicPipeline` (which `EvalRunner` now calls too), scoring through
+`EvalScoreKit`, and the tool set and tool cases through `LabToolBench` /
+`LabSuiteLoader.toolCases`, shared with `AgentToolEval`. And **`EvalScoreKit` is
+now linked into the app twice over** — as a SwiftPM module in `Package.swift`
+(imported under `#if SWIFT_PACKAGE`) and as in-target sources in `project.yml`;
+adding a file under `eval/text-cleanup/EvalScore` needs nothing in Xcode but does
+need both files to stay in step.
 
 ### Diagnostics (local-only, `DIAGNOSTICS` build)
 

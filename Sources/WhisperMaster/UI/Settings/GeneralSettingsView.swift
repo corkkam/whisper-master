@@ -82,7 +82,7 @@ struct GeneralSettingsView: View {
             // The pages folded out of the sidebar live here, as a tappable list.
             SectionLabel("More")
             SettingsCard {
-                ForEach(Array(SettingsSection.secondary.enumerated()), id: \.element) { index, section in
+                ForEach(Array(SettingsSection.secondary.filter(\.isListed).enumerated()), id: \.element) { index, section in
                     if index > 0 { RowDivider() }
                     // An unreleased page keeps its row and reads as a roadmap
                     // entry — dimmed, tagged, and inert. Dropping it instead would

@@ -80,6 +80,12 @@ targets:
           - "**/CLAUDE.md"
       - path: Resources/AppIcon.icns
         buildPhase: resources
+      # The eval's mechanical scorer, compiled into the app so the Model Lab can
+      # grade a bench in-process. SwiftPM builds the same files as the
+      # `EvalScoreKit` module (Package.swift) and the Lab sources import it under
+      # `#if SWIFT_PACKAGE`; here they are in-module, so there is nothing to
+      # import and still only one copy of the code.
+      - path: eval/text-cleanup/EvalScore
     dependencies:
       - package: FluidAudio
       - package: Sparkle
