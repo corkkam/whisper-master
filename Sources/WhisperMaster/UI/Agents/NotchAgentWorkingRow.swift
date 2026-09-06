@@ -24,17 +24,30 @@ struct NotchAgentWorkingRow: View {
     /// Stop the turn — kunai's interrupt. On the row because the moment you want an
     /// agent to stop is the moment you are watching it work.
     var onStop: (() -> Void)?
+    /// What is relevant right now. When it is set the day takes the leading edge
+    /// and this row's caption demotes to a chip beside the orb — the same swap
+    /// `NotchTranscriptRow` makes, because a running agent must not push a meeting
+    /// three minutes away off the bezel.
+    var ambient: NotchAmbientSlot?
 
     var body: some View {
         HStack(spacing: Theme.Space.md) {
-            Text(caption)
-                .font(Typography.notchBody)
-                .foregroundStyle(Theme.Notch.text)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: labelMaxWidth, alignment: .leading)
+            if let ambient {
+                ambient.row()
+            } else {
+                Text(caption)
+                    .font(Typography.notchBody)
+                    .foregroundStyle(Theme.Notch.text)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: labelMaxWidth, alignment: .leading)
+            }
 
             Spacer(minLength: Theme.Space.sm)
+
+            if ambient != nil {
+                NotchStateChip(label: caption)
+            }
 
             if let onStop {
                 Button(action: onStop) {

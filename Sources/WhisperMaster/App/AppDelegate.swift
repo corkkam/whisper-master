@@ -362,6 +362,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // outcome on almost every install.
         viewModel.state.agents.start()
 
+        // Read the calendar and start ranking the day. Dormant until now for the
+        // same reason `agents` is: building an `AppState` under `swift test` or the
+        // headless renderer must not open an `EKEventStore` or arm a timer. With no
+        // calendar grant it reads nothing and the ambient row simply never appears.
+        viewModel.state.now.start()
+
         // Ask the appcast whether there is an update, without showing anything.
         // `checkForUpdateInformation()` is the one Sparkle entry point that has no
         // user driver behind it: it only fires the delegate callbacks below, which
@@ -419,6 +425,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.state.usageStore.deactivate()
         viewModel.state.notesStore.deactivate()
         viewModel.state.connectorStore.deactivate()
+        // The day belongs to the account that was signed in — stop reading it and
+        // clear what is held, or the next person to sign in sees the last one's
+        // meetings on the bezel.
+        viewModel.state.now.stop()
         Task {
             do {
                 try await Clerk.shared.auth.signOut()
@@ -772,7 +782,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // open it), the undelivered hint's Copy button, or a write-approval
         // card — where clicks matter.
         pillWindow?.setInteractive(
-            state.approvals.pending != nil
+            // The ambient row's checkbox and Join pill. This is the one entry here
+            // that can be true for minutes at a stretch rather than for a beat, so
+            // `DictationPillContent` marks the black fill and every non-control
+            // part of the row non-hittable — otherwise the surface would swallow
+            // menu-bar clicks for the whole ten minutes before a meeting.
+            state.ambientRowTakesClicks
+                || state.approvals.pending != nil
                 // The nudge is a pointer to another session, so it has to be
                 // tappable — a band that says "tap to answer" and swallows the tap
                 // is worse than no band.
@@ -1177,6 +1193,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // The checkbox on a reminder that just came due — ticks it off, or
                 // puts it back if the tick was a misfire.
                 self?.toggleDueReminder()
+            },
+            onCompleteNowReminder: { [weak self] id in
+                // The checkbox on the ambient row: a reminder that is merely late,
+                // not one that just fired. `refreshNow` follows the write because
+                // the row is re-ranked on a one-minute tick, and waiting up to a
+                // minute for it to leave reads as the tap having done nothing.
+                guard let self else { return }
+                self.viewModel.state.notesStore.completeReminder(id)
+                self.viewModel.state.now.refreshNow()
+            },
+            onJoin: { [weak self] url in
+                self?.openConferenceLink(url)
             })
         pillWindow?.show()
 
@@ -1186,6 +1214,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // something of its own to say — see `AppState.notchIsOccupied`.
         quickActionsWindow = NotchQuickActionsWindow(
             state: viewModel.state,
+            onJoin: { [weak self] url in
+                self?.openConferenceLink(url)
+            },
             onOpenNotes: { [weak self] request in
                 guard let self else { return }
                 self.viewModel.state.requestedSettingsSection = .notes
@@ -1645,6 +1676,24 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
     ///
     /// Ticking goes through `completeReminder`, so a repeating reminder rolls to
     /// its next occurrence rather than being retired. Un-ticking hands back the
+    /// Open a meeting's conference link.
+    ///
+    /// Re-checked against `ConferenceLink.isJoinable` at the point of opening, not
+    /// only where it was extracted. The URL travels from an event body through a
+    /// value type and a SwiftUI closure to get here, and `NSWorkspace.open` will
+    /// happily launch a `file://` or a custom scheme — so the allowlist is applied
+    /// again at the one call that acts on it. A link that fails the check is
+    /// dropped silently: the button is only ever drawn for one that passed, so a
+    /// failure here means something upstream is wrong rather than that the user
+    /// needs telling.
+    private func openConferenceLink(_ url: URL) {
+        guard ConferenceLink.isJoinable(url) else {
+            Log.app.error("Refused to open a non-conference link from the notch")
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
     /// snapshot the band has been holding since it fired — the only copy of the
     /// occurrence a repeat's roll-forward moved past.
     private func toggleDueReminder() {

@@ -25,6 +25,9 @@ struct DictationStatusView: View {
     /// inside the wing beside the camera housing. `nil` in the band form, which
     /// runs below the housing and has the whole surface to use.
     var rowLabelMaxWidth: CGFloat?
+    /// The day, for the leading edge. Present only in the row form, and only when
+    /// something is actually inside its horizon — see `NotchNowRow`.
+    var ambient: NotchAmbientSlot?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -97,7 +100,9 @@ struct DictationStatusView: View {
             accessibilityLabel: liveStateWord,
             orbSize: rowOrbSize,
             verticalInset: rowVerticalInset,
-            labelMaxWidth: rowLabelMaxWidth
+            labelMaxWidth: rowLabelMaxWidth,
+            ambient: ambient,
+            stateIsLive: activity == .listening
         )
     }
 
