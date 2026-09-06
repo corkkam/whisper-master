@@ -1,14 +1,26 @@
 import Foundation
 
-#if DEBUG
-/// Dev-only head-to-head bench: does the model's **native** tool-calling emit a
-/// parseable tool call more reliably than the hand-rolled JSON prompt, on the real
-/// qwen? Triggered by `WM_AGENT_TOOL_EVAL` (see AppMain), it loads the model once and
-/// runs a fixed set of representative spoken commands through **three** first-turn
-/// generation paths against the same tool set, then prints a comparison.
+/// The assistant suite: shown the tools, does the model call the right one?
 ///
-/// Not a `swift test` — MLX inference cannot run there. Same env-hook posture as
-/// `SnapshotMode` / `EvalRunner`, and compiled out of Release.
+/// Triggered by `WM_AGENT_TOOL_EVAL` (see AppMain). It loads the model once and runs
+/// every case through **three** first-turn generation paths against the same tool set
+/// — the transcript-cleanup wrapper kept as a control, the hand-rolled JSON prompt
+/// that ships today, and the model's native tool-calling — then prints a comparison
+/// and, when `WM_EVAL_OUT` is set, writes a
+/// `results.json` in the same shape `EvalRunner` produces, so the scores land on
+/// /eval beside the cleanup suite.
+///
+/// Cases come from `WM_EVAL_CASES` (`eval/text-cleanup/assistant-cases.jsonl`), with
+/// the built-in list below as the fallback so the bench still runs with no arguments.
+/// A case's `must_contain` is the tool name a correct run has to call, which is what
+/// lets the existing keyword scorer grade this suite without knowing anything about
+/// tools.
+///
+/// Not a `swift test`: MLX's Metal shaders only compile under xcodebuild, so this
+/// runs from the built app. It is **not** compiled out of Release, for the same
+/// reason `EvalRunner` is not — `Scripts/release.sh` grades the bundle it just built,
+/// and a suite that only exists in Debug cannot grade a release. The hook is inert
+/// unless the environment variable is set.
 ///
 /// It measures the **first** model turn only, deliberately: whether the model, shown
 /// the tools, emits a well-formed call to the right tool with sane arguments. That is
@@ -27,15 +39,56 @@ enum AgentToolEval {
 
     /// One spoken command and the tool a correct run should call.
     private struct Case {
+        let id: String
+        let category: String
         let spoken: String
         let expectedTool: String
+
+        /// `id` and `category` default so the built-in list below stays readable; a
+        /// built-in case gets a stable id derived from its own words, which is enough
+        /// for a bench run that is not being published.
+        init(id: String? = nil, category: String = "uncategorized",
+             spoken: String, expectedTool: String) {
+            self.id = id ?? "asst-" + spoken.lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { !$0.isEmpty }.prefix(4).joined(separator: "-")
+            self.category = category
+            self.spoken = spoken
+            self.expectedTool = expectedTool
+        }
     }
 
-    /// The same 16 commands the in-app Model Lab runs, from the one list both
-    /// read (`LabSuiteLoader.toolCases`). Two benches drifting apart on which
-    /// commands they ask about would make their numbers incomparable, which is
-    /// the only reason to have two.
-    private static let cases: [Case] = LabSuiteLoader.toolCases.map {
+    /// Cases from `WM_EVAL_CASES`, else the list the in-app Model Lab runs.
+    ///
+    /// The file is the same JSONL every other suite uses: `input` is the spoken
+    /// command and the first `must_contain` entry is the tool that has to be called.
+    /// A malformed line is skipped rather than aborting the run — twenty minutes of
+    /// model time should not be thrown away by one bad comma.
+    ///
+    /// The fallback is `LabSuiteLoader.toolCases`, the one list both benches read.
+    /// Two benches drifting apart on which commands they ask about would make their
+    /// numbers incomparable, which is the only reason to have two.
+    private static func loadCases() -> [Case] {
+        guard let path = ProcessInfo.processInfo.environment["WM_EVAL_CASES"],
+              let text = try? String(contentsOfFile: path, encoding: .utf8)
+        else { return builtInCases }
+
+        var loaded: [Case] = []
+        for line in text.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty,
+                  let obj = try? JSONSerialization.jsonObject(with: Data(trimmed.utf8)) as? [String: Any],
+                  let id = obj["id"] as? String,
+                  let spoken = obj["input"] as? String ?? (obj["input"] as? [String: Any])?["text"] as? String,
+                  let expected = (obj["must_contain"] as? [String])?.first
+            else { continue }
+            loaded.append(Case(id: id, category: obj["category"] as? String ?? "uncategorized",
+                               spoken: spoken, expectedTool: expected))
+        }
+        return loaded.isEmpty ? builtInCases : loaded
+    }
+
+    private static let builtInCases: [Case] = LabSuiteLoader.toolCases.map {
         Case(spoken: $0.spoken, expectedTool: $0.expectedTool)
     }
 
@@ -48,7 +101,8 @@ enum AgentToolEval {
     }
 
     static func run() async {
-        print("=== Agent tool-calling bench (real Qwen3-4B-Instruct-2507) ===")
+        print("=== Assistant suite: tool calling on the real Qwen3-4B-Instruct-2507 ===")
+        let cases = loadCases()
 
         // **The general model, not the cleanup slot.** This bench measures tool
         // calling, and the cleanup slot holds S1-mini — a text normalizer that
@@ -75,12 +129,19 @@ enum AgentToolEval {
         var wrappedParse = 0, wrappedCorrect = 0
         var handParse = 0, handCorrect = 0
         var nativeParse = 0, nativeCorrect = 0
+        var rows: [[String: Any]] = []
 
         for testCase in cases {
             let wrapped = await cleanupWrapped(testCase.spoken, system: handSystem, tools: tools)
+            let handStart = Date()
             let hand = await handRolled(testCase.spoken, system: handSystem, tools: tools)
+            let handMs = Int(Date().timeIntervalSince(handStart) * 1000)
+            let nativeStart = Date()
             let native = await nativePath(testCase.spoken, system: nativeSystem,
                                           schemas: schemas, tools: tools)
+            let nativeMs = Int(Date().timeIntervalSince(nativeStart) * 1000)
+            rows.append(row(testCase, hand, target: "assistant", ms: handMs))
+            rows.append(row(testCase, native, target: "assistant-native", ms: nativeMs))
             if wrapped.parsedCall { wrappedParse += 1 }
             if wrapped.tool == testCase.expectedTool { wrappedCorrect += 1 }
             if hand.parsedCall { handParse += 1 }
@@ -107,10 +168,61 @@ enum AgentToolEval {
         print("correct-tool delta (native − hand): \(delta >= 0 ? "+" : "")\(delta)")
         let cost = handCorrect - wrappedCorrect
         print("cost of routing the agent through clean: \(cost >= 0 ? "−" : "+")\(abs(cost))")
+
+        if let outPath = ProcessInfo.processInfo.environment["WM_EVAL_OUT"] {
+            writeJSON(rows, to: outPath)
+            print("wrote \(rows.count) rows to \(outPath)")
+        }
         print("")
 
         await runSecondTurn(tools: tools, handSystem: handSystem,
                             nativeSystem: nativeSystem, schemas: schemas)
+    }
+
+    // MARK: - Results, in the shape the rest of the eval speaks
+
+    /// One scored row, matching `EvalRunner`'s output exactly.
+    ///
+    /// `llm_output` is the tool name followed by its arguments rather than the raw
+    /// generation, because the scorer grades on `must_contain` and the thing being
+    /// graded is *which tool was called*. Putting the name in the output is what lets
+    /// one keyword scorer serve both suites. The arguments ride along after it so the
+    /// proof sheet shows what the model actually asked for; nothing matches on them
+    /// yet.
+    ///
+    /// `deterministic` is the spoken command, so the page's diff puts the command on
+    /// one line and the call it produced on the next.
+    private static func row(_ testCase: Case, _ verdict: Verdict,
+                            target: String, ms: Int) -> [String: Any] {
+        let arguments = verdict.arguments.isEmpty
+            ? ""
+            : " " + verdict.arguments.sorted { $0.key < $1.key }
+                .map { "\($0.key)=\($0.value)" }.joined(separator: ", ")
+        let output = verdict.parsedCall
+            ? "\(verdict.tool ?? "?")\(arguments)"
+            : "no tool call: \(verdict.rawExcerpt)"
+        return [
+            "id": testCase.id,
+            "category": testCase.category,
+            "target": target,
+            "input_kind": "text",
+            "deterministic": testCase.spoken,
+            "llm_output": output,
+            // No faithfulness guard on this path: the guard exists to stop the
+            // cleanup inventing words, and a tool call is not a transcript.
+            "guard": ["accepted": true],
+            "wer": NSNull(),
+            "latency_ms": ["deterministic": 0, "llm": ms, "total": ms],
+        ]
+    }
+
+    private static func writeJSON(_ obj: [[String: Any]], to path: String) {
+        guard let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted])
+        else { return }
+        try? FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: path).deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try? data.write(to: URL(fileURLWithPath: path))
     }
 
     // MARK: - The three paths, first turn only
@@ -276,4 +388,3 @@ enum AgentToolEval {
     /// (`LabToolBench.buildTools`) so the two benches offer the same tools.
     private static func buildTools() -> [ToolDescriptor] { LabToolBench.buildTools() }
 }
-#endif

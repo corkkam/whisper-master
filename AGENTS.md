@@ -21,7 +21,7 @@ evaluation harness and public accuracy dashboard.
 | The app | `Sources/WhisperMaster/` | Swift 5 language mode, SwiftUI + AppKit, arm64, macOS 14+ |
 | Unit tests and benches | `Tests/WhisperMasterTests/` | SwiftPM test target (`swift test`) |
 | Cleanup eval harness | `eval/text-cleanup/` | Swift scorer, shell glue, Claude as judge |
-| Public eval dashboard | `eval/dashboard/` | SvelteKit + Prisma + MongoDB Atlas |
+| Public eval page | landing repo, `app/eval/` | Next.js + Supabase. Fed by `eval/text-cleanup/push-run.mjs` |
 | Release machinery | `Scripts/`, `.github/workflows/release.yml` | bash, notarization, Sparkle, Cloudflare R2 |
 
 Speech recognition is NVIDIA Parakeet through FluidAudio; the optional deeper
@@ -315,7 +315,8 @@ arrive as "whisper mash" or "visible master".
   replayed through the real streaming path. Run it for any transcription or
   post-processing change.
 - **Eval harness** — `eval/text-cleanup/run-eval.sh`, Claude-as-judge grading
-  of the cleanup pipeline; history on the public dashboard (`eval/dashboard/`).
+  of the cleanup pipeline; history at whisper.corkkam.com/eval, published by
+  `Scripts/release.sh` on every stable and beta release.
 
 ### Assistant and connectors
 

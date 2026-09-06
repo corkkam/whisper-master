@@ -16,6 +16,12 @@ import Foundation
 /// Launch via LaunchServices (`open`), passing env through `launchctl setenv` —
 /// a directly-exec'd bundle fails TCC's Info.plist lookup and the mesh Bluetooth
 /// scan hard-crashes.
+/// Target names that are not `CleanupTarget` cases.
+enum EvalTarget {
+    /// Speech model only. Graded on word error, never on the cleanup's keywords.
+    static let transcription = "transcription"
+}
+
 enum EvalRunner {
     private struct Item {
         let id, category, det, inputKind: String
@@ -30,10 +36,19 @@ enum EvalRunner {
         let outPath = env["WM_EVAL_OUT"]
             ?? (casesPath as NSString).deletingLastPathComponent + "/results.json"
 
-        await MlxCleanupService.shared.prepare(configuration: .init(directory: CleanupModel.directory))
-        guard await MlxCleanupService.shared.isReady else {
-            Log.modelPrep.error("EvalRunner: cleanup model not ready; aborting")
-            return
+        // A transcription-only suite needs the speech model and nothing else, so it
+        // must not be blocked by a 2 GB LLM that is not installed. Decide from the
+        // cases rather than loading first and asking questions later.
+        let needsCleanupModel = loadCases(casesPath).contains { c in
+            let targets = (c["targets"] as? [String]) ?? ["light", "polish"]
+            return targets.contains { $0 != EvalTarget.transcription }
+        }
+        if needsCleanupModel {
+            await MlxCleanupService.shared.prepare(configuration: .init(directory: CleanupModel.directory))
+            guard await MlxCleanupService.shared.isReady else {
+                Log.modelPrep.error("EvalRunner: cleanup model not ready; aborting")
+                return
+            }
         }
 
         let items = await buildItems(casesPath)
@@ -42,6 +57,25 @@ enum EvalRunner {
         // within a target (alternating modes re-primes every call → wrong latency).
         var rows: [[String: Any]] = []
         let requested = Set(items.flatMap(\.targets))
+
+        // The transcription suite: the speech model on its own, with no cleanup in
+        // the loop. It exists because today ASR only shows up as a side effect of an
+        // audio cleanup case, so a Parakeet regression is invisible unless it also
+        // happens to break a keyword rule. Here the transcript *is* the output, the
+        // scorer computes WER against `asr_reference`, and the case passes or fails
+        // on hearing alone.
+        for item in items where item.targets.contains(EvalTarget.transcription) {
+            guard item.inputKind == "audio" else { continue }
+            let asrMs = item.asrMs ?? 0
+            rows.append([
+                "id": item.id, "target": EvalTarget.transcription, "input_kind": "audio",
+                "deterministic": item.asrText ?? "", "llm_output": item.asrText ?? "",
+                "guard": ["accepted": true], "wer": NSNull(),
+                "latency_ms": ["asr": asrMs, "deterministic": 0, "llm": 0, "total": asrMs],
+                "asr_text": item.asrText ?? "", "asr_reference": item.asrReference ?? "",
+            ])
+        }
+
         let targets = CleanupTarget.allCases.filter { requested.contains($0.rawValue) }
         for target in targets {
             let prompt = target.prompt

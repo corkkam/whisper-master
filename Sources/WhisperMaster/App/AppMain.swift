@@ -20,10 +20,17 @@ struct WhisperMasterApp {
             SnapshotMode.run(outputDirectory: dir)
             return
         }
-        // Dev-only head-to-head of the hand-rolled JSON prompt against the model's
-        // native tool-calling on the real qwen. Same early-exit posture as the
-        // snapshot hook (before any AppKit / TCC / mesh setup), so it can run headless
-        // from the debug binary. DEBUG-only — compiled out of shipping Release builds.
+        #endif
+
+        // The assistant suite: the hand-rolled JSON prompt against the model's native
+        // tool-calling, on the real qwen. Same early-exit posture as the snapshot hook
+        // — before any AppKit, TCC or mesh setup — which is what lets this one run
+        // headless by exec'ing the binary, unlike EvalRunner.
+        //
+        // NOT behind `#if DEBUG`, deliberately, and for the same reason EvalRunner is
+        // not: `Scripts/release.sh` grades the bundle it just built, and that bundle
+        // is Release. A suite that only exists in Debug cannot grade a release. The
+        // hook is inert unless WM_AGENT_TOOL_EVAL is set.
         if ProcessInfo.processInfo.environment["WM_AGENT_TOOL_EVAL"] != nil {
             // Pump the main run loop (which services the main actor) until the async
             // harness finishes — a semaphore would deadlock the main-actor work the
@@ -39,7 +46,6 @@ struct WhisperMasterApp {
             }
             return
         }
-        #endif
 
         let app = NSApplication.shared
         let delegate = AppDelegate()

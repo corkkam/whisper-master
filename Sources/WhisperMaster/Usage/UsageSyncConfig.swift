@@ -1,14 +1,21 @@
 import Foundation
 
-/// Where usage rollups sync to. The dashboard (`eval/dashboard`) exposes
+/// Where usage rollups sync to. The web app at whisper.corkkam.com exposes
 /// `POST /api/usage`; this resolves that URL and the optional shared-secret
 /// fallback token. Overridable via Info.plist / env for dev without a rebuild.
+///
+/// This used to point at a separate SvelteKit deploy
+/// (`whisper-eval-dashboard.vercel.app`), which is why that project could not be
+/// deleted: every shipped build hardcoded it. The routes moved to the landing
+/// site, so builds from here on talk to the site itself. **The old deploy still
+/// has to stay up** until 1.1.0-beta.7 and .8 have aged out in the field, since
+/// those builds have this string compiled into them.
 enum UsageSyncConfig {
-    /// Base dashboard origin. Defaults to the deployed public dashboard.
+    /// Base origin for sync. Defaults to the production site.
     private static var baseURLString: String {
         (Bundle.main.object(forInfoDictionaryKey: "UsageSyncBaseURL") as? String)
             ?? ProcessInfo.processInfo.environment["USAGE_SYNC_BASE_URL"]
-            ?? "https://whisper-eval-dashboard.vercel.app"
+            ?? "https://whisper.corkkam.com"
     }
 
     /// The `/api/usage` upsert endpoint, or nil if the base URL is malformed.
