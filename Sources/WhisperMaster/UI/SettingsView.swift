@@ -54,9 +54,9 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     /// Whether this section can be opened in *this* build.
     ///
-    /// Connectors and Notes & Reminders are not yet released on stable (see
-    /// `FeatureFlags`), and Nearby Macs is not released anywhere — they stay
-    /// listed but read "Coming soon" and don't respond. Everything else is
+    /// Connectors and Notes & Reminders are open on every channel (see
+    /// `FeatureFlags`); Nearby Macs is not released anywhere, so it stays
+    /// listed but reads "Coming soon" and doesn't respond. Everything else is
     /// always available.
     var isAvailable: Bool {
         isAvailable(connectorsAndNotes: FeatureFlags.connectorsAndNotesAvailable)

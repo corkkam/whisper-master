@@ -1,8 +1,8 @@
 import XCTest
 @testable import WhisperMaster
 
-/// The build-channel gate that decides whether Connectors and Notes & Reminders
-/// are reachable. Both halves are pure, so both channels are covered here
+/// Channel resolution, plus the gate that decides which built surfaces a
+/// channel may open. Every part is pure, so all three channels are covered here
 /// without needing three real bundles.
 final class ReleaseChannelTests: XCTestCase {
 
@@ -54,8 +54,33 @@ final class ReleaseChannelTests: XCTestCase {
         XCTAssertEqual(ReleaseChannel.channel(forVersion: "1.1.0-rc1", bundleID: shipping), .stable)
     }
 
+    // MARK: The connectors / notes gate
+
+    /// The staged rollout is over: stable sees the same surfaces beta and dev
+    /// do. This is the lock on that decision — a channel check reappearing in
+    /// `connectorsAndNotesAvailable(on:)` fails here rather than shipping a
+    /// stable build with two dead sidebar rows.
+    func testConnectorsAndNotesAreOpenOnEveryChannel() {
+        for channel in [ReleaseChannel.stable, .beta, .dev] {
+            XCTAssertTrue(
+                FeatureFlags.connectorsAndNotesAvailable(on: channel),
+                "\(channel.rawValue) must open Connectors and Notes")
+        }
+    }
+
+    /// The Model Lab does not ride on that change: it downloads gigabytes on
+    /// request and can repoint the shipped dictation model, so it stays a dev
+    /// bench.
+    func testTheModelLabStaysDevOnly() {
+        XCTAssertTrue(FeatureFlags.modelLabAvailable(on: .dev))
+        XCTAssertFalse(FeatureFlags.modelLabAvailable(on: .beta))
+        XCTAssertFalse(FeatureFlags.modelLabAvailable(on: .stable))
+    }
+
     // MARK: Section availability
 
+    /// The closed path is still reachable code — it is what a re-close would
+    /// fall back to — so both halves stay covered.
     func testConnectorsAndNotesAreClosedWhenTheFeatureIsUnreleased() {
         XCTAssertFalse(SettingsSection.connectors.isAvailable(connectorsAndNotes: false))
         XCTAssertFalse(SettingsSection.notes.isAvailable(connectorsAndNotes: false))
