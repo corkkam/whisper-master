@@ -42,12 +42,15 @@ enum ReleaseChannel: String {
     )
 }
 
-/// Surfaces that are built but not yet released on the stable channel.
+/// Which built surfaces this channel may open.
 ///
-/// Connectors and Notes & Reminders ship **dark on stable**: the sidebar still
-/// lists both so the roadmap stays visible, but neither can be opened and each
-/// reads "Coming soon". They're live on beta/dev, which is where they're being
-/// proven before they reach the whole userbase.
+/// Connectors and Notes & Reminders are **open on every channel** as of
+/// 2026-09-14: the staged rollout that held them to beta/dev is over, and
+/// stable now gets the app beta was proving. The switch is kept rather than
+/// deleted because it is the one place that decision is written down, and
+/// because every call site still reads it — the closed path is what the Today
+/// page's dictation-stats card and the plain onboarding promise exist for, so
+/// re-closing a channel stays a one-line change rather than a rewrite.
 ///
 /// This is one flag rather than two because the two features are entangled —
 /// the Today agenda reads calendars through a *connector instance*, and the
@@ -57,7 +60,14 @@ enum FeatureFlags {
     /// True when Connectors, Notes & Reminders, and everything that feeds them
     /// are available in this build.
     static var connectorsAndNotesAvailable: Bool {
-        ReleaseChannel.current != .stable
+        connectorsAndNotesAvailable(on: ReleaseChannel.current)
+    }
+
+    /// Pure, so the gate is tested for every channel without a bundle — the same
+    /// shape as `modelLabAvailable(on:)`. Takes the channel it no longer
+    /// consults, because that is the parameter a re-close would key on.
+    static func connectorsAndNotesAvailable(on channel: ReleaseChannel) -> Bool {
+        true
     }
 
     /// True when the **Model Lab** is reachable: install several open-source

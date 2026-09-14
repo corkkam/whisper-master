@@ -24,11 +24,12 @@ struct TodayView: View {
             greeting
 
             // The agenda reads calendars through a *connector instance* and the
-            // reminders card reads the notes store, so both go dark wherever
-            // those features are unreleased (stable). Showing them there would
-            // mean two permanently-empty cards, one of them deep-linking a tab
-            // that won't open. The dictation stats take their place — real data
-            // the app always has.
+            // reminders card reads the notes store, so both go dark on a channel
+            // where those features are closed. Showing them there would mean two
+            // permanently-empty cards, one of them deep-linking a tab that won't
+            // open. The dictation stats take their place — real data the app
+            // always has. Every channel is open today; this is the fallback a
+            // re-close falls back to.
             if FeatureFlags.connectorsAndNotesAvailable {
                 HStack(alignment: .top, spacing: 16) {
                     agendaCard

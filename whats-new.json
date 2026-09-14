@@ -34,6 +34,28 @@
 
   "releases": [
     {
+      "version": "1.2.0",
+      "headline": "Connectors, notes and reminders are here",
+      "publishedAt": "2026-09-14T00:00:00Z",
+      "highlights": [
+        {
+          "title": "Ask about your day",
+          "body": "Hold fn + control and talk. Connect a calendar and ask what is next, and the answer is spoken back to you.",
+          "systemImage": "sparkles"
+        },
+        {
+          "title": "Notes keep the recording",
+          "body": "Say what you need to remember. The note keeps the tidied text, the exact words you said, and the audio.",
+          "systemImage": "note.text"
+        },
+        {
+          "title": "Reminders in the notch",
+          "body": "A reminder you set by voice comes back in the notch band, not in Notification Centre.",
+          "systemImage": "bell.badge"
+        }
+      ]
+    },
+    {
       "version": "1.0.0",
       "headline": "The first launch",
       "publishedAt": "2026-08-01T00:00:00Z",

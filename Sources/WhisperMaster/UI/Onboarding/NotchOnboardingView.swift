@@ -176,10 +176,11 @@ struct NotchOnboardingView: View {
     private var engineLine: String {
         if state.preparedEngine == state.selectedEngine {
             // The one beat that can teach the assistant: the headline already owns
-            // dictation, so the chord rides the sub-line. Stable builds keep the
-            // plain promise — advertising a chord that channel has dark would read
-            // as the app being broken. Presentation only; onboarding persistence
-            // is untouched, so existing accounts are never re-onboarded for this.
+            // dictation, so the chord rides the sub-line. A channel with the
+            // assistant closed keeps the plain promise — advertising a chord that
+            // build has dark would read as the app being broken. Presentation
+            // only; onboarding persistence is untouched, so existing accounts are
+            // never re-onboarded for this.
             if FeatureFlags.connectorsAndNotesAvailable {
                 return "I'll type what you say. Hold it with control to ask about your day."
             }
