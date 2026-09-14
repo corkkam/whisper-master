@@ -962,9 +962,9 @@ final class DictationViewModel {
     ///   of audio the user has spoken, where a restart would drop the first word.
     ///   That session stays owned by the key that started it.
     func handleCommandChordEngaged() {
-        // Where Notes & Reminders is unreleased (stable) the chord means nothing:
-        // arming a session we'd have to un-arm at the end would put "Note or
-        // reminder" in the notch and then paste the words anyway.
+        // Where Notes & Reminders is closed the chord means nothing: arming a
+        // session we'd have to un-arm at the end would put "Note or reminder" in
+        // the notch and then paste the words anyway.
         guard FeatureFlags.connectorsAndNotesAvailable else { return }
         if state.canStop || state.phase == .preparingModels {
             setCommandArmed(true)
@@ -1178,10 +1178,10 @@ final class DictationViewModel {
     /// tier is what guarantees the words land somewhere even when the model is no
     /// help.
     private func routeCommandCapture(_ text: String, spoken: SpokenCapture) async -> Bool {
-        // Where Notes & Reminders is unreleased (stable) this whole path stays
-        // off. Routing would swallow the transcript — suppressing the paste and
-        // filing it into a store with no openable surface — so "remind me to
-        // call mom" would silently vanish. Better to just paste the words.
+        // Where Notes & Reminders is closed this whole path stays off. Routing
+        // would swallow the transcript — suppressing the paste and filing it into
+        // a store with no openable surface — so "remind me to call mom" would
+        // silently vanish. Better to just paste the words.
         guard FeatureFlags.connectorsAndNotesAvailable else { return false }
         // The denominator for every assistant number below: how often the chord
         // was actually used, before any tier has had a chance to take it.
