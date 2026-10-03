@@ -166,6 +166,13 @@ enum SnapshotMode {
         // on it. Both states, since the empty one is what a fresh account sees.
         renderQuickActions(dir, name: "quick-actions", state: state)
         renderQuickActions(dir, name: "quick-actions-empty", state: AppState())
+        // One render per tab: the pinned connections (seeded below) each have one.
+        renderQuickActions(dir, name: "quick-actions-notes", state: state, tab: .notes)
+        renderQuickActions(dir, name: "quick-actions-settings", state: state, tab: .settings)
+        for (index, pinned) in state.connectorStore.pinnedToNotch.enumerated() {
+            renderQuickActions(dir, name: "quick-actions-pin-\(index + 1)", state: state,
+                               tab: .connector(pinned.id))
+        }
 
         // Notch pill / moment-of-truth states. The dark surface is rendered on a
         // neutral backdrop so the black band reads. Each state uses its own fresh
@@ -712,11 +719,15 @@ enum SnapshotMode {
     /// Render the hover quick-actions band on the same stand-in bezel the pill and
     /// onboarding snapshots use, sized exactly as the real panel so a layout change
     /// can't silently clip it.
-    private static func renderQuickActions(_ dir: URL, name: String, state: AppState) {
+    private static func renderQuickActions(_ dir: URL, name: String, state: AppState,
+                                           tab: NotchQuickActionsTab = .today) {
         let layout = NotchQuickActionsLayout()
         let geometry = snapshotNotch
-        let model = NotchQuickActionsModel(state: state)
-        let panel = layout.panelSize(for: geometry, rows: model.visibleRowCount)
+        let model = NotchQuickActionsModel(state: state, persistsTab: false)
+        seedNotchFeed(model.feed, pinned: state.connectorStore.pinnedToNotch)
+        model.select(tab)
+        let panel = layout.panelSize(for: geometry, rows: model.visibleRowCount,
+                                     captioned: model.isCaptioned)
         let view = ZStack(alignment: .top) {
             Color(white: 0.28)
             NotchQuickActionsView(
@@ -728,6 +739,46 @@ enum SnapshotMode {
         }
         .frame(width: panel.width + 92, height: panel.height + 60)
         render(view, to: dir.appendingPathComponent("\(name).png"))
+    }
+
+    /// What the pinned tabs hold in the renderer, which has no network: an inbox
+    /// with unread mail, a Slack read (recent, so no badge), and a calendar day.
+    private static func seedNotchFeed(_ feed: NotchConnectorFeed, pinned: [ConnectorInstance]) {
+        let now = Date()
+        // Relative to now, so the rows are still ahead whenever the renderer runs.
+        func inMinutes(_ minutes: Double) -> Date { now.addingTimeInterval(minutes * 60) }
+        for instance in pinned {
+            switch instance.kind {
+            case .gmail:
+                feed.seed(instance.id, .items([
+                    ConnectorItem(id: "m1", title: "Q4 pricing review", detail: "Priya Shah <priya@acme.com>",
+                                  timestamp: now.addingTimeInterval(-1_500), url: "https://mail.google.com/", isUnread: true),
+                    ConnectorItem(id: "m2", title: "Invoice #2231 for September", detail: "Vercel <billing@vercel.com>",
+                                  timestamp: now.addingTimeInterval(-5_400), url: "https://mail.google.com/", isUnread: true),
+                    ConnectorItem(id: "m3", title: "Re: Seat expansion for the sales team", detail: "Arjun Rao <arjun@acme.com>",
+                                  timestamp: now.addingTimeInterval(-9_000), url: "https://mail.google.com/", isUnread: true),
+                    ConnectorItem(id: "m4", title: "[corkkam/whisper] PR #23 merged", detail: "GitHub <noreply@github.com>",
+                                  timestamp: now.addingTimeInterval(-90_000), url: "https://mail.google.com/"),
+                ]))
+            case .slack:
+                feed.seed(instance.id, .items([
+                    ConnectorItem(id: "s1", title: "can you ship 1.2.1 today?", detail: "#release · Rahul",
+                                  timestamp: now.addingTimeInterval(-700)),
+                    ConnectorItem(id: "s2", title: "Beta build crashes on launch for me", detail: "#bugs · Neha",
+                                  timestamp: now.addingTimeInterval(-2_400)),
+                    ConnectorItem(id: "s3", title: "Standup notes posted", detail: "#team · Standup bot",
+                                  timestamp: now.addingTimeInterval(-4_200)),
+                ]))
+            default:
+                feed.seed(instance.id, .events([
+                    DayEvent(id: "e1", title: "Design sync", start: inMinutes(20), end: inMinutes(50), isAllDay: false,
+                             calendarTitle: "Work", sourceTitle: "Google", instanceLabel: instance.displayLabel,
+                             joinURL: URL(string: "https://meet.google.com/abc-defg-hij")),
+                    DayEvent(id: "e2", title: "Investor call", start: inMinutes(65), end: inMinutes(95), isAllDay: false,
+                             calendarTitle: "Work", sourceTitle: "Google", instanceLabel: instance.displayLabel),
+                ]))
+            }
+        }
     }
 
     /// A believable turn for the session-view snapshot, built from real wire frames
@@ -1029,6 +1080,15 @@ enum SnapshotMode {
             kind: .slack, label: "Work chat", identity: "Acme / whisper"))
         state.connectorStore.addGrant(
             Grant(tool: "send_message", instanceID: mockSlack.id, target: "#standup"))
+        // Three pins, so the band's tab bar is full and the Connectors page shows
+        // the pin glyph both lit and at the cap.
+        let mockGmail = state.connectorStore.add(ConnectorInstance(
+            kind: .gmail, label: "Work mail", identity: "sam@acme.com", config: .googleOAuth))
+        state.connectorStore.setPinnedToNotch(mockGmail.id, true)
+        state.connectorStore.setPinnedToNotch(mockSlack.id, true)
+        if let work = state.connectorStore.instances(of: .googleCalendar).first {
+            state.connectorStore.setPinnedToNotch(work.id, true)
+        }
     }
 
     /// A couple of believable notes + reminders so the Notes & Reminders panel

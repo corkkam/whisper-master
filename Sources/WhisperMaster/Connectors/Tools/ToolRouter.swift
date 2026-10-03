@@ -139,7 +139,8 @@ struct ToolRouter {
                 store.setError(instance.id, nil)
                 served.append(instance.displayLabel)
                 lines += outcome.value.map { item in
-                    let detail = item.detail.isEmpty ? "" : " (\(item.detail))"
+                    let parts = (item.isUnread ? ["unread"] : []) + (item.detail.isEmpty ? [] : [item.detail])
+                    let detail = parts.isEmpty ? "" : " (\(parts.joined(separator: " · ")))"
                     return "\(item.title)\(detail) [\(instance.displayLabel)]"
                 }
             }

@@ -518,14 +518,14 @@ struct GmailProvider: ItemReadingProvider {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let title = subject.isEmpty ? (snippet.isEmpty ? "(no subject)" : snippet) : subject
             let labelIDs = meta["labelIds"] as? [String] ?? []
-            let unread = labelIDs.contains("UNREAD") ? "unread · " : ""
             items.append(ConnectorItem(
                 id: id,
                 title: title,
-                detail: "\(unread)\(from)",
+                detail: from,
                 timestamp: Self.gmailDate(meta["internalDate"] as? String),
                 url: "https://mail.google.com/mail/u/0/#inbox/\(id)",
-                instanceLabel: instanceLabel))
+                instanceLabel: instanceLabel,
+                isUnread: labelIDs.contains("UNREAD")))
         }
         return items
     }
