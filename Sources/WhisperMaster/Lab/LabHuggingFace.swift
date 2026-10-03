@@ -1,4 +1,5 @@
 import Foundation
+import Hub
 import MLXLLM
 import MLXLMCommon
 
@@ -352,11 +353,36 @@ enum LabHuggingFace {
     /// 60 seconds (`MlxCleanupService.loadTimeoutSeconds`), and a load that has to
     /// download first spends that minute on the network: anything much over a
     /// gigabyte failed as "load failed" without ever reaching the GPU.
+    ///
+    /// **⚠️ The first call after launch can be told the Mac is offline.** The hub
+    /// client's network monitor is created by that call and reads "not
+    /// connected" until `NWPathMonitor` reports, so it refuses with
+    /// `offlineModeError`. Found by the first headless reasoning bench: the first
+    /// model's download failed and the second, a second later, succeeded. It is
+    /// retried after the monitor has had time to report. It also counts Low Data
+    /// Mode and a phone hotspot as offline, which no retry fixes, so the error says so.
     static func download(
         _ model: LabModel, onProgress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
-        try await defaultHubApi.snapshot(
-            from: model.huggingFaceId, matching: ["*.safetensors", "*.json", "*.jinja"]
-        ) { onProgress($0.fractionCompleted) }
+        for attempt in 1 ... 3 {
+            do {
+                return try await defaultHubApi.snapshot(
+                    from: model.huggingFaceId, matching: ["*.safetensors", "*.json", "*.jinja"]
+                ) { onProgress($0.fractionCompleted) }
+            } catch HubApi.EnvironmentError.offlineModeError where attempt < 3 {
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+            } catch HubApi.EnvironmentError.offlineModeError {
+                throw DownloadError.seenAsOffline
+            }
+        }
+        throw DownloadError.seenAsOffline
+    }
+
+    enum DownloadError: LocalizedError {
+        case seenAsOffline
+        var errorDescription: String? {
+            "the download client sees this Mac as offline. It counts Low Data Mode and a"
+                + " phone hotspot as offline too."
+        }
     }
 }

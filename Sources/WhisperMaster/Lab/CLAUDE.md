@@ -104,6 +104,11 @@ lowercased>` so it can never collide with a built-in one.
   spent that minute on the network, so anything much over a gigabyte failed as
   "load failed" without reaching the GPU. This applied to the built-in candidates
   too. Progress goes to the run log every tenth (`LabDownloadTenths`).
+- **⚠️ The first download after launch can be refused as "offline".** The hub
+  client creates its network monitor on that call and reads "not connected"
+  until `NWPathMonitor` reports. `LabHuggingFace.download` retries
+  `offlineModeError` twice. The client also counts Low Data Mode and a phone
+  hotspot as offline, which no retry fixes, and the error says so.
 - **Remove takes the files with it.** An added model off the list is a download
   nobody can reach from the page. Saved runs keep their results under its name.
 - Live check of the API shape: `LAB_HF_LIVE=1 swift test --filter LabHuggingFaceTests`
