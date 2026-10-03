@@ -144,6 +144,14 @@ row of its own, so it can sit beside the shipped assistant in one run.
   `CommandAgentService`'s budget and prompt, not a lab toggle.
 - Reasoning tokens per case are kept (`LabCaseResult.reasoningTokens`) and the
   median goes in the run log. Latency already carries the cost in time.
+- **Measured 2026-10-04 (M5, 24 GB, tool suite, 16 cases, run 5).** The shipped
+  Qwen3-4B-Instruct-2507 scored 16/16 at 3.9 s p50. Qwen3-4B-Thinking-2507 scored
+  15/16 at 10.7 s p50 (64 s p95, 328 reasoning tokens median); Qwen3-1.7B with
+  reasoning scored 15/16 at 6.4 s p50. Each miss was a case still reasoning at the
+  budget. **On first-turn tool choice, reasoning buys nothing and costs 2.7x the
+  latency**, so do not re-run this to decide that question. Where reasoning could
+  earn its cost is the turn that reads a tool result, which this suite does not
+  ask; that needs `AgentToolEval`'s grounding case, not a bigger budget here.
 
 ### Measurement rules
 
