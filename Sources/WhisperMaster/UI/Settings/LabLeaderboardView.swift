@@ -64,7 +64,7 @@ struct LabLeaderboardView: View {
                         .font(Typography.caption)
                         .foregroundStyle(Theme.textPrimary)
                         .lineLimit(1)
-                    if let badge = model?.provenance.badge { RowTag(badge) }
+                    if let badge = model?.railTag { RowTag(badge) }
                 }
                 .frame(width: 168, alignment: .leading)
 

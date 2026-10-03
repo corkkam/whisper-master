@@ -184,6 +184,9 @@ actor MlxCleanupService {
         /// How many model calls this took. More than one means the text was long
         /// enough to be chunked.
         var passes = 0
+        /// Of `generatedTokens`, how many were reasoning before the answer. Only
+        /// counted when generation was asked to think.
+        var reasoningTokens = 0
 
         var tokensPerSecond: Double {
             generateSeconds > 0 ? Double(generatedTokens) / generateSeconds : 0
@@ -194,7 +197,8 @@ actor MlxCleanupService {
                  generatedTokens: lhs.generatedTokens + rhs.generatedTokens,
                  promptSeconds: lhs.promptSeconds + rhs.promptSeconds,
                  generateSeconds: lhs.generateSeconds + rhs.generateSeconds,
-                 passes: lhs.passes + rhs.passes)
+                 passes: lhs.passes + rhs.passes,
+                 reasoningTokens: lhs.reasoningTokens + rhs.reasoningTokens)
         }
     }
 
@@ -332,10 +336,19 @@ actor MlxCleanupService {
 
     /// `generateWithTools`, with what it cost — the tool-calling bench's half of
     /// `cleanMeasured`. Same path, same result.
+    ///
+    /// `thinking` is **the Model Lab's alone**: every shipped path renders with
+    /// `enable_thinking: false` (see `templateContext`). On, the template may open
+    /// a reasoning block, the budget grows to `reasoningMaxTokens` and
+    /// `reasoningTimeoutSeconds`, and a generation that is still reasoning when
+    /// the budget runs out returns nil. Its reasoning can name the tool it is
+    /// thinking about, and handing that to the parser would score a model that
+    /// never answered as one that called the right tool.
     func generateWithToolsMeasured(
         messages: [[String: String]],
         toolSchemasJSON: [String],
-        maxTokens: Int = 512
+        maxTokens: Int = 512,
+        thinking: Bool = false
     ) async -> (text: String?, cost: GenerationCost) {
         guard case .ready(let container) = state else { return (nil, GenerationCost()) }
         guard !messages.isEmpty else { return (nil, GenerationCost()) }
@@ -348,8 +361,8 @@ actor MlxCleanupService {
         }
 
         do {
-            let (raw, cost) = try await container.perform {
-                (context: ModelContext) -> (String, GenerationCost) in
+            let (raw, cost, ranOut) = try await container.perform {
+                (context: ModelContext) -> (String, GenerationCost, Bool) in
                 let tokens = try context.tokenizer.applyChatTemplate(
                     messages: chatMessages, chatTemplate: nil, addGenerationPrompt: true,
                     truncation: false, maxLength: nil,
@@ -357,28 +370,40 @@ actor MlxCleanupService {
                     // Same `enable_thinking: false` every other render passes. Without
                     // it a template that honours the flag opens a reasoning block, and
                     // the tool call — if it survives at all — arrives after a wall of
-                    // text the parser has to dig through.
-                    additionalContext: Self.templateContext)
+                    // text the parser has to dig through. The lab's reasoning bench is
+                    // the one caller that asks for the block on purpose.
+                    additionalContext: thinking ? ["enable_thinking": true] : Self.templateContext)
                 let input = LMInput(tokens: MLXArray(tokens.map { Int32($0) }))
                 // A fresh cache, never the primed cleanup one.
                 let cache = context.model.newCache(parameters: nil)
-                let params = GenerateParameters(maxTokens: maxTokens, temperature: 0)
+                let budget = thinking ? max(maxTokens, Self.reasoningMaxTokens) : maxTokens
+                let params = GenerateParameters(maxTokens: budget, temperature: 0)
+                let timeout = thinking ? Self.reasoningTimeoutSeconds : Self.timeoutSeconds
                 let iterator = try TokenIterator(
                     input: input, model: context.model, cache: cache, parameters: params)
                 let start = Date()
                 let result = MLXLMCommon.generate(
                     input: input, context: context, iterator: iterator
                 ) { (_: [Int]) in
-                    Date().timeIntervalSince(start) > Self.timeoutSeconds ? .stop : .more
+                    Date().timeIntervalSince(start) > timeout ? .stop : .more
                 }
                 Stream.gpu.synchronize()
+                let reasoning = thinking ? Self.splitReasoning(result.output).reasoning : ""
+                let ranOut = result.tokens.count >= budget || Date().timeIntervalSince(start) > timeout
                 return (result.output, GenerationCost(
                     promptTokens: tokens.count,
                     generatedTokens: result.tokens.count,
                     promptSeconds: result.promptTime,
                     generateSeconds: result.generateTime,
-                    passes: 1))
+                    passes: 1,
+                    reasoningTokens: reasoning.isEmpty
+                        ? 0 : context.tokenizer.encode(text: reasoning, addSpecialTokens: false).count),
+                    ranOut)
             }
+            // Out of budget with no closing tag: everything it wrote was reasoning.
+            // A model that answered without ever opening a block ends on its own,
+            // so it is not caught here.
+            if thinking, ranOut, Self.splitReasoning(raw).answer == nil { return (nil, cost) }
             return (Self.sanitize(raw), cost)
         } catch {
             return (nil, GenerationCost())
@@ -599,6 +624,26 @@ actor MlxCleanupService {
     /// broken rather than off. The model card names this as the single commonest
     /// integration bug, and it is invisible until you read the raw output.
     private static let templateContext: [String: Any] = ["enable_thinking": false]
+
+    /// The budget a reasoning generation gets in the Model Lab. A 4B model at
+    /// ~40 tokens a second spends most of a minute thinking about one tool call;
+    /// the shipped 512 tokens / 12 s cut every one off before it answered.
+    static let reasoningMaxTokens = 2048
+    static let reasoningTimeoutSeconds: Double = 60
+
+    /// Split a reasoning generation at its closing `</think>`. The opening tag may
+    /// be missing, because thinking-only templates put it in the prompt. With no
+    /// closing tag the model was still reasoning when it stopped, so there is no
+    /// answer, only reasoning.
+    nonisolated static func splitReasoning(_ raw: String) -> (reasoning: String, answer: String?) {
+        guard let close = raw.range(of: "</think>") else {
+            return (raw.replacingOccurrences(of: "<think>", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines), nil)
+        }
+        let reasoning = String(raw[..<close.lowerBound]).replacingOccurrences(of: "<think>", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (reasoning, String(raw[close.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
 
     // MARK: - Helpers
 

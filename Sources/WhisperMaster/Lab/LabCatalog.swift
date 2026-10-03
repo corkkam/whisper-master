@@ -33,6 +33,31 @@ enum LabProvenance: String, Codable, Sendable {
     }
 }
 
+/// Whether a model reasons before it answers, read off its chat template.
+enum LabReasoning: String, Codable, Sendable {
+    /// Answers directly. The shipped assistant (Qwen3-4B-Instruct-2507) is one.
+    case none
+    /// The template honours `enable_thinking`: Qwen3's hybrid builds, SmolLM3.
+    /// Benched both ways, as two rows.
+    case optional
+    /// The template opens `<think>` on every turn: Qwen3 Thinking-2507, the R1
+    /// distills. There is no way to switch it off.
+    case always
+
+    /// Read from the chat template. Only the part after the last
+    /// `add_generation_prompt` decides "always", because that is what is appended
+    /// to every prompt: the shipped Instruct-2507 template mentions `<think>` too,
+    /// but only to strip it from earlier turns.
+    static func detect(chatTemplate template: String) -> LabReasoning {
+        if template.contains("enable_thinking") { return .optional }
+        guard let tail = template.range(of: "add_generation_prompt", options: .backwards) else {
+            return .none
+        }
+        let prompt = template[tail.upperBound...]
+        return prompt.contains("<think>") && !prompt.contains("</think>") ? .always : .none
+    }
+}
+
 /// One open-source model the dev build can install, load and bench.
 ///
 /// Everything here is a fact about the model, not about this Mac — installed
@@ -59,8 +84,39 @@ struct LabModel: Identifiable, Hashable, Sendable {
     let provenance: LabProvenance
     /// One line on why this model is in the list at all.
     let note: String
+    /// What the model can do. Decides whether a reasoning row is offered for it.
+    var reasoning: LabReasoning = .none
+    /// This row is benched with its reasoning on. The same model on disk can be
+    /// two rows, one per setting, so a run can put them side by side.
+    var thinks = false
 
     func supports(_ role: LabRole) -> Bool { roles.contains(role) }
+
+    /// The one tag a row has room for. "reasoning" wins over the provenance
+    /// badge, because two rows of the same weights read the same otherwise.
+    var railTag: String? { thinks ? "reasoning" : provenance.badge }
+
+    /// The row that benches a hybrid model with its reasoning on.
+    ///
+    /// **Assistant only.** Reasoning before a cleanup triples its latency to
+    /// produce one sentence, and the tool suite is where reasoning can earn
+    /// its cost.
+    var reasoningVariant: LabModel {
+        var variant = LabModel(
+            id: id + "+reasoning", name: name + " (reasoning)", huggingFaceId: huggingFaceId,
+            archiveName: archiveName, approximateDownloadBytes: approximateDownloadBytes,
+            parameters: parameters, quantization: quantization, roles: [.assistant],
+            provenance: provenance,
+            note: "Same weights, reasoning on. Thinks before it calls a tool.")
+        variant.reasoning = reasoning
+        variant.thinks = true
+        return variant
+    }
+
+    /// This row, then its reasoning row when it has one.
+    var rows: [LabModel] {
+        reasoning == .optional && supports(.assistant) ? [self, reasoningVariant] : [self]
+    }
 }
 
 /// The models the lab offers.
@@ -75,7 +131,9 @@ struct LabModel: Identifiable, Hashable, Sendable {
 /// baseline answers "which candidate is best" when the question is always "is any
 /// candidate better than what users already have".
 enum LabCatalog {
-    static let builtIn: [LabModel] = [
+    static let builtIn: [LabModel] = catalogue.flatMap(\.rows)
+
+    private static let catalogue: [LabModel] = [
         LabModel(
             id: "s1-mini-4bit",
             name: "S1-mini",
@@ -119,7 +177,8 @@ enum LabCatalog {
             quantization: "4-bit",
             roles: [.cleanup, .assistant],
             provenance: .candidate,
-            note: "S1-mini's base model, un-finetuned. What the fine-tune is worth."),
+            note: "S1-mini's base model, un-finetuned. What the fine-tune is worth.",
+            reasoning: .optional),
         LabModel(
             id: "qwen3-1.7b-4bit",
             name: "Qwen3-1.7B",
@@ -130,7 +189,21 @@ enum LabCatalog {
             quantization: "4-bit",
             roles: [.cleanup, .assistant],
             provenance: .candidate,
-            note: "The cheapest model that might still tool-call."),
+            note: "The cheapest model that might still tool-call.",
+            reasoning: .optional),
+        LabModel(
+            id: "qwen3-4b-thinking-2507-4bit",
+            name: "Qwen3-4B-Thinking-2507",
+            huggingFaceId: "mlx-community/Qwen3-4B-Thinking-2507-4bit",
+            archiveName: nil,
+            approximateDownloadBytes: 2_280 * 1_000_000,
+            parameters: "4B",
+            quantization: "4-bit",
+            roles: [.assistant],
+            provenance: .candidate,
+            note: "The shipped assistant's reasoning twin: same size, always thinks first.",
+            reasoning: .always,
+            thinks: true),
         LabModel(
             id: "llama-3.2-1b-instruct-4bit",
             name: "Llama-3.2-1B-Instruct",
@@ -190,14 +263,14 @@ enum LabCatalog {
 
     /// The built-in models, then the ones added on this Mac.
     static func all(defaults: UserDefaults = .standard) -> [LabModel] {
-        builtIn + LabCustomModels.load(defaults: defaults).map(\.model)
+        builtIn + LabCustomModels.load(defaults: defaults).flatMap(\.models)
     }
 
     /// Built-ins first, so the common lookup never decodes the added list.
     /// `CleanupModel.directory` comes through here whenever a slot is overridden.
     static func model(id: String, defaults: UserDefaults = .standard) -> LabModel? {
         if let model = builtIn.first(where: { $0.id == id }) { return model }
-        return LabCustomModels.load(defaults: defaults).first { $0.id == id }?.model
+        return LabCustomModels.load(defaults: defaults).flatMap(\.models).first { $0.id == id }
     }
 
     /// The entry the shipped cleanup path uses, which is the default baseline in

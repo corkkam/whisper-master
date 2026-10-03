@@ -168,6 +168,13 @@ final class LabHuggingFaceTests: XCTestCase {
         let shipped = try await LabHuggingFace.check(
             "mlx-community/Qwen3-4B-Instruct-2507-4bit", existingIDs: []).get()
         XCTAssertTrue(shipped.supportsTools)
+        XCTAssertEqual(shipped.reasoning, .none)
+        let thinking = try await LabHuggingFace.check(
+            "mlx-community/Qwen3-4B-Thinking-2507-4bit", existingIDs: []).get()
+        XCTAssertEqual(thinking.reasoning, .always)
+        XCTAssertEqual(thinking.models.map(\.roles), [[.assistant]])
+        let hybrid = try await LabHuggingFace.check("mlx-community/Qwen3-1.7B-4bit", existingIDs: []).get()
+        XCTAssertEqual(hybrid.reasoning, .optional)
 
         let missing = await LabHuggingFace.check("nobody-xyz/does-not-exist-xyz", existingIDs: [])
         XCTAssertEqual(missing, .failure(.notFound("nobody-xyz/does-not-exist-xyz")))
