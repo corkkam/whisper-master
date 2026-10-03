@@ -134,8 +134,21 @@ final class LabBenchRunner {
             memory.resetPeak()
             let before = memory.sample(atMs: 0)
 
+            if LabPaths.installedDirectory(for: model) == nil {
+                do {
+                    try await download(model)
+                } catch {
+                    if Task.isCancelled { break }
+                    result.failure = "Download failed: \(error.localizedDescription)"
+                    append(.bad, "\(model.name): \(result.failure!)")
+                    update(result, at: index)
+                    persist()
+                    continue
+                }
+                if Task.isCancelled { break }
+            }
             guard let configuration = configuration(for: model) else {
-                result.failure = "Not installed, and no Hugging Face id to fetch it from."
+                result.failure = "Downloaded, but the files MLX needs are not all there."
                 append(.bad, "\(model.name): \(result.failure!)")
                 update(result, at: index)
                 persist()
@@ -368,14 +381,26 @@ final class LabBenchRunner {
 
     // MARK: - Helpers
 
-    /// Prefer a local directory; fall back to the Hugging Face id, which makes
-    /// MLX fetch the model on first use. That fallback is how a candidate gets
-    /// installed at all — there is no separate download step to forget.
+    /// Load from disk only. `execute` downloads first, because a load that has
+    /// to fetch spends its 60-second timeout on the network.
     private func configuration(for model: LabModel) -> ModelConfiguration? {
-        if let directory = LabPaths.installedDirectory(for: model) {
-            return ModelConfiguration(directory: directory)
+        LabPaths.installedDirectory(for: model).map { ModelConfiguration(directory: $0) }
+    }
+
+    /// Fetch a model before its load, logging every tenth of the way. The log is
+    /// the only progress there is, and a 4 GB fetch with no word for minutes
+    /// reads as a hang.
+    private func download(_ model: LabModel) async throws {
+        append(.info, "\(model.name): downloading about \(LabFormat.bytes(model.approximateDownloadBytes))")
+        let started = Date()
+        let tenths = LabDownloadTenths()
+        _ = try await LabHuggingFace.download(model) { [weak self] fraction in
+            guard let tenth = tenths.crossed(fraction) else { return }
+            Task { @MainActor in
+                self?.append(.info, "\(model.name): downloaded \(tenth * 10)%")
+            }
         }
-        return ModelConfiguration(id: model.huggingFaceId)
+        append(.good, "\(model.name): downloaded in \(LabFormat.duration(Date().timeIntervalSince(started)))")
     }
 
     /// Replay a recording through the real streaming transcriber in ~100 ms
@@ -408,6 +433,24 @@ final class LabBenchRunner {
     private func append(_ kind: LabLogLine.Kind, _ text: String) {
         log.append(LabLogLine(at: Date(), kind: kind, text: text))
         if log.count > logLimit { log.removeFirst(log.count - logLimit) }
+    }
+}
+
+/// Which tenth of a download was last reported. A class with a lock because the
+/// progress callback arrives on whatever queue the hub client uses.
+final class LabDownloadTenths: @unchecked Sendable {
+    private let lock = NSLock()
+    private var reported = 0
+
+    /// The new tenth when `fraction` crosses one, else nil. Never repeats one and
+    /// never goes backward, whatever order the callbacks land in.
+    func crossed(_ fraction: Double) -> Int? {
+        let tenth = Int((min(1, max(0, fraction)) * 10).rounded(.down))
+        return lock.withLock {
+            guard tenth > reported else { return nil }
+            reported = tenth
+            return tenth
+        }
     }
 }
 
