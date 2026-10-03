@@ -79,6 +79,7 @@ enum LabHuggingFace {
         case alreadyListed(String)
         case missingFile(String)
         case noSafetensors
+        case noChatTemplate
         case noModelType
         case unsupportedModelType(String)
         case network(String)
@@ -97,6 +98,8 @@ enum LabHuggingFace {
                 return "The repo has no \(file), which MLX needs to load it."
             case .noSafetensors:
                 return "The repo has no .safetensors weights. Look for an MLX conversion of it."
+            case .noChatTemplate:
+                return "The repo has no chat template, so it is a base model that cannot follow a prompt."
             case .noModelType:
                 return "The repo's config names no model type, so MLX cannot pick an architecture."
             case .unsupportedModelType(let type):
@@ -207,8 +210,14 @@ enum LabHuggingFace {
 
     /// Decide whether a repo can be added, from what the API said about it. Pure,
     /// so every refusal is tested without a network.
+    ///
+    /// `chatTemplate` is the repo's `chat_template.jinja` when it has one. Newer
+    /// repos (every Qwen3 2507 build, SmolLM3) keep the template there and not in
+    /// `tokenizer_config.json`, so the API's `config` carries none, and reading only
+    /// the API took the shipped assistant model for one that cannot call tools.
     static func assess(
         _ info: RepoInfo,
+        chatTemplate: String? = nil,
         existingIDs: Set<String>,
         isSupported: (String) -> Bool,
         now: Date = Date()
@@ -235,7 +244,8 @@ enum LabHuggingFace {
         let bytes = files
             .filter { $0.rfilename.hasSuffix(".safetensors") || $0.rfilename.hasSuffix(".json") }
             .reduce(Int64(0)) { $0 + ($1.size ?? 0) }
-        let template = info.config?.tokenizerConfig?.chatTemplate?.text ?? ""
+        let template = chatTemplate ?? info.config?.tokenizerConfig?.chatTemplate?.text ?? ""
+        guard !template.isEmpty else { return .failure(.noChatTemplate) }
 
         return .success(LabCustomModel(
             huggingFaceId: repo,
@@ -293,7 +303,18 @@ enum LabHuggingFace {
             if status == 401 || status == 404 { return .failure(.notFound(repo)) }
             guard status == 200 else { return .failure(.network("HTTP \(status)")) }
             let info = try JSONDecoder().decode(RepoInfo.self, from: data)
-            return assess(info, existingIDs: existingIDs, isSupported: isSupportedModelType)
+            var jinja: String?
+            if info.siblings?.contains(where: { $0.rfilename == "chat_template.jinja" }) == true,
+               let url = URL(string: "https://huggingface.co/\(repo)/resolve/main/chat_template.jinja") {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 20
+                let (body, response) = try await session.data(for: request)
+                if (response as? HTTPURLResponse)?.statusCode == 200 {
+                    jinja = String(decoding: body, as: UTF8.self)
+                }
+            }
+            return assess(info, chatTemplate: jinja, existingIDs: existingIDs,
+                          isSupported: isSupportedModelType)
         } catch let error as DecodingError {
             return .failure(.network("unreadable answer (\(error.localizedDescription))"))
         } catch {
@@ -322,6 +343,11 @@ enum LabHuggingFace {
 
     /// Fetch a model into the cache MLX's loader reads, with no time limit.
     ///
+    /// **Not `MLXLMCommon.downloadModel`**, which fetches `*.safetensors` and
+    /// `*.json` only. A repo whose chat template is in `chat_template.jinja` then
+    /// arrives without one, and every generation fails to render a prompt. The
+    /// tokenizer loader reads that file when it is there, so it is fetched too.
+    ///
     /// The runner calls this before loading because the load itself is capped at
     /// 60 seconds (`MlxCleanupService.loadTimeoutSeconds`), and a load that has to
     /// download first spends that minute on the network: anything much over a
@@ -329,8 +355,8 @@ enum LabHuggingFace {
     static func download(
         _ model: LabModel, onProgress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
-        try await downloadModel(
-            hub: defaultHubApi, configuration: ModelConfiguration(id: model.huggingFaceId)
+        try await defaultHubApi.snapshot(
+            from: model.huggingFaceId, matching: ["*.safetensors", "*.json", "*.jinja"]
         ) { onProgress($0.fractionCompleted) }
     }
 }

@@ -78,9 +78,15 @@ lowercased>` so it can never collide with a built-in one.
 - **The repo is checked when it is added, not when the run starts.**
   `LabHuggingFace.check` reads `GET /api/models/<id>?blobs=true` and refuses a
   repo that is missing, gated, has no `config.json` / `tokenizer.json` /
-  `.safetensors`, or names a `model_type` the pinned MLXLLM cannot build. It
-  needs `tokenizer.json` specifically because MLX's download fetches only
-  `*.json` and `*.safetensors`. Hugging Face answers **401, not 404**, for a repo
+  `.safetensors`, has no chat template, or names a `model_type` the pinned
+  MLXLLM cannot build. It needs `tokenizer.json` specifically because the
+  download fetches `*.json`, `*.safetensors` and `*.jinja`, never
+  `tokenizer.model`.
+- **⚠️ The chat template is often in `chat_template.jinja`, not in the API.**
+  Every Qwen3 2507 build and SmolLM3 keep it there, so the API's `config`
+  carries none. The check fetches that file, and `LabHuggingFace.download` adds
+  `*.jinja` to the fetch because `MLXLMCommon.downloadModel` does not: a 2507
+  model fetched by MLX alone arrives with no template and fails every prompt. Hugging Face answers **401, not 404**, for a repo
   that does not exist when you are not logged in.
 - **Supported architectures are asked of `LLMTypeRegistry`, never copied.** The
   registry has no lookup, so `isSupportedModelType` builds from a config file that

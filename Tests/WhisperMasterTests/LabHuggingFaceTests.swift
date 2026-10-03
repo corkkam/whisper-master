@@ -65,6 +65,16 @@ final class LabHuggingFaceTests: XCTestCase {
         XCTAssertEqual(added.model.roles, [.cleanup])
     }
 
+    /// Qwen3 2507 and SmolLM3 keep the template in `chat_template.jinja`, so the
+    /// API's config has none. Reading only the API took the shipped assistant
+    /// model for one that cannot call tools.
+    func testATemplateInItsOwnFileIsTheOneRead() throws {
+        let added = try LabHuggingFace.assess(
+            try info(template: ""), chatTemplate: "{%- if tools %}<tools>{%- endif %}",
+            existingIDs: [], isSupported: { _ in true }).get()
+        XCTAssertTrue(added.supportsTools)
+    }
+
     func testEachRepoTheLabCannotRunSaysWhy() throws {
         func rejection(_ info: LabHuggingFace.RepoInfo, existing: Set<String> = [],
                        supported: Bool = true) -> LabHuggingFace.Rejection? {
@@ -77,6 +87,7 @@ final class LabHuggingFaceTests: XCTestCase {
         XCTAssertEqual(rejection(try info(drop: "config.json")), .missingFile("config.json"))
         XCTAssertEqual(rejection(try info(drop: "model.safetensors")), .noSafetensors)
         XCTAssertEqual(rejection(try info(modelType: nil)), .noModelType)
+        XCTAssertEqual(rejection(try info(template: "")), .noChatTemplate)
         XCTAssertEqual(rejection(try info(), supported: false), .unsupportedModelType("qwen3"))
         XCTAssertEqual(rejection(try info(), existing: ["mlx-community/qwen3-1.7b-4bit"]),
                        .alreadyListed("mlx-community/Qwen3-1.7B-4bit"),
@@ -152,6 +163,11 @@ final class LabHuggingFaceTests: XCTestCase {
         XCTAssertEqual(added.modelType, "qwen3")
         XCTAssertTrue(added.supportsTools)
         XCTAssertGreaterThan(added.approximateDownloadBytes, 500_000_000)
+
+        // The template is in chat_template.jinja, not in the API's config.
+        let shipped = try await LabHuggingFace.check(
+            "mlx-community/Qwen3-4B-Instruct-2507-4bit", existingIDs: []).get()
+        XCTAssertTrue(shipped.supportsTools)
 
         let missing = await LabHuggingFace.check("nobody-xyz/does-not-exist-xyz", existingIDs: [])
         XCTAssertEqual(missing, .failure(.notFound("nobody-xyz/does-not-exist-xyz")))
