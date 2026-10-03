@@ -1027,6 +1027,8 @@ enum SnapshotMode {
         state.llmCleanupEnabled = true
         let mockSlack = state.connectorStore.add(ConnectorInstance(
             kind: .slack, label: "Work chat", identity: "Acme / whisper"))
+        state.connectorStore.add(ConnectorInstance(
+            kind: .outlook, label: "Acme mail", identity: "alex@acme.com", config: .microsoftOAuth))
         state.connectorStore.addGrant(
             Grant(tool: "send_message", instanceID: mockSlack.id, target: "#standup"))
     }

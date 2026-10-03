@@ -295,13 +295,16 @@ final class ConnectorInstanceStoreTests: XCTestCase {
     }
 
     /// A credential-bearing connector with no fields would be unconnectable; a
-    /// system-backed one with fields would be asking for a secret it never uses.
+    /// system-backed one with fields would be asking for a secret it never uses. The
+    /// one exception is a sign-in-only kind (Teams): a refreshable grant with no form,
+    /// whose way to connect is the managed sign-in.
     func testDescriptorFieldsMatchTheirAuthKind() {
         for descriptor in ConnectorCatalog.all {
             if descriptor.authKind == .none {
                 XCTAssertTrue(descriptor.fields.isEmpty, "\(descriptor.kind.rawValue) needs no credential")
-            } else {
-                XCTAssertFalse(descriptor.fields.isEmpty, "\(descriptor.kind.rawValue) has no way to connect")
+            } else if descriptor.fields.isEmpty {
+                XCTAssertEqual(descriptor.authKind, .refreshableGrant, "\(descriptor.kind.rawValue) has no way to connect")
+                XCTAssertTrue(descriptor.supportsManagedOAuth, "\(descriptor.kind.rawValue) has no way to connect")
             }
         }
     }
@@ -309,11 +312,12 @@ final class ConnectorInstanceStoreTests: XCTestCase {
     /// Managed OAuth is only claimable where a secret-free public PKCE client actually
     /// exists. Every other provider here requires a `client_secret` at token exchange, so
     /// a one-click button would dead-end unless we shipped the secret or ran a broker —
-    /// both rejected. **Google** is the only account that qualifies, and both of its
-    /// kinds ride the same client: Calendar and Gmail.
-    func testOnlyGoogleClaimsManagedOAuth() {
-        let managed = ConnectorCatalog.all.filter(\.supportsManagedOAuth).map(\.kind)
-        XCTAssertEqual(managed, [.googleCalendar, .gmail])
+    /// both rejected. **Google** (Calendar, Gmail) and **Microsoft** (Outlook, Teams)
+    /// are the accounts that qualify: an iOS-type Google client and an Entra public
+    /// client both run PKCE with no secret.
+    func testOnlyGoogleAndMicrosoftClaimManagedOAuth() {
+        let managed = Set(ConnectorCatalog.all.filter(\.supportsManagedOAuth).map(\.kind))
+        XCTAssertEqual(managed, [.googleCalendar, .gmail, .outlook, .teams])
     }
 
     /// Google Calendar deliberately has two auth paths — EventKit (no credential) and a

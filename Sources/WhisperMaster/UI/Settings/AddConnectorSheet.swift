@@ -15,17 +15,28 @@ struct AddConnectorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var search = ""
     @State private var chosen: ConnectorKind? {
-        didSet { googlePath = nil; pastesToken = false }
+        didSet { calendarPath = nil; pastesToken = false }
     }
-    /// Which Google Calendar route the user picked, once they've chosen. nil = still on
-    /// the fork.
-    @State private var googlePath: GooglePath?
+    /// Which route a two-path calendar kind (Google Calendar, Outlook) took, once the
+    /// user has chosen. nil = still on the fork.
+    @State private var calendarPath: CalendarPath?
     /// Gmail only, and the *escape hatch* rather than a fork: sign-in is the whole card
     /// unless the user asks for the paste form, which is what an account Google won't
     /// grant the restricted scope to still has.
     @State private var pastesToken = false
 
-    private enum GooglePath { case signIn, eventKit }
+    private enum CalendarPath { case signIn, eventKit }
+
+    /// Kinds with two real routes — sign in to the provider's API, or read what macOS
+    /// Calendar already syncs — and so a fork before either. Only while the sign-in
+    /// half is actually in this build; otherwise the kind goes straight to EventKit.
+    private func hasCalendarFork(_ kind: ConnectorKind) -> Bool {
+        switch kind {
+        case .googleCalendar: return GoogleOAuthConfig.isConfigured
+        case .outlook: return MicrosoftOAuthConfig.isConfigured
+        default: return false
+        }
+    }
 
     /// Whether this kind opens on its one-click sign-in rather than a credential form.
     /// Gmail and Google Calendar both have one; the calendar's sits behind a fork
@@ -40,17 +51,31 @@ struct AddConnectorSheet: View {
             header
             Divider().overlay(Theme.stroke)
             if let chosen {
-                // Google Calendar has two real paths (sign in to the API, or read the
-                // calendars macOS already syncs), so it gets a fork first. Everything
-                // else goes straight to its one path.
-                if chosen == .googleCalendar, GoogleOAuthConfig.isConfigured, googlePath == nil {
-                    googleFork
-                } else if chosen == .googleCalendar, googlePath == .signIn {
+                // Google Calendar and Outlook have two real paths (sign in to the API,
+                // or read the calendars macOS already syncs), so they get a fork first.
+                // Everything else goes straight to its one path.
+                if hasCalendarFork(chosen), calendarPath == nil {
+                    calendarFork(for: chosen)
+                } else if chosen == .googleCalendar, calendarPath == .signIn {
                     GoogleSignInStep(store: store) {
                         onAdded()
                         dismiss()
                     } onBack: {
-                        googlePath = nil
+                        calendarPath = nil
+                    }
+                } else if chosen == .outlook, calendarPath == .signIn {
+                    MicrosoftSignInStep(kind: .outlook, store: store) {
+                        onAdded()
+                        dismiss()
+                    } onBack: {
+                        calendarPath = nil
+                    }
+                } else if chosen == .teams {
+                    MicrosoftSignInStep(kind: .teams, store: store) {
+                        onAdded()
+                        dismiss()
+                    } onBack: {
+                        self.chosen = nil
                     }
                 } else if offersManagedSignIn(chosen) {
                     GmailSignInStep(store: store) {
@@ -113,7 +138,7 @@ struct AddConnectorSheet: View {
     /// disagree about where "back" is.
     private func goBack() {
         if pastesToken { pastesToken = false }
-        else if googlePath != nil { googlePath = nil }
+        else if calendarPath != nil { calendarPath = nil }
         else { chosen = nil }
     }
 
@@ -204,11 +229,12 @@ struct AddConnectorSheet: View {
         .disabled(!isAvailable)
     }
 
-    /// Say *why* it isn't available, rather than a bare "soon". Kept for kinds that
-    /// lose their provider later (a deliberate withhold); every catalogued kind is
-    /// connectable today, so this is a safety net rather than a living list.
+    /// Say *why* it isn't available, rather than a bare "soon".
     private func comingSoonReason(_ descriptor: ConnectorDescriptor) -> String {
-        "Not available in this build."
+        if descriptor.kind == .teams, ProviderRegistry.shippedKinds.contains(.teams) {
+            return "Needs Microsoft sign-in, which isn't set up in this build."
+        }
+        return "Not available in this build."
     }
 }
 
@@ -751,28 +777,35 @@ private struct CredentialConnectStep: View {
 }
 
 extension AddConnectorSheet {
-    /// The Google Calendar fork. Both routes are legitimate and produce genuinely
-    /// different connections, so the choice is put to the user with the trade-off stated
-    /// rather than picked for them.
+    /// The two-path fork (Google Calendar, Outlook). Both routes are legitimate and
+    /// produce genuinely different connections, so the choice is put to the user with
+    /// the trade-off stated rather than picked for them.
     @ViewBuilder
-    fileprivate var googleFork: some View {
+    fileprivate func calendarFork(for kind: ConnectorKind) -> some View {
+        let isOutlook = kind == .outlook
         VStack(alignment: .leading, spacing: 14) {
-            Text("Two ways to read your Google calendar. You can use both, on different accounts.")
+            Text(isOutlook
+                 ? "Two ways to connect Outlook. You can use both, on different accounts."
+                 : "Two ways to read your Google calendar. You can use both, on different accounts.")
                 .font(Typography.subheadline)
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             forkOption(
-                title: "Sign in with Google",
-                detail: "Reads straight from Google. Sees calendars macOS isn't subscribed to, and it's the only option that can add events.",
+                title: isOutlook ? "Sign in with Microsoft" : "Sign in with Google",
+                detail: isOutlook
+                    ? "Reads your mail and calendar straight from Microsoft, and can add events."
+                    : "Reads straight from Google. Sees calendars macOS isn't subscribed to, and it's the only option that can add events.",
                 icon: "person.badge.key",
-                isRecommended: true) { googlePath = .signIn }
+                isRecommended: true) { calendarPath = .signIn }
 
             forkOption(
                 title: "Use macOS Calendar",
-                detail: "Reads the Google calendars already synced on this Mac. No sign-in, nothing leaves the machine.",
+                detail: isOutlook
+                    ? "Reads the Exchange calendars already synced on this Mac. Calendar only. No sign-in, nothing leaves the machine."
+                    : "Reads the Google calendars already synced on this Mac. No sign-in, nothing leaves the machine.",
                 icon: "calendar",
-                isRecommended: false) { googlePath = .eventKit }
+                isRecommended: false) { calendarPath = .eventKit }
 
             Spacer(minLength: 0)
         }

@@ -261,6 +261,15 @@ short-window "preview" manager that used to paint the notch was **removed on
 purpose**; don't reintroduce it.
 
 
+### Connectors (`Connectors/`)
+
+Calendars, mail and chat the assistant chord can read and, after approval, write.
+Google Calendar and Outlook each have two paths (macOS Calendar, or the provider's
+own sign-in), so **an instance's config, not its kind, decides its provider,
+capabilities and auth**. Outlook and Teams sign in through Microsoft, which is dormant
+until `MicrosoftOAuthClientID` is set. Details and the Entra setup:
+**`Sources/WhisperMaster/Connectors/CLAUDE.md`**.
+
 ### Reading answers aloud (`Speech/`)
 
 An assistant answer is spoken as well as shown; a dictation is never read back.

@@ -87,7 +87,8 @@ enum OAuthFlowError: Error, Equatable {
 /// `ASWebAuthenticationSession` and a custom-scheme redirect.
 ///
 /// No client secret is used or shipped — that's only possible because the Google
-/// client is an **iOS-type** client (see `GoogleOAuthConfig`).
+/// client is an **iOS-type** client (see `GoogleOAuthConfig`) and the Microsoft one a
+/// public client (see `MicrosoftOAuthConfig`).
 @MainActor
 final class OAuthPKCEFlow: NSObject {
     private var session: ASWebAuthenticationSession?
@@ -127,18 +128,16 @@ final class OAuthPKCEFlow: NSObject {
             challenge: pkce.challenge, method: pkce.method, state: state, account: account)
         else { throw OAuthFlowError.notConfigured }
 
+        // A fresh session per attempt when adding an account: reusing the shared web
+        // credential would let Google skip the picker, defeating `.chooseAccount`.
+        //
+        // Reusing a grant wants the opposite. An ephemeral session carries no Google
+        // cookies, so `login_hint` would only *prefill* the address and the user
+        // would still be made to sign in from scratch — which is precisely the work
+        // reusing an existing grant exists to save.
         let callback = try await present(authURL: authURL, scheme: redirectScheme,
-                                         account: account)
-
-        let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        // Verify state before touching the code — an unmatched state means this
-        // callback isn't ours.
-        guard items.first(where: { $0.name == "state" })?.value == state else {
-            throw OAuthFlowError.stateMismatch
-        }
-        guard let code = items.first(where: { $0.name == "code" })?.value, !code.isEmpty else {
-            throw OAuthFlowError.noAuthorizationCode
-        }
+                                         ephemeral: account == .chooseAccount)
+        let code = try Self.authorizationCode(from: callback, state: state)
 
         return try await exchange(code: code, verifier: pkce.verifier,
                                  clientID: clientID, redirectURI: redirectURI)
@@ -152,7 +151,98 @@ final class OAuthPKCEFlow: NSObject {
             "client_id": clientID,
             "refresh_token": refreshToken,
             "grant_type": "refresh_token",
-        ])
+        ], to: GoogleOAuthConfig.tokenEndpoint)
+    }
+
+    /// Refresh whichever issuer minted `credential`. The issuer rides in the credential
+    /// bag (`MicrosoftOAuthConfig.CredentialKey`), so this needs no instance in hand.
+    static func refresh(_ credential: ConnectorCredential,
+                        refreshToken: String) async throws -> OAuthTokenResponse {
+        guard credential.isMicrosoftGrant else { return try await refresh(refreshToken: refreshToken) }
+        guard let clientID = MicrosoftOAuthConfig.clientID else { throw OAuthFlowError.notConfigured }
+        let keys = MicrosoftOAuthConfig.CredentialKey.self
+        let tenant = credential[keys.tenant].flatMap(MicrosoftOAuthConfig.Tenant.init(rawValue:)) ?? .common
+        var form = [
+            "client_id": clientID,
+            "refresh_token": refreshToken,
+            "grant_type": "refresh_token",
+        ]
+        if let scope = credential[keys.requestedScope] { form["scope"] = scope }
+        return try await post(form: form, to: MicrosoftOAuthConfig.tokenEndpoint(tenant))
+    }
+
+    /// The Microsoft half of `authorize`: same PKCE, same browser session, different
+    /// issuer. The returned credential already carries the issuer, tenant and the
+    /// scopes asked for, which is what `refresh(_:refreshToken:)` routes on.
+    ///
+    /// `loginHint` is the repair path's account pin. Microsoft has no incremental
+    /// consent to reuse, so unlike Google it only prefills the picker.
+    func authorizeMicrosoft(scopes: [String],
+                            tenant: MicrosoftOAuthConfig.Tenant,
+                            loginHint: String? = nil) async throws -> ConnectorCredential {
+        guard let clientID = MicrosoftOAuthConfig.clientID else { throw OAuthFlowError.notConfigured }
+        let redirectURI = MicrosoftOAuthConfig.redirectURI
+        let pkce = PKCEChallenge()
+        let state = PKCEChallenge.randomVerifier(byteCount: 16)
+        guard let authURL = Self.microsoftAuthorizationURL(
+            clientID: clientID, redirectURI: redirectURI, scopes: scopes, tenant: tenant,
+            challenge: pkce.challenge, method: pkce.method, state: state, loginHint: loginHint)
+        else { throw OAuthFlowError.notConfigured }
+
+        // Ephemeral only when picking a fresh account, for the same reason as Google:
+        // a shared session would let Microsoft sign the last account straight back in.
+        let callback = try await present(authURL: authURL,
+                                         scheme: MicrosoftOAuthConfig.redirectScheme,
+                                         ephemeral: loginHint == nil)
+        let code = try Self.authorizationCode(from: callback, state: state)
+        let tokens = try await Self.post(form: [
+            "client_id": clientID,
+            "code": code,
+            "code_verifier": pkce.verifier,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirectURI,
+            "scope": scopes.joined(separator: " "),
+        ], to: MicrosoftOAuthConfig.tokenEndpoint(tenant))
+
+        let keys = MicrosoftOAuthConfig.CredentialKey.self
+        var credential = tokens.merged(into: ConnectorCredential())
+        credential[keys.issuer] = keys.microsoftIssuer
+        credential[keys.tenant] = tenant.rawValue
+        credential[keys.requestedScope] = scopes.joined(separator: " ")
+        return credential
+    }
+
+    /// The Microsoft authorization URL. Pure for the same reason as the Google one:
+    /// a missing `offline_access` or `prompt` fails as a grant that dies in an hour or
+    /// a picker that silently reuses the wrong account, neither of which throws.
+    nonisolated static func microsoftAuthorizationURL(clientID: String,
+                                                      redirectURI: String,
+                                                      scopes: [String],
+                                                      tenant: MicrosoftOAuthConfig.Tenant,
+                                                      challenge: String,
+                                                      method: String,
+                                                      state: String,
+                                                      loginHint: String?) -> URL? {
+        var components = URLComponents(url: MicrosoftOAuthConfig.authorizationEndpoint(tenant),
+                                       resolvingAgainstBaseURL: false)!
+        var query: [URLQueryItem] = [
+            .init(name: "client_id", value: clientID),
+            .init(name: "redirect_uri", value: redirectURI),
+            .init(name: "response_type", value: "code"),
+            .init(name: "response_mode", value: "query"),
+            .init(name: "scope", value: scopes.joined(separator: " ")),
+            .init(name: "code_challenge", value: challenge),
+            .init(name: "code_challenge_method", value: method),
+            .init(name: "state", value: state),
+        ]
+        if let loginHint {
+            query.append(.init(name: "login_hint", value: loginHint))
+        } else {
+            // Adding a second Outlook must not quietly become a second copy of the first.
+            query.append(.init(name: "prompt", value: "select_account"))
+        }
+        components.queryItems = query
+        return components.url
     }
 
     // MARK: - Internals
@@ -202,8 +292,28 @@ final class OAuthPKCEFlow: NSObject {
         return components.url
     }
 
+    /// The code from a redirect, after checking it answers *this* attempt. State is
+    /// verified before the code is touched — an unmatched state means the callback
+    /// isn't ours. An `error` the provider put on the redirect (a refused consent, an
+    /// account the tenant rule turned away) is surfaced verbatim rather than read as
+    /// a missing code.
+    private static func authorizationCode(from callback: URL, state: String) throws -> String {
+        let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        guard items.first(where: { $0.name == "state" })?.value == state else {
+            throw OAuthFlowError.stateMismatch
+        }
+        if let error = items.first(where: { $0.name == "error" })?.value {
+            let detail = items.first(where: { $0.name == "error_description" })?.value
+            throw OAuthFlowError.tokenExchangeFailed(detail.map { "\(error): \($0)" } ?? error)
+        }
+        guard let code = items.first(where: { $0.name == "code" })?.value, !code.isEmpty else {
+            throw OAuthFlowError.noAuthorizationCode
+        }
+        return code
+    }
+
     private func present(authURL: URL, scheme: String,
-                         account: AccountChoice) async throws -> URL {
+                         ephemeral: Bool) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(
                 url: authURL, callbackURLScheme: scheme
@@ -218,14 +328,7 @@ final class OAuthPKCEFlow: NSObject {
                 }
             }
             session.presentationContextProvider = self
-            // A fresh session per attempt when adding an account: reusing the shared web
-            // credential would let Google skip the picker, defeating `.chooseAccount`.
-            //
-            // Reusing a grant wants the opposite. An ephemeral session carries no Google
-            // cookies, so `login_hint` would only *prefill* the address and the user
-            // would still be made to sign in from scratch — which is precisely the work
-            // reusing an existing grant exists to save.
-            session.prefersEphemeralWebBrowserSession = (account == .chooseAccount)
+            session.prefersEphemeralWebBrowserSession = ephemeral
             self.session = session
             session.start()
         }
@@ -239,11 +342,11 @@ final class OAuthPKCEFlow: NSObject {
             "code_verifier": verifier,
             "grant_type": "authorization_code",
             "redirect_uri": redirectURI,
-        ])
+        ], to: GoogleOAuthConfig.tokenEndpoint)
     }
 
-    private static func post(form: [String: String]) async throws -> OAuthTokenResponse {
-        var request = URLRequest(url: GoogleOAuthConfig.tokenEndpoint)
+    private static func post(form: [String: String], to endpoint: URL) async throws -> OAuthTokenResponse {
+        var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Self.encodeForm(form)
