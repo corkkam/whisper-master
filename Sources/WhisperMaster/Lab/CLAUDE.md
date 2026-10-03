@@ -114,6 +114,45 @@ lowercased>` so it can never collide with a built-in one.
 - Live check of the API shape: `LAB_HF_LIVE=1 swift test --filter LabHuggingFaceTests`
   (skipped otherwise).
 
+### Reasoning models
+
+A model that thinks before it answers is benched on the **tool suite only**, as a
+row of its own, so it can sit beside the shipped assistant in one run.
+
+- **`LabReasoning` is read off the chat template.** `enable_thinking` anywhere →
+  `.optional` (Qwen3 hybrids, SmolLM3). `<think>` opened after the *last*
+  `add_generation_prompt` → `.always` (Qwen3 Thinking-2507, the R1 distills).
+  Only the tail counts: the shipped Instruct-2507 template names `<think>` in its
+  body to strip it from earlier turns, and is not a reasoning model.
+- **A hybrid gets two rows over one download**: the plain row, and
+  `<id>+reasoning` (`LabModel.reasoningVariant`, assistant-only, `thinks`). An
+  `.always` model is one row, assistant-only, and an added one that also takes no
+  tools is refused: no suite here could measure it.
+- **The reasoning budget is the lab's alone.** `generateWithToolsMeasured(thinking:)`
+  renders with `enable_thinking: true` and gets `reasoningMaxTokens` (2048) and
+  `reasoningTimeoutSeconds` (60 s). Every shipped path still renders with
+  `enable_thinking: false` on 512 tokens / 12 s, which cut every reasoning model
+  off before it answered.
+- **A model out of budget with no `</think>` scores no answer, never its
+  reasoning.** Its reasoning can name the tool it is weighing, and handing that to
+  the parser would pass a model that never answered. The case says "still
+  reasoning when the budget ran out".
+- **⚠️ A reasoning row can never take a shipped slot.** `LabController.canUse`
+  refuses it and `LabModelOverride.directory` repeats the refusal, because the
+  shipped paths cannot reason and an `.always` model would time out on every turn
+  of a dev build's assistant. Making the assistant reason is a change to
+  `CommandAgentService`'s budget and prompt, not a lab toggle.
+- Reasoning tokens per case are kept (`LabCaseResult.reasoningTokens`) and the
+  median goes in the run log. Latency already carries the cost in time.
+- **Measured 2026-10-04 (M5, 24 GB, tool suite, 16 cases, run 5).** The shipped
+  Qwen3-4B-Instruct-2507 scored 16/16 at 3.9 s p50. Qwen3-4B-Thinking-2507 scored
+  15/16 at 10.7 s p50 (64 s p95, 328 reasoning tokens median); Qwen3-1.7B with
+  reasoning scored 15/16 at 6.4 s p50. Each miss was a case still reasoning at the
+  budget. **On first-turn tool choice, reasoning buys nothing and costs 2.7x the
+  latency**, so do not re-run this to decide that question. Where reasoning could
+  earn its cost is the turn that reads a tool result, which this suite does not
+  ask; that needs `AgentToolEval`'s grounding case, not a bigger budget here.
+
 ### Measurement rules
 
 - **One model resident at a time.** Two models loaded together share one GPU
