@@ -41,10 +41,11 @@ if [[ -d "$DST_APP" ]]; then
 fi
 
 echo ">> Installing to ${DST_APP}"
+# ditto preserves code-sign metadata better than cp -R for .app bundles
 if [[ -w "/Applications" ]]; then
-    cp -R "$SRC_APP" "$DST_APP"
+    ditto "$SRC_APP" "$DST_APP"
 else
-    sudo cp -R "$SRC_APP" "$DST_APP"
+    sudo ditto "$SRC_APP" "$DST_APP"
 fi
 
 xattr -dr com.apple.quarantine "$DST_APP" 2>/dev/null || true

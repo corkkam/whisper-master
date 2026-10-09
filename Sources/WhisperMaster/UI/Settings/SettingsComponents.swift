@@ -18,15 +18,7 @@ struct SettingsCard<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(contentPadding)
             .padding(.horizontal, boxed ? 0 : 22)   // inset rows from the rounded edge
-            .background(
-                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                    .fill(Theme.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                    .strokeBorder(Theme.stroke, lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.05), radius: 14, x: 0, y: 4)
+            .glassCard(cornerRadius: Theme.cardRadius)
     }
 }
 
@@ -119,6 +111,32 @@ struct ThemeToggle: View {
     }
 }
 
+/// A metric tile — big value, small label, optional icon. Used on Insights.
+struct StatTile: View {
+    let value: String
+    let label: String
+    var icon: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+            }
+            Text(value)
+                .font(Typography.display(28))
+                .foregroundStyle(Theme.textPrimary)
+            Text(label)
+                .font(Typography.caption)
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .glassCard()
+    }
+}
+
 /// Small status dot.
 struct StatusDot: View {
     let color: Color
@@ -185,11 +203,11 @@ struct GhostButtonStyle: ButtonStyle {
             .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                    .fill(configuration.isPressed ? Theme.surfaceSunken : Theme.surface)
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.35 : 0.55))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
-                    .strokeBorder(Theme.strokeStrong, lineWidth: 1)
+                    .strokeBorder(Color.white.opacity(0.6), lineWidth: 1)
             )
             .contentShape(Rectangle())
     }

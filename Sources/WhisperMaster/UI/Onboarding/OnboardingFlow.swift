@@ -44,7 +44,7 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            Theme.canvasGradient.ignoresSafeArea()
+            WarmBackground()
 
             VStack(spacing: 0) {
                 topBar

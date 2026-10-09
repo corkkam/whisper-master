@@ -35,6 +35,18 @@ enum BrandAsset {
         return NSImage(contentsOf: url)
     }()
 
+    /// Resolve a bundled resource URL by name + extension, using the same probe
+    /// as `logo`. `.process("Resources")` may flatten the `Fonts/` folder or keep
+    /// it as a subdirectory, so we try both. Used to register the bundled fonts.
+    static func resourceURL(named name: String, withExtension ext: String) -> URL? {
+        let bundles = [resourceBundle, Bundle.main].compactMap { $0 }
+        for bundle in bundles {
+            if let url = bundle.url(forResource: name, withExtension: ext) { return url }
+            if let url = bundle.url(forResource: name, withExtension: ext, subdirectory: "Fonts") { return url }
+        }
+        return nil
+    }
+
     /// The brand "W" for use as a status-bar (tray) icon, as a **template**
     /// image: the cream squircle is dropped, leaving just the glyph silhouette
     /// so macOS tints it to match the system appearance. This is essential on

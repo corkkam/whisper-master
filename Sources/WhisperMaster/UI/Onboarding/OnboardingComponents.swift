@@ -16,10 +16,11 @@ private struct OnboardingCardChrome: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Theme.surface))
+            .glassCard(cornerRadius: radius)
             .overlay(
+                // Success tint hairline over the glass when highlighted.
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(highlighted ? Theme.success.opacity(0.5) : Theme.stroke, lineWidth: 1)
+                    .strokeBorder(highlighted ? Theme.success.opacity(0.55) : Color.clear, lineWidth: 1.5)
             )
     }
 }

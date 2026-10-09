@@ -27,13 +27,17 @@ enum SnapshotMode {
         let viewModel = DictationViewModel()
         seedMockData(viewModel.state)
         let state = viewModel.state
+        let notes = NotesStore(); notes.seedSampleData()
+        let connectors = ConnectorStore()
+        let account = AccountStore(); account.signIn(name: "Ada Lovelace", email: "ada@example.com")
 
-        // Full window (top-tab masthead + body). The detail ScrollView may
+        // Full window shell for each primary screen. The detail ScrollView may
         // collapse in ImageRenderer, so the per-section panels below carry the body.
-        for section in [SettingsSection.recording, .history, .engine] {
+        for section in SettingsSection.allCases {
             render(
-                SettingsView(viewModel: viewModel, state: state, initialSection: section)
-                    .frame(width: 900, height: 700),
+                SettingsView(viewModel: viewModel, state: state, notes: notes,
+                             connectors: connectors, account: account, initialSection: section)
+                    .frame(width: 980, height: 720),
                 to: dir.appendingPathComponent("window-\(section.rawValue).png")
             )
         }
@@ -42,7 +46,8 @@ enum SnapshotMode {
         // ScrollViews, so we render the fixed detail container instead).
         for section in SettingsSection.allCases {
             render(
-                detailContainer(section: section, viewModel: viewModel, state: state),
+                detailContainer(section: section, viewModel: viewModel, state: state,
+                                notes: notes, connectors: connectors, account: account),
                 to: dir.appendingPathComponent("panel-\(section.rawValue).png")
             )
         }
@@ -67,32 +72,37 @@ enum SnapshotMode {
     }
 
     @ViewBuilder
-    private static func sectionView(_ section: SettingsSection, viewModel: DictationViewModel, state: AppState) -> some View {
+    private static func sectionView(_ section: SettingsSection, viewModel: DictationViewModel, state: AppState,
+                                    notes: NotesStore, connectors: ConnectorStore, account: AccountStore) -> some View {
         switch section {
-        case .recording: RecordingSettingsView(viewModel: viewModel, state: state)
-        case .engine: EngineSettingsView(viewModel: viewModel, state: state)
-        case .mesh: MeshSettingsView(viewModel: viewModel, state: state)
-        case .history: HistorySettingsView(viewModel: viewModel, state: state)
-        case .permissions:
-            PermissionsSettingsView(permissions: PermissionsManager(), micGranted: true, micDenied: false, accessibilityGranted: false)
-        case .about: AboutSettingsView(state: state)
+        case .today:
+            TodayView(state: state, notes: notes, connectors: connectors, account: account)
+        case .notes:
+            NotesSettingsView(notes: notes, viewModel: viewModel)
+        case .connectors:
+            ConnectorsSettingsView(connectors: connectors)
+        case .settings:
+            RecordingSettingsView(viewModel: viewModel, state: state)
         }
     }
 
-    private static func detailContainer(section: SettingsSection, viewModel: DictationViewModel, state: AppState) -> some View {
+    private static func detailContainer(section: SettingsSection, viewModel: DictationViewModel, state: AppState,
+                                        notes: NotesStore, connectors: ConnectorStore, account: AccountStore) -> some View {
         VStack(alignment: .leading, spacing: 26) {
-            VStack(alignment: .leading, spacing: 7) {
-                KickerLabel(section.kicker)
-                Text(section.title).font(Typography.largeTitle).foregroundStyle(Theme.textPrimary)
-                Text(section.subtitle).font(Typography.body).foregroundStyle(Theme.textSecondary)
+            if section != .today {
+                VStack(alignment: .leading, spacing: 7) {
+                    KickerLabel(section.kicker)
+                    Text(section.title).font(Typography.largeTitle).foregroundStyle(Theme.textPrimary)
+                    Text(section.subtitle).font(Typography.body).foregroundStyle(Theme.textSecondary)
+                }
             }
-            sectionView(section, viewModel: viewModel, state: state)
+            sectionView(section, viewModel: viewModel, state: state, notes: notes, connectors: connectors, account: account)
         }
-        .frame(width: 680, alignment: .leading)
+        .frame(width: 700, alignment: .leading)
         .padding(.horizontal, 44)
         .padding(.vertical, 40)
-        .frame(width: 768, alignment: .topLeading)
-        .background(Theme.canvasGradient)
+        .frame(width: 800, alignment: .topLeading)
+        .background(WarmBackground())
     }
 
     private static func seedMockData(_ state: AppState) {

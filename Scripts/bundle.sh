@@ -93,32 +93,58 @@ fi
 
 echo ">> Staging $APP_DIR"
 rm -rf "$APP_DIR"
-cp -R "$PRODUCT" "$APP_DIR"
+# ditto preserves resource forks / code-sign xattrs better than cp -R
+ditto "$PRODUCT" "$APP_DIR"
 
 # xcodebuild re-signs the outer Sparkle.framework but NOT the code nested inside
-# it (Updater.app, Autoupdate, the XPC services), so they keep Sparkle's ad-hoc
-# signature with no secure timestamp — which makes Apple notarization fail. When
-# signing for real, re-sign those inside-out with our Developer ID + hardened
-# runtime + timestamp, preserving the XPC services' own entitlements, then
-# re-seal the framework and the whole app.
+# it (Updater.app, Autoupdate, the XPC services). Always re-sign inside-out with
+# the chosen identity, then re-seal the framework and the whole app.
+#
+# Developer ID path: hardened runtime + secure timestamp (notarization).
+# Ad-hoc path ("-"): no timestamp; also grant disable-library-validation so the
+# hardened runtime will load Sparkle. Ad-hoc main + separately signed frameworks
+# have no shared Team ID, and dyld rejects the load with "different Team IDs"
+# unless library validation is off. Shipping/Developer ID builds keep the
+# tight entitlements file (same Team ID as Sparkle after re-sign).
+TIMESTAMP_FLAGS=()
+APP_ENTITLEMENTS="Resources/WhisperMaster.entitlements"
 if [[ "$SIGN_IDENTITY" != "-" ]]; then
-    FW="$APP_DIR/Contents/Frameworks/Sparkle.framework"
-    if [[ -d "$FW" ]]; then
-        echo ">> Re-signing nested Sparkle helpers with $SIGN_IDENTITY"
-        V="$FW/Versions/B"
-        for xpc in "$V/XPCServices/Downloader.xpc" "$V/XPCServices/Installer.xpc"; do
-            [[ -e "$xpc" ]] && codesign -f -s "$SIGN_IDENTITY" -o runtime --timestamp \
-                --preserve-metadata=entitlements "$xpc"
-        done
-        codesign -f -s "$SIGN_IDENTITY" -o runtime --timestamp "$V/Updater.app"
-        codesign -f -s "$SIGN_IDENTITY" -o runtime --timestamp "$V/Autoupdate"
-        codesign -f -s "$SIGN_IDENTITY" -o runtime --timestamp "$FW"
-    fi
-    echo ">> Re-sealing the app bundle"
-    codesign -f -s "$SIGN_IDENTITY" -o runtime --timestamp \
-        --entitlements Resources/WhisperMaster.entitlements "$APP_DIR"
-    codesign --verify --deep --strict "$APP_DIR"
+    TIMESTAMP_FLAGS+=(--timestamp)
+else
+    echo ">> Ad-hoc sign: injecting disable-library-validation for local Sparkle load"
+    ADHOC_ENTS="$(mktemp -t wm-adhoc-ents).plist"
+    # shellcheck disable=SC2064
+    trap 'rm -f "$ADHOC_ENTS"' EXIT
+    /usr/libexec/PlistBuddy -c "Clear dict" "$ADHOC_ENTS" >/dev/null 2>&1 || true
+    # Start from the shipping entitlements, then add the local-only key.
+    cp "Resources/WhisperMaster.entitlements" "$ADHOC_ENTS"
+    /usr/libexec/PlistBuddy -c "Add :com.apple.security.cs.disable-library-validation bool true" "$ADHOC_ENTS" \
+        2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Set :com.apple.security.cs.disable-library-validation true" "$ADHOC_ENTS"
+    APP_ENTITLEMENTS="$ADHOC_ENTS"
 fi
+
+FW="$APP_DIR/Contents/Frameworks/Sparkle.framework"
+if [[ -d "$FW" ]]; then
+    echo ">> Re-signing nested Sparkle helpers with $SIGN_IDENTITY"
+    V="$FW/Versions/B"
+    for xpc in "$V/XPCServices/Downloader.xpc" "$V/XPCServices/Installer.xpc"; do
+        [[ -e "$xpc" ]] && codesign -f -s "$SIGN_IDENTITY" -o runtime \
+            ${TIMESTAMP_FLAGS[@]+"${TIMESTAMP_FLAGS[@]}"} \
+            --preserve-metadata=entitlements "$xpc"
+    done
+    codesign -f -s "$SIGN_IDENTITY" -o runtime \
+        ${TIMESTAMP_FLAGS[@]+"${TIMESTAMP_FLAGS[@]}"} "$V/Updater.app"
+    codesign -f -s "$SIGN_IDENTITY" -o runtime \
+        ${TIMESTAMP_FLAGS[@]+"${TIMESTAMP_FLAGS[@]}"} "$V/Autoupdate"
+    codesign -f -s "$SIGN_IDENTITY" -o runtime \
+        ${TIMESTAMP_FLAGS[@]+"${TIMESTAMP_FLAGS[@]}"} "$FW"
+fi
+echo ">> Re-sealing the app bundle"
+codesign -f -s "$SIGN_IDENTITY" -o runtime \
+    ${TIMESTAMP_FLAGS[@]+"${TIMESTAMP_FLAGS[@]}"} \
+    --entitlements "$APP_ENTITLEMENTS" "$APP_DIR"
+codesign --verify --deep --strict "$APP_DIR"
 
 echo "Built $APP_DIR (signed: ${SIGN_IDENTITY})"
 echo "Run with: open \"$APP_DIR\""

@@ -34,6 +34,10 @@
 	<array>
 		<string>_whispermaster._tcp</string>
 	</array>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Whisper Master reads todays events so it can show your agenda on the Today screen. Your calendar stays on this Mac.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Whisper Master reads todays events so it can show your agenda on the Today screen. Your calendar stays on this Mac.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright 2026 Whisper Master</string>
 	<key>NSLocalNetworkUsageDescription</key>

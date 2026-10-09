@@ -16,6 +16,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     )
     private let transcriptionServer = RemoteTranscriptionServer()
+    // Net-new local stores backing the Organic screens (Today / Notes / Connectors
+    // / Account). All on-device; no backend.
+    private let notesStore = NotesStore()
+    private let connectorStore = ConnectorStore()
+    private let accountStore = AccountStore()
     private lazy var meshCoordinator = MeshCoordinator(
         state: viewModel.state,
         server: transcriptionServer
@@ -23,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pillWindow: DictationPillWindow?
     private var bluetoothInputMonitor: BluetoothInputMonitor?
     private var onboardingWindow: OnboardingWindow?
+    private var authGateWindow: AuthGateWindow?
     private var statusRefreshTimer: Timer?
     private var settingsItem: NSMenuItem?
     private var statusHeader: NSMenuItem?
@@ -45,6 +51,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Register the bundled Organic display/body faces (Caprasimo + Figtree)
+        // before any SwiftUI surface builds its type. Idempotent; falls back to
+        // system fonts if a face is missing.
+        BrandFonts.registerAll()
         setupMainMenu()
         setupStatusItem()
         setupWindow()
@@ -99,6 +109,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Analytics.shared.configure(enabled: viewModel.state.analyticsEnabled)
         reportLaunchAnalytics()
 
+        // A local, non-blocking welcome/auth gate on first run: put a name in for
+        // the greeting or continue as a guest. Once past it (either way) the
+        // normal onboarding/window flow runs.
+        if !accountStore.isSignedIn {
+            showAuthGate { [weak self] in
+                self?.continueLaunch(notificationCenter: notificationCenter)
+            }
+        } else {
+            continueLaunch(notificationCenter: notificationCenter)
+        }
+    }
+
+    /// The launch flow after the auth gate: onboarding for new users, or a jump
+    /// to Settings when the voice engine still needs installing.
+    private func continueLaunch(notificationCenter: UNUserNotificationCenter) {
         if needsOnboarding {
             showOnboarding()
         } else {
@@ -110,6 +135,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 showWindow()
             }
         }
+    }
+
+    private func showAuthGate(onContinue: @escaping () -> Void) {
+        if authGateWindow == nil {
+            authGateWindow = AuthGateWindow(account: accountStore) { [weak self] in
+                self?.authGateWindow?.close()
+                self?.authGateWindow = nil
+                onContinue()
+            }
+        }
+        authGateWindow?.show()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -501,6 +537,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rootView = SettingsView(
             viewModel: viewModel,
             state: viewModel.state,
+            notes: notesStore,
+            connectors: connectorStore,
+            account: accountStore,
             reopenOnboarding: { [weak self] in self?.showOnboarding() },
             checkForUpdates: { [weak self] in self?.updaterController.checkForUpdates(nil) },
             startSetup: { [weak self] in self?.viewModel.prepareSelectedEngineInBackground() },
@@ -518,7 +557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
-        // Light "Daylight" chrome: paper titlebar that blends with the theme.
+        // Light "Organic" chrome: cream titlebar that blends with the warm ground.
         window.appearance = NSAppearance(named: .aqua)
         window.backgroundColor = Theme.canvasNSColor
         window.contentViewController = host

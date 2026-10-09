@@ -14,10 +14,23 @@ struct DictationStatusView: View {
             downloadProgress(download.fractionCompleted)
         } else if isFailed {
             errorGlyph
+        } else if isRecording {
+            recordingIndicator
         } else if isWorking {
-            ThreadView(level: state.audioLevel, folded: !isRecording)
+            ThreadView(level: state.audioLevel, folded: true)
         } else {
             EmptyView()
+        }
+    }
+
+    /// The live recording band: warm wave + a running elapsed timer, on the dark
+    /// notch band (`Theme.Notch`).
+    private var recordingIndicator: some View {
+        HStack(spacing: 10) {
+            ThreadView(level: state.audioLevel, folded: false)
+            ElapsedTimerText()
+                .font(Typography.monoSmall)
+                .foregroundStyle(Theme.Notch.textSecondary)
         }
     }
 
@@ -57,12 +70,30 @@ struct DictationStatusView: View {
         HStack(spacing: 8) {
             ProgressView(value: fraction)
                 .progressViewStyle(.circular)
-                .tint(.white)
+                .tint(Theme.Notch.accent)
                 .scaleEffect(0.55)
                 .frame(width: 14, height: 14)
             Text("\(Int(fraction * 100))%")
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.Notch.textPrimary)
                 .font(.system(size: 11, weight: .semibold))
         }
+    }
+}
+
+/// A self-contained mm:ss timer that counts up while shown (used on the notch
+/// recording band). Starts at 0 on appear; the band only appears while recording.
+private struct ElapsedTimerText: View {
+    @State private var seconds = 0
+
+    var body: some View {
+        Text(format(seconds))
+            .monospacedDigit()
+            .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+                seconds += 1
+            }
+    }
+
+    private func format(_ total: Int) -> String {
+        String(format: "%d:%02d", total / 60, total % 60)
     }
 }
