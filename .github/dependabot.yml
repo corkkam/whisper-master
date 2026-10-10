@@ -1,0 +1,12 @@
+# Security updates for every ecosystem are switched on in the repo settings.
+# This file only adds weekly version bumps for the pinned GitHub Actions.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

@@ -11,7 +11,7 @@ Hold a key, talk, and clean formatted text lands wherever your cursor is — tra
 ![Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-c0381a)
 ![On-device](https://img.shields.io/badge/transcription-100%25%20on--device-3c7a4e)
 [![Eval](https://img.shields.io/badge/eval-published-c0381a)](https://whisper.corkkam.com/eval)
-[![Site](https://img.shields.io/badge/whispermaster.app-211c15)](https://whispermaster.app)
+[![Site](https://img.shields.io/badge/whisper.corkkam.com-211c15)](https://whisper.corkkam.com)
 
 </div>
 
@@ -116,6 +116,10 @@ For UI work, `WM_SNAPSHOT=<dir> .build/debug/WhisperMaster` renders every settin
 ## Tech stack
 
 Swift · SwiftUI · AppKit · [FluidAudio](https://github.com/FluidInference/FluidAudio) (NVIDIA Parakeet) · [MLX](https://github.com/ml-explore/mlx-swift) (qwen2.5-3B) · [Sparkle](https://sparkle-project.org) · [Clerk](https://clerk.com) · PostHog · Cloudflare R2 · SvelteKit + Prisma + MongoDB (eval dashboard).
+
+## License
+
+[GNU AGPL-3.0](LICENSE). Report security issues privately: see [SECURITY.md](SECURITY.md). To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

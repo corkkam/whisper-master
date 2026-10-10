@@ -180,9 +180,9 @@ is not loaded:
   empty `models/` prefix silently degrades every user to the slow HuggingFace path.
 - **Never commit directly to `main`** — it only receives merges from `release/*`
   and `hotfix/*`, and every production release is tagged `vX.Y.Z` (CI pushes the
-  tag; don't add a second one by hand). Nothing on the server enforces this: the
-  repo is private on a free plan, so branch protection and rulesets are
-  unavailable. Feature branches are `feature/<slug>` off `dev` — no ticket id —
+  tag; don't add a second one by hand). Branch protection on `main` and `dev`
+  (PR + 1 approval, no force-push) enforces this; only the `corkkam` owner can
+  bypass it. Feature branches are `feature/<slug>` off `dev` — no ticket id —
   and **a branch is deleted in the same step it is merged**.
 - **Non-stable channels must carry the channel marker in the version** (`-beta.N`,
   `-dev.N`); `release.sh` aborts otherwise, which is what stops a beta/dev upload
