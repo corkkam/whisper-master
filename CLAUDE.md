@@ -182,7 +182,8 @@ is not loaded:
   and `hotfix/*`, and every production release is tagged `vX.Y.Z` (CI pushes the
   tag; don't add a second one by hand). Branch protection on `main` and `dev`
   (PR + 1 approval, no force-push) enforces this; only the `corkkam` owner can
-  bypass it. Feature branches are `feature/<slug>` off `dev` — no ticket id —
+  bypass it. A CI release also waits for `corkkam` to approve the run (the
+  `release` Environment). Feature branches are `feature/<slug>` off `dev` — no ticket id —
   and **a branch is deleted in the same step it is merged**.
 - **Non-stable channels must carry the channel marker in the version** (`-beta.N`,
   `-dev.N`); `release.sh` aborts otherwise, which is what stops a beta/dev upload
