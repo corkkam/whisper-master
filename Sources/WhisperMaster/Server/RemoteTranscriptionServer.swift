@@ -125,6 +125,17 @@ final class RemoteTranscriptionServer {
             await MainActor.run { self?.endSession(id) }
         }
         sessions[id] = SessionHandle(connection: connection, task: task)
+
+        // A slot is taken on accept, before the TLS-PSK handshake. Without a
+        // deadline, anyone on the network could hold all slots with idle TCP
+        // sockets and no key, locking every paired phone out.
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.handshakeTimeout)
+            guard let self, self.sessions[id] != nil else { return }
+            if case .ready = connection.state { return }
+            NSLog("RemoteTranscriptionServer: handshake timed out, dropping connection")
+            self.endSession(id)
+        }
     }
 
     private func endSession(_ id: UUID) {
@@ -160,6 +171,9 @@ final class RemoteTranscriptionServer {
     /// Max concurrent transcription sessions this Mac advertises it will take.
     /// Conservative default; clients balance by headroom (capacity − load).
     static let maxConcurrentSessions = 3
+
+    /// How long an accepted connection may take to finish the TLS-PSK handshake.
+    static let handshakeTimeout: Duration = .seconds(10)
 
     private func makeService(load: Int) -> NWListener.Service {
         let metadata = PeerMetadata(

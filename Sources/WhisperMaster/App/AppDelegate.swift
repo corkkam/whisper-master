@@ -201,31 +201,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // yet (Clerk restores it asynchronously), so this always shows; the
         // refresh-loop reconcile then either dismisses it — proceeding to
         // onboarding/settings — the moment a persisted session loads, or leaves
-        // it up showing Clerk's sign-in UI.
-        // Dev build skips the gate; don't even flash the sign-in window.
-        if !authBypassEnabled {
-            presentAuthGate()
-        }
+        // it up showing Clerk's sign-in UI. Every build is gated, dev included.
+        presentAuthGate()
         reconcileAuthGate()
     }
 
     /// True once the user is signed in with a real Clerk session. Everything
     /// that lets the user actually dictate is gated on this.
     private var isSignedIn: Bool {
-        authBypassEnabled || (ClerkConfig.isConfigured && Clerk.shared.user != nil)
-    }
-
-    /// Dev-only escape from the sign-in gate, so the whole app can be exercised
-    /// without a Clerk account. True **only** in the locally re-badged dev build
-    /// (bundle id ends in ".dev", produced by `Scripts/dev-install.sh`); the
-    /// shipping build's id is `app.whispermaster.mac`, so this is always false in
-    /// production and the real gate is completely untouched. Set `WM_REQUIRE_AUTH=1`
-    /// to force the real gate back on even in the dev build (to test sign-in).
-    private var authBypassEnabled: Bool {
-        // An explicit sign-out defeats the bypass so the gate can actually return.
-        guard !userDidSignOut else { return false }
-        guard (Bundle.main.bundleIdentifier ?? "").hasSuffix(".dev") else { return false }
-        return ProcessInfo.processInfo.environment["WM_REQUIRE_AUTH"] != "1"
+        ClerkConfig.isConfigured && Clerk.shared.user != nil
     }
 
     /// Identity for the usage-sync client: the Clerk user id plus a fresh session
@@ -265,15 +249,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// launch and from the 0.5s status refresh loop (our @Observable→AppKit
     /// bridge), so sign-in/sign-out flip the gate without any Clerk callback.
     private func reconcileAuthGate() {
-        // Dev build: skip the gate entirely and go straight into the app.
-        if authBypassEnabled {
-            authGateWindow?.close()
-            proceedAfterAuthIfNeeded()
-            viewModel.state.usageStore.activate(userID: "dev-local")
-            viewModel.state.notesStore.activate(userID: "dev-local")
-            viewModel.state.connectorStore.activate(userID: "dev-local")
-            return
-        }
         // No key configured, or a definitively signed-out session → stay gated.
         guard ClerkConfig.isConfigured else { presentAuthGate(); hideAppSurfacesForGate(); return }
         if let user = Clerk.shared.user {
@@ -409,13 +384,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// The account onboarding progress is scoped to: the signed-in Clerk user,
-    /// or `dev-local` when the dev build bypasses the auth gate. Mirrors the
-    /// identity `usageStore.activate(userID:)` uses.
+    /// The account onboarding progress is scoped to: the signed-in Clerk user.
+    /// Mirrors the identity `usageStore.activate(userID:)` uses.
     private func currentOnboardingUserID() -> String? {
-        if let id = Clerk.shared.user?.id { return id }
-        if authBypassEnabled { return "dev-local" }
-        return nil
+        Clerk.shared.user?.id
     }
 
     /// Sign the current user out. The refresh-loop reconcile then re-presents the

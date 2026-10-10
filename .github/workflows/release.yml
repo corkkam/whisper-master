@@ -32,7 +32,7 @@ jobs:
     outputs:
       release: ${{ steps.check.outputs.release }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - id: check
@@ -78,7 +78,7 @@ jobs:
     permissions:
       contents: write   # push the v<version> release tag
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Full history + tags so the Telegram step can build release notes
           # spanning everything since the previous release tag.

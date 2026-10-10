@@ -67,7 +67,7 @@ jobs:
     # to hide a hang, so cap it.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Show toolchain
         run: xcodebuild -version
@@ -90,7 +90,7 @@ jobs:
 
       - name: Restore the cleanup model
         id: model-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/Library/Application Support/FluidAudio/Models
           key: mlx-${{ env.MODEL_NAME }}-${{ steps.model.outputs.sha256 }}
@@ -180,9 +180,12 @@ jobs:
         env:
           EVAL_INGEST_TOKEN: ${{ secrets.EVAL_INGEST_TOKEN }}
           DASHBOARD_URL: https://whisper.corkkam.com
+          # Through env, never inlined: an inlined input is shell source in a
+          # step that holds the ingest token.
+          INPUT_LABEL: ${{ inputs.label }}
         run: |
           set -euo pipefail
-          label='${{ inputs.label }}'
+          label="$INPUT_LABEL"
           [ -n "$label" ] || label="ci ${{ inputs.suite }} $(git rev-parse --short HEAD)"
           push() {
             [ -s "$1" ] || return 0
@@ -197,7 +200,7 @@ jobs:
 
       - name: Keep the results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: eval-results
           path: .eval-scratch/
