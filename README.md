@@ -117,6 +117,10 @@ For UI work, `WM_SNAPSHOT=<dir> .build/debug/WhisperMaster` renders every settin
 
 Swift · SwiftUI · AppKit · [FluidAudio](https://github.com/FluidInference/FluidAudio) (NVIDIA Parakeet) · [MLX](https://github.com/ml-explore/mlx-swift) (qwen2.5-3B) · [Sparkle](https://sparkle-project.org) · [Clerk](https://clerk.com) · PostHog · Cloudflare R2 · SvelteKit + Prisma + MongoDB (eval dashboard).
 
+## License
+
+[GNU AGPL-3.0](LICENSE). Report security issues privately: see [SECURITY.md](SECURITY.md). To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ---
 
 <div align="center">

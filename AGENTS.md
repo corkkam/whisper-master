@@ -188,9 +188,10 @@ These hold even when the file that explains them is not loaded.
   dogfood on the dev channel, then merge `dev` into `main`. A release branch that
   `dev` has overtaken holds no commits and only misinforms; finish it or delete
   it. Full flow: the **`releasing`** skill, section "Branching".
-- **The GitHub default branch is `dev`, not `main`**, and the repo is private on
-  a free plan, so **no branch protection or ruleset can exist**. Nothing on the
-  server stops a push to `main`. The rules here are the only guard.
+- **The GitHub default branch is `dev`, not `main`.** The repo is public (AGPL-3.0)
+  since 2026-10, so branch protection is available, but only the `corkkam` owner
+  account can set it (`gh secure`). Until it is set, nothing on the server stops a
+  push to `main`, and the rules here are the only guard.
 - `[skip release]`, `[skip announce]`, and `[skip ci]` are three different
   switches — the whole release job, the Telegram step only, and the entire
   workflow. Do not confuse them.
