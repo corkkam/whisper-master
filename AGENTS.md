@@ -189,9 +189,11 @@ These hold even when the file that explains them is not loaded.
   `dev` has overtaken holds no commits and only misinforms; finish it or delete
   it. Full flow: the **`releasing`** skill, section "Branching".
 - **The GitHub default branch is `dev`, not `main`.** The repo is public (AGPL-3.0)
-  since 2026-10, so branch protection is available, but only the `corkkam` owner
-  account can set it (`gh secure`). Until it is set, nothing on the server stops a
-  push to `main`, and the rules here are the only guard.
+  since 2026-10. Since 2026-10-10, `dev` and `main` are protected: a PR with 1
+  approval and resolved conversations, no force-push, no delete. `enforce_admins`
+  is off, so only the `corkkam` owner account can bypass. `shobhit8797` cannot
+  approve its own PRs. Secret-scanning push protection, Dependabot and CodeQL
+  default setup are on (set with `gh secure`).
 - `[skip release]`, `[skip announce]`, and `[skip ci]` are three different
   switches — the whole release job, the Telegram step only, and the entire
   workflow. Do not confuse them.
