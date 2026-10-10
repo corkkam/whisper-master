@@ -266,6 +266,10 @@ struct ConnectorsSettingsView: View {
 
                 StatusPill(text: statusText(instance), tone: statusTone(instance))
 
+                // After the pill, not before it: the pill's width changes with its
+                // words, and a pin ahead of it wandered from row to row.
+                notchPinButton(instance)
+
                 ThemeToggle(
                     isOn: Binding(
                         get: { instance.isEnabled },
@@ -288,6 +292,32 @@ struct ConnectorsSettingsView: View {
 
             if openRow == instance.id { drawer(instance) }
         }
+    }
+
+    /// Pins the connection to the notch band, where it becomes a tab with its own
+    /// count. The same pin glyph a note uses for the same act. At the cap the
+    /// control stays drawn but inert, with the reason in its tooltip — a pin that
+    /// vanished at three would read as a feature that only some rows have.
+    private func notchPinButton(_ instance: ConnectorInstance) -> some View {
+        let pinned = store.isPinnedToNotch(instance.id)
+        let atCap = !pinned && !store.canPinToNotch
+        let tooltip = pinned
+            ? "Unpin from the notch"
+            : atCap
+                ? "The notch holds \(ConnectorInstanceStore.notchPinLimit) connectors. Unpin one first."
+                : "Pin to the notch"
+        return Button {
+            store.setPinnedToNotch(instance.id, !pinned)
+        } label: {
+            Image(systemName: pinned ? "pin.fill" : "pin")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(pinned ? Theme.accent : Theme.textTertiary)
+        }
+        .iconButton(size: 28, tooltip: tooltip)
+        .disabled(atCap || isSnapshot)
+        .accessibilityLabel(pinned
+            ? "Unpin \(instance.displayLabel) from the notch"
+            : "Pin \(instance.displayLabel) to the notch")
     }
 
     private func tile(_ instance: ConnectorInstance) -> some View {

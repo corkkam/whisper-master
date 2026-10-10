@@ -46,8 +46,13 @@ struct NotchQuickActionsLayout {
     /// Smallest wing either side of the notch, so the surface reads as flowing out
     /// of the notch rather than as a slab that happens to touch it.
     var minSideExtension: CGFloat = 64
-    /// Depth of the band for a single row of content: header, one row, action row.
-    var baseThickness: CGFloat = 132
+    /// Depth of the band for a single row of content on the **Today** page: tab
+    /// bar, the column captions, one row, the "N more today" line, action row.
+    var baseThickness: CGFloat = 150
+    /// The same for every other page, which lists rows straight under the tab bar
+    /// with no caption over them. One base for both left a caption's worth of dead
+    /// black under every connector tab.
+    var uncaptionedBaseThickness: CGFloat = 124
     /// What each additional row adds. Measured against the **timeline** row, which
     /// is a single line with a 20pt checkbox in it — shorter than the two-line
     /// reminder row this replaced, which is why the base came down with it.
@@ -108,22 +113,23 @@ struct NotchQuickActionsLayout {
     /// earn a slab of empty black, and an empty one is barely a strip.
     /// Sized to the longer column, which is the day — so the ceiling is
     /// `NowTimeline.displayLimit`, not the notes column's three.
-    func thickness(rows: Int) -> CGFloat {
+    func thickness(rows: Int, captioned: Bool = true) -> CGFloat {
         let rows = max(1, min(rows, NowTimeline.displayLimit + 1))
-        return baseThickness + CGFloat(rows - 1) * rowHeight
+        return (captioned ? baseThickness : uncaptionedBaseThickness) + CGFloat(rows - 1) * rowHeight
     }
 
     /// Full size of the floating panel. Sized exactly to the surface — the panel is
     /// only ever on screen while open, and it's re-sized as it opens.
-    func panelSize(for geometry: NotchGeometry, rows: Int) -> CGSize {
+    func panelSize(for geometry: NotchGeometry, rows: Int, captioned: Bool = true) -> CGSize {
         CGSize(
             width: surfaceWidth(for: geometry),
-            height: geometry.notchHeight + thickness(rows: rows))
+            height: geometry.notchHeight + thickness(rows: rows, captioned: captioned))
     }
 
     /// Top-center origin (AppKit bottom-left coordinates) on a screen.
-    func panelOrigin(for geometry: NotchGeometry, on screen: NSScreen, rows: Int) -> CGPoint {
-        let size = panelSize(for: geometry, rows: rows)
+    func panelOrigin(for geometry: NotchGeometry, on screen: NSScreen, rows: Int,
+                     captioned: Bool = true) -> CGPoint {
+        let size = panelSize(for: geometry, rows: rows, captioned: captioned)
         return CGPoint(
             x: screen.frame.midX - size.width / 2,
             y: screen.frame.maxY - size.height
