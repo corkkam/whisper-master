@@ -670,7 +670,8 @@ shortcut at all**.
 
 ### Model Lab (`Lab/`, dev builds only)
 
-A bench inside the app: install several open-source MLX models, run the real
+A bench inside the app: install several open-source MLX models (the built-in
+list, or any MLX repo on Hugging Face added by id), run the real
 suites (cleanup, polish, destinations, tool calling, audio WER) against each one,
 and compare them on score, latency and memory. Reachable only when
 `FeatureFlags.modelLabAvailable` — `ReleaseChannel.current == .dev`, which also

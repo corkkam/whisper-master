@@ -68,6 +68,52 @@ a wrong folder says so when it is chosen rather than at the start of a 15 minute
 run. Bundling the suites would mean two versions of every case and a build step to
 keep them equal; this is a dev surface on the machine that built it.
 
+### Any Hugging Face model, by id
+
+The catalogue is `LabCatalog.builtIn`; anything else is typed into the rail's
+"Add from Hugging Face" field (a bare `owner/name` or a pasted URL) and saved in
+`LabCustomModels` (`WhisperMaster.lab.customModels.v1`), with the id `hf:<repo
+lowercased>` so it can never collide with a built-in one.
+
+- **The repo is checked when it is added, not when the run starts.**
+  `LabHuggingFace.check` reads `GET /api/models/<id>?blobs=true` and refuses a
+  repo that is missing, gated, has no `config.json` / `tokenizer.json` /
+  `.safetensors`, has no chat template, or names a `model_type` the pinned
+  MLXLLM cannot build. It needs `tokenizer.json` specifically because the
+  download fetches `*.json`, `*.safetensors` and `*.jinja`, never
+  `tokenizer.model`.
+- **⚠️ The chat template is often in `chat_template.jinja`, not in the API.**
+  Every Qwen3 2507 build and SmolLM3 keep it there, so the API's `config`
+  carries none. The check fetches that file, and `LabHuggingFace.download` adds
+  `*.jinja` to the fetch because `MLXLMCommon.downloadModel` does not: a 2507
+  model fetched by MLX alone arrives with no template and fails every prompt. Hugging Face answers **401, not 404**, for a repo
+  that does not exist when you are not logged in.
+- **Supported architectures are asked of `LLMTypeRegistry`, never copied.** The
+  registry has no lookup, so `isSupportedModelType` builds from a config file that
+  does not exist: an unknown type throws `unsupportedModelType` first. Bumping
+  mlx-swift-examples widens the list with no edit here.
+- **The tool suite is offered only when the chat template takes `tools`.**
+  Same reason a normalizer is kept out of it.
+- **A saved repo id is re-validated on every read.** It becomes a directory under
+  the Hugging Face cache, and the slot override can point the shipped cleanup path
+  at that directory, so `..` in a hand-edited defaults value must not become a path
+  out of the cache. This is what keeps `LabModelOverride`'s "never a path" fence
+  true for added models.
+- **The runner downloads before it loads.** The load is capped at 60 s
+  (`MlxCleanupService.loadTimeoutSeconds`), and a load that had to fetch first
+  spent that minute on the network, so anything much over a gigabyte failed as
+  "load failed" without reaching the GPU. This applied to the built-in candidates
+  too. Progress goes to the run log every tenth (`LabDownloadTenths`).
+- **⚠️ The first download after launch can be refused as "offline".** The hub
+  client creates its network monitor on that call and reads "not connected"
+  until `NWPathMonitor` reports. `LabHuggingFace.download` retries
+  `offlineModeError` twice. The client also counts Low Data Mode and a phone
+  hotspot as offline, which no retry fixes, and the error says so.
+- **Remove takes the files with it.** An added model off the list is a download
+  nobody can reach from the page. Saved runs keep their results under its name.
+- Live check of the API shape: `LAB_HF_LIVE=1 swift test --filter LabHuggingFaceTests`
+  (skipped otherwise).
+
 ### Measurement rules
 
 - **One model resident at a time.** Two models loaded together share one GPU

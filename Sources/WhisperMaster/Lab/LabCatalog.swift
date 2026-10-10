@@ -20,12 +20,15 @@ enum LabProvenance: String, Codable, Sendable {
     case retired
     /// Never shipped. Here to be measured.
     case candidate
+    /// Added on this Mac by its Hugging Face id (`LabCustomModels`).
+    case custom
 
     var badge: String? {
         switch self {
         case .shippingCleanup, .shippingAssistant: return "shipping"
         case .retired: return "retired"
         case .candidate: return nil
+        case .custom: return "added"
         }
     }
 }
@@ -62,15 +65,17 @@ struct LabModel: Identifiable, Hashable, Sendable {
 
 /// The models the lab offers.
 ///
-/// Adding one is a row here and nothing else: the runner, the rail and the
-/// leaderboard all read this list. Sizes are the 4-bit MLX conversions published
-/// by `mlx-community` unless the id says otherwise.
+/// Adding one for everybody is a row in `builtIn` and nothing else: the runner,
+/// the rail and the leaderboard all read this list. Sizes are the 4-bit MLX
+/// conversions published by `mlx-community` unless the id says otherwise. Trying
+/// one on this Mac only needs its Hugging Face id typed into the rail, which
+/// lands in `LabCustomModels` and joins the list here.
 ///
 /// **The three shipped/retired entries earn their place.** A bench with no
 /// baseline answers "which candidate is best" when the question is always "is any
 /// candidate better than what users already have".
 enum LabCatalog {
-    static let all: [LabModel] = [
+    static let builtIn: [LabModel] = [
         LabModel(
             id: "s1-mini-4bit",
             name: "S1-mini",
@@ -183,13 +188,21 @@ enum LabCatalog {
             note: "The small-model floor: how bad is bad."),
     ]
 
-    static func model(id: String) -> LabModel? { all.first { $0.id == id } }
+    /// The built-in models, then the ones added on this Mac.
+    static func all(defaults: UserDefaults = .standard) -> [LabModel] {
+        builtIn + LabCustomModels.load(defaults: defaults).map(\.model)
+    }
 
-    static func models(for role: LabRole) -> [LabModel] { all.filter { $0.supports(role) } }
+    /// Built-ins first, so the common lookup never decodes the added list.
+    /// `CleanupModel.directory` comes through here whenever a slot is overridden.
+    static func model(id: String, defaults: UserDefaults = .standard) -> LabModel? {
+        if let model = builtIn.first(where: { $0.id == id }) { return model }
+        return LabCustomModels.load(defaults: defaults).first { $0.id == id }?.model
+    }
 
     /// The entry the shipped cleanup path uses, which is the default baseline in
     /// every comparison.
-    static var shippedCleanup: LabModel { all.first { $0.provenance == .shippingCleanup }! }
+    static var shippedCleanup: LabModel { builtIn.first { $0.provenance == .shippingCleanup }! }
 
-    static var shippedAssistant: LabModel { all.first { $0.provenance == .shippingAssistant }! }
+    static var shippedAssistant: LabModel { builtIn.first { $0.provenance == .shippingAssistant }! }
 }
