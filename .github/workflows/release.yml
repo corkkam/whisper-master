@@ -75,6 +75,11 @@ jobs:
     # 1.2.9 and 1.2.10 both had to be cut by hand from a local checkout. Keep
     # this image at the major Xcode the project actually builds with.
     runs-on: macos-26
+    # Holds the job until the `corkkam` owner approves it in the Actions tab, so
+    # no merge can ship a signed, notarized update on its own. The environment
+    # (Settings > Environments > release) has corkkam as required reviewer and
+    # only accepts protected branches.
+    environment: release
     permissions:
       contents: write   # push the v<version> release tag
     steps:

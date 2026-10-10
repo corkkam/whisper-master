@@ -192,8 +192,11 @@ These hold even when the file that explains them is not loaded.
   since 2026-10. Since 2026-10-10, `dev` and `main` are protected: a PR with 1
   approval and resolved conversations, no force-push, no delete. `enforce_admins`
   is off, so only the `corkkam` owner account can bypass. `shobhit8797` cannot
-  approve its own PRs. Secret-scanning push protection, Dependabot and CodeQL
-  default setup are on (set with `gh secure`).
+  approve its own PRs. Secret-scanning push protection and Dependabot are on (set
+  with `gh secure`). CodeQL runs from `.github/workflows/codeql.yml` (advanced
+  setup, so Swift is scanned); the default setup must stay off or GitHub rejects
+  its uploads. The `release` job runs in the `release` Environment, which waits
+  for the `corkkam` owner to approve each run in the Actions tab.
 - `[skip release]`, `[skip announce]`, and `[skip ci]` are three different
   switches — the whole release job, the Telegram step only, and the entire
   workflow. Do not confuse them.

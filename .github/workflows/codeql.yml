@@ -1,0 +1,69 @@
+name: CodeQL
+
+# Advanced setup, because GitHub's default setup cannot scan Swift: Swift has no
+# build-mode `none`, so the app has to be compiled on a macOS runner while CodeQL
+# watches. Default setup must stay OFF for this repo (Settings > Code security >
+# CodeQL), or GitHub rejects every upload from this workflow.
+#
+# The other languages GitHub detected (Actions, the eval scripts' JS/TS and
+# Python) need no build and run on Ubuntu.
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+            runner: ubuntu-latest
+          - language: javascript-typescript
+            build-mode: none
+            runner: ubuntu-latest
+          - language: python
+            build-mode: none
+            runner: ubuntu-latest
+          # macos-26 for the same reason release.yml pins it: macos-15's Xcode
+          # 16.4 cannot resolve this project's package graph.
+          - language: swift
+            build-mode: manual
+            runner: macos-26
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      # No .build cache on purpose: CodeQL only extracts what it sees compiled,
+      # so a warm cache would produce an empty Swift database.
+      - name: Build (Swift)
+        if: matrix.language == 'swift'
+        run: swift build
+
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: "/language:${{ matrix.language }}"
