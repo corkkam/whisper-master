@@ -29,6 +29,11 @@ enum ModelInstaller {
         /// The downloaded archive's SHA-256 did not match the pin baked into the
         /// signed bundle (`ModelChecksums`). Treated as a failed download.
         case checksumMismatch
+        /// No hash is pinned for this archive, so its bytes cannot be trusted.
+        /// Refused rather than installed: an archive nobody pinned is a publish
+        /// step that was skipped, and installing it anyway is how an unsigned
+        /// bucket write becomes CoreML/MLX code on a user's Mac.
+        case unpinnedArchive
     }
 
     /// The pure verification decision for a downloaded archive, factored out so it
@@ -36,17 +41,17 @@ enum ModelInstaller {
     enum ChecksumVerdict: Equatable {
         /// A pin exists and the file's hash matches it.
         case verified
-        /// No hash is pinned for this archive — install anyway (the safety valve
-        /// so a future archive nobody pinned still installs). Logged by the caller.
-        case unverified
+        /// No hash is pinned for this archive. Never unpack: the caller fails the
+        /// attempt exactly as for a mismatch.
+        case unpinned
         /// A pin exists and disagrees — a tampered or corrupt mirror. Never unpack.
         case mismatch
     }
 
     /// Compare a computed lowercase-hex digest to the pin baked into the signed
-    /// bundle. Case-insensitive; `nil` pin is the safety valve (`.unverified`).
+    /// bundle. Case-insensitive; a missing pin is `.unpinned`, which fails closed.
     static func verifyChecksum(archiveName: String, actualHex: String) -> ChecksumVerdict {
-        guard let expected = ModelChecksums.sha256[archiveName] else { return .unverified }
+        guard let expected = ModelChecksums.sha256[archiveName] else { return .unpinned }
         return actualHex.caseInsensitiveCompare(expected) == .orderedSame ? .verified : .mismatch
     }
 
@@ -147,9 +152,12 @@ enum ModelInstaller {
         switch verifyChecksum(archiveName: archiveName, actualHex: actualHex) {
         case .verified:
             break
-        case .unverified:
+        case .unpinned:
+            try? FileManager.default.removeItem(at: archiveZip)
+            BackgroundFileDownloader.shared.forget(url: archiveURL)
             Log.modelPrep.error(
-                "No pinned SHA-256 for archive \(archiveName, privacy: .public) — installing \(label, privacy: .public) UNVERIFIED")
+                "No pinned SHA-256 for archive \(archiveName, privacy: .public) — refusing to unpack \(label, privacy: .public). Pin it in ModelChecksums.")
+            throw InstallError.unpinnedArchive
         case .mismatch:
             // Tampered or corrupt mirror: drop the bad bytes and the resume token so
             // a retry re-downloads fresh instead of resuming the same file, then fail
