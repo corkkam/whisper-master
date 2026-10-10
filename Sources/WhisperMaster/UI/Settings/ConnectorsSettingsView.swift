@@ -376,7 +376,11 @@ struct ConnectorsSettingsView: View {
                 Button("Test connection") { testConnection(instance) }
                     .textButton()
                     .disabled(isSnapshot || testing != nil)
-                if instance.descriptor.isSystemBacked {
+                // Only an EventKit instance has calendars to re-pick. Keyed on the
+                // descriptor, a signed-in Google Calendar or Outlook offered this too,
+                // and saving the picker rewrote its config to EventKit's — silently
+                // turning an API connection into a different one.
+                if instance.config.calendarIdentifiers != nil {
                     Button("Choose calendars\u{2026}") { editingCalendars = instance }
                         .textButton()
                         .disabled(isSnapshot)
@@ -385,7 +389,8 @@ struct ConnectorsSettingsView: View {
                 // place, and a managed Google grant re-signed in place. Without this
                 // the only fix for a rotated token was Remove + add again.
                 switch Self.repairRoute(for: instance,
-                                        oauthConfigured: GoogleOAuthConfig.isConfigured) {
+                                        oauthConfigured: GoogleOAuthConfig.isConfigured,
+                                        microsoftConfigured: MicrosoftOAuthConfig.isConfigured) {
                 case .signInAgain:
                     Button(reSigningIn == instance.id
                            ? "Waiting for your browser\u{2026}"
@@ -524,7 +529,9 @@ struct ConnectorsSettingsView: View {
         case .credentialInvalid, .tokenExpired:
             // Repair *this* connection rather than opening the add sheet, which built
             // a second one and left the broken original in the list beside it.
-            switch Self.repairRoute(for: instance, oauthConfigured: GoogleOAuthConfig.isConfigured) {
+            switch Self.repairRoute(for: instance,
+                                    oauthConfigured: GoogleOAuthConfig.isConfigured,
+                                    microsoftConfigured: MicrosoftOAuthConfig.isConfigured) {
             case .signInAgain: reSignIn(instance)
             case .replaceSecret: reconnecting = instance
             case .addSheet: isAddingConnector = true
@@ -543,7 +550,8 @@ struct ConnectorsSettingsView: View {
         switch error {
         case .credentialInvalid, .tokenExpired:
             guard case .signInAgain = Self.repairRoute(
-                for: instance, oauthConfigured: GoogleOAuthConfig.isConfigured)
+                for: instance, oauthConfigured: GoogleOAuthConfig.isConfigured,
+                microsoftConfigured: MicrosoftOAuthConfig.isConfigured)
             else { return base }
             return reSigningIn == instance.id ? "Waiting for your browser\u{2026}" : "Sign in again"
         default:
@@ -551,7 +559,7 @@ struct ConnectorsSettingsView: View {
         }
     }
 
-    /// Where the repair for an auth failure leads. A managed Google grant has no
+    /// Where the repair for an auth failure leads. A managed Google or Microsoft grant has no
     /// secret to paste, so its only honest repair is the same browser sign-in that
     /// made it, run over the same instance — the old fields-based rule sent an
     /// expired Google Calendar to the Add sheet (where the same account is refused
@@ -560,7 +568,8 @@ struct ConnectorsSettingsView: View {
     /// plain token the config then treated as a refreshable grant, dying an hour
     /// later). Pure, so `ConnectorRepairRouteTests` pins the routing.
     enum RepairRoute: Equatable {
-        /// Managed Google grant: re-run the browser sign-in over this instance.
+        /// Managed Google or Microsoft grant: re-run the browser sign-in over this
+        /// instance.
         case signInAgain
         /// Pasted credential: replace the secret in place (`ReconnectConnectorSheet`).
         case replaceSecret
@@ -569,7 +578,12 @@ struct ConnectorsSettingsView: View {
     }
 
     static func repairRoute(for instance: ConnectorInstance,
-                            oauthConfigured: Bool) -> RepairRoute {
+                            oauthConfigured: Bool,
+                            microsoftConfigured: Bool = false) -> RepairRoute {
+        if instance.config.isManagedMicrosoftGrant {
+            return microsoftConfigured && Self.reSignInScopes(for: instance.kind) != nil
+                ? .signInAgain : .addSheet
+        }
         if instance.config.isManagedGoogleGrant {
             // Without a client id in the build there is no browser flow to re-run.
             return oauthConfigured && Self.reSignInScopes(for: instance.kind) != nil
@@ -587,6 +601,7 @@ struct ConnectorsSettingsView: View {
         switch kind {
         case .googleCalendar: return GoogleOAuthConfig.Scope.calendarConnect
         case .gmail: return GoogleOAuthConfig.Scope.gmailConnect
+        case .outlook, .teams: return MicrosoftOAuthConfig.signIn(for: kind)?.scopes
         default: return nil
         }
     }
@@ -611,19 +626,28 @@ struct ConnectorsSettingsView: View {
         Task { @MainActor in
             defer { reSigningIn = nil }
             do {
-                let tokens = try await OAuthPKCEFlow().authorize(
-                    scopes: scopes, account: .reuse(email: instance.identity))
-                // Merged over the stored credential, so a response that omits the
-                // refresh token keeps the old one — same as every refresh path.
-                let credential = tokens.merged(
-                    into: ConnectorCredentials.load(for: instance.id) ?? ConnectorCredential())
+                let credential: ConnectorCredential
+                if instance.config.isManagedMicrosoftGrant,
+                   let plan = MicrosoftOAuthConfig.signIn(for: instance.kind) {
+                    // A fresh grant outright: Microsoft always returns a refresh token
+                    // when `offline_access` is asked for, so there is none to keep.
+                    credential = try await OAuthPKCEFlow().authorizeMicrosoft(
+                        scopes: plan.scopes, tenant: plan.tenant, loginHint: instance.identity)
+                } else {
+                    let tokens = try await OAuthPKCEFlow().authorize(
+                        scopes: scopes, account: .reuse(email: instance.identity))
+                    // Merged over the stored credential, so a response that omits the
+                    // refresh token keeps the old one — same as every refresh path.
+                    credential = tokens.merged(
+                        into: ConnectorCredentials.load(for: instance.id) ?? ConnectorCredential())
+                }
                 guard let provider = ProviderRegistry.provider(for: instance) else {
                     testResults[instance.id] = "No implementation for this connector yet."
                     return
                 }
                 let result = await provider.validate(credential, config: instance.config)
                 guard result.isValid else {
-                    testResults[instance.id] = result.failure ?? "Google rejected the sign-in."
+                    testResults[instance.id] = result.failure ?? "The sign-in was rejected."
                     return
                 }
                 guard Self.identityMatches(result.identity, existing: instance.identity) else {
@@ -676,7 +700,7 @@ struct ConnectorsSettingsView: View {
     private func tileTint(_ instance: ConnectorInstance) -> Color {
         if instance.lastError != nil { return Theme.dangerSoft }
         if !instance.isEnabled { return Theme.Neutral.n300.opacity(0.6) }
-        return instance.descriptor.isSystemBacked
+        return instance.isSystemBacked
             ? Theme.Accent.n300.opacity(0.7)
             : Theme.Sage.n300.opacity(0.7)
     }
@@ -684,7 +708,7 @@ struct ConnectorsSettingsView: View {
     private func tileGlyph(_ instance: ConnectorInstance) -> Color {
         if instance.lastError != nil { return Theme.danger }
         if !instance.isEnabled { return Theme.Neutral.n800 }
-        return instance.descriptor.isSystemBacked ? Theme.Accent.n800 : Theme.Sage.n800
+        return instance.isSystemBacked ? Theme.Accent.n800 : Theme.Sage.n800
     }
 
     // MARK: - Today (live, merged across instances)
@@ -803,7 +827,7 @@ struct ConnectorsSettingsView: View {
     }
 
     private var calendarNeedsAccess: Bool {
-        !store.instances.filter { $0.descriptor.isSystemBacked }.isEmpty && !store.calendarAccessGranted
+        !store.instances.filter { $0.isSystemBacked }.isEmpty && !store.calendarAccessGranted
     }
 
     // MARK: - Statics

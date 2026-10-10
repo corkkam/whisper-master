@@ -1,6 +1,7 @@
 import Foundation
 
 /// The manual-token providers: Slack, Notion, Linear, GitHub, Asana, Gmail, Drive, Zoom.
+/// (Outlook and Teams sign in through Microsoft — `MicrosoftGraphProviders.swift`.)
 ///
 /// Each is a `validate` (a real whoami, whose answer becomes the instance identity) plus
 /// a `recentItems` / events read. They're grouped in one file because each is genuinely
@@ -25,7 +26,7 @@ struct SlackProvider: ItemReadingProvider {
 
     func validate(_ credential: ConnectorCredential, config: ConnectorConfig) async -> ValidationResult {
         guard let token = credential["bot_token"], !token.isEmpty else {
-            return .invalid("Paste a bot token (starts with xoxb-).")
+            return .invalid("Paste a Slack token (starts with xoxb- or xoxp-).")
         }
         do {
             let json = try await ConnectorHTTP.getJSON(
@@ -49,74 +50,68 @@ struct SlackProvider: ItemReadingProvider {
     /// The blurb promised "mentions and unreads"; the first cut listed channel names
     /// and topics, which is what a directory search returns — not what "anything new
     /// in Slack?" means. Grok/Claude connectors surface recent content. We walk the
-    /// channels the bot can see and pull the latest history from each, so the answer
-    /// is actual chat rather than a roster.
+    /// conversations the token is a member of and pull the latest history from each,
+    /// so the answer is actual chat rather than a roster.
+    ///
+    /// **`users.conversations`, not `conversations.list`.** The list call returns every
+    /// public channel in the workspace whether or not the token is in it, so the first
+    /// few it handed back were usually channels a bot was never invited to, every
+    /// history call answered `not_in_channel`, and the read fell through to the roster
+    /// — a connected Slack that could not quote a single message.
     func recentItems(for instance: ConnectorInstance, limit: Int) async -> ProviderReadOutcome<[ConnectorItem]> {
         await withResolvedToken(instance) { token in
-            var listComponents = URLComponents(string: "https://slack.com/api/conversations.list")!
-            listComponents.queryItems = [
-                .init(name: "limit", value: "20"),
-                .init(name: "exclude_archived", value: "true"),
-                .init(name: "types", value: "public_channel,private_channel,mpim,im"),
-            ]
-            guard let listURL = listComponents.url else { return [] }
-            let listJSON = try await ConnectorHTTP.getJSON(listURL, token: token)
-            try ConnectorHTTP.requireSlackOK(listJSON)
-            let channels = listJSON["channels"] as? [[String: Any]] ?? []
-
-            // Prefer channels that still have unreads, then fall back to the rest —
-            // an empty-history channel is noise next to one the user is watching.
-            let ordered = channels.sorted { lhs, rhs in
-                let lu = (lhs["unread_count_display"] as? Int) ?? 0
-                let ru = (rhs["unread_count_display"] as? Int) ?? 0
-                if lu != ru { return lu > ru }
-                let luUpdated = (lhs["updated"] as? Double) ?? 0
-                let ruUpdated = (rhs["updated"] as? Double) ?? 0
-                return luUpdated > ruUpdated
+            let channels = try await Self.memberConversations(token: token)
+            // `updated` is the conversation record's last change; Slack gives no
+            // last-message time here, so this is a heuristic, and the cap below is what
+            // keeps a read inside one Tier-3 burst.
+            let ordered = channels.sorted {
+                (($0["updated"] as? Double) ?? 0) > (($1["updated"] as? Double) ?? 0)
             }
 
             var items: [ConnectorItem] = []
-            let perChannel = max(2, limit / max(min(ordered.count, 8), 1))
-            for channel in ordered.prefix(8) {
+            var userNames: [String: String] = [:]
+            let walked = ordered.prefix(Self.maxConversations)
+            let perChannel = max(2, limit / max(walked.count, 1))
+            for channel in walked {
                 guard let channelID = channel["id"] as? String else { continue }
-                let channelName = Self.channelLabel(channel)
                 var historyComponents = URLComponents(string: "https://slack.com/api/conversations.history")!
                 historyComponents.queryItems = [
                     .init(name: "channel", value: channelID),
                     .init(name: "limit", value: "\(perChannel)"),
                 ]
                 guard let historyURL = historyComponents.url else { continue }
-                // One channel refusing (bot not in it, missing scope) must not blank
-                // the rest — same partial-success rule as the Google calendar fan-out.
+                // One channel refusing (missing *:history scope for its type) must not
+                // blank the rest — same partial-success rule as the Google calendar
+                // fan-out.
                 guard let historyJSON = try? await ConnectorHTTP.getJSON(historyURL, token: token),
                       (historyJSON["ok"] as? Bool) == true
                 else { continue }
-                let messages = historyJSON["messages"] as? [[String: Any]] ?? []
+                let messages = (historyJSON["messages"] as? [[String: Any]] ?? [])
+                    .filter(Self.isConversation)
+                // Names, not ids: "U04ABCD said…" answers nothing. Looked up once per
+                // read and only for authors and mentions actually on screen.
+                for id in Self.userIDs(in: messages) where userNames[id] == nil {
+                    userNames[id] = await Self.userName(id, token: token)
+                }
+                let channelName = Self.channelLabel(channel, userNames: userNames)
                 for message in messages {
                     guard let ts = message["ts"] as? String else { continue }
-                    // Skip pure join/leave system noise; keep anything with text.
-                    if let subtype = message["subtype"] as? String,
-                       ["channel_join", "channel_leave", "channel_topic", "channel_purpose",
-                        "channel_name", "channel_archive", "channel_unarchive"].contains(subtype) {
-                        continue
-                    }
-                    let text = (message["text"] as? String ?? "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let text = Self.plainText(message["text"] as? String ?? "", userNames: userNames)
                     guard !text.isEmpty else { continue }
-                    let user = message["user"] as? String
+                    let author = (message["user"] as? String).map { userNames[$0] ?? $0 }
+                        ?? (message["username"] as? String)
                         ?? (message["bot_id"] as? String).map { "bot:\($0)" }
                         ?? "someone"
                     items.append(ConnectorItem(
                         id: "\(channelID):\(ts)",
                         title: text,
-                        detail: "\(channelName) · \(user)",
+                        detail: "\(channelName) · \(author)",
                         timestamp: Self.slackTimestamp(ts),
                         instanceLabel: instance.displayLabel))
-                    if items.count >= limit { return items }
                 }
             }
-            // Fallback: if history was empty everywhere (missing channels:history),
-            // still return the channel roster so the connection is useful rather than
+            // Fallback: if history was empty everywhere (no *:history scope), still
+            // return the channel roster so the connection is useful rather than
             // silently empty — and the detail line names that it's a directory.
             if items.isEmpty {
                 return ordered.prefix(limit).compactMap { channel in
@@ -124,18 +119,137 @@ struct SlackProvider: ItemReadingProvider {
                     let topic = (channel["topic"] as? [String: Any])?["value"] as? String ?? ""
                     return ConnectorItem(
                         id: id,
-                        title: Self.channelLabel(channel),
+                        title: Self.channelLabel(channel, userNames: userNames),
                         detail: topic.isEmpty ? "channel" : topic,
                         instanceLabel: instance.displayLabel)
                 }
             }
-            return items.sorted { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+            // Newest first across every channel, *then* cut — cutting first kept
+            // whichever channel happened to be walked first, however old.
+            return Array(items
+                .sorted { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+                .prefix(limit))
         }
     }
 
-    private static func channelLabel(_ channel: [String: Any]) -> String {
+    /// How many conversations one read walks. Each is one `conversations.history`
+    /// call, and Slack's Tier 3 allows ~50 a minute per method.
+    static let maxConversations = 8
+
+    /// Every conversation type, then public channels alone. Slack answers
+    /// `missing_scope` for the **whole** call when the token lacks the read scope for
+    /// any one type asked for, and the setup copy used to list only the `channels:*`
+    /// scopes — so asking for DMs unconditionally failed every token made by
+    /// following the instructions.
+    static let conversationTypeFallbacks = ["public_channel,private_channel,mpim,im", "public_channel"]
+
+    private static func memberConversations(token: String) async throws -> [[String: Any]] {
+        var lastError: Error?
+        for types in conversationTypeFallbacks {
+            var components = URLComponents(string: "https://slack.com/api/users.conversations")!
+            components.queryItems = [
+                .init(name: "limit", value: "100"),
+                .init(name: "exclude_archived", value: "true"),
+                .init(name: "types", value: types),
+            ]
+            guard let url = components.url else { continue }
+            let json = try await ConnectorHTTP.getJSON(url, token: token)
+            do {
+                try ConnectorHTTP.requireSlackOK(json)
+                return json["channels"] as? [[String: Any]] ?? []
+            } catch {
+                lastError = error
+                guard (json["error"] as? String) == "missing_scope" else { throw error }
+            }
+        }
+        throw lastError ?? ConnectorHTTP.Failure.malformedResponse
+    }
+
+    /// Real conversation, not channel housekeeping (joins, topic changes, renames).
+    private static func isConversation(_ message: [String: Any]) -> Bool {
+        guard let subtype = message["subtype"] as? String else { return true }
+        return !["channel_join", "channel_leave", "channel_topic", "channel_purpose",
+                 "channel_name", "channel_archive", "channel_unarchive",
+                 "group_join", "group_leave"].contains(subtype)
+    }
+
+    /// Authors and `<@U…>` mentions, in first-seen order.
+    static func userIDs(in messages: [[String: Any]]) -> [String] {
+        var seen = Set<String>()
+        var ids: [String] = []
+        for message in messages {
+            var found: [String] = []
+            if let user = message["user"] as? String { found.append(user) }
+            let text = message["text"] as? String ?? ""
+            for match in mentionPattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                if let range = Range(match.range(at: 1), in: text) { found.append(String(text[range])) }
+            }
+            for id in found where seen.insert(id).inserted { ids.append(id) }
+        }
+        return ids
+    }
+
+    private static let mentionPattern = try! NSRegularExpression(pattern: "<@([UW][A-Z0-9]+)(?:\\|[^>]*)?>")
+
+    /// `users.info` → the name a person would say. Nil (and the id is shown) when
+    /// the token lacks `users:read`; a missing name must not fail the read.
+    private static func userName(_ id: String, token: String) async -> String? {
+        var components = URLComponents(string: "https://slack.com/api/users.info")!
+        components.queryItems = [.init(name: "user", value: id)]
+        guard let url = components.url,
+              let json = try? await ConnectorHTTP.getJSON(url, token: token),
+              (json["ok"] as? Bool) == true,
+              let user = json["user"] as? [String: Any]
+        else { return nil }
+        let profile = user["profile"] as? [String: Any]
+        return [profile?["display_name"], profile?["real_name"], user["real_name"], user["name"]]
+            .compactMap { $0 as? String }
+            .first { !$0.isEmpty }
+    }
+
+    /// Slack's message markup as the words a person would read: `<@U1>` → `@Sam`,
+    /// `<#C1|general>` → `#general`, `<https://x|label>` → `label`, `<!here>` →
+    /// `@here`, and the three HTML escapes Slack applies. The model otherwise reads
+    /// ids it can't resolve and quotes them back.
+    static func plainText(_ text: String, userNames: [String: String] = [:]) -> String {
+        let pattern = try! NSRegularExpression(pattern: "<([^<>]+)>")
+        let source = text as NSString
+        var result = ""
+        var cursor = 0
+        for match in pattern.matches(in: text, range: NSRange(location: 0, length: source.length)) {
+            result += source.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
+            let inner = source.substring(with: match.range(at: 1))
+            let parts = inner.split(separator: "|", maxSplits: 1).map(String.init)
+            let target = parts.first ?? ""
+            let label = parts.count > 1 ? parts[1] : nil
+            switch target.first {
+            case "@":
+                let id = String(target.dropFirst())
+                result += "@" + (userNames[id] ?? label ?? id)
+            case "#":
+                result += "#" + (label ?? String(target.dropFirst()))
+            case "!":
+                let command = String(target.dropFirst())
+                result += label ?? (["here", "channel", "everyone"].contains(command) ? "@\(command)" : "")
+            default:
+                result += label ?? target
+            }
+            cursor = match.range.location + match.range.length
+        }
+        result += source.substring(from: cursor)
+        return result
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func channelLabel(_ channel: [String: Any], userNames: [String: String]) -> String {
         if let name = channel["name"] as? String, !name.isEmpty { return "#\(name)" }
-        if (channel["is_im"] as? Bool) == true { return "DM" }
+        if (channel["is_im"] as? Bool) == true {
+            if let user = channel["user"] as? String, let name = userNames[user] { return "DM with \(name)" }
+            return "DM"
+        }
         return (channel["id"] as? String) ?? "channel"
     }
 
