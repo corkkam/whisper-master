@@ -204,7 +204,7 @@ the chunker is what keeps a >390-word output off the 512-token ceiling.
 
 - **The R2 install path — cause found, fix needs the live bucket's credentials.**
   The archive was published to the host in the local `.env`
-  (`R2_PUBLIC_BASE_URL=https://model.scoopscore.in`), but `.env` is **stale**: commit
+  (`R2_PUBLIC_BASE_URL` pointed at the legacy host), but `.env` is **stale**: commit
   `293fe4c` moved every artifact to `dl.corkkam.com`, which is what
   `ModelInstaller.mirrorBaseURL` compiles in. So the app asks
   `dl.corkkam.com/models/s1-mini-4bit.zip` and gets a **404** — which is exactly why the

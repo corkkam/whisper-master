@@ -3,7 +3,7 @@ import XCTest
 
 /// `ModelInstaller` verifies a downloaded model archive against a SHA-256 pinned
 /// inside the signed bundle before it unpacks anything. These pin the pure pieces
-/// of that check — the streaming file hash and the match/mismatch/unverified
+/// of that check — the streaming file hash and the match/mismatch/unpinned
 /// decision — without downloading a real (multi-GB) model.
 final class ModelInstallerChecksumTests: XCTestCase {
     private var root: URL!
@@ -77,13 +77,20 @@ final class ModelInstallerChecksumTests: XCTestCase {
             .mismatch)
     }
 
-    func testUnverifiedWhenNoPin() {
-        // The safety valve: an archive nobody pinned still installs.
+    func testUnpinnedArchiveFailsClosed() {
+        // An archive nobody pinned is refused, not installed unverified.
         XCTAssertEqual(
             ModelInstaller.verifyChecksum(
                 archiveName: "some-future-archive-nobody-pinned",
                 actualHex: String(repeating: "a", count: 64)),
-            .unverified)
+            .unpinned)
+    }
+
+    /// The engine archive is fetched on first launch; failing closed makes a
+    /// missing pin a model that never installs (the cleanup and assistant pins
+    /// are locked in `AssistantModelTests`).
+    func testTheEngineArchiveIsPinned() {
+        XCTAssertNotNil(ModelChecksums.sha256[TranscriberEngine.slidingWindow.cacheDirectoryName])
     }
 
     /// End-to-end of the pure path: hash a real file, then run the verdict the

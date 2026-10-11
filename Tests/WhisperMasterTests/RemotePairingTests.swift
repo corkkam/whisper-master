@@ -1,3 +1,5 @@
+import Network
+import Security
 import XCTest
 @testable import WhisperMaster
 
@@ -89,6 +91,78 @@ final class RemotePairingTests: XCTestCase {
             "without a key we must refuse to build parameters, so the listener refuses to start")
         XCTAssertNil(RemotePairing.tlsParameters(key: Data()), "an empty key is not a key")
         XCTAssertNotNil(RemotePairing.tlsParameters(key: Data(repeating: 7, count: 32)))
+    }
+
+    /// Two Macs must land on the forward-secret suite, the shipped iOS client
+    /// (plain PSK only) must still connect, and a wrong key must not.
+    func testHandshakeNegotiatesForwardSecrecyAndRejectsAWrongKey() throws {
+        let key = Data(repeating: 7, count: 32)
+        let ecdhePSK = UInt16(TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256)
+        let plainPSK = UInt16(TLS_PSK_WITH_AES_128_GCM_SHA256)
+
+        let mac = try handshake(client: XCTUnwrap(RemotePairing.tlsParameters(key: key)), serverKey: key)
+        XCTAssertEqual(mac, ecdhePSK)
+
+        let legacy = try handshake(client: Self.parameters(key: key, suites: [plainPSK]), serverKey: key)
+        XCTAssertEqual(legacy, plainPSK)
+
+        let wrongKey = try handshake(
+            client: XCTUnwrap(RemotePairing.tlsParameters(key: Data(repeating: 9, count: 32))),
+            serverKey: key)
+        XCTAssertNil(wrongKey)
+    }
+
+    /// A client built the way the shipped iOS app builds it.
+    private static func parameters(key: Data, suites: [UInt16]) -> NWParameters {
+        let tls = NWProtocolTLS.Options()
+        let sec = tls.securityProtocolOptions
+        sec_protocol_options_set_min_tls_protocol_version(sec, .TLSv12)
+        sec_protocol_options_add_pre_shared_key(
+            sec,
+            key.withUnsafeBytes { DispatchData(bytes: $0) } as __DispatchData,
+            Data(RemotePairing.identity.utf8).withUnsafeBytes { DispatchData(bytes: $0) } as __DispatchData)
+        for suite in suites {
+            sec_protocol_options_append_tls_ciphersuite(sec, tls_ciphersuite_t(rawValue: suite)!)
+        }
+        return NWParameters(tls: tls)
+    }
+
+    /// Runs one loopback handshake against a server built by `tlsParameters`.
+    /// Returns the negotiated ciphersuite, or nil if the handshake failed.
+    private func handshake(client: NWParameters, serverKey: Data) throws -> UInt16? {
+        let server = try XCTUnwrap(RemotePairing.tlsParameters(key: serverKey))
+        let queue = DispatchQueue(label: "RemotePairingTests.handshake")
+        let listener = try NWListener(using: server, on: .any)
+        defer { listener.cancel() }
+        listener.newConnectionHandler = { $0.start(queue: queue) }
+
+        let done = expectation(description: "handshake settled")
+        var negotiated: UInt16?
+        var connection: NWConnection?
+        listener.stateUpdateHandler = { state in
+            guard case .ready = state, let port = listener.port else { return }
+            let conn = NWConnection(host: "127.0.0.1", port: port, using: client)
+            connection = conn
+            conn.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    let metadata = conn.metadata(definition: NWProtocolTLS.definition) as? NWProtocolTLS.Metadata
+                    negotiated = metadata.map {
+                        sec_protocol_metadata_get_negotiated_tls_ciphersuite($0.securityProtocolMetadata).rawValue
+                    }
+                    done.fulfill()
+                case .failed, .waiting:
+                    done.fulfill()
+                default:
+                    break
+                }
+            }
+            conn.start(queue: queue)
+        }
+        listener.start(queue: queue)
+        wait(for: [done], timeout: 10)
+        connection?.cancel()
+        return negotiated
     }
 
     // MARK: - Frame bound

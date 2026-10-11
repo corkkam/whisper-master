@@ -7,17 +7,21 @@ import Foundation
 /// hash, so `ModelInstaller` rejects a swapped archive before it is ever unpacked.
 ///
 /// ⚠️ Publish-time obligation: after uploading a new or updated `<archive>.zip`
-/// to R2, add or update its lowercase-hex SHA-256 here — otherwise the archive
-/// ships **unverified** (it installs through the safety-valve branch in
-/// `ModelInstaller`). Compute it with `shasum -a 256 <archive>.zip`. A pin that
+/// to R2, add or update its lowercase-hex SHA-256 here — an archive with **no**
+/// pin is refused by `ModelInstaller` (fail closed), so a new model does not
+/// install at all until it is pinned. Compute it with `shasum -a 256 <archive>.zip`.
+///
+/// Not pinned yet: `kokoro-82m-coreml` and `kokoro` (the natural voice,
+/// `NaturalVoiceInstaller`). Neither archive is on the mirror — both 404 as of
+/// 2026-10-11 — so the natural voice cannot install and the app stays on the
+/// system voice. Publish both, then pin both in the same change. A pin that
 /// disagrees with the hosted bytes is treated as a failed download and falls back
 /// to the slower HuggingFace source.
 enum ModelChecksums {
     /// `archiveName` (no `.zip`) → lowercase hex SHA-256 of the hosted `.zip`.
     static let sha256: [String: String] = [
-        // The bytes currently served from the **legacy** bucket
-        // (`model.scoopscore.in/models/s1-mini-4bit.zip`). Copy that object to the
-        // live bucket byte-for-byte rather than re-zipping the model directory —
+        // Copied byte-for-byte from the legacy bucket to the live one rather than
+        // re-zipped from the model directory —
         // `ditto` embeds timestamps, so a re-zip of identical files produces a
         // different hash and this pin would reject it.
         "s1-mini-4bit": "517d5091f6c5ac8c8af9a67f1cece60f9cf9899560652e38ba5ca4f788bc17aa",

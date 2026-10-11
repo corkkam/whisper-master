@@ -68,7 +68,7 @@ final class AssistantModelTests: XCTestCase {
     }
 
     /// The archive the manager asks the mirror for has to be the one that is
-    /// actually pinned, or it installs unverified through the safety valve.
+    /// actually pinned, or the installer refuses it.
     func testTheAssistantArchiveIsChecksumPinned() {
         XCTAssertNotNil(ModelChecksums.sha256[CleanupModel.General.archiveName])
     }
