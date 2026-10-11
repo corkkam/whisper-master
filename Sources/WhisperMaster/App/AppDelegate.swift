@@ -1224,6 +1224,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onJoin: { [weak self] url in
                 self?.openConferenceLink(url)
             },
+            onOpenLink: { [weak self] url in
+                self?.openNotchLink(url)
+            },
             onOpenNotes: { [weak self] request in
                 guard let self else { return }
                 self.viewModel.state.requestedSettingsSection = .notes
@@ -1232,7 +1235,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.viewModel.state.requestedNotesComposer = request
                 self.showWindow()
             },
-            onOpenSettings: { [weak self] in self?.showWindow() })
+            onOpenSettings: { [weak self] section in
+                guard let self else { return }
+                self.viewModel.state.requestedSettingsSection = section
+                self.showWindow()
+            })
         quickActionsWindow?.start()
 
         // Watch for a Bluetooth mic input so the notch can offer to switch to
@@ -1693,6 +1700,17 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
     /// dropped silently: the button is only ever drawn for one that passed, so a
     /// failure here means something upstream is wrong rather than that the user
     /// needs telling.
+    /// A pinned connector's item or home, from the notch band. Re-checked here for
+    /// the same reason `openConferenceLink` is: the link came out of a third party's
+    /// API response, and `NSWorkspace.open` will launch whatever it is handed.
+    private func openNotchLink(_ url: URL) {
+        guard NotchConnectorLinks.isOpenable(url) else {
+            Log.app.error("Refused to open a non-https link from the notch")
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
     private func openConferenceLink(_ url: URL) {
         guard ConferenceLink.isJoinable(url) else {
             Log.app.error("Refused to open a non-conference link from the notch")

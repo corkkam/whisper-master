@@ -26,10 +26,23 @@ final class NotchQuickActionsModel {
     /// The day column has its own, wider limit (`NowTimeline.displayLimit`) — it is
     /// the reason to open the panel, so it gets the room.
     static let columnLimit = 3
+    /// Most rows the **Notes tab** shows — the tab is the whole band, so it holds
+    /// more than the column on Today does.
+    static let notesTabLimit = 5
 
     var isOpen: Bool { gesture.isOpen }
 
-    private let state: AppState
+    /// Read by the Settings tab's switches, which bind to the same preferences the
+    /// Settings window does.
+    let state: AppState
+    /// What the pinned connections hold. Owned here so it lives as long as the band.
+    let feed: NotchConnectorFeed
+    /// The tab the user last chose. Read through `currentTab`, which drops a
+    /// connector tab whose pin has since been removed.
+    private var chosenTab: NotchQuickActionsTab
+    /// False for the snapshot renderer, so rendering a tab never moves a real user's
+    /// band onto it.
+    private let persistsTab: Bool
     private var gesture = NotchHoverGesture()
     /// Reminders ticked off during this glance, keyed by id and holding the copy
     /// they were in **before** the tick.
@@ -42,9 +55,69 @@ final class NotchQuickActionsModel {
     /// ahead of you, not what you ticked off last time.
     private var ticked: [UUID: ReminderItem] = [:]
 
-    init(state: AppState) {
+    init(state: AppState, persistsTab: Bool = true) {
         self.state = state
+        self.persistsTab = persistsTab
+        feed = NotchConnectorFeed(store: state.connectorStore)
+        let stored = persistsTab
+            ? UserDefaults.standard.string(forKey: NotchQuickActionsTab.defaultsKey)
+            : nil
+        chosenTab = stored.flatMap(NotchQuickActionsTab.init(storageValue:)) ?? .today
     }
+
+    // MARK: - Tabs
+
+    /// Connections pinned on the Connectors page, in tab order.
+    var pinnedConnectors: [ConnectorInstance] { state.connectorStore.pinnedToNotch }
+
+    /// The tab on screen. Opens on the one used last — a person who checks their
+    /// mail from the notch wants the mail, not a walk past Today each time.
+    var currentTab: NotchQuickActionsTab {
+        chosenTab.resolved(pinned: pinnedConnectors.map(\.id))
+    }
+
+    func select(_ tab: NotchQuickActionsTab) {
+        chosenTab = tab
+        if persistsTab {
+            UserDefaults.standard.set(tab.storageValue, forKey: NotchQuickActionsTab.defaultsKey)
+        }
+        if case .connector = tab { feed.refresh(pinnedConnectors) }
+    }
+
+    /// Whether the tab bar offers a "+" to pin another connection: there is room
+    /// for one, and at least one connection is not pinned yet.
+    var canPinMore: Bool {
+        let store = state.connectorStore
+        return store.canPinToNotch && store.instances.contains { !store.isPinnedToNotch($0.id) }
+    }
+
+    /// Take a connection's tab off the band. Pinning happens on the Connectors page,
+    /// where the connection is in front of you; the way off has to be here too, for
+    /// the same reason a pinned note can be unpinned from the band.
+    func unpin(connector id: UUID) {
+        state.connectorStore.setPinnedToNotch(id, false)
+    }
+
+    /// What the Notes tab holds: pinned first, then recent.
+    var notesTabNotes: [Note] {
+        notes.visibleNotes.prefix(Self.notesTabLimit).map { $0 }
+    }
+
+    /// A connector tab's rows, already windowed to what the tab shows. For a
+    /// calendar that is what is still ahead today; the Today tab is where the
+    /// morning that has gone lives.
+    func connectorContent(_ id: UUID, now: Date = Date()) -> NotchConnectorFeed.Content? {
+        guard let content = feed.entry(for: id)?.content else { return nil }
+        switch content {
+        case .items(let items):
+            return .items(Array(items.prefix(NotchConnectorFeed.rowLimit)))
+        case .events(let events):
+            return .events(Array(events.filter { $0.end > now }.prefix(NotchConnectorFeed.rowLimit)))
+        }
+    }
+
+    /// Rows the Settings tab draws: two rows of switches and the push-to-talk line.
+    static let settingsRowCount = 3
 
     // MARK: - What the panel holds
 
@@ -80,9 +153,28 @@ final class NotchQuickActionsModel {
         recentNotes.contains(where: \.isPinned)
     }
 
-    /// Rows in the longer of the two columns — what the band's depth is sized to.
+    /// Whether the current page has column captions over its rows — only Today
+    /// does. Sizes the band with `NotchQuickActionsLayout.thickness(rows:captioned:)`.
+    var isCaptioned: Bool { currentTab == .today }
+
+    /// Rows the current tab is holding — what the band's depth is sized to. Each
+    /// tab sizes to itself, so switching from a five-row inbox to a one-line note
+    /// list shrinks the band rather than leaving dead black under it.
     var visibleRowCount: Int {
-        max(day().rows.count, recentNotes.count)
+        switch currentTab {
+        case .today:
+            return max(day().rows.count, recentNotes.count)
+        case .notes:
+            return max(1, notesTabNotes.count)
+        case .connector(let id):
+            switch connectorContent(id) {
+            case .items(let items)?: return max(1, items.count)
+            case .events(let events)?: return max(1, events.count)
+            case nil: return 1
+            }
+        case .settings:
+            return Self.settingsRowCount
+        }
     }
 
     /// Unpin a note straight from the band.
@@ -122,7 +214,11 @@ final class NotchQuickActionsModel {
     /// matters" — the notch strip while closed, the panel itself while open. Returns
     /// nothing; read `isOpen` after.
     func pointer(isInside inside: Bool, now: TimeInterval) {
+        let wasOpen = gesture.isOpen
         gesture.update(inside: inside, allowed: canOpen, now: now)
+        // Opening is the moment the pinned tabs have to be fresh — their badges are
+        // on the tab bar whichever tab is showing.
+        if gesture.isOpen, !wasOpen { feed.refresh(pinnedConnectors) }
         // The band closing ends the glance, however it closed — pointer away, or a
         // dictation taking the notch back. Ticks stop being undoable at that point,
         // so the completed rows drop out of the list rather than reappearing,

@@ -32,8 +32,9 @@ final class NotchQuickActionsWindow {
     private let model: NotchQuickActionsModel
     private let layout = NotchQuickActionsLayout()
     private let onOpenNotes: (NotesComposerRequest?) -> Void
-    private let onOpenSettings: () -> Void
+    private let onOpenSettings: (SettingsSection) -> Void
     private let onJoin: (URL) -> Void
+    private let onOpenLink: (URL) -> Void
 
     private var pollTimer: Timer?
     private var screenObserver: NSObjectProtocol?
@@ -42,9 +43,10 @@ final class NotchQuickActionsWindow {
     /// and out exactly on the transitions (there's no `@Observable` bridge to
     /// AppKit — the poll tick is the bridge, same as the AppDelegate's refresh loop).
     private var isPanelVisible = false
-    /// Row count the visible panel was sized for, so ticking a reminder off while the
-    /// band is open shrinks it instead of leaving the emptied row as dead black.
-    private var sizedForRows = -1
+    /// Depth the visible panel was sized for, so a tab switch, a read landing, or a
+    /// reminder ticked off while the band is open resizes it instead of clipping
+    /// content or leaving dead black.
+    private var sizedForThickness: CGFloat = -1
     /// True while another notch surface owns the strip (onboarding). Keeps the poll
     /// off entirely rather than relying on suppression inside the model.
     private var isSuspended = false
@@ -55,12 +57,14 @@ final class NotchQuickActionsWindow {
     init(
         state: AppState,
         onJoin: @escaping (URL) -> Void = { _ in },
+        onOpenLink: @escaping (URL) -> Void = { _ in },
         onOpenNotes: @escaping (NotesComposerRequest?) -> Void,
-        onOpenSettings: @escaping () -> Void
+        onOpenSettings: @escaping (SettingsSection) -> Void
     ) {
         self.onOpenNotes = onOpenNotes
         self.onOpenSettings = onOpenSettings
         self.onJoin = onJoin
+        self.onOpenLink = onOpenLink
         model = NotchQuickActionsModel(state: state)
 
         panel = NSPanel(
@@ -104,6 +108,9 @@ final class NotchQuickActionsWindow {
         pollTimer?.invalidate()
         pollTimer = nil
         model.close()
+        // Sign-out runs through here: the next account must not see this one's
+        // mail for the moment before its own read lands.
+        model.feed.reset()
         applyOpenState()
     }
 
@@ -151,9 +158,9 @@ final class NotchQuickActionsWindow {
         model.pointer(isInside: inside, now: ProcessInfo.processInfo.systemUptime)
         applyOpenState()
 
-        // The band's depth is content-driven, and its content can change while it's
-        // open (ticking a reminder off is the one inline action it offers).
-        if isPanelVisible, model.visibleRowCount != sizedForRows {
+        // The band's depth is content-driven, and its content changes while it's
+        // open: a tab switch, a pinned connector's read landing, a reminder ticked.
+        if isPanelVisible, currentThickness != sizedForThickness {
             reposition()
         }
     }
@@ -172,6 +179,10 @@ final class NotchQuickActionsWindow {
 
     // MARK: - Geometry
 
+    private var currentThickness: CGFloat {
+        layout.thickness(rows: model.visibleRowCount, captioned: model.isCaptioned)
+    }
+
     /// The display the pointer is on — hover opens the band on that screen's
     /// notch (or its top-center, if the display has no notch).
     private var targetScreen: NSScreen? {
@@ -186,9 +197,10 @@ final class NotchQuickActionsWindow {
         // Sized to what the band is actually holding — resolved here, at the open, so
         // the panel and the view agree on one row count.
         let rows = model.visibleRowCount
-        sizedForRows = rows
-        let size = layout.panelSize(for: geometry, rows: rows)
-        let origin = layout.panelOrigin(for: geometry, on: screen, rows: rows)
+        let captioned = model.isCaptioned
+        sizedForThickness = layout.thickness(rows: rows, captioned: captioned)
+        let size = layout.panelSize(for: geometry, rows: rows, captioned: captioned)
+        let origin = layout.panelOrigin(for: geometry, on: screen, rows: rows, captioned: captioned)
 
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
         host.rootView = NotchQuickActionsView(
@@ -201,9 +213,9 @@ final class NotchQuickActionsWindow {
                 // The Settings window is coming forward; the band has done its job.
                 self.dismiss()
             },
-            onOpenSettings: { [weak self] in
+            onOpenSettings: { [weak self] section in
                 guard let self else { return }
-                self.onOpenSettings()
+                self.onOpenSettings(section)
                 self.dismiss()
             },
             onJoin: { [weak self] url in
@@ -212,6 +224,11 @@ final class NotchQuickActionsWindow {
                 // The call is coming to the front; the band has done its job. Same
                 // disposition as the two rows above — every action on this panel
                 // ends the glance.
+                self.dismiss()
+            },
+            onOpenLink: { [weak self] url in
+                guard let self else { return }
+                self.onOpenLink(url)
                 self.dismiss()
             }
         )
