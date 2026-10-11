@@ -9,7 +9,9 @@ import Foundation
 /// is in its defaults. It is validated against the filesystem on every read, so a
 /// model the user deleted falls back to the shipped one rather than wedging
 /// cleanup on a missing directory. And it stores a **catalogue id**, not a path,
-/// so nothing can be pointed at an arbitrary folder.
+/// so nothing can be pointed at an arbitrary folder. A model added by its Hugging
+/// Face id is a catalogue id too: its directory is derived from a repo id that
+/// `LabCustomModels` re-checks on every read, never from a stored path.
 ///
 /// Read from `CleanupModel.directory` and `CleanupModel.General.directory`, which
 /// is deliberately low: everything downstream — the installer's `isInstalled`
@@ -38,7 +40,7 @@ enum LabModelOverride {
     }
 
     static func model(for role: LabRole, defaults: UserDefaults = .standard) -> LabModel? {
-        modelID(for: role, defaults: defaults).flatMap(LabCatalog.model(id:))
+        modelID(for: role, defaults: defaults).flatMap { LabCatalog.model(id: $0, defaults: defaults) }
     }
 
     /// The directory to load, or nil to use the shipped model. Nil whenever the

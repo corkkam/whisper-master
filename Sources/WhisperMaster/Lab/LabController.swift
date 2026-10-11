@@ -64,6 +64,19 @@ final class LabController {
     private(set) var installStates: [String: LabInstallState] = [:]
     private(set) var repoRoot: URL?
     private(set) var isActive = false
+    /// Models added on this Mac by Hugging Face id. Held here, read on
+    /// `refresh()`, so the rail does not decode defaults on every render and the
+    /// snapshot renderer never shows a real user's additions.
+    private(set) var customModels: [LabCustomModel] = []
+
+    // MARK: Adding a model
+
+    /// What is typed in the rail's add field.
+    var addInput = ""
+    /// True while Hugging Face is being asked about `addInput`.
+    private(set) var isCheckingModel = false
+    /// Why the last add was refused, shown under the field until the next try.
+    private(set) var addError: String?
 
     let runStore: LabRunStore
     let runner: LabBenchRunner
@@ -88,8 +101,9 @@ final class LabController {
     func refresh() {
         runStore.reload()
         repoRoot = LabPaths.resolvedRepoRoot(defaults: defaults)
+        customModels = LabCustomModels.load(defaults: defaults)
         var states: [String: LabInstallState] = [:]
-        for model in LabCatalog.all {
+        for model in allModels {
             if let directory = LabPaths.installedDirectory(for: model) {
                 states[model.id] = LabInstallState(
                     isInstalled: true, directory: directory,
@@ -108,7 +122,7 @@ final class LabController {
     func seedForSnapshot(runs: [LabRun], installedIDs: Set<String>) {
         isActive = true
         runStore.seedForSnapshot(runs)
-        installStates = Dictionary(uniqueKeysWithValues: LabCatalog.all.map { model in
+        installStates = Dictionary(uniqueKeysWithValues: LabCatalog.builtIn.map { model in
             (model.id, LabInstallState(
                 isInstalled: installedIDs.contains(model.id),
                 // A path that cannot exist: the seeded state feeds a Delete
@@ -146,11 +160,14 @@ final class LabController {
 
     // MARK: Models
 
+    /// The built-in catalogue, then the models added on this Mac.
+    var allModels: [LabModel] { LabCatalog.builtIn + customModels.map(\.model) }
+
     /// Models that can run the chosen suite. A normalizer offered for the
     /// tool-calling suite would score zero for a reason that has nothing to do
     /// with its quality, so it is not offered.
     var eligibleModels: [LabModel] {
-        LabCatalog.models(for: suite.requiredRole)
+        allModels.filter { $0.supports(suite.requiredRole) }
     }
 
     var selectedModels: [LabModel] {
@@ -178,18 +195,55 @@ final class LabController {
     func canDelete(_ model: LabModel) -> Bool {
         guard state(for: model).isInstalled else { return false }
         return model.provenance == .candidate || model.provenance == .retired
+            || model.provenance == .custom
     }
 
     func delete(_ model: LabModel) {
         guard canDelete(model), let directory = state(for: model).directory else { return }
         try? FileManager.default.removeItem(at: directory)
-        if LabModelOverride.modelID(for: .cleanup, defaults: defaults) == model.id {
-            LabModelOverride.set(nil, for: .cleanup, defaults: defaults)
-        }
-        if LabModelOverride.modelID(for: .assistant, defaults: defaults) == model.id {
-            LabModelOverride.set(nil, for: .assistant, defaults: defaults)
-        }
+        releaseOverrides(of: model)
         refresh()
+    }
+
+    /// Look the typed id up on Hugging Face and, when the lab can run it, add it
+    /// to the list and tick it for the next run.
+    func addModel() async {
+        guard !isCheckingModel else { return }
+        isCheckingModel = true
+        addError = nil
+        let existing = Set(allModels.map { $0.huggingFaceId.lowercased() })
+        let result = await LabHuggingFace.check(addInput, existingIDs: existing)
+        isCheckingModel = false
+        switch result {
+        case .success(let added):
+            LabCustomModels.save(LabCustomModels.load(defaults: defaults) + [added], defaults: defaults)
+            addInput = ""
+            refresh()
+            if added.model.supports(suite.requiredRole) { selectedModelIDs.insert(added.id) }
+        case .failure(let rejection):
+            addError = rejection.localizedDescription
+        }
+    }
+
+    /// Take an added model off the list, and its files off the disk with it:
+    /// a download nobody can reach from the page is a gigabyte nobody will find.
+    /// Saved runs keep their results under the model's name.
+    func remove(_ model: LabModel) {
+        guard model.provenance == .custom else { return }
+        if let directory = state(for: model).directory {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        LabCustomModels.save(
+            LabCustomModels.load(defaults: defaults).filter { $0.id != model.id }, defaults: defaults)
+        releaseOverrides(of: model)
+        selectedModelIDs.remove(model.id)
+        refresh()
+    }
+
+    private func releaseOverrides(of model: LabModel) {
+        for role in LabRole.allCases where LabModelOverride.modelID(for: role, defaults: defaults) == model.id {
+            LabModelOverride.set(nil, for: role, defaults: defaults)
+        }
     }
 
     // MARK: Overrides

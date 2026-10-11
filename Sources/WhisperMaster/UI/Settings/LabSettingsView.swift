@@ -193,7 +193,65 @@ private struct LabModelRail: View {
             }
             .padding(.horizontal, Theme.Space.md)
             .card()
+
+            LabAddModelField(lab: lab)
         }
+    }
+}
+
+/// Any MLX model on Hugging Face, by id or pasted URL. Checked against the repo
+/// when it is added, so a model the lab cannot run says so here and not 40
+/// minutes into a run.
+private struct LabAddModelField: View {
+    @Bindable var lab: LabController
+    @Environment(\.isSnapshot) private var isSnapshot
+
+    private static let placeholder = "Add from Hugging Face"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
+                if isSnapshot {
+                    // ImageRenderer can't draw an NSTextField — static stand-in.
+                    Text(Self.placeholder)
+                        .font(Typography.caption)
+                        .foregroundStyle(Theme.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    TextField(Self.placeholder, text: $lab.addInput)
+                        .textFieldStyle(.plain)
+                        .font(Typography.caption)
+                        .disabled(lab.isCheckingModel)
+                        .onSubmit(add)
+                }
+                if lab.isCheckingModel {
+                    Text("checking")
+                        .font(Typography.monoSmall)
+                        .foregroundStyle(Theme.textTertiary)
+                } else if !lab.addInput.trimmingCharacters(in: .whitespaces).isEmpty {
+                    LabMiniButton(title: "Add", isOn: false, isEnabled: true, action: add)
+                }
+            }
+            .padding(.horizontal, Theme.Space.md)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Theme.surfaceSunken))
+
+            if let error = lab.addError {
+                Text(error)
+                    .font(Typography.monoSmall)
+                    .foregroundStyle(Theme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func add() {
+        Task { await lab.addModel() }
     }
 }
 
@@ -255,7 +313,13 @@ private struct LabModelRow: View {
                     }
                     Spacer(minLength: 0)
                 }
-                if lab.canDelete(model) {
+                if model.provenance == .custom {
+                    // One button, not "Delete" beside "Remove": an added model
+                    // off the list is a download nobody can reach from here.
+                    LabMiniButton(title: "Remove", isOn: false, isEnabled: !lab.runner.isRunning) {
+                        lab.remove(model)
+                    }
+                } else if lab.canDelete(model) {
                     // Its own line: three buttons and a label do not fit the
                     // rail's width, and a wrapped button reads as a broken one.
                     LabMiniButton(title: "Delete from disk", isOn: false, isEnabled: true) {

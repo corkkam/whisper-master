@@ -15,12 +15,12 @@ final class ModelLabTests: XCTestCase {
     // MARK: - Catalogue
 
     func testCatalogueIDsAreUniqueBecauseRunsAreKeyedOnThem() {
-        let ids = LabCatalog.all.map(\.id)
+        let ids = LabCatalog.builtIn.map(\.id)
         XCTAssertEqual(Set(ids).count, ids.count, "a duplicate id would collide in every saved run")
     }
 
     func testEveryModelCanBeFetchedAndDeclaresARole() {
-        for model in LabCatalog.all {
+        for model in LabCatalog.builtIn {
             XCTAssertFalse(model.huggingFaceId.isEmpty, "\(model.id) has nowhere to be fetched from")
             XCTAssertFalse(model.roles.isEmpty, "\(model.id) can run no suite")
             XCTAssertGreaterThan(model.approximateDownloadBytes, 0, "\(model.id) has no size to warn about")
@@ -35,7 +35,9 @@ final class ModelLabTests: XCTestCase {
     /// A normalizer offered for the tool-calling suite would score zero for a
     /// reason that has nothing to do with its quality.
     func testToolSuiteOnlyOffersModelsThatCanToolCall() {
-        let eligible = LabCatalog.models(for: LabSuite.tools.requiredRole)
+        let lab = LabController(load: false)
+        lab.suite = .tools
+        let eligible = lab.eligibleModels
         XCTAssertFalse(eligible.contains { $0.id == LabCatalog.shippedCleanup.id })
         XCTAssertTrue(eligible.contains { $0.id == LabCatalog.shippedAssistant.id })
     }

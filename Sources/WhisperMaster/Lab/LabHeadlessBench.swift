@@ -44,11 +44,11 @@ enum LabHeadlessBench {
         let requested = (environment["WM_LAB_MODELS"] ?? "")
             .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        let models = requested.compactMap(LabCatalog.model(id:))
+        let models = requested.compactMap { LabCatalog.model(id: $0) }
         let unknown = requested.filter { LabCatalog.model(id: $0) == nil }
         guard unknown.isEmpty else {
             print("WM_LAB_BENCH: unknown model id(s): \(unknown.joined(separator: ", "))")
-            print("Known: \(LabCatalog.all.map(\.id).joined(separator: ", "))")
+            print("Known: \(LabCatalog.all().map(\.id).joined(separator: ", "))")
             return exit(2)
         }
         guard !models.isEmpty else {
