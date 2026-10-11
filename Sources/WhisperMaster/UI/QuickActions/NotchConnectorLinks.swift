@@ -38,6 +38,7 @@ enum NotchConnectorLinks {
         case .github: string = "https://github.com/"
         case .zoom: string = "https://zoom.us/"
         case .asana: string = "https://app.asana.com/"
+        case .teams: string = "https://teams.microsoft.com/"
         }
         return URL(string: string)
     }
