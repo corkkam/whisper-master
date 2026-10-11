@@ -20,9 +20,8 @@ import Foundation
 enum ModelChecksums {
     /// `archiveName` (no `.zip`) → lowercase hex SHA-256 of the hosted `.zip`.
     static let sha256: [String: String] = [
-        // The bytes currently served from the **legacy** bucket
-        // (`model.scoopscore.in/models/s1-mini-4bit.zip`). Copy that object to the
-        // live bucket byte-for-byte rather than re-zipping the model directory —
+        // Copied byte-for-byte from the legacy bucket to the live one rather than
+        // re-zipped from the model directory —
         // `ditto` embeds timestamps, so a re-zip of identical files produces a
         // different hash and this pin would reject it.
         "s1-mini-4bit": "517d5091f6c5ac8c8af9a67f1cece60f9cf9899560652e38ba5ca4f788bc17aa",
