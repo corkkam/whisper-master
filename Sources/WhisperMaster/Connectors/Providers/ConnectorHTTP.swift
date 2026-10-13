@@ -17,15 +17,21 @@ struct ConnectorItem: Equatable, Sendable, Identifiable {
     let url: String?
     /// The connector instance this came from, so a merged answer can name it.
     let instanceLabel: String
+    /// Still waiting on the user (unread mail). Only a provider that can tell sets
+    /// it; the notch counts these for a tab's badge, so a provider that can't tell
+    /// must leave it false rather than guess.
+    let isUnread: Bool
 
     init(id: String, title: String, detail: String = "",
-         timestamp: Date? = nil, url: String? = nil, instanceLabel: String = "") {
+         timestamp: Date? = nil, url: String? = nil, instanceLabel: String = "",
+         isUnread: Bool = false) {
         self.id = id
         self.title = title
         self.detail = detail
         self.timestamp = timestamp
         self.url = url
         self.instanceLabel = instanceLabel
+        self.isUnread = isUnread
     }
 }
 
