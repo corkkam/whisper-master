@@ -17,15 +17,43 @@ struct LabCustomModel: Codable, Hashable, Sendable {
     /// The repo's chat template takes a `tools` list. Without one, the tool suite
     /// would score the model zero for a reason that is not about its quality.
     let supportsTools: Bool
+    /// Read off the template when added. Absent from records saved before the
+    /// lab benched reasoning, which read as `.none`.
+    let reasoning: LabReasoning
     let addedAt: Date
+
+    init(huggingFaceId: String, modelType: String, approximateDownloadBytes: Int64,
+         parameters: String, quantization: String, supportsTools: Bool,
+         reasoning: LabReasoning = .none, addedAt: Date) {
+        self.huggingFaceId = huggingFaceId; self.modelType = modelType
+        self.approximateDownloadBytes = approximateDownloadBytes
+        self.parameters = parameters; self.quantization = quantization
+        self.supportsTools = supportsTools; self.reasoning = reasoning; self.addedAt = addedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        huggingFaceId = try c.decode(String.self, forKey: .huggingFaceId)
+        modelType = try c.decode(String.self, forKey: .modelType)
+        approximateDownloadBytes = try c.decode(Int64.self, forKey: .approximateDownloadBytes)
+        parameters = try c.decode(String.self, forKey: .parameters)
+        quantization = try c.decode(String.self, forKey: .quantization)
+        supportsTools = try c.decode(Bool.self, forKey: .supportsTools)
+        reasoning = try c.decodeIfPresent(LabReasoning.self, forKey: .reasoning) ?? .none
+        addedAt = try c.decode(Date.self, forKey: .addedAt)
+    }
 
     /// `hf:` so a custom id can never collide with a catalogue id, and lowercased
     /// because Hugging Face ids are case-insensitive: the same repo added twice
     /// with different casing must be one model in every saved run.
     var id: String { "hf:" + huggingFaceId.lowercased() }
 
+    /// Its rows in the rail: one, or two for a hybrid reasoning model that can
+    /// call tools (`LabModel.rows`).
+    var models: [LabModel] { model.rows }
+
     var model: LabModel {
-        LabModel(
+        var model = LabModel(
             id: id,
             name: String(huggingFaceId.split(separator: "/").last ?? Substring(huggingFaceId)),
             huggingFaceId: huggingFaceId,
@@ -33,10 +61,18 @@ struct LabCustomModel: Codable, Hashable, Sendable {
             approximateDownloadBytes: approximateDownloadBytes,
             parameters: parameters,
             quantization: quantization,
-            roles: supportsTools ? [.cleanup, .assistant] : [.cleanup],
+            // A model that always reasons is an assistant only: thinking before
+            // every cleanup is a minute per sentence. `assess` refuses one that
+            // also takes no tools, since no suite could measure it.
+            roles: reasoning == .always ? [.assistant]
+                : supportsTools ? [.cleanup, .assistant] : [.cleanup],
             provenance: .custom,
             note: "\(huggingFaceId), model type \(modelType)."
-                + (supportsTools ? "" : " Its chat template takes no tools."))
+                + (supportsTools ? "" : " Its chat template takes no tools.")
+                + (reasoning == .always ? " Always reasons first." : ""))
+        model.reasoning = reasoning
+        model.thinks = reasoning == .always
+        return model
     }
 }
 
@@ -81,6 +117,7 @@ enum LabHuggingFace {
         case missingFile(String)
         case noSafetensors
         case noChatTemplate
+        case reasonsWithoutTools
         case noModelType
         case unsupportedModelType(String)
         case network(String)
@@ -101,6 +138,8 @@ enum LabHuggingFace {
                 return "The repo has no .safetensors weights. Look for an MLX conversion of it."
             case .noChatTemplate:
                 return "The repo has no chat template, so it is a base model that cannot follow a prompt."
+            case .reasonsWithoutTools:
+                return "It always reasons and takes no tools, so no suite here can measure it."
             case .noModelType:
                 return "The repo's config names no model type, so MLX cannot pick an architecture."
             case .unsupportedModelType(let type):
@@ -247,6 +286,9 @@ enum LabHuggingFace {
             .reduce(Int64(0)) { $0 + ($1.size ?? 0) }
         let template = chatTemplate ?? info.config?.tokenizerConfig?.chatTemplate?.text ?? ""
         guard !template.isEmpty else { return .failure(.noChatTemplate) }
+        let reasoning = LabReasoning.detect(chatTemplate: template)
+        let supportsTools = template.contains("tools")
+        if reasoning == .always, !supportsTools { return .failure(.reasonsWithoutTools) }
 
         return .success(LabCustomModel(
             huggingFaceId: repo,
@@ -254,7 +296,8 @@ enum LabHuggingFace {
             approximateDownloadBytes: bytes,
             parameters: parameters(in: repo) ?? "?",
             quantization: quantization(bits: info.config?.quantizationConfig?.bits, name: repo),
-            supportsTools: template.contains("tools"),
+            supportsTools: supportsTools,
+            reasoning: reasoning,
             addedAt: now))
     }
 

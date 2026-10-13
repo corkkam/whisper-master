@@ -161,7 +161,7 @@ final class LabController {
     // MARK: Models
 
     /// The built-in catalogue, then the models added on this Mac.
-    var allModels: [LabModel] { LabCatalog.builtIn + customModels.map(\.model) }
+    var allModels: [LabModel] { LabCatalog.builtIn + customModels.flatMap(\.models) }
 
     /// Models that can run the chosen suite. A normalizer offered for the
     /// tool-calling suite would score zero for a reason that has nothing to do
@@ -219,7 +219,9 @@ final class LabController {
             LabCustomModels.save(LabCustomModels.load(defaults: defaults) + [added], defaults: defaults)
             addInput = ""
             refresh()
-            if added.model.supports(suite.requiredRole) { selectedModelIDs.insert(added.id) }
+            if let first = added.models.first(where: { $0.supports(suite.requiredRole) }) {
+                selectedModelIDs.insert(first.id)
+            }
         case .failure(let rejection):
             addError = rejection.localizedDescription
         }
@@ -227,16 +229,22 @@ final class LabController {
 
     /// Take an added model off the list, and its files off the disk with it:
     /// a download nobody can reach from the page is a gigabyte nobody will find.
-    /// Saved runs keep their results under the model's name.
+    /// Its reasoning row goes too, since it is the same files. Saved runs keep
+    /// their results under the model's name.
     func remove(_ model: LabModel) {
         guard model.provenance == .custom else { return }
         if let directory = state(for: model).directory {
             try? FileManager.default.removeItem(at: directory)
         }
+        let repo = model.huggingFaceId.lowercased()
+        let gone = allModels.filter { $0.huggingFaceId.lowercased() == repo }
         LabCustomModels.save(
-            LabCustomModels.load(defaults: defaults).filter { $0.id != model.id }, defaults: defaults)
-        releaseOverrides(of: model)
-        selectedModelIDs.remove(model.id)
+            LabCustomModels.load(defaults: defaults).filter { $0.huggingFaceId.lowercased() != repo },
+            defaults: defaults)
+        for row in gone {
+            releaseOverrides(of: row)
+            selectedModelIDs.remove(row.id)
+        }
         refresh()
     }
 
@@ -259,8 +267,13 @@ final class LabController {
         LabModelOverride.set(model?.id, for: role, defaults: defaults)
     }
 
+    /// Never for a reasoning row: the shipped paths render with
+    /// `enable_thinking: false` on a 12-second budget, so the slot would run
+    /// something other than what the lab measured, and a model that always
+    /// reasons would time out on every turn.
     func canUse(_ model: LabModel, for role: LabRole) -> Bool {
-        LabModelOverride.isPermitted && model.supports(role) && state(for: model).isInstalled
+        LabModelOverride.isPermitted && !model.thinks && model.supports(role)
+            && state(for: model).isInstalled
     }
 
     // MARK: Runs

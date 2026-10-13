@@ -280,7 +280,7 @@ private struct LabModelRow: View {
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
-                    if let badge = model.provenance.badge {
+                    if let badge = model.railTag {
                         RowTag(badge)
                     }
                 }
@@ -297,21 +297,25 @@ private struct LabModelRow: View {
                 // "Use for:" then the slots, rather than a button per slot
                 // spelling out the whole sentence: at the rail's 236pt two
                 // buttons reading "Use for assistant" wrap to three lines each.
-                HStack(spacing: 6) {
-                    Text("Slot:")
-                        .font(Typography.monoSmall)
-                        .foregroundStyle(Theme.textFaint)
-                    ForEach(LabRole.allCases.filter { model.supports($0) }, id: \.self) { role in
-                        LabMiniButton(
-                            title: role.rawValue,
-                            isOn: lab.overrideModel(for: role)?.id == model.id,
-                            isEnabled: lab.canUse(model, for: role)
-                        ) {
-                            let isCurrent = lab.overrideModel(for: role)?.id == model.id
-                            lab.use(isCurrent ? nil : model, for: role)
+                // None for a reasoning row: the shipped paths cannot reason
+                // (`LabController.canUse`), so the row is bench-only.
+                if !model.thinks {
+                    HStack(spacing: 6) {
+                        Text("Slot:")
+                            .font(Typography.monoSmall)
+                            .foregroundStyle(Theme.textFaint)
+                        ForEach(LabRole.allCases.filter { model.supports($0) }, id: \.self) { role in
+                            LabMiniButton(
+                                title: role.rawValue,
+                                isOn: lab.overrideModel(for: role)?.id == model.id,
+                                isEnabled: lab.canUse(model, for: role)
+                            ) {
+                                let isCurrent = lab.overrideModel(for: role)?.id == model.id
+                                lab.use(isCurrent ? nil : model, for: role)
+                            }
                         }
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
                 }
                 if model.provenance == .custom {
                     // One button, not "Delete" beside "Remove": an added model

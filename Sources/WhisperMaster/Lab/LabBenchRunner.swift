@@ -183,7 +183,7 @@ final class LabBenchRunner {
                 caseIndex = caseNumber
 
                 let caseResult = await evaluate(
-                    labCase, with: service, source: loaded.sources[labCase.id],
+                    labCase, with: service, thinking: model.thinks, source: loaded.sources[labCase.id],
                     toolSetup: toolSetup, transcripts: &transcripts)
                 result.cases.append(caseResult)
 
@@ -213,7 +213,8 @@ final class LabBenchRunner {
 
             append(.good, "\(model.name): \(result.passed)/\(result.total) at "
                 + "\(LabFormat.milliseconds(result.p50LatencyMs)) p50, peak "
-                + "\(LabFormat.bytes(result.peakGPUBytes))")
+                + "\(LabFormat.bytes(result.peakGPUBytes))"
+                + (result.medianReasoningTokens.map { ", \($0) reasoning tokens median" } ?? ""))
             update(result, at: index)
             persist()
 
@@ -253,7 +254,7 @@ final class LabBenchRunner {
     // MARK: - One case
 
     private func evaluate(
-        _ labCase: LabCase, with service: MlxCleanupService,
+        _ labCase: LabCase, with service: MlxCleanupService, thinking: Bool,
         source: EvalCase?, toolSetup: LabToolBench.Setup?,
         transcripts: inout [String: (text: String, ms: Int)]
     ) async -> LabCaseResult {
@@ -280,7 +281,7 @@ final class LabBenchRunner {
 
         case .spokenCommand(let spoken, let expectedTool):
             return await toolCase(labCase, spoken: spoken, expectedTool: expectedTool,
-                                  setup: toolSetup, service: service)
+                                  setup: toolSetup, service: service, thinking: thinking)
         }
     }
 
@@ -344,7 +345,7 @@ final class LabBenchRunner {
     /// parser reads a call to the expected tool.
     private func toolCase(
         _ labCase: LabCase, spoken: String, expectedTool: String,
-        setup: LabToolBench.Setup?, service: MlxCleanupService
+        setup: LabToolBench.Setup?, service: MlxCleanupService, thinking: Bool
     ) async -> LabCaseResult {
         guard let setup else {
             return LabCaseResult(
@@ -356,13 +357,15 @@ final class LabBenchRunner {
         let started = Date()
         let (raw, cost) = await service.generateWithToolsMeasured(
             messages: LabToolBench.messages(for: spoken, setup: setup),
-            toolSchemasJSON: setup.schemas)
+            toolSchemasJSON: setup.schemas, thinking: thinking)
         let latencyMs = Int(Date().timeIntervalSince(started) * 1000)
         let output = raw ?? ""
         let called = LabToolBench.calledTool(in: output, setup: setup)
         let passed = called == expectedTool
         var reasons: [String] = []
-        if called == nil {
+        if thinking, raw == nil, cost.generatedTokens > 0 {
+            reasons = ["still reasoning when the budget ran out (\(cost.generatedTokens) tokens)"]
+        } else if called == nil {
             reasons = ["no parseable tool call"]
         } else if !passed {
             reasons = ["called \(called!), expected \(expectedTool)"]
@@ -376,7 +379,8 @@ final class LabBenchRunner {
             latencyMs: latencyMs,
             promptTokens: cost.promptTokens, generatedTokens: cost.generatedTokens,
             tokensPerSecond: cost.tokensPerSecond,
-            expectedTool: expectedTool, calledTool: called)
+            expectedTool: expectedTool, calledTool: called,
+            reasoningTokens: thinking ? cost.reasoningTokens : nil)
     }
 
     // MARK: - Helpers
