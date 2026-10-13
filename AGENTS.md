@@ -27,7 +27,10 @@ evaluation harness and public accuracy dashboard.
 Speech recognition is NVIDIA Parakeet through FluidAudio; the optional deeper
 cleanup is qwen2.5-3B through MLX. Both run on the user's own machine. Audio is
 captured to memory, transcribed, and discarded — it is never written to a socket
-and never written to disk on the normal dictation path. **That property is the
+and never written to disk on the normal dictation path. **Meeting notes are the
+one deliberate exception** (`Meetings/`, dev builds only): after the user taps
+"Take notes", both sides of the call are written to disk and kept as the note's
+recording. They still never leave the Mac. **That property is the
 product**, not a feature of it. Any change that would send audio off-device is a
 different product and has to be argued as one.
 
@@ -48,6 +51,7 @@ Read in this order, and stop as soon as you have what you need.
    | `Auth/` | the Clerk sign-in gate, the OAuth redirect allowlist per build |
    | `Diagnostics/` | the developer-only session tracer (`DIAGNOSTICS` builds only) |
    | `Input/` | push-to-talk gestures, the fn+control assistant chord, paste routing |
+   | `Meetings/` | call detection, the call-audio process tap, meeting notes |
    | `Notes/` | voice notes and the hand-written `Codable` that must stay hand-written |
    | `Reminders/` | idle nudges and user reminders in the notch band |
    | `Speech/` | reading answers aloud, and why it must stay out of `Audio/` |
