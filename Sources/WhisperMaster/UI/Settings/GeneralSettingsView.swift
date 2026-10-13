@@ -26,6 +26,26 @@ struct GeneralSettingsView: View {
             // preferences.
             AssistantSettingsView(viewModel: viewModel, state: state)
 
+            if FeatureFlags.meetingNotesAvailable {
+                SectionLabel("Meetings")
+                SettingsCard {
+                    SettingsRow("Offer to take meeting notes",
+                                subtitle: "When a Slack huddle, Teams, Zoom or Meet call starts, the notch asks if you want notes. Nothing is recorded until you say yes, and the recording stays on this Mac.") {
+                        ThemeToggle(isOn: $state.meetingDetectionEnabled, label: "Offer to take meeting notes")
+                    }
+                    if !state.meetingIgnoredApps.isEmpty {
+                        HStack(spacing: 8) {
+                            Text("Never offered for \(state.meetingIgnoredApps.count) app\(state.meetingIgnoredApps.count == 1 ? "" : "s").")
+                                .font(Typography.caption)
+                                .foregroundStyle(Theme.textSecondary)
+                            Spacer(minLength: 8)
+                            SecondaryButton(title: "Reset") { state.meetingIgnoredApps = [] }
+                        }
+                        .padding(.top, 6)
+                    }
+                }
+            }
+
             SectionLabel("Startup")
             SettingsCard {
                 SettingsRow("Open at login",

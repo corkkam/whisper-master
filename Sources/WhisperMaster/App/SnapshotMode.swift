@@ -220,6 +220,18 @@ enum SnapshotMode {
             s.undeliveredText = "Ship the notch transcript today and see how it reads."
             s.undeliveredTranscriptAt = Date()
         }
+        // A call app took the mic: the one-time offer to take notes.
+        renderPill(dir, name: "pill-12-meeting-detected") { s in
+            s.phase = .idle
+            s.meetings.seedPromptForSnapshot(DetectedCall(
+                name: "Slack huddle", bundleFamily: "com.tinyspeck.slackmacgap",
+                calendarTitle: "Design review"))
+        }
+        renderPill(dir, name: "pill-12b-meeting-notes-saved") { s in
+            s.phase = .idle
+            s.meetings.seedReadyForSnapshot(title: "Design review")
+        }
+        renderMeetingLive(dir)
         renderPill(dir, name: "pill-6-bluetooth") { s in
             s.phase = .idle
             s.bluetoothInputActive = true
@@ -797,6 +809,30 @@ enum SnapshotMode {
         return json.compactMap {
             try? JSONDecoder().decode(KunaiWire.Event.self, from: Data($0.utf8))
         }
+    }
+
+    /// The floating live-notes window mid-meeting.
+    private static func renderMeetingLive(_ dir: URL) {
+        let controller = MeetingController()
+        let session = MeetingSession(
+            call: DetectedCall(name: "Google Meet", bundleFamily: "com.google.Chrome",
+                               calendarTitle: "Weekly sync"),
+            now: Date().addingTimeInterval(-14 * 60))
+        session.seedForSnapshot(
+            lines: [
+                (.others, 14_000, "Morning. Quick agenda: the beta numbers, then the pricing page."),
+                (.me, 31_000, "Sounds good. Beta first."),
+                (.others, 52_000, "We have 212 active installs, up from 180 last week. Crash rate is flat."),
+                (.me, 75_000, "Great. Can we move the pricing page launch to Friday?"),
+                (.others, 96_000, "Friday works. Priya will send the copy by Wednesday."),
+            ],
+            liveNotes: ["- Beta at 212 active installs, up from 180\n- Crash rate flat",
+                        "- Pricing page launch moves to Friday\n- Priya sends copy by Wednesday"],
+            ownNotes: "Ask about annual plan discount")
+        controller.seedSessionForSnapshot(session)
+        let view = MeetingLiveView(controller: controller)
+            .frame(width: 720, height: 480)
+        render(view, to: dir.appendingPathComponent("meeting-live.png"))
     }
 
     private static func renderPill(_ dir: URL, name: String, configure: (AppState) -> Void) {
