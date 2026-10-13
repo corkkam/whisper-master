@@ -34,6 +34,16 @@
 				<string>com.googleusercontent.apps.140047576864-ev40jmg8f2ju19j39qj1u761vse6ddhl</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>Microsoft OAuth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>msauth.app.whispermaster.mac</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1789392124</string>
@@ -47,6 +57,12 @@
 	<true/>
 	<key>GoogleOAuthClientID</key>
 	<string>140047576864-ev40jmg8f2ju19j39qj1u761vse6ddhl.apps.googleusercontent.com</string>
+	<!-- Entra ID public-client application id for Outlook and Teams sign-in.
+	     Empty keeps both dormant (MicrosoftOAuthConfig.isConfigured is false).
+	     Not a secret: a public client has none. Redirect URI on the registration:
+	     msauth.app.whispermaster.mac://auth -->
+	<key>MicrosoftOAuthClientID</key>
+	<string></string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>

@@ -87,6 +87,10 @@ extension SlackProvider: WriteCapableProvider {
             // Slack's own error names are the useful thing here — `channel_not_found`
             // and `not_in_channel` are different user problems.
             return .failed("Slack refused: \(detail)")
+        } catch ConnectorHTTP.Failure.unauthorized {
+            // `missing_scope` lands here too: a token made before `chat:write` was in
+            // the setup copy can read but never post.
+            return .failed("Slack refused: this token can't post. Add the chat:write scope, reinstall the app, then reconnect.")
         } catch {
             return .failed("Couldn't post to Slack.")
         }

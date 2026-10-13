@@ -299,7 +299,7 @@ struct GoogleSignInStep: View {
         let domain = identity[identity.index(after: at)...]
         guard let name = domain.split(separator: ".").first else { return identity }
         // A personal mailbox domain says nothing useful, so name it for what it is.
-        let generic: Set<String> = ["gmail", "googlemail", "icloud", "me", "outlook", "hotmail", "yahoo"]
+        let generic: Set<String> = ["gmail", "googlemail", "icloud", "me", "outlook", "hotmail", "live", "msn", "yahoo"]
         return generic.contains(name.lowercased()) ? "Personal" : name.capitalized
     }
 

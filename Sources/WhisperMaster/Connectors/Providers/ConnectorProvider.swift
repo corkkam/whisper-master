@@ -122,6 +122,8 @@ enum ProviderRegistry {
     private static let gmail = GmailProvider()
     private static let googleDrive = GoogleDriveProvider()
     private static let zoom = ZoomProvider()
+    private static let outlookGraph = OutlookGraphProvider()
+    private static let teams = TeamsProvider()
 
     /// Providers keyed by kind.
     ///
@@ -140,6 +142,7 @@ enum ProviderRegistry {
         case .gmail: return gmail
         case .googleDrive: return googleDrive
         case .zoom: return zoom
+        case .teams: return teams
         }
     }
 
@@ -151,8 +154,14 @@ enum ProviderRegistry {
         // one the connection can't be served at all, and saying so here is what turns it
         // into a visible failure state rather than reads that quietly return nothing.
         if instance.config.isManagedGoogleGrant, !GoogleOAuthConfig.isConfigured { return nil }
+        if instance.config.isManagedMicrosoftGrant, !MicrosoftOAuthConfig.isConfigured { return nil }
         if instance.kind == .googleCalendar, instance.config.googleCalendarIDs != nil {
             return googleCalendar
+        }
+        // Outlook's two shapes, the same split as Google Calendar's: signed in reads
+        // Graph, anything else reads the Exchange calendars macOS syncs.
+        if instance.kind == .outlook, instance.config.isManagedMicrosoftGrant {
+            return outlookGraph
         }
         return provider(for: instance.kind)
     }
@@ -186,8 +195,13 @@ enum ProviderRegistry {
         GoogleOAuthConfig.isConfigured ? gmail : nil
     }
 
+    /// The Graph-backed Outlook provider, when a Microsoft client id is in the build.
+    static var outlookGraphAPI: OutlookGraphProvider? {
+        MicrosoftOAuthConfig.isConfigured ? outlookGraph : nil
+    }
+
     /// The kinds this build offers to connect: **Apple Calendar, Google Calendar,
-    /// Gmail, Slack**, and nothing else for now.
+    /// Gmail, Slack, Outlook, Teams**, and nothing else for now.
     ///
     /// Every other catalogued kind keeps its descriptor, its provider and its tests —
     /// it is the *offer* that is narrowed, not the code deleted. Four connectors that
@@ -198,16 +212,29 @@ enum ProviderRegistry {
     /// This gate governs **new** connections only. `provider(for instance:)`
     /// deliberately does not consult it, so a connection a beta user already made
     /// keeps reading instead of going quietly dead.
-    static let shippedKinds: Set<ConnectorKind> = [.appleCalendar, .googleCalendar, .gmail, .slack]
+    static let shippedKinds: Set<ConnectorKind> = [
+        .appleCalendar, .googleCalendar, .gmail, .slack, .outlook, .teams,
+    ]
 
-    /// Whether the catalog may offer this kind today — it has a working provider
-    /// *and* it is in the shipped set. This is what the Add-connector sheet asks.
-    static func isConnectable(_ kind: ConnectorKind) -> Bool {
-        shippedKinds.contains(kind) && hasProvider(for: kind)
+    /// Whether the catalog may offer this kind today — it has a working provider,
+    /// it is in the shipped set, **and** this build has a way to connect it. That
+    /// last clause is for a kind whose only path is a sign-in (Teams): without a
+    /// client id in the build it has no form to fall back to, so it reads as
+    /// coming soon rather than opening a card whose one button can't work.
+    /// This is what the Add-connector sheet asks.
+    static func isConnectable(_ kind: ConnectorKind,
+                              microsoftConfigured: Bool = MicrosoftOAuthConfig.isConfigured) -> Bool {
+        guard shippedKinds.contains(kind), hasProvider(for: kind) else { return false }
+        let descriptor = ConnectorCatalog.descriptor(for: kind)
+        if descriptor.isConnectable { return true }
+        switch kind {
+        case .teams: return microsoftConfigured
+        default: return false
+        }
     }
 
     /// Catalog entries the user can actually connect right now.
     static var connectableKinds: [ConnectorKind] {
-        ConnectorKind.allCases.filter(isConnectable)
+        ConnectorKind.allCases.filter { isConnectable($0) }
     }
 }
