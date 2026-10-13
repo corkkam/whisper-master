@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notch rework: tabs, pinned connectors, settings</title>
+<style>
+:root{
+  --bg:#f6f4ef; --fg:#1b1d22; --muted:#5d6472; --rule:#dcd8cf; --card:#ffffff;
+  --ink:#07090e; --n-text:#f2efe9; --n-2:#aab3c4; --n-3:#8a94a8; --n-hair:rgba(255,255,255,.09);
+  --n-fill:rgba(255,255,255,.06); --n-fill2:rgba(255,255,255,.11);
+  --ember:#ff6a3d; --signal:#6ee7df; --danger:#ff5f52; --warn:#ffc25c;
+  --menubar:#e9e6df;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#14161b; --fg:#ecebe7; --muted:#9aa2b1; --rule:#2a2e36; --card:#1b1e24; --menubar:#2a2d33; }
+}
+:root[data-theme="dark"]{ --bg:#14161b; --fg:#ecebe7; --muted:#9aa2b1; --rule:#2a2e36; --card:#1b1e24; --menubar:#2a2d33; }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 Figtree,-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:17px;margin:36px 0 6px;border-top:1px solid var(--rule);padding-top:18px}
+h3{font-size:14px;margin:18px 0 6px}
+p,li{color:var(--fg);max-width:880px}
+.muted{color:var(--muted)}
+ul{padding-left:18px;margin:6px 0}
+a{color:var(--ember)}
+table{border-collapse:collapse;font-size:13px;min-width:640px}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{color:var(--muted);font-weight:600}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:5px;background:var(--fg);color:var(--bg);margin-right:6px}
+
+/* ---------- stage: menu bar + notch ---------- */
+.stage{background:var(--menubar);padding:0 0 22px;border-radius:10px;margin:10px 0 6px;min-width:720px}
+.menubar{height:32px;display:flex;justify-content:space-between;align-items:center;padding:0 14px;font-size:12px;color:var(--muted)}
+.band{position:relative;margin:-32px auto 0;background:var(--ink);color:var(--n-text);border-radius:0 0 22px 22px;padding-top:32px}
+.band:before,.band:after{content:"";position:absolute;top:0;width:14px;height:14px;background:radial-gradient(circle at 0 100%,transparent 13.5px,var(--ink) 14px)}
+.band:before{left:-14px;background:radial-gradient(circle at 0 100%,transparent 13.5px,var(--ink) 14px)}
+.band:after{right:-14px;background:radial-gradient(circle at 100% 100%,transparent 13.5px,var(--ink) 14px)}
+.camera{position:absolute;top:0;left:50%;transform:translateX(-50%);width:186px;height:32px;display:flex;align-items:center;justify-content:center}
+.camera i{width:6px;height:6px;border-radius:50%;background:#1b2130}
+.inner{padding:8px 18px 14px}
+.cap{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--n-3);margin:0 0 6px}
+.row{display:flex;align-items:center;gap:8px;font-size:13px;height:26px;white-space:nowrap}
+.row .t{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.row .d{color:var(--n-3);font-size:12px}
+.time{width:58px;color:var(--n-2);font-variant-numeric:tabular-nums;font-size:12px}
+.dim{opacity:.45}
+.box{width:13px;height:13px;border:1.5px solid var(--n-3);border-radius:4px;flex:none}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.pill{font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:99px;border:1px solid var(--n-hair);color:var(--n-text);background:var(--n-fill);white-space:nowrap}
+.pill.ember{background:var(--ember);border-color:var(--ember);color:#2a0d02}
+.ico{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;color:var(--n-2);font-size:12px}
+.badge{font-size:10px;font-weight:700;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--n-fill2);color:var(--n-text);display:inline-flex;align-items:center;justify-content:center}
+.badge.hot{background:var(--ember);color:#2a0d02}
+.pin{color:var(--ember);font-size:10px}
+.foot{display:flex;gap:8px;align-items:center;margin-top:10px}
+.sp{flex:1}
+.logo{width:16px;height:16px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff;flex:none}
+.l-gmail{background:#d44638}.l-slack{background:#4a154b}.l-gcal{background:#1a73e8}.l-ical{background:#e5484d}
+.toggle{width:28px;height:16px;border-radius:8px;background:var(--n-fill2);position:relative;flex:none}
+.toggle:after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--n-2)}
+.toggle.on{background:var(--signal)}
+.toggle.on:after{left:14px;background:#06201e}
+.kbd{font-size:11px;padding:1px 6px;border-radius:4px;border:1px solid var(--n-hair);color:var(--n-2)}
+
+/* A: top tab strip */
+.tabs{display:flex;gap:2px;align-items:center}
+.tab{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:8px;color:var(--n-2)}
+.tab.on{background:var(--n-fill2);color:var(--n-text)}
+.tab .badge{margin-left:2px}
+
+/* B: side rail */
+.railwrap{display:flex;gap:0}
+.rail{width:52px;border-right:1px solid var(--n-hair);display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 0}
+.rail .r{width:36px;height:36px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--n-3);font-size:14px;position:relative}
+.rail .r small{font-size:8.5px;font-weight:700;letter-spacing:.03em;margin-top:1px}
+.rail .r.on{background:var(--n-fill2);color:var(--n-text)}
+.rail .r .badge{position:absolute;top:-3px;right:-5px;transform:scale(.85)}
+.rail .grow{flex:1}
+
+/* C: home + pinned connector tabs */
+.ctabs{display:flex;gap:4px;align-items:center;border-bottom:1px solid var(--n-hair);padding-bottom:7px;margin-bottom:9px}
+.ctab{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;padding:4px 9px;border-radius:8px;color:var(--n-2)}
+.ctab.on{color:var(--n-text);box-shadow:inset 0 -2px 0 var(--ember);border-radius:0}
+
+.grid2{display:grid;grid-template-columns:1fr 232px;gap:22px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.cell{background:var(--n-fill);border-radius:12px;padding:10px 12px}
+.note{font-size:12px;color:var(--muted);margin:4px 0 0}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:820px){.pair{grid-template-columns:1fr}}
+.app{background:#fbfaf7;color:#1b1d22;border-radius:12px;padding:14px 16px;border:1px solid #e3dfd6;min-width:560px}
+.app .row{color:#1b1d22}
+.app .d{color:#6b7280}
+.app .togglebox{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:99px;border:1px solid #e3dfd6}
+.app .togglebox.on{border-color:#ff6a3d;color:#b53812;background:#fff1eb}
+</style>
+</head>
+<body>
+<main>
+<h1>Notch rework: tabs, pinned connectors, settings</h1>
+<p class="muted">Whisper Master quick-actions band. Today it shows one fixed view (Today + Recent notes + three buttons). The ask: a Notes tab, a Connectors tab that shows the connectors you pin in the app, and a Settings tab. Three layouts below. They are mocks only. No Swift was changed. Pick one (or mix parts) and I build it.</p>
+
+<h2>What the open-source notch apps do</h2>
+<div class="scroll"><table>
+<tr><th>App</th><th>License</th><th>Sections</th><th>Settings entry</th><th>Open / close</th></tr>
+<tr><td><a href="https://github.com/TheBoredTeam/boring.notch">boring.notch</a> (~10.9k)</td><td>GPL-3.0</td><td>Icon tabs top-left (Home, Shelf) in a capsule, sliding selection</td><td>Gear top-right, opens a window (can be hidden)</td><td>Hover with min duration, swipe down; closes 100 ms after exit. 640x190</td></tr>
+<tr><td><a href="https://github.com/Ebullioscopic/Atoll">Atoll</a> (~4.8k)</td><td>GPL-3.0</td><td>7+ icon tabs (Media, Stats, Timers, Clipboard, Notes...), a tab exists only if its feature is on</td><td>Gear + menu bar</td><td>Hover or swipe; width 640-770 by tab count</td></tr>
+<tr><td><a href="https://github.com/Lakr233/NotchDrop">NotchDrop</a> (~2.1k)</td><td>MIT</td><td>One tray, no tabs</td><td>Settings is a mode inside the notch</td><td>Click / drag-in. 600x160</td></tr>
+<tr><td><a href="https://github.com/monuk7735/mew-notch">MewNotch</a> (~555)</td><td>GPL-3.0</td><td>Reorderable items</td><td>Window</td><td>Hover, configurable delay</td></tr>
+<tr><td><a href="https://github.com/MrKai77/DynamicNotchKit">DynamicNotchKit</a> (~462)</td><td>MIT</td><td>Library: any SwiftUI view in the notch</td><td>n/a</td><td>expand() / compact()</td></tr>
+</table></div>
+<p class="note">What to take: tabs top-left, tools top-right (everyone converges on this); a tab appears only when it has something (Atoll), which fits "a pinned connector adds a tab"; one sliding selection capsule. GPL code (boring.notch, Atoll) is reference only, not copied. NotchNook / Alcove are closed source and were not inspected.</p>
+
+<h2>Rules all three variants keep</h2>
+<ul>
+<li>Opens on hover dwell, as today (<code>NotchHoverGesture</code>). Tab change is a click. Hover over a tab does not switch it (the pointer crosses tabs on the way down).</li>
+<li>No text fields in the band. It is a non-activating panel. Anything that needs typing still opens the window (New note, New reminder, Connect).</li>
+<li>Pin is per connection, not per kind: "Gmail - Work" and "Gmail - Personal" pin apart. Max 3 pins. Pinning happens in the app (Connectors page), unpin also works from the band.</li>
+<li>Connector rows are read-only. Click a row opens the item (mail, Slack thread, event) in its own app or browser.</li>
+<li>The band opens on the tab you used last. A blocked or error connection shows its error line, never an empty list.</li>
+<li>Settings tab holds only quick switches that take effect at once. Full Settings stays one click away.</li>
+</ul>
+
+<!-- ================= A ================= -->
+<h2><span class="tag">A</span>Tab strip in the header (boring.notch style)</h2>
+<p>One header row: tabs at the left, gear at the right. Gear is the Settings tab. The Connectors tab shows each pinned connection as a column. Familiar, low risk, closest to today's code (the header row already exists).</p>
+
+<div class="scroll"><div class="stage">
+  <div class="menubar"><span>Finder  File  Edit  View</span><span>Sat 4 Oct  10:42</span></div>
+  <div class="band" style="width:668px"><div class="camera"><i></i></div>
+    <div class="inner">
+      <div style="display:flex;align-items:center;margin-bottom:10px">
+        <div class="tabs">
+          <span class="tab">Today</span>
+          <span class="tab">Notes</span>
+          <span class="tab on">Connectors <span class="badge hot">5</span></span>
+        </div>
+        <span class="sp"></span>
+        <span class="ico">&#9881;</span>
+      </div>
+      <div class="grid3">
+        <div>
+          <div class="cap" style="display:flex;align-items:center;gap:6px"><span class="logo l-gmail">M</span>Gmail - Work <span class="sp"></span><span class="badge hot">3</span></div>
+          <div class="row"><span class="t">Q4 pricing review</span><span class="d">9:58</span></div>
+          <div class="row"><span class="t">Invoice #2231 from Vercel</span><span class="d">9:12</span></div>
+          <div class="row"><span class="t">Re: Seat expansion</span><span class="d">8:40</span></div>
+        </div>
+        <div>
+          <div class="cap" style="display:flex;align-items:center;gap:6px"><span class="logo l-slack">#</span>Slack - corkkam <span class="sp"></span><span class="badge hot">2</span></div>
+          <div class="row"><span class="t">@shobhit can you ship 1.2.1?</span><span class="d">#release</span></div>
+          <div class="row"><span class="t">Beta build crashes on launch</span><span class="d">#bugs</span></div>
+          <div class="row dim"><span class="t">Standup notes posted</span><span class="d">#team</span></div>
+        </div>
+        <div>
+          <div class="cap" style="display:flex;align-items:center;gap:6px"><span class="logo l-gcal">31</span>Google Calendar</div>
+          <div class="row"><span class="time">11:00</span><span class="t">Design sync</span><span class="pill">Join</span></div>
+          <div class="row"><span class="time">14:30</span><span class="t">Investor call</span></div>
+          <div class="row"><span class="time">17:00</span><span class="t">Gym</span></div>
+        </div>
+      </div>
+      <div class="foot"><span class="pill">&#8599; Open Connectors</span><span class="sp"></span><span class="d" style="font-size:12px;color:var(--n-3)">3 of 3 pinned</span></div>
+    </div>
+  </div>
+</div></div>
+
+<div class="pair">
+<div class="scroll"><div class="stage" style="min-width:auto">
+  <div class="menubar"><span></span><span>Notes tab</span></div>
+  <div class="band" style="width:520px"><div class="camera"><i></i></div>
+    <div class="inner">
+      <div style="display:flex;align-items:center;margin-bottom:10px">
+        <div class="tabs"><span class="tab">Today</span><span class="tab on">Notes</span><span class="tab">Connectors</span></div><span class="sp"></span><span class="ico">&#9881;</span>
+      </div>
+      <div class="cap">Pinned</div>
+      <div class="row"><span class="pin">&#9679;</span><span class="t">Pricing tiers draft</span><span class="d">2d</span></div>
+      <div class="cap" style="margin-top:8px">Recent</div>
+      <div class="row"><span class="d">&#8801;</span><span class="t">So I wanna build a voice studio.</span><span class="d">&#8767; 1h</span></div>
+      <div class="row"><span class="d">&#8801;</span><span class="t">Had a note.</span><span class="d">&#8767; 3h</span></div>
+      <div class="row"><span class="d">&#8801;</span><span class="t">Call list for Monday</span><span class="d">1d</span></div>
+      <div class="row"><span class="d">&#8801;</span><span class="t">Ideas for landing page hero</span><span class="d">2d</span></div>
+      <div class="foot"><span class="pill">&#9998; New note</span><span class="pill">&#128276; New reminder</span><span class="sp"></span><span class="pill">&#8599; All notes</span></div>
+    </div>
+  </div>
+</div></div>
+<div class="scroll"><div class="stage" style="min-width:auto">
+  <div class="menubar"><span></span><span>Settings tab (gear)</span></div>
+  <div class="band" style="width:520px"><div class="camera"><i></i></div>
+    <div class="inner">
+      <div style="display:flex;align-items:center;margin-bottom:10px">
+        <div class="tabs"><span class="tab">Today</span><span class="tab">Notes</span><span class="tab">Connectors</span></div><span class="sp"></span><span class="ico" style="background:var(--n-fill2);color:var(--n-text)">&#9881;</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;column-gap:20px">
+        <div class="row"><span class="t">Smart cleanup</span><span class="toggle on"></span></div>
+        <div class="row"><span class="t">Pause media while listening</span><span class="toggle on"></span></div>
+        <div class="row"><span class="t">Read answers aloud</span><span class="toggle on"></span></div>
+        <div class="row"><span class="t">Remove filler words</span><span class="toggle on"></span></div>
+        <div class="row"><span class="t">Sound effects</span><span class="toggle"></span></div>
+        <div class="row"><span class="t">Hide notch when idle</span><span class="toggle on"></span></div>
+      </div>
+      <div class="row" style="margin-top:4px"><span class="t d">Push to talk</span><span class="kbd">fn</span><span class="d">hold &middot; double-tap to latch</span></div>
+      <div class="foot"><span class="pill">&#8599; All settings</span><span class="sp"></span><span class="d" style="font-size:12px;color:var(--n-3)">v1.2.0</span></div>
+    </div>
+  </div>
+</div></div>
+</div>
+
+<!-- ================= B ================= -->
+<h2><span class="tag">B</span>Icon rail on the left</h2>
+<p>A narrow rail holds Today, Notes, Connectors, and Settings at the bottom. Content gets the full height. Badges sit on the rail icons, so you see "Slack has 2" from any tab. The Connectors tab is a list: pinned connections on the left, the selected one's items on the right. More room per connector, one extra click to switch connector.</p>
+
+<div class="scroll"><div class="stage">
+  <div class="menubar"><span>Finder  File  Edit  View</span><span>Sat 4 Oct  10:42</span></div>
+  <div class="band" style="width:668px"><div class="camera"><i></i></div>
+    <div class="railwrap" style="padding:6px 0 12px">
+      <div class="rail">
+        <div class="r"><span>&#9711;</span><small>TODAY</small></div>
+        <div class="r"><span>&#8801;</span><small>NOTES</small></div>
+        <div class="r on"><span>&#8853;</span><small>APPS</small><span class="badge hot">5</span></div>
+        <div class="grow"></div>
+        <div class="r"><span>&#9881;</span></div>
+      </div>
+      <div style="flex:1;padding:4px 16px 0;display:grid;grid-template-columns:190px 1fr;gap:16px">
+        <div>
+          <div class="cap">Pinned</div>
+          <div class="row" style="background:var(--n-fill2);border-radius:8px;padding:0 8px"><span class="logo l-gmail">M</span><span class="t">Gmail - Work</span><span class="badge hot">3</span></div>
+          <div class="row" style="padding:0 8px"><span class="logo l-slack">#</span><span class="t">Slack - corkkam</span><span class="badge hot">2</span></div>
+          <div class="row" style="padding:0 8px"><span class="logo l-gcal">31</span><span class="t">Google Calendar</span><span class="badge">3</span></div>
+          <div class="row" style="padding:0 8px;color:var(--n-3)"><span style="width:16px;text-align:center">+</span><span class="t">Pin a connector</span></div>
+        </div>
+        <div>
+          <div class="cap">Gmail - Work &middot; unread</div>
+          <div class="row"><span class="t"><b>Priya Shah</b> &nbsp;Q4 pricing review</span><span class="d">9:58</span></div>
+          <div class="row"><span class="t"><b>Vercel</b> &nbsp;Invoice #2231</span><span class="d">9:12</span></div>
+          <div class="row"><span class="t"><b>Arjun</b> &nbsp;Re: Seat expansion</span><span class="d">8:40</span></div>
+          <div class="row dim"><span class="t"><b>GitHub</b> &nbsp;[corkkam/whisper] PR #23 merged</span><span class="d">Fri</span></div>
+          <div class="row dim"><span class="t"><b>Linear</b> &nbsp;Weekly digest</span><span class="d">Fri</span></div>
+          <div class="foot" style="margin-top:6px"><span class="sp"></span><span class="pill">&#8599; Open Gmail</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div>
+<p class="note">Notes and Settings tabs use the same rail; their content matches the A panels above, laid out in the wider content area.</p>
+
+<!-- ================= C ================= -->
+<h2><span class="tag">C</span>Each pinned connector is its own tab</h2>
+<p>Tabs: Today, Notes, then one tab per pinned connection with its live count, then the gear. No separate "Connectors" page in the band: pinning a connector in the app adds a tab. One click from any tab to any connector. The tab bar grows with pins, so the cap of 3 matters most here.</p>
+
+<div class="scroll"><div class="stage">
+  <div class="menubar"><span>Finder  File  Edit  View</span><span>Sat 4 Oct  10:42</span></div>
+  <div class="band" style="width:668px"><div class="camera"><i></i></div>
+    <div class="inner">
+      <div class="ctabs">
+        <span class="ctab">Today</span>
+        <span class="ctab">Notes</span>
+        <span style="width:1px;height:16px;background:var(--n-hair);margin:0 4px"></span>
+        <span class="ctab"><span class="logo l-gmail">M</span>Work <span class="badge hot">3</span></span>
+        <span class="ctab on"><span class="logo l-slack">#</span>corkkam <span class="badge hot">2</span></span>
+        <span class="ctab"><span class="logo l-gcal">31</span>Calendar</span>
+        <span class="sp"></span>
+        <span class="ico">&#9881;</span>
+      </div>
+      <div class="cap">Mentions and DMs</div>
+      <div class="row"><span class="dot" style="background:var(--ember)"></span><span class="t"><b>Rahul</b> &nbsp;@shobhit can you ship 1.2.1 today?</span><span class="d">#release &middot; 10:31</span></div>
+      <div class="row"><span class="dot" style="background:var(--ember)"></span><span class="t"><b>Neha</b> &nbsp;Beta build crashes on launch for me</span><span class="d">#bugs &middot; 10:02</span></div>
+      <div class="row dim"><span class="dot" style="background:var(--n-3)"></span><span class="t"><b>Bot</b> &nbsp;Standup notes posted</span><span class="d">#team &middot; 9:30</span></div>
+      <div class="row dim"><span class="dot" style="background:var(--n-3)"></span><span class="t"><b>Kiran</b> &nbsp;Shared the new deck</span><span class="d">DM &middot; Fri</span></div>
+      <div class="foot"><span class="pill">&#8599; Open Slack</span><span class="sp"></span><span class="pill">Unpin</span></div>
+    </div>
+  </div>
+</div></div>
+
+<h3>Today tab in C (unchanged content, new header)</h3>
+<div class="scroll"><div class="stage">
+  <div class="menubar"><span></span><span></span></div>
+  <div class="band" style="width:668px"><div class="camera"><i></i></div>
+    <div class="inner">
+      <div class="ctabs">
+        <span class="ctab on">Today</span><span class="ctab">Notes</span>
+        <span style="width:1px;height:16px;background:var(--n-hair);margin:0 4px"></span>
+        <span class="ctab"><span class="logo l-gmail">M</span>Work <span class="badge hot">3</span></span>
+        <span class="ctab"><span class="logo l-slack">#</span>corkkam <span class="badge hot">2</span></span>
+        <span class="ctab"><span class="logo l-gcal">31</span>Calendar</span>
+        <span class="sp"></span><span class="ico">&#9881;</span>
+      </div>
+      <div class="grid2">
+        <div>
+          <div class="row dim"><span class="time">9:00</span><span class="box"></span><span class="t">Send invoice to Lyzr</span></div>
+          <div class="row"><span class="time">11:00</span><span class="dot" style="background:var(--signal)"></span><span class="t">Design sync</span><span class="pill">Join</span></div>
+          <div class="row"><span class="time">14:30</span><span class="dot" style="background:var(--signal)"></span><span class="t">Investor call</span><span class="d">Work</span></div>
+          <div class="row"><span class="time">18:00</span><span class="box"></span><span class="t">Call mom</span></div>
+        </div>
+        <div>
+          <div class="cap">Recent notes</div>
+          <div class="row"><span class="d">&#8801;</span><span class="t">So I wanna build a voice studio.</span><span class="d">&#8767;</span></div>
+          <div class="row"><span class="d">&#8801;</span><span class="t">Had a note.</span><span class="d">&#8767;</span></div>
+        </div>
+      </div>
+      <div class="foot"><span class="pill">&#128276; New reminder</span><span class="pill">&#9998; New note</span><span class="sp"></span><span class="pill">&#8599; Open all</span></div>
+    </div>
+  </div>
+</div></div>
+
+<!-- ================= pin control ================= -->
+<h2>Where you pick pinned connectors (in the app, all variants)</h2>
+<p>On the Connectors page, each connection row gets one "Show in notch" switch beside its status. Max 3; at the cap the switch on other rows is dimmed with the reason in a tooltip. Order of pins = order in the band (drag to reorder is a later step, not in v1).</p>
+<div class="scroll"><div class="app">
+  <div class="row" style="height:40px"><span class="logo l-gmail">M</span><span class="t"><b>Gmail - Work</b><br><span class="d">shobhit@lyzr.ai &middot; connected</span></span><span class="togglebox on">&#9679; In notch</span></div>
+  <div class="row" style="height:40px"><span class="logo l-slack">#</span><span class="t"><b>Slack - corkkam</b><br><span class="d">workspace corkkam &middot; connected</span></span><span class="togglebox on">&#9679; In notch</span></div>
+  <div class="row" style="height:40px"><span class="logo l-gcal">31</span><span class="t"><b>Google Calendar</b><br><span class="d">2 calendars &middot; connected</span></span><span class="togglebox on">&#9679; In notch</span></div>
+  <div class="row" style="height:40px;opacity:.55"><span class="logo l-ical">31</span><span class="t"><b>iCal</b><br><span class="d">All calendars &middot; connected</span></span><span class="togglebox">Show in notch</span></div>
+</div></div>
+
+<h2>Recommendation</h2>
+<p><b>C</b> if the connectors are the reason to open the band: it puts each pinned app one click away and shows its count before you click. <b>A</b> if you want the smallest change to today's code and a stable tab bar. B costs the most width and adds a second click per connector, so I would not pick it.</p>
+
+<h2>Open points</h2>
+<ul>
+<li>Calendar connections already feed the Today tab. Should a pinned calendar also get its own tab (shown in the mocks), or should calendars be pin-free and only mail/Slack get pins?</li>
+<li>Counts need a live read. Plan: refresh pinned connectors when the band opens and every 5 min while the app runs, never on each hover tick.</li>
+<li>Settings tab switches: the six shown are a proposal. Tell me which ones you want there.</li>
+</ul>
+</main>
+</body>
+</html>
