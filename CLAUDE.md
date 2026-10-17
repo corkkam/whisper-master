@@ -99,11 +99,12 @@ WM_AGENT_TOOL_EVAL=1 "./build/Whisper Master.app/Contents/MacOS/WhisperMaster"
 **It must be the app bundle, not `.build/debug/WhisperMaster`.** The SwiftPM binary
 dies with `Failed to load the default metallib` — MLX's Metal shaders are a bundle
 resource only `xcodebuild` stages. The bench needs the **assistant** model
-(`Qwen3-4B-Instruct-2507-4bit`, ~2.3 GB) installed under
-`~/Library/Application Support/FluidAudio/Models/`; without it the bench prints
-`ABORT` and exits, so it is safe to run anywhere. To install it outside the app,
-fetch `$(ModelInstaller.mirrorBaseURL)/Qwen3-4B-Instruct-2507-4bit.zip`, check the
-digest against `ModelChecksums.sha256`, and unzip it into that directory.
+(`CleanupModel.General.archiveName`, Qwen3-4B-Thinking-2507-4bit since 2026-10-17,
+~2.3 GB) installed under `~/Library/Application Support/FluidAudio/Models/`; without it
+the bench prints `ABORT` and exits, so it is safe to run anywhere. To install it outside
+the app: `uvx --from huggingface_hub hf download mlx-community/Qwen3-4B-Thinking-2507-4bit
+--local-dir "<that dir>/Qwen3-4B-Thinking-2507-4bit"`. The measurements below were taken
+on Instruct-2507, before the switch.
 
 The three arms are `via clean` (the retired routing, kept as the control),
 `hand-rolled` (what ships) and `native` (the chat template's own tools mechanism,

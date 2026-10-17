@@ -7,6 +7,8 @@ Loaded when Claude works under this directory. Moved verbatim out of the root
 
 `TranscriberEngine` has a **single case**, `slidingWindow` ("Heavy", NVIDIA Parakeet **`parakeet-tdt-0.6b-v2`** — the **English-only** build, chosen on purpose: more accurate on English, and without v3's multilingual long-form chunk-boundary content drops (FluidAudio #594). This file said `v3` for a while and the error propagated — it is what put a bogus "the ASR is multilingual but the cleanup model is English-only" blocker into `eval/text-cleanup/judgment.md`. The name lives in `LocalStreamingTranscriber.cacheDirectoryName`; read it there before writing it down anywhere else), implemented by `FluidAudioStreamingTranscriber` (conforms to `LocalStreamingTranscriber`, `Sendable`). An earlier "Light"/EOU streaming engine **and** an Apple Foundation Models transcript-cleanup pass were both removed — the LLM added latency without gains since Parakeet already emits punctuation/capitalization. The enum is kept (one case) for metadata + future engines. `PrototypeViewModel.transcriber` is now a single stored property.
 
+**Parakeet Ultra was measured and lost (2026-10-17).** Ultra (FluidAudio 0.17.3+, `AsrModelVersion.ultra`, the post-trained multilingual v3) is the strongest model in FluidAudio's own LibriSpeech table, so it was tried as the default. Through this app's sliding-window path on the seven committed `Fixtures/audio` recordings, raw ASR against `paragraphs.md`: **v2 11.6% mean WER, Ultra 16.2%**; on the long paragraph-6, v2 3.4% vs Ultra 8.4%, with Ultra dropping words mid-sentence ("watch the boats coming", "from little stand"), the same long-form failure that kept v3 out. Part of Ultra's loss on paragraph-4 is written-form output ("$2,500") the ITN pass would produce anyway, but paragraph-6 is a real regression. v2 stays. To re-run: bump FluidAudio to 0.17.7 in both `Package.swift` and `project.yml` (it builds with no API change) and A/B with `FluidAudioStreamingTranscriber(modelVersion: .ultra)` the way `testParakeetV2vsV3` does.
+
 **One track, and no live preview of it.** `SlidingWindowAsrManager` only decodes once it holds `chunkSeconds + rightContextSeconds` of audio, so at the shipped `.streaming` config (11 s + 2 s) it emits **nothing for the first 13 seconds** — longer than a typical dictation, so on a short one the notch shows no words at all and the whole transcript lands at once from `finish()`/`flushRemaining()` when the key comes up. That is the accepted behaviour. (`SlidingWindowAsrConfig.hypothesisChunkSeconds` advertises "quick hypothesis updates for immediate feedback" but **nothing in FluidAudio ever reads it** — there is no hypothesis track to enable.)
 - **The short-window "preview" track was removed on purpose — do not bring it back.** A second `SlidingWindowAsrManager` (1.5 s chunk, `confirmationThreshold: 0`) used to run off the same mic buffers purely to paint the notch while you were still speaking, carried on `StreamingTranscriptUpdate.isPreview` and displayed through `previewTranscript` / `TranscriptMerger.tidiedPreview`. The live text was not wanted, and it cost an extra encoder pass per window for the length of every recording. All of it — the second manager, the `isPreview` flag, `tidiedPreview`, and the replay test that locked the split in — is gone.
 - **Do not "add live text" by lowering `chunkSeconds` either.** `finish()` reconstructs the final transcript from those same windows, so shorter windows mean less acoustic context and a worse transcript — the one thing that actually gets pasted. Models download on demand into `~/Library/Application Support/FluidAudio/Models/<cacheDirectoryName>`; `TranscriberEngine.isInstalled` is a filesystem check, so callers must not cache it. (The removed cleanup pass above was the *Apple Foundation Models* one; a separate **opt-in MLX qwen cleanup** was later added — see below.)
@@ -15,10 +17,24 @@ Loaded when Claude works under this directory. Moved verbatim out of the root
 
 **Two models, because these are two jobs.** Cleanup runs **S1-mini by Superwhisper**
 (`MlxCleanupService.shared`) — a 0.6B text normalizer fine-tuned from Qwen3-0.6B,
-converted here to 4-bit: 335 MB on disk, ~100 ms. Tool calling and intent run
-**Qwen3-4B-Instruct-2507** (`CleanupModel.General`, `MlxCleanupService.general`),
-whose 2507 instruct build carries a real function-calling posture and is non-thinking
-by default so it never emits `<think>` blocks that break the loop's JSON parse.
+converted here to 4-bit: 335 MB on disk, ~100 ms. Tool calling, intent and meeting
+notes run **Qwen3-4B-Thinking-2507** (`CleanupModel.General`, `MlxCleanupService.general`)
+since 2026-10-17, the best reasoning model the pinned mlx-swift-examples 2.29.1 can
+load (Qwen3.5-4B and Gemma 4 need a newer mlx-swift-lm). **It always reasons first**,
+so every call passes `thinking: CleanupModel.General.thinks`: the reasoning budget
+(2048 extra tokens, 60 s), `splitReasoning` to drop the `<think>` block, nil when the
+budget runs out mid-reasoning, and `AgentLoop.reasoningBudget` (90 s) on the chord.
+The trade was made knowingly: the Lab measured it 15/16 at 10.7 s p50 against
+Instruct-2507's 16/16 at 3.9 s (see `Lab/CLAUDE.md`). Instruct-2507 is still in the Lab
+catalogue; going back is the two ids in `CleanupModel.General` plus the badge in
+`LabCatalog`. **The thinking archive is not on the R2 mirror yet**, so installs take the
+Hugging Face path, which lands in `~/Documents/huggingface/models/` and is found there
+by `General.installedDirectory`. **Measured after the switch (2026-10-17, `WM_AGENT_TOOL_EVAL`, 16 commands):**
+hand-rolled (the shipped arm) 14/16 correct tool, native 15/16, against Instruct-2507's
+16/16 in August. The two hand-rolled misses: `create_reminder` with `body` instead of
+`title` (the parser correctly refuses a call missing a required argument), and "message
+design and ops" still reasoning at the 60 s budget. The grounding turn answered from
+both calendars correctly. The 49 generations took ~15 min on this Mac, ~18 s each.
 
 Measured end to end through the app on `eval/text-cleanup/cases.jsonl` with the guard
 applied: the outgoing qwen2.5-3B scored **85/89 at ~250 ms on 1.5 GB**, S1-mini scores

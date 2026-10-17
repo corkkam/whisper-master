@@ -1,3 +1,4 @@
+import FluidAudio
 import Foundation
 
 /// Puts the natural voice's models on disk, R2 mirror first.
@@ -96,11 +97,33 @@ enum NaturalVoiceInstaller {
 
     // MARK: - Install
 
-    /// Downloads whatever is missing. Throws if the mirror can't provide it — the caller
-    /// keeps using the system voice, which is why there's no HuggingFace fallback here:
-    /// silence is not on the table, so a failed download is just "stay on the system
-    /// voice and say so in Settings".
+    /// Downloads whatever is missing: from the mirror first, then from Hugging Face
+    /// through FluidAudio's own `KokoroAneManager.initialize()`, which writes to the
+    /// same `~/.cache/fluidaudio/Models/` paths `isInstalled` checks.
+    ///
+    /// The fallback exists because the natural voice is the default answer voice, and
+    /// neither archive is on the mirror yet (`kokoro-82m-coreml` and `kokoro` both 404,
+    /// and neither has a `ModelChecksums` pin). Until they are published and pinned,
+    /// every install takes the Hugging Face path. If that fails too, this throws and
+    /// the caller stays on the system voice: silence is never an outcome.
     static func install(onProgress: @escaping @Sendable (ModelInstaller.Progress) -> Void) async throws {
+        do {
+            try await installFromMirror(onProgress: onProgress)
+        } catch {
+            Log.modelPrep.error(
+                "Natural voice mirror install failed, using Hugging Face: \(error.localizedDescription, privacy: .public)")
+            onProgress(ModelInstaller.Progress(
+                fractionCompleted: 0, detail: "downloading from backup source (slower)"))
+            let manager = KokoroAneManager(variant: .english)
+            try await manager.initialize()
+            await manager.cleanup()
+            guard isInstalled else { throw ModelInstaller.InstallError.incompleteAfterUnpack }
+        }
+    }
+
+    private static func installFromMirror(
+        onProgress: @escaping @Sendable (ModelInstaller.Progress) -> Void
+    ) async throws {
         let share = chainShareOfProgress
         try await ModelInstaller.installIfNeeded(
             archiveName: chainArchive,

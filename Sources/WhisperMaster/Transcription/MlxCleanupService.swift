@@ -328,10 +328,12 @@ actor MlxCleanupService {
     func generateWithTools(
         messages: [[String: String]],
         toolSchemasJSON: [String],
-        maxTokens: Int = 512
+        maxTokens: Int = 512,
+        thinking: Bool = false
     ) async -> String? {
         await generateWithToolsMeasured(
-            messages: messages, toolSchemasJSON: toolSchemasJSON, maxTokens: maxTokens).text
+            messages: messages, toolSchemasJSON: toolSchemasJSON, maxTokens: maxTokens,
+            thinking: thinking).text
     }
 
     /// `generateWithTools`, with what it cost — the tool-calling bench's half of
@@ -438,8 +440,13 @@ actor MlxCleanupService {
     /// None of that is `clean`'s fault — it was never the agent's generator. Returns
     /// `nil` on the same terms as `clean`, so the loop's budget race and fallback are
     /// unchanged. `AgentToolEval`'s `via clean` arm is the regression guard.
+    ///
+    /// `thinking` is `CleanupModel.General.thinks` at every shipped call site: the
+    /// reasoning model writes a `<think>` block first, so it gets the reasoning
+    /// budget, and a run that stops before `</think>` returns nil rather than
+    /// handing its reasoning to a parser as though it were the answer.
     func generateAgent(
-        _ user: String, systemPrompt: String, maxTokens: Int = 384
+        _ user: String, systemPrompt: String, maxTokens: Int = 384, thinking: Bool = false
     ) async -> String? {
         guard case .ready(let container) = state else { return nil }
         let trimmed = user.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -450,8 +457,9 @@ actor MlxCleanupService {
             let (raw, _) = try await container.perform { (context: ModelContext) in
                 try Self.generateFresh(
                     context: context, user: trimmed,
-                    maxTokens: maxTokens, systemPrompt: systemPrompt)
+                    maxTokens: maxTokens, systemPrompt: systemPrompt, thinking: thinking)
             }
+            if thinking, Self.splitReasoning(raw).answer == nil { return nil }
             return Self.sanitize(raw)
         } catch {
             return nil
@@ -528,7 +536,8 @@ actor MlxCleanupService {
     /// What is left is what the model card's own reference implementation does:
     /// tokenize `[system, user]`, generate, done.
     private static func generateFresh(
-        context: ModelContext, user: String, maxTokens: Int, systemPrompt: String
+        context: ModelContext, user: String, maxTokens: Int, systemPrompt: String,
+        thinking: Bool = false
     ) throws -> (String, GenerationCost) {
         let tokens = try context.tokenizer.applyChatTemplate(
             messages: [
@@ -537,17 +546,21 @@ actor MlxCleanupService {
             ],
             chatTemplate: nil, addGenerationPrompt: true,
             truncation: false, maxLength: nil, tools: nil,
-            additionalContext: Self.templateContext)
+            additionalContext: thinking ? ["enable_thinking": true] : Self.templateContext)
 
         let input = LMInput(tokens: MLXArray(tokens.map { Int32($0) }))
-        let params = GenerateParameters(maxTokens: maxTokens, temperature: 0)
+        // Reasoning comes before the answer, so it is added to the answer's budget
+        // rather than competing with it.
+        let budget = thinking ? maxTokens + reasoningMaxTokens : maxTokens
+        let timeout = thinking ? reasoningTimeoutSeconds : timeoutSeconds
+        let params = GenerateParameters(maxTokens: budget, temperature: 0)
         let cache = context.model.newCache(parameters: nil)
         let iterator = try TokenIterator(
             input: input, model: context.model, cache: cache, parameters: params)
 
         let start = Date()
         let result = MLXLMCommon.generate(input: input, context: context, iterator: iterator) {
-            (_: [Int]) in Date().timeIntervalSince(start) > timeoutSeconds ? .stop : .more
+            (_: [Int]) in Date().timeIntervalSince(start) > timeout ? .stop : .more
         }
         Stream.gpu.synchronize()
         let cost = GenerationCost(
@@ -625,7 +638,8 @@ actor MlxCleanupService {
     /// integration bug, and it is invisible until you read the raw output.
     private static let templateContext: [String: Any] = ["enable_thinking": false]
 
-    /// The budget a reasoning generation gets in the Model Lab. A 4B model at
+    /// The budget a reasoning generation gets, in the Model Lab and on every
+    /// shipped call to the reasoning assistant. A 4B model at
     /// ~40 tokens a second spends most of a minute thinking about one tool call;
     /// the shipped 512 tokens / 12 s cut every one off before it answered.
     static let reasoningMaxTokens = 2048
