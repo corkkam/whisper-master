@@ -75,3 +75,19 @@ final class LabArenaTests: XCTestCase {
         return result
     }
 }
+
+final class LabStopTokensTests: XCTestCase {
+    func testOnlyMarkersInTheVocabularyAreUsed() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lab-stop-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tokenizer = #"{"added_tokens":[{"id":1,"content":"<eos>"},{"id":106,"content":"<end_of_turn>"},{"id":2,"content":"<start_of_turn>"}]}"#
+        try Data(tokenizer.utf8).write(to: directory.appendingPathComponent("tokenizer.json"))
+        XCTAssertEqual(LabStopTokens.endOfTurn(in: directory), ["<end_of_turn>"])
+    }
+
+    func testAMissingTokenizerAddsNothing() {
+        XCTAssertEqual(LabStopTokens.endOfTurn(in: URL(fileURLWithPath: "/nonexistent")), [])
+    }
+}

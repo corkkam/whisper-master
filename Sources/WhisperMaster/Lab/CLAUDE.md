@@ -109,6 +109,14 @@ lowercased>` so it can never collide with a built-in one.
   until `NWPathMonitor` reports. `LabHuggingFace.download` retries
   `offlineModeError` twice. The client also counts Low Data Mode and a phone
   hotspot as offline, which no retry fixes, and the error says so.
+- **⚠️ Generation stops on the chat template's end-of-turn token, not only on
+  `eos_token`.** Gemma ends a turn with `<end_of_turn>` and Phi-4-mini with
+  `<|end|>`, while their `eos_token` is something else, so without
+  `LabStopTokens` both wrote invented follow-up turns, the guard rejected every
+  output, and run 7 scored them as the no-op fallback. The markers are read from
+  each model's own `tokenizer.json`. This applies to the lab's configuration only;
+  pointing the shipped cleanup slot at such a model on a dev build still uses a
+  configuration without them.
 - **Remove takes the files with it.** An added model off the list is a download
   nobody can reach from the page. Saved runs keep their results under its name.
 - Live check of the API shape: `LAB_HF_LIVE=1 swift test --filter LabHuggingFaceTests`
