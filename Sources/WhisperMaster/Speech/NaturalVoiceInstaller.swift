@@ -26,14 +26,21 @@ import Foundation
 /// subdirectory (the mono and Mandarin variants are dead weight we never load):
 ///
 /// ```bash
-/// ditto -c -k --keepParent kokoro-82m-coreml kokoro-82m-coreml.zip
-/// ditto -c -k --keepParent kokoro           kokoro.zip
-/// # upload both to whisper-master/models/ on R2
+/// ditto -c -k --norsrc --noextattr --keepParent kokoro-82m-coreml kokoro-82m-coreml.zip
+/// ditto -c -k --norsrc --noextattr --keepParent kokoro           kokoro.zip
+/// # upload both to models/ in the R2 bucket ($R2_BUCKET), then pin both in ModelChecksums
 /// ```
 ///
-/// Do the pull with every voice pack present (they're ~0.5 MB each) so the archive
-/// carries them all. Otherwise switching voice in Settings triggers FluidAudio's own
-/// per-voice HuggingFace fetch, which is the one path this whole type exists to avoid.
+/// - `ANE/` must hold every `NaturalVoiceCatalog` voice as `<id>.bin`. Upstream
+///   (FluidInference/kokoro-82m-coreml) publishes only `af_heart.bin` in that form; the
+///   rest exist only as `voices/<id>.json`. Convert each: keys "1" to "510" in order,
+///   256 floats per key, written as float32 little-endian. This is byte-identical to the
+///   upstream `af_heart.bin` when applied to `af_heart.json`.
+/// - Keep both `KokoroNoise.mlmodelc` and `KokoroNoise_v2.mlmodelc`. FluidAudio 0.15
+///   loads `_v2`, which this check now names. Builds shipped before 2026-10-14 check for
+///   the old name and still install unpinned archives, so they fetch the same zip.
+/// - Keep `kokoro/us_lexicon_cache.json`, or every `initialize()` makes a best-effort
+///   HuggingFace request.
 enum NaturalVoiceInstaller {
 
     /// The 7-stage CoreML chain plus its vocab and default voice pack.
@@ -65,7 +72,7 @@ enum NaturalVoiceInstaller {
     /// `ModelNames.KokoroAne.requiredModels`, which is what FluidAudio itself checks.
     private static let chainFiles = [
         "KokoroAlbert.mlmodelc", "KokoroPostAlbert.mlmodelc", "KokoroAlignment.mlmodelc",
-        "KokoroProsody.mlmodelc", "KokoroNoise.mlmodelc", "KokoroVocoder.mlmodelc",
+        "KokoroProsody.mlmodelc", "KokoroNoise_v2.mlmodelc", "KokoroVocoder.mlmodelc",
         "KokoroTail.mlmodelc", "vocab.json", "af_heart.bin"
     ]
 
