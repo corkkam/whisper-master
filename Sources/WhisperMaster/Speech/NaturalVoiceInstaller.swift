@@ -1,3 +1,4 @@
+import FluidAudio
 import Foundation
 
 /// Puts the natural voice's models on disk, R2 mirror first.
@@ -37,8 +38,16 @@ import Foundation
 ///   256 floats per key, written as float32 little-endian. This is byte-identical to the
 ///   upstream `af_heart.bin` when applied to `af_heart.json`.
 /// - Keep both `KokoroNoise.mlmodelc` and `KokoroNoise_v2.mlmodelc`. FluidAudio 0.15
-///   loads `_v2`, which this check now names. Builds shipped before 2026-10-14 check for
-///   the old name and still install unpinned archives, so they fetch the same zip.
+///   loads `_v2`. Builds shipped before 2026-10-14 check for the old name and still
+///   install unpinned archives, so they fetch the same zip.
+/// - **A FluidAudio bump can invalidate the archive.** FluidAudio renames a stage
+///   (rather than overwriting it) to force cached clients to re-download, as it did
+///   with `KokoroNoise_v2`. `isInstalled` reads FluidAudio's own file lists, so after
+///   such a bump every install reads as missing and the mirror download fails with
+///   `incompleteAfterUnpack` until a rebuilt archive is uploaded and re-pinned. That
+///   is the honest failure: the system voice speaks and Settings says why. Copying
+///   the names here instead is what let `_v2` drift — the app reported the voice
+///   installed while FluidAudio went to HuggingFace for a file the check never named.
 /// - Keep `kokoro/us_lexicon_cache.json`, or every `initialize()` makes a best-effort
 ///   HuggingFace request.
 enum NaturalVoiceInstaller {
@@ -47,6 +56,9 @@ enum NaturalVoiceInstaller {
     private static let chainArchive = "kokoro-82m-coreml"
     /// The shared English text→IPA assets, pinned to their own directory by FluidAudio.
     private static let g2pArchive = "kokoro"
+
+    /// Both archives, for the test that locks their pins in `ModelChecksums`.
+    static let archiveNames = [chainArchive, g2pArchive]
 
     /// The chain is by far the larger download; splitting the bar this way keeps it from
     /// stalling at 99% while the small archive lands.
@@ -68,16 +80,13 @@ enum NaturalVoiceInstaller {
         modelsRoot.appendingPathComponent("kokoro", isDirectory: true)
     }
 
-    /// The 7 `.mlmodelc` bundles, the vocab, and the default voice pack — mirroring
-    /// `ModelNames.KokoroAne.requiredModels`, which is what FluidAudio itself checks.
-    private static let chainFiles = [
-        "KokoroAlbert.mlmodelc", "KokoroPostAlbert.mlmodelc", "KokoroAlignment.mlmodelc",
-        "KokoroProsody.mlmodelc", "KokoroNoise_v2.mlmodelc", "KokoroVocoder.mlmodelc",
-        "KokoroTail.mlmodelc", "vocab.json", "af_heart.bin"
-    ]
+    /// The 7 `.mlmodelc` bundles, the vocab, and the default voice pack. Read from
+    /// FluidAudio rather than copied, because it is exactly the set
+    /// `KokoroAneResourceDownloader` checks before it reaches for HuggingFace.
+    private static var chainFiles: Set<String> { ModelNames.KokoroAne.requiredModels }
 
-    /// `ModelNames.G2P.requiredModels`.
-    private static let g2pFiles = ["G2PEncoder.mlmodelc", "G2PDecoder.mlmodelc", "g2p_vocab.json"]
+    /// The G2P assets, likewise the set FluidAudio itself checks.
+    private static var g2pFiles: Set<String> { ModelNames.G2P.requiredModels }
 
     // MARK: - State
 
@@ -88,7 +97,7 @@ enum NaturalVoiceInstaller {
         exists(chainFiles, in: chainDirectory) && exists(g2pFiles, in: g2pDirectory)
     }
 
-    private static func exists(_ names: [String], in directory: URL) -> Bool {
+    private static func exists(_ names: Set<String>, in directory: URL) -> Bool {
         names.allSatisfy {
             FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path)
         }
