@@ -326,14 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Voice engine: download only if the model isn't already on disk, else
         // just load it. Runs in parallel with the single-step permissions
         // screen — model prep only needs the network, not mic/accessibility.
-        //
-        // Not under the headless lab bench: it builds its own transcriber for the
-        // audio suite, and the launch-time Parakeet load racing the first MLX
-        // generation crashed a bench run on a Metal assertion ("Completed handler
-        // provided after commit call") a minute in.
-        if !LabHeadlessBench.isRequested {
-            viewModel.prepareDefaultEngineOnLaunch()
-        }
+        viewModel.prepareDefaultEngineOnLaunch()
 
         // Advertise the LAN transcription service so a paired phone can stream
         // audio here and use this Mac's models — but only if the user asked for
