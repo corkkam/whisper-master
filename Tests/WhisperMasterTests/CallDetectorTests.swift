@@ -9,16 +9,37 @@ final class CallDetectorTests: XCTestCase {
 
     private func at(_ seconds: TimeInterval) -> Date { t0.addingTimeInterval(seconds) }
 
-    private func mic(_ ids: String..., titles: [String: [String]] = [:], calendar: String? = nil) -> CallEvidence {
-        CallEvidence(micBundleIDs: ids, browserTitles: titles, calendarTitle: calendar)
+    private func mic(_ ids: String..., playing: [String] = [], titles: [String: [String]] = [:],
+                     calendar: String? = nil) -> CallEvidence {
+        CallEvidence(micBundleIDs: ids, browserTitles: titles, calendarTitle: calendar, outputBundleIDs: playing)
     }
 
     // MARK: - What counts as a call
 
     func testANativeCallAppOnTheMicIsACall() {
-        let call = CallDetector.call(in: mic("com.tinyspeck.slackmacgap"))
+        let call = CallDetector.call(in: mic("com.tinyspeck.slackmacgap", playing: ["com.tinyspeck.slackmacgap"]))
         XCTAssertEqual(call?.name, "Slack huddle")
         XCTAssertEqual(call?.bundleFamily, "com.tinyspeck.slackmacgap")
+    }
+
+    func testRecordingAVoiceMessageIsNotACall() {
+        // Slack, WhatsApp and Telegram hold the mic for a voice message as long as
+        // the user talks, but play nothing while they do.
+        XCTAssertNil(CallDetector.call(in: mic("com.tinyspeck.slackmacgap")))
+        XCTAssertNil(CallDetector.call(in: mic("net.whatsapp.WhatsApp", playing: ["com.apple.Music"])))
+        // A call plays the other side, often from a helper process.
+        XCTAssertEqual(CallDetector.call(in: mic(
+            "net.whatsapp.WhatsApp", playing: ["net.whatsapp.WhatsApp.helper"]))?.name, "WhatsApp call")
+        // Apps with no voice messages need no output to count.
+        XCTAssertEqual(CallDetector.call(in: mic("us.zoom.xos"))?.name, "Zoom")
+    }
+
+    func testAVoiceMessageNeverStartsACallHoweverLongItRuns() {
+        var detector = CallDetector()
+        for second in stride(from: 0.0, through: 60, by: 2) {
+            XCTAssertNil(detector.update(mic("com.tinyspeck.slackmacgap"), now: at(second)))
+        }
+        XCTAssertNil(detector.active)
     }
 
     func testAHelperProcessCountsForItsApp() {
@@ -72,11 +93,11 @@ final class CallDetectorTests: XCTestCase {
 
     func testAShortMicGrabNeverStartsACall() {
         var detector = CallDetector()
-        XCTAssertNil(detector.update(mic("com.tinyspeck.slackmacgap"), now: at(0)))
+        XCTAssertNil(detector.update(mic("us.zoom.xos"), now: at(0)))
         XCTAssertNil(detector.update(mic(), now: at(2)))
-        XCTAssertNil(detector.update(mic("com.tinyspeck.slackmacgap"), now: at(4)))
+        XCTAssertNil(detector.update(mic("us.zoom.xos"), now: at(4)))
         // The hold restarted at 4 s, so 6 s is still too soon.
-        XCTAssertNil(detector.update(mic("com.tinyspeck.slackmacgap"), now: at(6)))
+        XCTAssertNil(detector.update(mic("us.zoom.xos"), now: at(6)))
     }
 
     func testABriefDropDoesNotEndTheCall() {
@@ -100,6 +121,45 @@ final class CallDetectorTests: XCTestCase {
         var detector = startedDetector()
         XCTAssertNil(detector.update(mic("com.tinyspeck.slackmacgap"), now: at(10)))
         XCTAssertEqual(detector.update(mic("com.tinyspeck.slackmacgap"), now: at(25)), .ended)
+    }
+
+    func testAnotherCallAppListedFirstDoesNotHideTheCall() {
+        var detector = startedDetector()
+        let both = mic("com.microsoft.teams2", "us.zoom.xos")
+        XCTAssertNil(detector.update(both, now: at(10)))
+        XCTAssertNil(detector.update(both, now: at(40)))
+        XCTAssertEqual(detector.active?.name, "Zoom")
+    }
+
+    func testSwitchingAwayFromTheMeetingTabDoesNotEndTheCall() {
+        var detector = CallDetector()
+        let meet = mic("com.google.Chrome.helper", titles: ["com.google.Chrome": ["Meet - abc-defg-hij"]])
+        _ = detector.update(meet, now: at(0))
+        XCTAssertEqual(detector.update(meet, now: at(3)), .started(
+            DetectedCall(name: "Google Meet", bundleFamily: "com.google.Chrome", calendarTitle: nil)))
+        // The front tab is a doc now; Chrome still holds the mic for the call.
+        let docs = mic("com.google.Chrome.helper", titles: ["com.google.Chrome": ["Q3 plan - Google Docs"]])
+        XCTAssertNil(detector.update(docs, now: at(10)))
+        XCTAssertNil(detector.update(docs, now: at(60)))
+        // And coming back to the tab is the same meeting, not a second offer.
+        XCTAssertNil(detector.update(meet, now: at(62)))
+        XCTAssertNotNil(detector.active)
+    }
+
+    func testACallOutlivesItsCalendarEvent() {
+        var detector = CallDetector()
+        let during = mic("com.apple.WebKit.GPU", calendar: "Design review")
+        _ = detector.update(during, now: at(0))
+        guard case .started? = detector.update(during, now: at(3)) else {
+            return XCTFail("expected a start from the calendar meeting")
+        }
+        // The event ended but the meeting ran over: Safari still holds the mic.
+        let after = mic("com.apple.WebKit.GPU")
+        XCTAssertNil(detector.update(after, now: at(10)))
+        XCTAssertNil(detector.update(after, now: at(60)))
+        // It ends when the browser lets go.
+        XCTAssertNil(detector.update(mic(), now: at(62)))
+        XCTAssertEqual(detector.update(mic(), now: at(77)), .ended)
     }
 
     private func startedDetector() -> CallDetector {

@@ -25,6 +25,16 @@ enum MeetingAppCatalog {
         ("ru.keepcoder.Telegram", "Telegram call"),
     ]
 
+    /// Native apps that also open the mic to record a voice message, which can run
+    /// well past `CallDetector.startHold`. For these, holding the mic is not
+    /// enough: the same app must also be playing audio, which a call does (the
+    /// other side) and recording a message does not.
+    static let voiceMessageApps: Set<String> = [
+        "com.tinyspeck.slackmacgap",
+        "net.whatsapp.WhatsApp",
+        "ru.keepcoder.Telegram",
+    ]
+
     /// Browsers whose tabs may hold a web meeting. Chrome-family browsers render
     /// audio from helper processes (`com.google.Chrome.helper`), so this is a
     /// prefix match too.
