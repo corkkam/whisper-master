@@ -458,6 +458,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// **Not optional.** Speech plays out of process (`speechsynthesisd` for the system
     /// voice), so quitting mid-utterance can leave the Mac talking after the app is
     /// gone — with nothing left on screen to explain it or any way to stop it.
+    /// Hold a quit until MLX work has stopped. Exiting under a running
+    /// generation destroys MLX's static state beneath it and crashes on the way
+    /// out (see `MlxWorkGate`). Generations stop within a token; a model load is
+    /// waited for up to `MlxWorkGate.quitTimeoutSeconds`.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let gate = MlxWorkGate.shared
+        gate.beginQuit()
+        guard gate.inFlight > 0 else { return .terminateNow }
+        Task { @MainActor in
+            _ = await gate.drain(timeout: MlxWorkGate.quitTimeoutSeconds)
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         viewModel.stopSpeaking()
         // Whatever we paused for a dictation goes back to playing — otherwise
