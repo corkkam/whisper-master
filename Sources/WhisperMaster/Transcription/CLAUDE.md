@@ -29,7 +29,12 @@ Instruct-2507's 16/16 at 3.9 s (see `Lab/CLAUDE.md`). Instruct-2507 is still in 
 catalogue; going back is the two ids in `CleanupModel.General` plus the badge in
 `LabCatalog`. **The thinking archive is not on the R2 mirror yet**, so installs take the
 Hugging Face path, which lands in `~/Documents/huggingface/models/` and is found there
-by `General.installedDirectory`.
+by `General.installedDirectory`. **Measured after the switch (2026-10-17, `WM_AGENT_TOOL_EVAL`, 16 commands):**
+hand-rolled (the shipped arm) 14/16 correct tool, native 15/16, against Instruct-2507's
+16/16 in August. The two hand-rolled misses: `create_reminder` with `body` instead of
+`title` (the parser correctly refuses a call missing a required argument), and "message
+design and ops" still reasoning at the 60 s budget. The grounding turn answered from
+both calendars correctly. The 49 generations took ~15 min on this Mac, ~18 s each.
 
 Measured end to end through the app on `eval/text-cleanup/cases.jsonl` with the guard
 applied: the outgoing qwen2.5-3B scored **85/89 at ~250 ms on 1.5 GB**, S1-mini scores
