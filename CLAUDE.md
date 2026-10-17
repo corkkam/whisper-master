@@ -100,20 +100,30 @@ WM_AGENT_TOOL_EVAL=1 "./build/Whisper Master.app/Contents/MacOS/WhisperMaster"
 dies with `Failed to load the default metallib` — MLX's Metal shaders are a bundle
 resource only `xcodebuild` stages. The bench needs the **assistant** model
 (`CleanupModel.General.archiveName`, Qwen3-4B-Thinking-2507-4bit since 2026-10-17,
-~2.3 GB) installed under `~/Library/Application Support/FluidAudio/Models/`; without it
-the bench prints `ABORT` and exits, so it is safe to run anywhere. To install it outside
-the app: `uvx --from huggingface_hub hf download mlx-community/Qwen3-4B-Thinking-2507-4bit
---local-dir "<that dir>/Qwen3-4B-Thinking-2507-4bit"`. The measurements below were taken
-on Instruct-2507, before the switch.
+~2.3 GB) installed under `~/Library/Application Support/FluidAudio/Models/`. **Without it
+the bench loads the previous assistant (Instruct-2507) if that is on disk**, because the
+app does (`CleanupModel.General.installedDirectory`), so read the `Model loaded from`
+line before trusting a run; with neither it prints `ABORT` and exits, so it is safe to
+run anywhere. To install it outside the app: `uvx --from huggingface_hub hf download
+mlx-community/Qwen3-4B-Thinking-2507-4bit --local-dir "<that dir>/Qwen3-4B-Thinking-2507-4bit"`.
 
 The three arms are `via clean` (the retired routing, kept as the control),
 `hand-rolled` (what ships) and `native` (the chat template's own tools mechanism,
 built and tested but **not** wired into production — nothing sets
 `AgentLoop.generateNative`).
 
-**Measured 2026-08-22.** All three call the correct tool 16/16 on the first turn,
-so first-turn tool choice is not what separates them — **don't re-run the bench to
-decide that question again.** They separate on the turn that reads a result:
+**Measured 2026-10-17, on Qwen3-4B-Thinking-2507 (what ships).** First turn:
+`hand-rolled` **14/16**, `native` **15/16**. The two hand-rolled misses were a
+`create_reminder` with `body` instead of `title` (the parser correctly refuses a call
+missing a required argument) and one command still reasoning at the 60 s budget. The
+grounding turn answered correctly from both calendars. So on the reasoning model the
+arms differ by one first-turn case; one case is within what a single reasoning timeout
+can move, and native stays unwired until a re-run shows the gap holds.
+
+**Measured 2026-08-22, on Instruct-2507 (the assistant before the switch).** All three
+called the correct tool 16/16 on the first turn, so on that model first-turn tool choice
+is not what separates them — **don't re-run the bench on Instruct-2507 to decide that
+question again.** They separate on the turn that reads a result:
 
 - `via clean` answered from **part of the data and said nothing about it**. The
   460-word conversation is past the chunk budget, so it was split, each piece
