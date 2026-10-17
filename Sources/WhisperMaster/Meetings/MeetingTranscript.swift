@@ -31,9 +31,15 @@ struct MeetingSegment: Equatable, Sendable, Identifiable {
 /// without audio.
 struct MeetingTranscript: Equatable, Sendable {
     private(set) var segments: [MeetingSegment] = []
-    /// How many words of each track's cumulative confirmed text are already in
-    /// `segments`. The engine re-sends the whole confirmed text on every update.
-    private var consumedWords: [MeetingSpeaker: Int] = [:]
+    /// Each track's cumulative text as last taken, as normalized words: all of it
+    /// is already in `segments`. The engine re-sends the whole confirmed text on
+    /// every update, and the next one is aligned against this.
+    private var takenWords: [MeetingSpeaker: [String]] = [:]
+
+    /// How many of the last taken words are matched to find the seam when the new
+    /// text is not a straight continuation, and the fewest that still count.
+    static let seamAnchorWords = 8
+    static let seamMinimumWords = 3
 
     /// A mic line this close in time to a matching call line is the speakers
     /// leaking into the mic, not you repeating them. Wide, because both tracks
@@ -45,11 +51,44 @@ struct MeetingTranscript: Equatable, Sendable {
     /// Take one track's cumulative confirmed text and keep only what is new.
     mutating func ingest(confirmed: String, from speaker: MeetingSpeaker, atMs: Int) {
         let words = confirmed.split(whereSeparator: \.isWhitespace)
-        let already = consumedWords[speaker] ?? 0
-        guard words.count > already else { return }
-        let fresh = words[already...].joined(separator: " ")
-        consumedWords[speaker] = words.count
+        guard !words.isEmpty else { return }
+        let normalized = words.map(Self.normalized)
+        let start = Self.seam(in: normalized, after: takenWords[speaker] ?? [])
+        takenWords[speaker] = normalized
+        guard start < words.count else { return }
+        let fresh = words[start...].joined(separator: " ")
         segments.append(MeetingSegment(speaker: speaker, atMs: atMs, text: fresh))
+    }
+
+    /// Where the words not yet in the transcript begin in `words`, given the
+    /// cumulative text already taken.
+    ///
+    /// While streaming, each update is the last one with words added, so `taken`
+    /// is a prefix and the answer is its length. The final text is not like that:
+    /// `stop()` rebuilds it from tokens rather than from the confirmed track, so
+    /// over an hour a word here and there differs, and slicing it by count either
+    /// repeats the tail or drops it. When `taken` is not a prefix, the seam is
+    /// where the last few taken words reappear, picking the match nearest to where
+    /// it would be if nothing had changed. With no match, the count is all there is.
+    static func seam(in words: [String], after taken: [String]) -> Int {
+        guard !taken.isEmpty else { return 0 }
+        if words.count >= taken.count, words.starts(with: taken) { return taken.count }
+        for length in stride(from: min(seamAnchorWords, taken.count), through: seamMinimumWords, by: -1) {
+            let anchor = taken.suffix(length)
+            var best: Int?
+            for end in stride(from: length, through: words.count, by: 1)
+            where words[(end - length)..<end].elementsEqual(anchor) {
+                if best.map({ abs(end - taken.count) < abs($0 - taken.count) }) ?? true { best = end }
+            }
+            if let best { return best }
+        }
+        return min(taken.count, words.count)
+    }
+
+    /// Case and punctuation do not make a word new: the final pass can capitalize
+    /// or punctuate differently from the streaming one.
+    private static func normalized(_ word: Substring) -> String {
+        String(word.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "'" })
     }
 
     /// The transcript with echo removed: a mic line dropped when a call line

@@ -38,6 +38,43 @@ final class MeetingTranscriptTests: XCTestCase {
         XCTAssertEqual(transcript.cleanedSegments.count, 2)
     }
 
+    // MARK: - The final text is aligned, not sliced by count
+
+    // `stop()` rebuilds the final text from tokens rather than from the confirmed
+    // track, so it can differ inside. A count slice then repeats or drops the tail.
+
+    func testAFinalTextMissingAnEarlierWordKeepsTheWholeTail() {
+        var transcript = MeetingTranscript()
+        transcript.ingest(confirmed: "so the plan is we ship the beta on friday", from: .others, atMs: 11_000)
+        // "the" before "plan" is gone from the rebuild; the last words are new.
+        transcript.ingest(confirmed: "so plan is we ship the beta on friday and the stable next week",
+                          from: .others, atMs: 20_000)
+        XCTAssertEqual(transcript.segments.map(\.text).last, "and the stable next week")
+    }
+
+    func testAFinalTextWithAnExtraEarlierWordDoesNotRepeatTheTail() {
+        var transcript = MeetingTranscript()
+        transcript.ingest(confirmed: "so the plan is we ship the beta on friday", from: .others, atMs: 11_000)
+        transcript.ingest(confirmed: "so uh the plan is we ship the beta on friday thanks",
+                          from: .others, atMs: 20_000)
+        XCTAssertEqual(transcript.segments.map(\.text), ["so the plan is we ship the beta on friday", "thanks"])
+    }
+
+    func testCaseAndPunctuationDoNotMakeWordsNew() {
+        var transcript = MeetingTranscript()
+        transcript.ingest(confirmed: "hello everyone", from: .others, atMs: 11_000)
+        transcript.ingest(confirmed: "Hello, everyone. Let's start", from: .others, atMs: 20_000)
+        XCTAssertEqual(transcript.segments.map(\.text), ["hello everyone", "Let's start"])
+    }
+
+    func testAShorterFinalTextAddsNothing() {
+        var transcript = MeetingTranscript()
+        transcript.ingest(confirmed: "we agreed to move the launch to friday", from: .me, atMs: 11_000)
+        transcript.ingest(confirmed: "we agreed to move the launch", from: .me, atMs: 20_000)
+        transcript.ingest(confirmed: "", from: .me, atMs: 21_000)
+        XCTAssertEqual(transcript.segments.map(\.text), ["we agreed to move the launch to friday"])
+    }
+
     func testRenderedJoinsTurnsAndLabelsSpeakers() {
         var transcript = MeetingTranscript()
         transcript.ingest(confirmed: "first part", from: .others, atMs: 5_000)
