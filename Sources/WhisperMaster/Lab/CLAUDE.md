@@ -196,14 +196,19 @@ the id, or three rows collide), `tools` (16 spoken commands, native tool schemas
 first turn only, **assistant-role models only**), `audio` (the committed
 recordings through the real streaming transcriber, scored on WER), and
 `disfluency` (`disfluency-cases.jsonl`, 250 public DisfluencySpeech turns through
-the light prompt, each passing on `max_reference_wer`; see `eval/README.md`).
+the light prompt, each passing on `max_reference_wer`; see `eval/README.md`). Its
+bars are measured from the deterministic passes' output, the text the model is
+handed, and `DisfluencySuiteTests` both writes them and fails when the committed
+file no longer matches what the passes give.
 
 ### Arena
 
 `LabArena` turns a run into head-to-head ratings: every pair of models meets on
 every case, a pass beats a fail, two equal verdicts go to the output closer to
 the case's `reference`, and the points are fit with Bradley-Terry onto the Elo
-scale. The headless bench prints it after the score table when a run has two or
+scale. A case whose pass rule *is* a word-error limit (`max_reference_wer`) is
+decided on word error and the margin alone, because ruling on its pass first made
+a hair across the bar a full win and a large gap on one side of it a tie. The headless bench prints it after the score table when a run has two or
 more models. It is a fit, not a running Elo, so case order cannot move it, and
 each pair carries one virtual tie so an unbeaten model stays finite.
 
