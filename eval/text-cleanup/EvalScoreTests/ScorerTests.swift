@@ -55,4 +55,24 @@ final class ScorerTests: XCTestCase {
         XCTAssertEqual(agg["light"]?.pass, 1)                 // one passes, one misses $25
         XCTAssertEqual(agg["light"]?.latency["llm"]?.median, 300)  // sorted [100,300] -> [1]
     }
+
+    // The public disfluency suite grades against a whole reference. A no-op on a
+    // disfluent turn must fail; removing the restart passes; casing and
+    // punctuation are not graded.
+    func testMaxReferenceWERFailsNoOpAndPassesCleanOutput() throws {
+        let c = try EvalCase.decode(
+            #"{"id":"d","category":"public-disfluency","input":{"text":"Well, I don't want to, I don't want this to be a unilateral conversation."},"targets":["light"],"reference":"I don't want this to be a unilateral conversation.","max_reference_wer":0.2}"#)
+        let noOp = Scorer.score(evalCase: c, row: row("Well, I don't want to, I don't want this to be a unilateral conversation."))
+        XCTAssertFalse(noOp.mechanicalPass)
+        XCTAssertEqual(noOp.attribution, "cleanup")
+        XCTAssertTrue(noOp.reasons.contains { $0.hasPrefix("reference wer") })
+        XCTAssertTrue(Scorer.score(evalCase: c, row: row("i don't want this to be a unilateral conversation")).mechanicalPass)
+    }
+
+    // Without the opt-in a reference stays diagnostic, as every older case expects.
+    func testReferenceAloneNeverFails() throws {
+        let c = try EvalCase.decode(
+            #"{"id":"r","input":{"text":"a b"},"reference":"completely different words here"}"#)
+        XCTAssertTrue(Scorer.score(evalCase: c, row: row("a b")).mechanicalPass)
+    }
 }

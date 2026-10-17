@@ -89,6 +89,7 @@ enum LabHeadlessBench {
 
         guard let run = controller.runner.run else { return exit(1) }
         printSummary(run)
+        printArena(run, repoRoot: controller.repoRoot)
         if let out = environment["WM_LAB_OUT"] {
             let written = LabRunExport.write(run: run, to: URL(fileURLWithPath: out, isDirectory: true))
             for url in written { print("wrote \(url.path)") }
@@ -122,6 +123,22 @@ enum LabHeadlessBench {
             for item in failures {
                 print("  \(item.id): \(item.reasons.first ?? "failed")")
             }
+        }
+    }
+
+    /// Head-to-head ratings, printed only when there is more than one model to
+    /// rank. References come from the suite's own case file, so the tiebreak is
+    /// the same word error the scorer would compute.
+    private static func printArena(_ run: LabRun, repoRoot: URL?) {
+        guard run.models.filter({ $0.failure == nil }).count > 1 else { return }
+        let sources = (try? LabSuiteLoader.load(run.suite, repoRoot: repoRoot))?.sources ?? [:]
+        let references = sources.compactMapValues(\.reference)
+        print("")
+        print("Arena (pairwise, Bradley-Terry, 1000 = field average)")
+        print(row("model", "rating", "W", "L", "T", "", ""))
+        for standing in LabArena.standings(run: run, references: references) {
+            print(row(standing.modelName, String(format: "%.0f", standing.rating),
+                      "\(standing.wins)", "\(standing.losses)", "\(standing.ties)", "", ""))
         }
     }
 

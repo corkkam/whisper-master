@@ -85,6 +85,15 @@ public enum Scorer {
             reasons.append("forbidden (exact) '\(term)'")
         }
 
+        // Opt-in per case. WER is case- and punctuation-blind, so this grades the
+        // words kept and dropped, never a reference's own casing choices.
+        if let limit = evalCase.maxReferenceWER, let ref = evalCase.reference, !ref.isEmpty {
+            let w = WER.score(reference: ref, hypothesis: row.llmOutput)
+            if w > limit + 1e-9 {
+                reasons.append("reference wer \(Int((w * 100).rounded()))% > \(Int((limit * 100).rounded()))%")
+            }
+        }
+
         var attribution: String?
         if let w = row.wer, w > werFailThreshold {
             attribution = "asr"

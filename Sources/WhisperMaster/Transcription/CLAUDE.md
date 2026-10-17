@@ -61,6 +61,15 @@ largest input for which the service's `words * 2 + 32` token budget stays inside
 fails loudly. Chunking is skipped for the `email` context, whose greeting/sign-off
 layout spans the whole text. A chunk that fails keeps its own raw words.
 
+**⚠️ A quit waits for MLX, and every MLX call goes through `MlxWorkGate`.**
+Quitting while a generation ran crashed the app on the way out, on 8 of 8 quits
+in a repro (Metal assertion or a bad access in MLX's compile cache): `exit()` runs
+MLX's static destructors under the running generation. `applicationShouldTerminate`
+now begins the quit, generations stop at their next token, no new MLX work may
+start, and the quit is held until the count is zero (bounded at 3 s for a load).
+New MLX work in `MlxCleanupService` must take `enter()` / `leave()` and must do
+nothing when `enter()` refuses; a call that skips the gate reopens the crash.
+
 **S1-mini's format is exact and every integration bug traces to it**: the system prompt
 is the trained string (not a prompt to tune), the user turn opens with a
 `[Styling: …] [Structure: …] [Context: …]` control line, and **`enable_thinking` must be
