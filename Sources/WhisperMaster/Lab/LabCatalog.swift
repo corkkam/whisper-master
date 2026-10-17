@@ -249,13 +249,15 @@ enum LabCatalog {
             provenance: .candidate,
             note: "Strong on instruction following for its size."),
         LabModel(
-            id: "smollm2-1.7b-instruct-4bit",
+            // mlx-community publishes no 4-bit SmolLM2-1.7B; the old id here
+            // answered 401 and the model never ran. This is the 16-bit build.
+            id: "smollm2-1.7b-instruct",
             name: "SmolLM2-1.7B-Instruct",
-            huggingFaceId: "mlx-community/SmolLM2-1.7B-Instruct-4bit",
+            huggingFaceId: "mlx-community/SmolLM2-1.7B-Instruct",
             archiveName: nil,
-            approximateDownloadBytes: 950 * 1_000_000,
+            approximateDownloadBytes: 3_430 * 1_000_000,
             parameters: "1.7B",
-            quantization: "4-bit",
+            quantization: "16-bit",
             roles: [.cleanup],
             provenance: .candidate,
             note: "The small-model floor: how bad is bad."),

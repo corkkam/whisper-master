@@ -72,6 +72,7 @@ the **real** `CleanupFaithfulnessGuard`. The scorer does not re-run the model.
 | CLI | `eval/text-cleanup/EvalScoreCLI/` | `swift run eval-score <results.json> <cases.jsonl>` |
 | Baseline cases | `eval/text-cleanup/cases.jsonl` | 116 text cases across 16 categories, default targets `light`+`polish`. |
 | Destination cases | `eval/text-cleanup/flow-cases.jsonl` | Slack / email / code suite. |
+| Public disfluency cases | `eval/text-cleanup/disfluency-cases.jsonl` | 250 turns from the DisfluencySpeech test split, graded on `max_reference_wer`. Regenerate with `make-disfluency-cases.py`. See **Public suite** below. |
 
 **Adding a batch of cases: stage them in a separate file first.** Write them to
 e.g. `cases-extended.jsonl`, run *that* file, fix every assertion that failed for
@@ -234,6 +235,58 @@ live in `Scorer.categoryWeight` (`faithfulness` and `sensitive` ×3;
 "174/178" could hide a whole category going red while `numbers` carried the
 total. `eval-score` now prints a pass rate per category, marking any that is not
 clean. It is the cheapest real signal in the scorer.
+
+### Public suite and the arena
+
+**No dictation vendor publishes its cleanup eval set.** Checked 2026-10-17:
+Superwhisper reports S1-mini at 94.8% token accuracy on a private 7,519-case set
+and benchmarks other apps on raw ASR only; Wispr Flow publishes no cleanup
+numbers; AssemblyAI's `voice-standard-bench` (MIT) has a dictation task, but its
+dataset is git-ignored, and its grammar is spoken punctuation commands ("comma",
+"new paragraph"), which is not what this app does. So there is nothing to clone.
+
+The public anchor is **DisfluencySpeech** (`amaai-lab/DisfluencySpeech`,
+Apache-2.0, Wang and Herremans 2024): one speaker re-reading Switchboard turns,
+with a transcript of every word said (`transcript_a`) and one with fillers,
+editing terms and false starts removed (`transcript_c`).
+`make-disfluency-cases.py` turns the 250-clip **test** split into
+`disfluency-cases.jsonl`: input is `transcript_a`, `reference` is
+`transcript_c`, and `max_reference_wer` is half the gap the input starts with,
+floored at 10%. A no-op fails every case with real disfluency in it; a model that
+rewrites a fluent turn fails too. `--audio` also writes the recordings and an
+audio case file to `.eval-scratch/`, which runs the real ASR first.
+
+```bash
+uv run eval/text-cleanup/make-disfluency-cases.py           # rewrites the committed file, byte for byte
+uv run eval/text-cleanup/make-disfluency-cases.py --audio   # + 250 real recordings in .eval-scratch/
+```
+
+`max_reference_wer` is the one opt-in pass rule on `reference`. Without it a
+reference stays diagnostic, as before. The landing site's `lib/eval/scoring.ts`
+carries the same rule.
+
+Known limits of this set: the reference also drops discourse words ("well", "I
+mean") that the light prompt is told to keep, so a faithful model loses about one
+word in twenty on some turns; the 10% floor absorbs that. And it is one speaker
+on conversational topics, so it says nothing about numbers, names or destinations;
+`cases.jsonl` still owns those.
+
+**The arena.** With more than one model in a run, the headless Model Lab bench
+also prints a pairwise ranking (`LabArena`): on every case, a pass beats a fail,
+and two passes or two fails go to the output closer to `reference` (by at least
+one word in twenty), else a tie. The results are fit with Bradley-Terry and
+printed on the Elo scale, 1000 = the field's average. It breaks the ties a pass
+rate cannot, and the case order does not move it.
+
+```bash
+WM_LAB_BENCH=disfluency WM_LAB_MODELS=s1-mini-4bit,qwen3-1.7b-4bit,gemma-3-1b-it-4bit \
+  WM_LAB_REPO=$PWD WM_LAB_OUT=/tmp/lab-out  # via launchctl setenv, then open the dev app
+```
+
+The dev app must be signed with the same identity as the installed one
+(`CHANNEL=dev CONFIG=Debug bash Scripts/bundle.sh`, no `SIGN_IDENTITY=-`). An
+ad-hoc build blocks at launch on a Keychain prompt for the Clerk device token,
+before the bench starts, and prints nothing.
 
 ---
 
