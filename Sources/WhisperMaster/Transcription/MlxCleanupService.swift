@@ -43,8 +43,7 @@ actor MlxCleanupService {
     /// just call it before they generate.
     static func prepareGeneralIfInstalled() async {
         guard CleanupModel.General.isInstalled else { return }
-        await general.prepare(
-            configuration: ModelConfiguration(directory: CleanupModel.General.directory))
+        await general.prepare(directory: CleanupModel.General.directory)
     }
 
     /// Safety net against a runaway decode, not a normal-path limit. Generous so
@@ -139,6 +138,19 @@ actor MlxCleanupService {
             Log.modelPrep.error(
                 "MLX cleanup model load failed after \(elapsedMs())ms: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// Load a model already on disk, configured the way the Model Lab benches it
+    /// (`MlxModelConfiguration`). Checks readiness first, so the assistant paths
+    /// that call this before every generation do not re-read a multi-megabyte
+    /// `tokenizer.json` each time, and the read happens on this actor, not on the
+    /// main one.
+    func prepare(directory: URL) async {
+        switch state {
+        case .ready, .loading: return
+        case .idle, .failed: break
+        }
+        await prepare(configuration: MlxModelConfiguration.local(directory))
     }
 
     private enum LoadError: Error { case timedOut }

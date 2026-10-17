@@ -112,11 +112,14 @@ lowercased>` so it can never collide with a built-in one.
 - **⚠️ Generation stops on the chat template's end-of-turn token, not only on
   `eos_token`.** Gemma ends a turn with `<end_of_turn>` and Phi-4-mini with
   `<|end|>`, while their `eos_token` is something else, so without
-  `LabStopTokens` both wrote invented follow-up turns, the guard rejected every
+  `EndOfTurnTokens` both wrote invented follow-up turns, the guard rejected every
   output, and run 7 scored them as the no-op fallback. The markers are read from
-  each model's own `tokenizer.json`. This applies to the lab's configuration only;
-  pointing the shipped cleanup slot at such a model on a dev build still uses a
-  configuration without them.
+  each model's own `tokenizer.json`. **Every load from disk takes the same
+  configuration** (`MlxModelConfiguration.local`, through
+  `MlxCleanupService.prepare(directory:)`): the lab, `EvalRunner`, and both shipped
+  slots. While only the lab added the stops, a model could rank well here and then,
+  pointed at the cleanup slot on a dev build, have every output rejected and do
+  nothing. Do not build a `ModelConfiguration(directory:)` by hand.
 - **Remove takes the files with it.** An added model off the list is a download
   nobody can reach from the page. Saved runs keep their results under its name.
 - Live check of the API shape: `LAB_HF_LIVE=1 swift test --filter LabHuggingFaceTests`
