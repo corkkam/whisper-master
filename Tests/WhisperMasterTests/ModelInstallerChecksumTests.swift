@@ -93,6 +93,15 @@ final class ModelInstallerChecksumTests: XCTestCase {
         XCTAssertNotNil(ModelChecksums.sha256[TranscriberEngine.slidingWindow.cacheDirectoryName])
     }
 
+    /// Same for the natural voice: an unpinned archive is refused, so the voice would
+    /// never install and every answer would quietly stay on the system voice.
+    func testTheNaturalVoiceArchivesArePinned() {
+        XCTAssertFalse(NaturalVoiceInstaller.archiveNames.isEmpty)
+        for name in NaturalVoiceInstaller.archiveNames {
+            XCTAssertNotNil(ModelChecksums.sha256[name], "\(name) has no pin")
+        }
+    }
+
     /// End-to-end of the pure path: hash a real file, then run the verdict the
     /// installer runs — a match passes, a one-byte change is rejected.
     func testHashThenVerify() throws {
