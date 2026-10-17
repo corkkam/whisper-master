@@ -23,7 +23,8 @@ import Foundation
 /// Hugging Face path. The zips these hashes describe are kept outside the repository
 /// in `~/code/whisper/model-archives/` on the release Mac. **Upload those exact
 /// files**: `ditto` embeds timestamps, so a re-zip of the same model hashes
-/// differently and this pin would reject it.
+/// differently and this pin would reject it. `Scripts/release.sh` refuses to release
+/// while any archive pinned here is not on the mirror.
 enum ModelChecksums {
     /// `archiveName` (no `.zip`) → lowercase hex SHA-256 of the hosted `.zip`.
     static let sha256: [String: String] = [

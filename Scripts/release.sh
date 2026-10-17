@@ -60,6 +60,30 @@ EOF
     [[ "${ALLOW_HOST_MISMATCH:-0}" == "1" ]] || exit 1
 fi
 
+# --- Every pinned model archive must be on the mirror ---
+#
+# An archive can be pinned in ModelChecksums ahead of its upload, and nothing
+# stopped a build shipping in that state: every install of that model then
+# 404s on the mirror and takes the slow Hugging Face path, and for the 2.3 GB
+# assistant that path was the one that failed outright. So a pin is a promise
+# the release has to keep. HEAD each one before building anything.
+_mirror="https://${_app_host:-dl.corkkam.com}/models"
+_missing=()
+while read -r _archive; do
+    _code="$(curl -s -o /dev/null -I -w '%{http_code}' "$_mirror/$_archive.zip" || true)"
+    [[ "$_code" == "200" ]] || _missing+=("$_archive ($_code)")
+done < <(sed -n 's|^ *"\([^"]*\)": "[0-9a-f]\{64\}",*$|\1|p' \
+    Sources/WhisperMaster/ModelInstall/ModelChecksums.swift)
+if (( ${#_missing[@]} )); then
+    {
+        echo "error: pinned model archives are not on the mirror ($_mirror):"
+        printf '  %s\n' "${_missing[@]}"
+        echo "Upload the exact zips the pins describe (see ModelChecksums.swift), then re-run."
+        echo "Override for a deliberate one-off with ALLOW_MISSING_MODELS=1."
+    } >&2
+    [[ "${ALLOW_MISSING_MODELS:-0}" == "1" ]] || exit 1
+fi
+
 # --- Tools ---
 command -v rclone >/dev/null || { echo "error: rclone not installed (brew install rclone)" >&2; exit 1; }
 
