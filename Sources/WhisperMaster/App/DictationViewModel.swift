@@ -882,8 +882,13 @@ final class DictationViewModel {
 
     /// Set once the default natural voice has started its own download this launch.
     private var naturalVoiceAutoInstallTried = false
+    /// The voice engine `reconcileSpeech` saw last, so it warms the natural voice on a
+    /// switch to it rather than on every tick.
+    private var reconciledVoiceEngine: AnswerVoiceEngine?
 
-    /// Kick off (or retry) the natural voice's download, then warm it.
+    /// Kick off (or retry) the natural voice's download, then warm it. Asked for
+    /// (Settings, or the default voice's one fetch), so it warms even inside the
+    /// backoff after a failed load.
     func downloadNaturalVoice() {
         guard state.naturalVoiceDownload == nil else { return }
         state.naturalVoiceFailed = false
@@ -894,7 +899,7 @@ final class DictationViewModel {
                     Task { @MainActor [weak self] in self?.state.naturalVoiceDownload = progress }
                 }
                 self.state.naturalVoiceDownload = nil
-                (self.answerSpeaker ?? self.makeAnswerSpeaker()).prewarmNaturalVoiceIfNeeded()
+                (self.answerSpeaker ?? self.makeAnswerSpeaker()).prewarmNaturalVoiceIfNeeded(force: true)
             } catch {
                 Log.modelPrep.error(
                     "Natural voice install failed: \(error.localizedDescription, privacy: .public)")
@@ -936,17 +941,28 @@ final class DictationViewModel {
             state.naturalVoiceRetryRequested = false
             downloadNaturalVoice()
         }
+        let previousEngine = reconciledVoiceEngine
+        reconciledVoiceEngine = state.answerVoiceEngine
         if state.answerVoiceEngine == .natural {
             // The natural voice is the default, so it has to fetch itself: once per
             // launch, from the first answer that wanted speaking (the speaker only
             // exists from then), never at launch. That answer is read by the system
             // voice; a failure is retried only from Settings.
-            if !naturalVoiceAutoInstallTried, !NaturalVoiceInstaller.isInstalled,
-               state.naturalVoiceDownload == nil {
+            if NaturalVoicePolicy.shouldAutoInstall(
+                alreadyTried: naturalVoiceAutoInstallTried,
+                installed: NaturalVoiceInstaller.isInstalled,
+                downloading: state.naturalVoiceDownload != nil) {
                 naturalVoiceAutoInstallTried = true
                 downloadNaturalVoice()
             }
-            speaker.prewarmNaturalVoiceIfNeeded()
+            // Only on a switch to it. Warming on every tick reloaded the models within
+            // half a second of their idle unload, so they were never unloaded at all,
+            // and retried a failed load twice a second. A cold answer warms it anyway
+            // (`NaturalSpeechSynthesizer.speak`).
+            if NaturalVoicePolicy.shouldWarmOnTick(previous: previousEngine,
+                                                   current: state.answerVoiceEngine) {
+                speaker.prewarmNaturalVoiceIfNeeded()
+            }
             // Guarded: an unguarded write would push an @Observable change through
             // every observer twice a second for the life of the process, which is the
             // same per-tick cost the tray refresher is careful to avoid.

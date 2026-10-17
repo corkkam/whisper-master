@@ -3,12 +3,13 @@ import Foundation
 
 /// Puts the natural voice's models on disk, R2 mirror first.
 ///
-/// FluidAudio can fetch these itself, but only from HuggingFace — and a silent HF
-/// fallback is exactly the failure this project already got bitten by once (see the
-/// mirror-first rules in the root `CLAUDE.md`). So the archives are published to the
-/// same R2 bucket as every other model and pulled with the same generic
-/// `ModelInstaller.installIfNeeded`, which brings resumable background downloads,
-/// retries, bounded timeouts and an honest percentage along with it.
+/// FluidAudio can fetch these itself, but only from HuggingFace, so the archives are
+/// published to the same R2 bucket as every other model and pulled first with the same
+/// generic `ModelInstaller.installIfNeeded`, which brings resumable background
+/// downloads, retries, bounded timeouts and an honest percentage along with it.
+/// HuggingFace is the fallback, and like every other fallback in the app it is
+/// **loud, not silent** (the mirror-first rules in `Transcription/CLAUDE.md`): it is
+/// logged at `.error` and the progress line says "downloading from backup source".
 ///
 /// ## ⚠️ Where the files must land
 ///
@@ -109,10 +110,10 @@ enum NaturalVoiceInstaller {
     /// same `~/.cache/fluidaudio/Models/` paths `isInstalled` checks.
     ///
     /// The fallback exists because the natural voice is the default answer voice, and
-    /// neither archive is on the mirror yet (`kokoro-82m-coreml` and `kokoro` both 404,
-    /// and neither has a `ModelChecksums` pin). Until they are published and pinned,
-    /// every install takes the Hugging Face path. If that fails too, this throws and
-    /// the caller stays on the system voice: silence is never an outcome.
+    /// both archives are pinned in `ModelChecksums` but not uploaded to the mirror yet
+    /// (`kokoro-82m-coreml` and `kokoro` both 404). Until they are, every install takes
+    /// the Hugging Face path. If that fails too, this throws and the caller stays on
+    /// the system voice: silence is never an outcome.
     static func install(onProgress: @escaping @Sendable (ModelInstaller.Progress) -> Void) async throws {
         do {
             try await installFromMirror(onProgress: onProgress)

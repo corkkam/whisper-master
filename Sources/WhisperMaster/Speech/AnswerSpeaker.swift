@@ -155,9 +155,10 @@ final class AnswerSpeaker {
 
     /// Start loading the natural models in the background so the *first* answer isn't
     /// the one that pays for it. Safe to call repeatedly — it no-ops unless there's work.
-    func prewarmNaturalVoiceIfNeeded() {
+    /// `force` skips the backoff after a failed load, for a load the user asked for.
+    func prewarmNaturalVoiceIfNeeded(force: Bool = false) {
         guard preferences().engine == .natural, NaturalVoiceInstaller.isInstalled else { return }
-        naturalBackend().prewarm()
+        naturalBackend().prewarm(force: force)
     }
 
     /// Hand the natural models back immediately — used when the user switches away from
@@ -165,5 +166,31 @@ final class AnswerSpeaker {
     func releaseNaturalVoice() {
         guard let natural else { return }
         Task { await natural.unload() }
+    }
+}
+
+/// When the natural voice fetches and warms itself. Pure, so each rule is tested
+/// without a 300 MB download or a CoreML load.
+enum NaturalVoicePolicy {
+    /// The default voice fetches itself once per launch, and not while a fetch is
+    /// already running. A failure is retried from Settings, never from the next answer.
+    static func shouldAutoInstall(alreadyTried: Bool, installed: Bool, downloading: Bool) -> Bool {
+        !alreadyTried && !installed && !downloading
+    }
+
+    /// The refresh tick warms the models only on a switch **to** the natural voice
+    /// (or the first tick that sees it chosen). Every other tick leaves them alone, so
+    /// the idle unload sticks.
+    static func shouldWarmOnTick(previous: AnswerVoiceEngine?, current: AnswerVoiceEngine) -> Bool {
+        current == .natural && previous != .natural
+    }
+
+    /// How long a failed load is left alone before an answer may try again.
+    static let loadRetryBackoff: TimeInterval = 300
+
+    /// Whether a load may start, given when the last one failed.
+    static func mayLoad(lastFailure: Date?, now: Date, force: Bool) -> Bool {
+        guard !force, let lastFailure else { return true }
+        return now.timeIntervalSince(lastFailure) >= loadRetryBackoff
     }
 }
