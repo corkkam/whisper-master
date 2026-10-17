@@ -82,6 +82,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var startItem: NSMenuItem?
     private var stopItem: NSMenuItem?
     private var cancelItem: NSMenuItem?
+    /// "Take Meeting Notes" / "Stop Meeting Notes" — one item whose title follows
+    /// the meeting state. Hidden where meeting notes are not built in.
+    private var meetingItem: NSMenuItem?
+    private var appliedMeetingItemTitle: String?
     private var pasteLastItem: NSMenuItem?
     private var historyMenu: NSMenu?
     private var historyMenuItem: NSMenuItem?
@@ -350,6 +354,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // calendar grant it reads nothing and the ambient row simply never appears.
         viewModel.state.now.start()
 
+        // Watch for calls (Slack huddle, Teams, Zoom, a Meet tab) so the notch can
+        // offer to take notes. Dormant until here so tests and the snapshot
+        // renderer never poll Core Audio; a no-op where the feature is not built in.
+        viewModel.state.meetings.start(state: viewModel.state)
+
         // Ask the appcast whether there is an update, without showing anything.
         // `checkForUpdateInformation()` is the one Sparkle entry point that has no
         // user driver behind it: it only fires the delegate callbacks below, which
@@ -464,6 +473,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // quitting mid-session leaves the speakers silent with nothing left running
         // to explain why.
         viewModel.releaseHeldMedia()
+        // A meeting being recorded cannot be mixed or transcribed in the time a
+        // quit allows, so its temporary tracks are deleted rather than left behind.
+        viewModel.state.meetings.discardForTermination()
         // The other half of crash detection. macOS calls this for ⌘Q, the tray
         // Quit item, and logout — but never for a crash, which is precisely the
         // discrimination `CrashReporter` relies on. A Force Quit skips it too and
@@ -648,6 +660,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(stop)
         stopItem = stop
 
+        let meeting = NSMenuItem(
+            title: "Take Meeting Notes",
+            action: #selector(toggleMeetingNotes),
+            keyEquivalent: ""
+        )
+        meeting.isHidden = !FeatureFlags.meetingNotesAvailable
+        menu.addItem(meeting)
+        meetingItem = meeting
+
         let cancel = NSMenuItem(
             title: "Cancel Voice Engine Setup",
             action: #selector(cancelVoiceEngineSetup),
@@ -754,6 +775,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startItem?.isEnabled = state.canStart
         stopItem?.isEnabled = state.canStop
         cancelItem?.isHidden = state.preparingEngine == nil
+        let meetingTitle = state.meetings.isRecording ? "Stop Meeting Notes" : "Take Meeting Notes"
+        if appliedMeetingItemTitle != meetingTitle {
+            appliedMeetingItemTitle = meetingTitle
+            meetingItem?.title = meetingTitle
+        }
 
         // The notch panel is click-through except while an interactive banner is
         // up — the Bluetooth-mic "use built-in" button, the tappable command
@@ -781,6 +807,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // pressing stop opened a menu-bar assistant instead.
                 || state.shouldShowAgentWorking
                 || state.shouldShowBluetoothBanner
+                // "Take notes" on a detected call, and the tappable "notes saved".
+                || state.shouldShowMeetingBanner
                 || state.shouldShowCommandConfirmation
                 || state.shouldShowDueReminderBanner
                 || state.shouldShowUndeliveredBanner)
@@ -827,6 +855,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 state.dueReminderAt = nil
                 state.dueReminderCompleted = false
             }
+        }
+
+        // Same for the meeting offer and "notes saved": an offer that ran out
+        // behind a dictation or a higher band was never made.
+        if !state.canShowMeetingBanner {
+            state.meetings.holdBannerClocks()
         }
 
         // Retract the "nowhere to paste" hint once its display window elapses.
@@ -1481,6 +1515,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startRecording() {
         guard ensureCanDictate() else { return }
         viewModel.startRecording()
+    }
+
+    @objc
+    private func toggleMeetingNotes() {
+        let meetings = viewModel.state.meetings
+        if meetings.isRecording {
+            meetings.stopNotes()
+        } else {
+            guard ensureCanDictate() else { return }
+            meetings.takeNotes()
+        }
     }
 
     @objc

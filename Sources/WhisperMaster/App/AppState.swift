@@ -72,6 +72,8 @@ final class AppState {
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
     static let remoteDictationEnabledDefaultsKey = "WhisperMaster.remoteDictationEnabled.v1"
     static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
+    static let meetingDetectionDefaultsKey = "WhisperMaster.meetingDetection.v1"
+    static let meetingIgnoredAppsDefaultsKey = "WhisperMaster.meetingIgnoredApps.v1"
 
     /// The persisted analytics opt-in, readable **without building an `AppState`**.
     ///
@@ -169,6 +171,18 @@ final class AppState {
     /// transcribes the podcast as well as the user. See `Media/MediaPauser`.
     var pauseMediaWhileListening: Bool = true {
         didSet { UserDefaults.standard.set(pauseMediaWhileListening, forKey: Self.pauseMediaDefaultsKey) }
+    }
+
+    /// Offer to take notes when a call app (Slack huddle, Teams, Zoom, a Meet tab)
+    /// takes the mic. On by default where the feature is built in: the offer is
+    /// the feature, and it asks before recording anything.
+    var meetingDetectionEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(meetingDetectionEnabled, forKey: Self.meetingDetectionDefaultsKey) }
+    }
+
+    /// Bundle families the user answered "Never for <app>" to.
+    var meetingIgnoredApps: [String] = [] {
+        didSet { UserDefaults.standard.set(meetingIgnoredApps, forKey: Self.meetingIgnoredAppsDefaultsKey) }
     }
 
     /// The key that talks to a coding agent, or nil for off.
@@ -619,6 +633,10 @@ final class AppState {
     /// `UsageStore(load: false)`.
     let agents = AgentSurfaceController()
 
+    /// Meeting notes: call detection, recording, and the notes pass. Dormant until
+    /// `start(state:)` post-auth, same posture as `agents`.
+    let meetings = MeetingController()
+
     /// Whether the ambient row is showing something clickable.
     ///
     /// The **one** answer both the window-level interactivity guard
@@ -840,6 +858,10 @@ final class AppState {
         holdToTalkEnabled = UserDefaults.standard.object(forKey: Self.holdToTalkDefaultsKey) as? Bool ?? true
         pauseMediaWhileListening =
             UserDefaults.standard.object(forKey: Self.pauseMediaDefaultsKey) as? Bool ?? true
+        meetingDetectionEnabled =
+            UserDefaults.standard.object(forKey: Self.meetingDetectionDefaultsKey) as? Bool ?? true
+        meetingIgnoredApps =
+            UserDefaults.standard.stringArray(forKey: Self.meetingIgnoredAppsDefaultsKey) ?? []
         // Opt-out: a connected connector is used unless the user turns this off.
         connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? true
         // Opt-out: you asked out loud, so an answer you can hear is the default.
@@ -1003,6 +1025,25 @@ final class AppState {
             && !shouldShowDueReminderBanner
     }
 
+    /// The meeting offer or the "notes saved" line. Idle only, so it never lands
+    /// on top of a dictation the user is in the middle of.
+    var shouldShowMeetingBanner: Bool {
+        (meetings.showsPrompt || meetings.showsReady) && canShowMeetingBanner
+    }
+
+    /// Whether the meeting band would be on screen if it had something to say:
+    /// idle, and no band above it in `DictationPillContent`'s ladder is up. While
+    /// this is false the meeting banners' clocks are held (`AppDelegate`), the same
+    /// paused-clock shape as `canShowDueReminderBanner`.
+    var canShowMeetingBanner: Bool {
+        phase == .idle && download == nil && preparingEngine == nil
+            && approvals.pending == nil
+            && !shouldShowAgentAsk && !shouldShowAgentGlance && !shouldShowAgentWorking && !shouldShowAgentReply
+            && !shouldShowDueReminderBanner && !shouldShowCommandConfirmation && !shouldShowDaySummary
+            && !shouldShowUndeliveredBanner && !shouldShowAgentNudge && !shouldShowLearnedBanner
+            && !shouldShowCleanupReadyBanner
+    }
+
     /// Show the "saved, nowhere to paste" hint when a recent dictation had no
     /// target field, the app is idle, and nothing higher-priority (download,
     /// prepare) owns the surface. Takes precedence over the Bluetooth hint and
@@ -1117,6 +1158,7 @@ final class AppState {
             || shouldShowCommandConfirmation
             || shouldShowDaySummary
             || shouldShowBluetoothBanner
+            || shouldShowMeetingBanner
             || shouldShowUndeliveredBanner
             || shouldShowAgentNudge
             || shouldShowLearnedBanner

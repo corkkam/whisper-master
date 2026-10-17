@@ -172,13 +172,18 @@ struct DictationPillContent: View {
     /// learned hint. (Model download *progress* never appears here.)
     private var showCleanupReady: Bool { !showAgentNudge && !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && state.shouldShowCleanupReadyBanner }
 
+    /// A call just started ("take notes?") or a meeting's notes were just filed.
+    /// Above the Bluetooth hint: the offer is only useful in the first seconds of
+    /// a call, and it retracts on its own.
+    private var showMeeting: Bool { !showAgentNudge && !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowMeetingBanner }
+
     /// The Bluetooth-mic hint takes precedence over the dictation indicator and
     /// uses a taller band to fit its text + button.
-    private var showBanner: Bool { !showAgentNudge && !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && state.shouldShowBluetoothBanner }
+    private var showBanner: Bool { !showAgentNudge && !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showMeeting && state.shouldShowBluetoothBanner }
 
     /// A gentle reminder — lower priority than the hints above, shown only when
     /// idle (`AppState.shouldShowReminder` already gates that).
-    private var showReminder: Bool { !showAgentNudge && !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showBanner && state.shouldShowReminder }
+    private var showReminder: Bool { !showAgentNudge && !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showMeeting && !showBanner && state.shouldShowReminder }
 
     private var bandThickness: CGFloat {
         if showApproval { return layout.bannerThickness }
@@ -208,7 +213,7 @@ struct DictationPillContent: View {
         if showAgentNudge { return layout.commandConfirmationThickness }
         if showLearned { return layout.learnedThickness }
         if showCleanupReady { return layout.cleanupReadyThickness }
-        if showBanner { return layout.bannerThickness }
+        if showMeeting || showBanner { return layout.bannerThickness }
         if showReminder { return layout.reminderThickness }
         if isFailed { return layout.failedThickness }
         // The polished line is the one band that breathes: it takes a row per
@@ -258,7 +263,7 @@ struct DictationPillContent: View {
     /// test the width, thickness and glow all read from.
     private var bandIsBanner: Bool {
         showApproval || showAgentAsk || showAgentGlance || showAgentWorking || showAgentReply || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered
-            || showAgentNudge || showLearned || showCleanupReady || showBanner || showReminder
+            || showAgentNudge || showLearned || showCleanupReady || showMeeting || showBanner || showReminder
     }
 
     /// Whether the band is the *transcript-bearing* dictation indicator. Narrower
@@ -453,7 +458,7 @@ struct DictationPillContent: View {
             || showAgentWorking
             || showAgentReply
             || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered
-            || showAgentNudge || showLearned || showCleanupReady || showBanner || showReminder
+            || showAgentNudge || showLearned || showCleanupReady || showMeeting || showBanner || showReminder
             || state.shouldShowDeliveredBeat || state.shouldShowLiveTranscript
             || state.shouldShowPolishedBeat { return true }
         // The day is not the dictation indicator, so `hidePillWhenIdle` does not
@@ -533,7 +538,7 @@ struct DictationPillContent: View {
         // button, the tappable command confirmation, and the undelivered hint's
         // Copy button); the dictation indicator stays click-through (the panel
         // toggles ignoresMouseEvents to match).
-        .allowsHitTesting(showApproval || showAgentAsk || showAgentGlance || showAgentReply || showAgentWorking || showAgentNudge || showBanner || showCommandConfirmation || showUndelivered || showDueReminder || ambientHasControl)
+        .allowsHitTesting(showApproval || showAgentAsk || showAgentGlance || showAgentReply || showAgentWorking || showAgentNudge || showMeeting || showBanner || showCommandConfirmation || showUndelivered || showDueReminder || ambientHasControl)
         // Appear *instantly* (no animation when expanding), animate only the
         // retract. A spring on the way in read as "the notch appears late" even
         // though the state flips synchronously on key-press. Banners (below) keep
@@ -550,6 +555,7 @@ struct DictationPillContent: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showUndelivered)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showLearned)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showCleanupReady)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showMeeting)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showBanner)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showReminder)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showCommandConfirmation)
@@ -653,6 +659,14 @@ struct DictationPillContent: View {
             NotchLearnedBanner(term: term)
         } else if showCleanupReady {
             NotchCleanupReadyBanner()
+        } else if showMeeting {
+            if state.meetings.showsPrompt, let call = state.meetings.prompt {
+                NotchMeetingPromptBanner(call: call, controller: state.meetings)
+            } else {
+                NotchMeetingReadyBanner(title: state.meetings.readyNoteTitle ?? "")
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onOpenNotes)
+            }
         } else if showBanner {
             NotchBluetoothBanner(state: state)
         } else if showReminder, let line = state.activeReminder {

@@ -89,4 +89,17 @@ enum FeatureFlags {
     static func modelLabAvailable(on channel: ReleaseChannel) -> Bool {
         channel == .dev
     }
+
+    /// True when meeting notes are built in: call detection, the "take notes?"
+    /// offer, recording and the notes pass.
+    ///
+    /// Dev only while the release freeze holds. It records call audio, so it
+    /// ships after it has been tried on real Slack, Teams, Zoom and Meet calls.
+    static var meetingNotesAvailable: Bool {
+        meetingNotesAvailable(on: ReleaseChannel.current)
+    }
+
+    static func meetingNotesAvailable(on channel: ReleaseChannel) -> Bool {
+        channel == .dev
+    }
 }
