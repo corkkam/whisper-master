@@ -473,6 +473,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // quitting mid-session leaves the speakers silent with nothing left running
         // to explain why.
         viewModel.releaseHeldMedia()
+        // A meeting being recorded cannot be mixed or transcribed in the time a
+        // quit allows, so its temporary tracks are deleted rather than left behind.
+        viewModel.state.meetings.discardForTermination()
         // The other half of crash detection. macOS calls this for ⌘Q, the tray
         // Quit item, and logout — but never for a crash, which is precisely the
         // discrimination `CrashReporter` relies on. A Force Quit skips it too and
@@ -852,6 +855,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 state.dueReminderAt = nil
                 state.dueReminderCompleted = false
             }
+        }
+
+        // Same for the meeting offer and "notes saved": an offer that ran out
+        // behind a dictation or a higher band was never made.
+        if !state.canShowMeetingBanner {
+            state.meetings.holdBannerClocks()
         }
 
         // Retract the "nowhere to paste" hint once its display window elapses.

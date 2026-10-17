@@ -30,7 +30,7 @@ struct GeneralSettingsView: View {
                 SectionLabel("Meetings")
                 SettingsCard {
                     SettingsRow("Offer to take meeting notes",
-                                subtitle: "When a Slack huddle, Teams, Zoom or Meet call starts, the notch asks if you want notes. Nothing is recorded until you say yes, and the recording stays on this Mac.") {
+                                subtitle: "When a Slack huddle, Teams, Zoom or Meet call starts, the notch asks if you want notes. Nothing is recorded until you say yes. The recording and transcript stay on this Mac; the written notes sync to your account like your other notes.") {
                         ThemeToggle(isOn: $state.meetingDetectionEnabled, label: "Offer to take meeting notes")
                     }
                     if !state.meetingIgnoredApps.isEmpty {

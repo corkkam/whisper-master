@@ -53,6 +53,9 @@ final class MeetingController {
     func start(state: AppState) {
         guard FeatureFlags.meetingNotesAvailable, timer == nil else { return }
         self.state = state
+        // A quit or a crash mid-meeting leaves both sides of the call in the
+        // temporary folder; nothing else would ever remove them.
+        Task.detached(priority: .utility) { MeetingAudioRecorder.removeLeftovers() }
         let timer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.poll() }
         }
@@ -67,6 +70,25 @@ final class MeetingController {
             self.session = nil
             Task { await session.cancel() }
         }
+    }
+
+    /// The app is quitting. There is no time left to mix or transcribe, so the
+    /// recording is dropped rather than left in the temporary folder.
+    func discardForTermination() {
+        timer?.invalidate()
+        timer = nil
+        session?.discardForTermination()
+        session = nil
+    }
+
+    /// Keep the banners' clocks still while something else holds the notch, so
+    /// they count only time on screen — the `dueReminderAt` shape. An offer that
+    /// ran out behind a dictation was never made. Called from the refresh tick.
+    /// Only a window still running is held: `prompt` and `readyNoteTitle` outlive
+    /// their windows, and holding those would bring an old banner back.
+    func holdBannerClocks(now: Date = Date()) {
+        if showsPrompt { promptAt = now }
+        if showsReady { readyAt = now }
     }
 
     // MARK: - Detection
@@ -91,7 +113,14 @@ final class MeetingController {
             guard let family = MeetingAppCatalog.family(of: id), titles[family] == nil else { continue }
             titles[family] = BrowserMeetingProbe.windowTitles(family: family)
         }
-        return CallEvidence(micBundleIDs: ids, browserTitles: titles, calendarTitle: calendarTitle)
+        // A second process-list read, paid only when an app that records voice
+        // messages is on the mic and the detector needs to tell the two apart.
+        let needsOutput = ids.contains {
+            MeetingAppCatalog.family(of: $0).map(MeetingAppCatalog.voiceMessageApps.contains) ?? false
+        }
+        return CallEvidence(
+            micBundleIDs: ids, browserTitles: titles, calendarTitle: calendarTitle,
+            outputBundleIDs: needsOutput ? AudioOutputActivity.runningOutputBundleIDs() : [])
     }
 
     private func apply(_ evidence: CallEvidence) {
@@ -159,9 +188,13 @@ final class MeetingController {
                 try await session.start()
             } catch {
                 Log.meetings.error("meeting start failed: \(error.localizedDescription, privacy: .public)")
-                lastError = error.localizedDescription
+                // Stopped while it was still starting: the user already has their
+                // answer, and `stop` owns the teardown (`cancel` is a no-op then).
+                if self.session === session {
+                    lastError = error.localizedDescription
+                    self.session = nil
+                }
                 await session.cancel()
-                if self.session === session { self.session = nil }
             }
         }
     }

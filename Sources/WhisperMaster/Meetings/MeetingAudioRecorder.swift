@@ -17,7 +17,13 @@ final class MeetingAudioRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private let startedAt = Date()
     private var tracks: [MeetingSpeaker: Track] = [:]
+    /// Set by `finish` and `cancel`. A buffer still in flight after that is
+    /// dropped instead of opening a new track in a folder that is already gone.
+    private var isClosed = false
     private let directory: URL
+
+    /// Every recording's temporary folder starts with this (`removeLeftovers`).
+    static let directoryPrefix = "WhisperMasterMeeting-"
 
     private final class Track {
         let url: URL
@@ -29,7 +35,7 @@ final class MeetingAudioRecorder: @unchecked Sendable {
     }
 
     init(directory: URL = FileManager.default.temporaryDirectory
-        .appendingPathComponent("WhisperMasterMeeting-\(UUID().uuidString)", isDirectory: true)) {
+        .appendingPathComponent("\(directoryPrefix)\(UUID().uuidString)", isDirectory: true)) {
         self.directory = directory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
@@ -40,6 +46,7 @@ final class MeetingAudioRecorder: @unchecked Sendable {
     func append(_ buffer: AVAudioPCMBuffer, speaker: MeetingSpeaker) {
         lock.lock()
         defer { lock.unlock() }
+        guard !isClosed else { return }
         do {
             let track: Track
             if let existing = tracks[speaker] {
@@ -69,6 +76,7 @@ final class MeetingAudioRecorder: @unchecked Sendable {
     /// the mix failed. The temporary tracks are deleted either way.
     func finish(noteID: UUID) -> NoteAudio? {
         lock.lock()
+        isClosed = true
         let urls = tracks.values.map(\.url)
         tracks.removeAll()  // closes the files
         lock.unlock()
@@ -93,9 +101,31 @@ final class MeetingAudioRecorder: @unchecked Sendable {
     /// Discard everything without producing a file.
     func cancel() {
         lock.lock()
+        isClosed = true
         tracks.removeAll()
         lock.unlock()
         try? FileManager.default.removeItem(at: directory)
+    }
+
+    /// Delete the folders a quit or a crash left behind. A meeting that ends
+    /// normally deletes its own; one interrupted mid-call leaves both sides of the
+    /// conversation, ~460 MB an hour, where nothing would ever remove it. A folder
+    /// written to within `staleAfter` is left alone, in case another copy of the
+    /// app is recording into it right now.
+    static func removeLeftovers(in parent: URL = FileManager.default.temporaryDirectory,
+                                staleAfter: TimeInterval = 600, now: Date = Date()) {
+        let fileManager = FileManager.default
+        let key = URLResourceKey.contentModificationDateKey
+        guard let entries = try? fileManager.contentsOfDirectory(at: parent, includingPropertiesForKeys: [key])
+        else { return }
+        for folder in entries where folder.lastPathComponent.hasPrefix(directoryPrefix) {
+            let files = (try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: [key])) ?? []
+            let lastWrite = (files + [folder])
+                .compactMap { try? $0.resourceValues(forKeys: [key]).contentModificationDate }
+                .max() ?? .distantPast
+            guard now.timeIntervalSince(lastWrite) > staleAfter else { continue }
+            try? fileManager.removeItem(at: folder)
+        }
     }
 
     /// Sum the tracks sample by sample, in 1 s blocks, into an AAC file. Returns

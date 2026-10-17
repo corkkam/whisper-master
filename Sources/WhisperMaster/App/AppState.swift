@@ -1028,9 +1028,20 @@ final class AppState {
     /// The meeting offer or the "notes saved" line. Idle only, so it never lands
     /// on top of a dictation the user is in the middle of.
     var shouldShowMeetingBanner: Bool {
-        (meetings.showsPrompt || meetings.showsReady)
-            && phase == .idle && download == nil && preparingEngine == nil
-            && !shouldShowDueReminderBanner
+        (meetings.showsPrompt || meetings.showsReady) && canShowMeetingBanner
+    }
+
+    /// Whether the meeting band would be on screen if it had something to say:
+    /// idle, and no band above it in `DictationPillContent`'s ladder is up. While
+    /// this is false the meeting banners' clocks are held (`AppDelegate`), the same
+    /// paused-clock shape as `canShowDueReminderBanner`.
+    var canShowMeetingBanner: Bool {
+        phase == .idle && download == nil && preparingEngine == nil
+            && approvals.pending == nil
+            && !shouldShowAgentAsk && !shouldShowAgentGlance && !shouldShowAgentWorking && !shouldShowAgentReply
+            && !shouldShowDueReminderBanner && !shouldShowCommandConfirmation && !shouldShowDaySummary
+            && !shouldShowUndeliveredBanner && !shouldShowAgentNudge && !shouldShowLearnedBanner
+            && !shouldShowCleanupReadyBanner
     }
 
     /// Show the "saved, nowhere to paste" hint when a recent dictation had no

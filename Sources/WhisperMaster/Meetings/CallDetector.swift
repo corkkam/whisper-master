@@ -19,17 +19,28 @@ struct CallEvidence: Equatable, Sendable {
     var browserTitles: [String: [String]] = [:]
     /// The calendar meeting in progress, if any.
     var calendarTitle: String?
+    /// Bundle ids of every process playing audio right now. Gathered only while an
+    /// app that also records voice messages is on the mic
+    /// (`MeetingAppCatalog.voiceMessageApps`); empty otherwise.
+    var outputBundleIDs: [String] = []
 }
 
 /// Turns polled mic evidence into "a call started" and "the call ended".
 ///
 /// Pure and clock-injected so the debounces are tested rather than discovered on a
 /// live call. Both debounces exist for a reason seen in real use:
-/// - **Start waits `startHold`.** Slack opens the mic for a moment to record a
-///   voice clip, a browser does for a permission check. A call holds it.
+/// - **Start waits `startHold`.** A browser opens the mic for a moment for a
+///   permission check. A call holds it. A voice message can hold it longer than
+///   any hold worth waiting, so the apps that record them must also be playing
+///   audio (`MeetingAppCatalog.voiceMessageApps`): a call plays the other side, a
+///   message being recorded plays nothing.
 /// - **End waits `endHold`.** Switching headphones, or an app reopening its audio
 ///   unit after a route change, drops the mic for a second or two. Ending the
 ///   meeting there would split one meeting into two notes.
+/// - **Once started, a call lasts as long as its app holds the mic.** It is not
+///   re-detected on every poll: a browser call is only *found* by a tab title or a
+///   calendar event, and neither survives switching tabs or a meeting running
+///   over, while the mic does.
 struct CallDetector {
     enum Event: Equatable {
         case started(DetectedCall)
@@ -55,6 +66,10 @@ struct CallDetector {
                   let family = MeetingAppCatalog.family(of: id),
                   !ignored.contains(family)
             else { continue }
+            if MeetingAppCatalog.voiceMessageApps.contains(family),
+               !evidence.outputBundleIDs.contains(where: { MeetingAppCatalog.family(of: $0) == family }) {
+                continue
+            }
             return DetectedCall(name: name, bundleFamily: family, calendarTitle: evidence.calendarTitle)
         }
         for id in evidence.micBundleIDs where MeetingAppCatalog.isBrowser(id) {
@@ -74,14 +89,19 @@ struct CallDetector {
         return nil
     }
 
+    /// Whether any process of `family` is on the mic. Helpers count for their app,
+    /// and another call app listed first does not hide it.
+    static func holdsMic(_ family: String, in evidence: CallEvidence) -> Bool {
+        evidence.micBundleIDs.contains { MeetingAppCatalog.family(of: $0) == family }
+    }
+
     /// Feed one poll. Returns an event only on a confirmed transition.
     mutating func update(_ evidence: CallEvidence, ignoring ignored: Set<String> = [],
                          now: Date) -> Event? {
-        let seen = Self.call(in: evidence, ignoring: ignored)
-
         if let active {
-            // Same app still on the mic: the meeting continues.
-            if let seen, seen.bundleFamily == active.bundleFamily {
+            // The call's own app still on the mic: the meeting continues, whatever
+            // tab is in front and whatever the calendar says.
+            if Self.holdsMic(active.bundleFamily, in: evidence) {
                 missingSince = nil
                 return nil
             }
@@ -95,7 +115,7 @@ struct CallDetector {
             return .ended
         }
 
-        guard let seen else {
+        guard let seen = Self.call(in: evidence, ignoring: ignored) else {
             candidate = nil
             candidateSince = nil
             return nil

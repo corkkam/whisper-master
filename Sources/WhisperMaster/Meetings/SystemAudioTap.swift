@@ -14,8 +14,13 @@ import Foundation
 /// way to read a tap is a **private** aggregate device that holds it; it is
 /// invisible to other apps and to Sound settings, and it is destroyed in `stop()`.
 /// The user's input and output stay exactly where they were.
+///
+/// **Set up and torn down off the main actor.** Every call here is an IPC round
+/// trip to `coreaudiod`, which has stalled the app before (`Audio/CLAUDE.md`), so
+/// `start` and `stop` run on `controlQueue` and the caller only awaits them. The
+/// IDs below are touched only there (and by `deinit`, when nothing else can).
 @available(macOS 14.2, *)
-final class SystemAudioTap {
+final class SystemAudioTap: @unchecked Sendable {
     enum TapError: LocalizedError {
         case tapCreateFailed(OSStatus)
         case formatUnavailable
@@ -36,13 +41,43 @@ final class SystemAudioTap {
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
-    private let queue = DispatchQueue(label: "WhisperMaster.SystemAudioTap", qos: .userInitiated)
+    /// Where the IO block runs.
+    private let ioQueue = DispatchQueue(label: "WhisperMaster.SystemAudioTap", qos: .userInitiated)
+    /// Where setup and teardown run. Not `ioQueue`: destroying an IO proc waits for
+    /// its block to return, and that wait must not hold the queue the block needs.
+    private let controlQueue = DispatchQueue(label: "WhisperMaster.SystemAudioTap.control", qos: .userInitiated)
 
     /// Start capturing. `bundleFamily` selects the processes to tap; when none of
     /// them is a Core Audio client yet (a web call whose tab has not played sound),
     /// it falls back to everything this Mac plays except ourselves. An empty
     /// family (a meeting started by hand) takes that fallback directly.
-    func start(bundleFamily: String, handler: @escaping BufferHandler) throws {
+    func start(bundleFamily: String, handler: @escaping BufferHandler) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            controlQueue.async {
+                do {
+                    try self.create(bundleFamily: bundleFamily, handler: handler)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    func stop() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            controlQueue.async {
+                self.destroy()
+                continuation.resume()
+            }
+        }
+    }
+
+    deinit { destroy() }
+
+    // MARK: - Core Audio
+
+    private func create(bundleFamily: String, handler: @escaping BufferHandler) throws {
         let processes = bundleFamily.isEmpty
             ? [] : AudioOutputActivity.processObjects(bundlePrefix: bundleFamily)
         let description: CATapDescription
@@ -68,12 +103,12 @@ final class SystemAudioTap {
             try createAggregate(tapUUID: description.uuid)
             try startIO(format: format, handler: handler)
         } catch {
-            stop()
+            destroy()
             throw error
         }
     }
 
-    func stop() {
+    private func destroy() {
         if aggregateID != kAudioObjectUnknown {
             if let ioProcID {
                 AudioDeviceStop(aggregateID, ioProcID)
@@ -88,10 +123,6 @@ final class SystemAudioTap {
         aggregateID = AudioObjectID(kAudioObjectUnknown)
         tapID = AudioObjectID(kAudioObjectUnknown)
     }
-
-    deinit { stop() }
-
-    // MARK: - Core Audio
 
     private func createAggregate(tapUUID: UUID) throws {
         var description: [String: Any] = [
@@ -120,7 +151,7 @@ final class SystemAudioTap {
 
     private func startIO(format: AVAudioFormat, handler: @escaping BufferHandler) throws {
         var procID: AudioDeviceIOProcID?
-        let status = AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, queue) { _, input, _, _, _ in
+        let status = AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, ioQueue) { _, input, _, _, _ in
             guard let wrapped = AVAudioPCMBuffer(
                 pcmFormat: format, bufferListNoCopy: input, deallocator: nil),
                 wrapped.frameLength > 0,
