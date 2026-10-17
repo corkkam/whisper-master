@@ -21,6 +21,30 @@ final class LabArenaTests: XCTestCase {
         XCTAssertEqual(LabArena.decide(clean, kept, reference: nil), .tie)
     }
 
+    // Where the verdict is itself a word-error limit, the line through it must not
+    // decide the meeting: a hair either side of the bar is a tie, and a big gap on
+    // the same side of it is a win.
+    func testAWordErrorVerdictIsDecidedOnWordErrorAlone() {
+        let words = (1 ... 40).map { "word\($0)" }
+        let reference = words.joined(separator: " ")
+        func output(missing: Int) -> String { words.dropLast(missing).joined(separator: " ") }
+
+        // 2 words in 40 off passes a 5% bar, 3 off fails it: 2.5 points apart.
+        let justIn = result("a", passed: true, output: output(missing: 2))
+        let justOut = result("a", passed: false, output: output(missing: 3))
+        XCTAssertEqual(LabArena.decide(justIn, justOut, reference: reference), .first,
+                       "an ordinary case still rules on pass first")
+        XCTAssertEqual(LabArena.decide(justIn, justOut, reference: reference, verdictIsWordError: true), .tie)
+
+        // Both fail, one by far more: the closer one wins, as before.
+        let farOut = result("a", passed: false, output: output(missing: 12))
+        XCTAssertEqual(LabArena.decide(justOut, farOut, reference: reference, verdictIsWordError: true), .first)
+        // A pass far closer than a fail still wins.
+        XCTAssertEqual(LabArena.decide(justIn, farOut, reference: reference, verdictIsWordError: true), .first)
+        // Without a reference there is nothing to measure, so pass/fail rules.
+        XCTAssertEqual(LabArena.decide(justIn, farOut, reference: nil, verdictIsWordError: true), .first)
+    }
+
     func testCasingAndPunctuationAloneAreATie() {
         let a = result("a", passed: true, output: "Ship it Monday.")
         let b = result("a", passed: true, output: "ship it monday")

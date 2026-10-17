@@ -21,6 +21,13 @@ import EvalScoreKit
 ///    error against it wins, if the gap is at least one word in twenty.
 /// 3. Otherwise a tie, which counts as half a win each.
 ///
+/// **A case whose verdict *is* a word-error limit skips step 1**
+/// (`max_reference_wer`, the public disfluency suite). There the pass is the same
+/// measurement with a line drawn through it, so ruling on it first made a
+/// 0.2-point difference across the line a full win while a 4-point difference on
+/// one side of it was a tie. Those cases are decided on word error and the margin
+/// alone.
+///
 /// The ratings are a fit, not a running Elo, so the order the cases ran in does
 /// not move them. Every pair also gets one virtual tie, so a model that won
 /// every meeting has a finite rating instead of an infinite one.
@@ -40,9 +47,12 @@ enum LabArena {
     /// The word error gap below which two outputs count as equally close.
     static let referenceMargin = 0.05
 
-    static func decide(_ a: LabCaseResult, _ b: LabCaseResult, reference: String?) -> Outcome {
-        if a.passed != b.passed { return a.passed ? .first : .second }
-        guard let reference, !reference.isEmpty else { return .tie }
+    static func decide(
+        _ a: LabCaseResult, _ b: LabCaseResult, reference: String?, verdictIsWordError: Bool = false
+    ) -> Outcome {
+        let hasReference = !(reference ?? "").isEmpty
+        if a.passed != b.passed, !(verdictIsWordError && hasReference) { return a.passed ? .first : .second }
+        guard let reference, hasReference else { return .tie }
         let werA = WER.score(reference: reference, hypothesis: a.finalOutput)
         let werB = WER.score(reference: reference, hypothesis: b.finalOutput)
         if abs(werA - werB) < referenceMargin { return .tie }
@@ -51,7 +61,10 @@ enum LabArena {
 
     /// Ranked best first. Models that failed to run sit out; a case missing from
     /// either side of a pair is skipped for that pair rather than scored.
-    static func standings(run: LabRun, references: [String: String] = [:]) -> [Standing] {
+    /// `wordErrorVerdicts` names the cases whose pass rule is a word-error limit.
+    static func standings(
+        run: LabRun, references: [String: String] = [:], wordErrorVerdicts: Set<String> = []
+    ) -> [Standing] {
         let models = run.models.filter { $0.failure == nil && !$0.cases.isEmpty }
         let n = models.count
         guard n > 0 else { return [] }
@@ -64,7 +77,8 @@ enum LabArena {
             for j in (i + 1) ..< n {
                 for caseA in models[i].cases {
                     guard let caseB = byID[j][caseA.id] else { continue }
-                    switch decide(caseA, caseB, reference: references[caseA.id]) {
+                    switch decide(caseA, caseB, reference: references[caseA.id],
+                                  verdictIsWordError: wordErrorVerdicts.contains(caseA.id)) {
                     case .first:
                         points[i][j] += 1; record[i].wins += 1; record[j].losses += 1
                     case .second:
