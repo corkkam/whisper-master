@@ -128,11 +128,12 @@ row of its own, so it can sit beside the shipped assistant in one run.
   `<id>+reasoning` (`LabModel.reasoningVariant`, assistant-only, `thinks`). An
   `.always` model is one row, assistant-only, and an added one that also takes no
   tools is refused: no suite here could measure it.
-- **The reasoning budget is the lab's alone.** `generateWithToolsMeasured(thinking:)`
-  renders with `enable_thinking: true` and gets `reasoningMaxTokens` (2048) and
-  `reasoningTimeoutSeconds` (60 s). Every shipped path still renders with
-  `enable_thinking: false` on 512 tokens / 12 s, which cut every reasoning model
-  off before it answered.
+- **The reasoning budget.** `generateWithToolsMeasured(thinking:)` renders with
+  `enable_thinking: true` and gets `reasoningMaxTokens` (2048) and
+  `reasoningTimeoutSeconds` (60 s). The lab passes `thinking` per row; the shipped
+  assistant gets the same budget from the resident model (`loadedThinks`). The
+  cleanup path still renders with `enable_thinking: false` on 512 tokens / 12 s,
+  which would cut a reasoning model off before it answered.
 - **A model out of budget with no `</think>` scores no answer, never its
   reasoning.** Its reasoning can name the tool it is weighing, and handing that to
   the parser would pass a model that never answered. The case says "still
@@ -143,9 +144,10 @@ row of its own, so it can sit beside the shipped assistant in one run.
   of a dev build's assistant. Making the assistant reason is a change to
   `CommandAgentService`'s budget and prompt, not a lab toggle. **That change was
   made on 2026-10-17**: the shipped assistant is now Qwen3-4B-Thinking-2507 (the
-  `.shippingAssistant` row) and the shipped paths reason through
-  `CleanupModel.General.thinks`. The override rule still holds: a dev build can point
-  the slot at a non-thinking model, never at another reasoning row.
+  `.shippingAssistant` row) and the assistant paths reason when the resident model
+  does (`MlxCleanupService.loadedThinks`, recorded at load). The override rule still
+  holds: a dev build can point the slot at a non-thinking model, never at another
+  reasoning row, because only the shipped directories are recognised as reasoning.
 - Reasoning tokens per case are kept (`LabCaseResult.reasoningTokens`) and the
   median goes in the run log. Latency already carries the cost in time.
 - **Measured 2026-10-04 (M5, 24 GB, tool suite, 16 cases, run 5).** The shipped

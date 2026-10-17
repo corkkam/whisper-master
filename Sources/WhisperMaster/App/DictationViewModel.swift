@@ -1275,7 +1275,13 @@ final class DictationViewModel {
             taken: false))
 
         let fallback = ClassifiedIntent.armedCapture(of: text)
-        let refined = await classifyIntent(text, fallback: fallback)
+        // After a loop that spent its whole budget (90 s on the reasoning model) the
+        // band has said "Working on it" all that time, and the model may still be busy
+        // with the turn the loop walked away from; the deterministic reading files the
+        // words now rather than queueing another generation behind that one.
+        let refined = attempt.budgetSpent
+            ? fallback
+            : await classifyIntent(text, fallback: fallback)
         let intent = refined.kind == .dictation ? fallback : refined
         // The trigger-stripped words, used wherever the model left a piece empty.
         let payload = CommandDetector.detect(text)?.payload ?? text
@@ -1325,6 +1331,8 @@ final class DictationViewModel {
         var answer = ""
         var provenance = ""
         var createdSomething = false
+        /// The loop ran out of time or steps (`CommandAgentService.Run.budgetSpent`).
+        var budgetSpent = false
     }
 
     private func runCommandAgent(_ text: String) async -> AgentAttempt {
@@ -1388,7 +1396,8 @@ final class DictationViewModel {
                 turns: run.turns,
                 answer: run.result?.answer ?? "",
                 provenance: run.result?.detail ?? "",
-                createdSomething: run.result?.createdSomething ?? false)
+                createdSomething: run.result?.createdSomething ?? false,
+                budgetSpent: run.budgetSpent)
         }
 
         guard let result = run.result else {
@@ -1477,8 +1486,14 @@ final class DictationViewModel {
         // chunk a long capture into separately-generated pieces. A truncated or
         // chunk-joined object fails `IntentClassifier.parse`, which reads here as the
         // model having declined — silently, and most often on the longest captures.
+        //
+        // The reasoning model gets a short clock of its own: this only refines a
+        // reading that already files the words, after the agent loop has had its
+        // turn, so it is not worth another minute of "Working on it".
+        let thinks = await MlxCleanupService.general.loadedThinks
         guard let raw = await MlxCleanupService.general.generateAgent(
-                text, systemPrompt: IntentPrompt.system, thinking: CleanupModel.General.thinks),
+                text, systemPrompt: IntentPrompt.system,
+                timeoutSeconds: thinks ? IntentPrompt.reasoningTimeoutSeconds : nil),
               let parsed = IntentClassifier.parse(raw)
         else { return fallback }
         return parsed

@@ -21,15 +21,31 @@ converted here to 4-bit: 335 MB on disk, ~100 ms. Tool calling, intent and meeti
 notes run **Qwen3-4B-Thinking-2507** (`CleanupModel.General`, `MlxCleanupService.general`)
 since 2026-10-17, the best reasoning model the pinned mlx-swift-examples 2.29.1 can
 load (Qwen3.5-4B and Gemma 4 need a newer mlx-swift-lm). **It always reasons first**,
-so every call passes `thinking: CleanupModel.General.thinks`: the reasoning budget
-(2048 extra tokens, 60 s), `splitReasoning` to drop the `<think>` block, nil when the
-budget runs out mid-reasoning, and `AgentLoop.reasoningBudget` (90 s) on the chord.
+so it gets the reasoning budget (2048 extra tokens, 60 s), `splitReasoning` to drop the
+`<think>` block, nil when the budget runs out mid-reasoning, and
+`AgentLoop.reasoningBudget` (90 s) on the chord. **Whether a call reasons is read off
+the resident model** (`MlxCleanupService.loadedThinks`, recorded at load from
+`CleanupModel.General.thinks(loadedFrom:)`), never from the live setting: a Lab override
+or a finished download changes the setting before the resident model changes, and
+running a model the wrong way round either feeds reasoning to the parser or discards
+every answer. `prepareAssistant` reloads when the resolved directory changes.
 The trade was made knowingly: the Lab measured it 15/16 at 10.7 s p50 against
-Instruct-2507's 16/16 at 3.9 s (see `Lab/CLAUDE.md`). Instruct-2507 is still in the Lab
-catalogue; going back is the two ids in `CleanupModel.General` plus the badge in
-`LabCatalog`. **The thinking archive is not on the R2 mirror yet**, so installs take the
-Hugging Face path, which lands in `~/Documents/huggingface/models/` and is found there
-by `General.installedDirectory`. **Measured after the switch (2026-10-17, `WM_AGENT_TOOL_EVAL`, 16 commands):**
+Instruct-2507's 16/16 at 3.9 s (see `Lab/CLAUDE.md`). Going back is swapping the ids in
+`CleanupModel.General` with `previousArchiveName`, plus the badge in `LabCatalog`.
+- **⚠️ An update must not take the assistant away.** Every install that used the chord
+  before 2026-10-17 has Instruct-2507 on disk (`General.previousDirectory`), and
+  `installedDirectory` falls back to it (non-thinking) until the Thinking model has
+  arrived; the first chord use starts that download in the background
+  (`General.needsShippedModel`). Ignoring the old model meant every existing user's
+  assistant went to the keyword gate on update.
+- **The thinking archive is not on the R2 mirror yet**, so installs take the Hugging
+  Face path: `LabHuggingFace.download` into MLX's hub cache
+  (`LabPaths.huggingFaceCacheDirectory`, under `~/Library/Caches`), found there by
+  `General.installedDirectory`, **then** a load from that directory. Loading by id
+  instead (`prepare(id:)`) put a 2.3 GB fetch inside the 60 s `loadTimeoutSeconds` and
+  skipped the `chat_template.jinja` a 2507 model keeps its template in.
+
+**Measured after the switch (2026-10-17, `WM_AGENT_TOOL_EVAL`, 16 commands):**
 hand-rolled (the shipped arm) 14/16 correct tool, native 15/16, against Instruct-2507's
 16/16 in August. The two hand-rolled misses: `create_reminder` with `body` instead of
 `title` (the parser correctly refuses a call missing a required argument), and "message

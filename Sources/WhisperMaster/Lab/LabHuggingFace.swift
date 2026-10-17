@@ -407,10 +407,20 @@ enum LabHuggingFace {
     static func download(
         _ model: LabModel, onProgress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
+        try await download(repoID: model.huggingFaceId, onProgress: onProgress)
+    }
+
+    /// The same fetch by repo id, for the shipped assistant's Hugging Face fallback
+    /// (`AssistantModelManager`), which had both of the problems above: it loaded by
+    /// id inside the 60 s load cap, and through `downloadModel`, which leaves a 2507
+    /// model without its chat template.
+    static func download(
+        repoID: String, onProgress: @escaping @Sendable (Double) -> Void
+    ) async throws -> URL {
         for attempt in 1 ... 3 {
             do {
                 return try await defaultHubApi.snapshot(
-                    from: model.huggingFaceId, matching: ["*.safetensors", "*.json", "*.jinja"]
+                    from: repoID, matching: ["*.safetensors", "*.json", "*.jinja"]
                 ) { onProgress($0.fractionCompleted) }
             } catch HubApi.EnvironmentError.offlineModeError where attempt < 3 {
                 try await Task.sleep(nanoseconds: 1_500_000_000)

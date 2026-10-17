@@ -262,15 +262,17 @@ final class LabController {
 
     /// Point a shipped slot at a model, or hand it back with nil. Only takes
     /// effect on the next load of that model, which the copy beside the button
-    /// says: the running app has the old one resident.
+    /// says: the running app has the old one resident. (For the assistant that is
+    /// the next chord: `MlxCleanupService.prepareAssistant` reloads when the
+    /// resolved directory changes.)
     func use(_ model: LabModel?, for role: LabRole) {
         LabModelOverride.set(model?.id, for: role, defaults: defaults)
     }
 
-    /// Never for a reasoning row: the shipped paths render with
-    /// `enable_thinking: false` on a 12-second budget, so the slot would run
-    /// something other than what the lab measured, and a model that always
-    /// reasons would time out on every turn.
+    /// Never for a reasoning row: an overridden slot runs without reasoning
+    /// (`LabModelOverride.directory` says why), so it would run something other
+    /// than what the lab measured, and a model that always reasons would time out
+    /// on every turn.
     func canUse(_ model: LabModel, for role: LabRole) -> Bool {
         LabModelOverride.isPermitted && !model.thinks && model.supports(role)
             && state(for: model).isInstalled

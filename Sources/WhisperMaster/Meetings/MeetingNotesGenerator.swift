@@ -3,18 +3,23 @@ import Foundation
 /// Turns a meeting transcript into notes with the on-device general model.
 ///
 /// The model call is injected (`Generate`) so tests run without a model. Live
-/// code passes `MlxCleanupService.general.generateAgent`, which has a 12 s
-/// ceiling per call and a 4k-ish useful context, so a long meeting is
-/// **map-reduced**: each chunk becomes bullets, then the bullets become notes.
-/// A chunk whose call fails is skipped, not fatal — notes from most of a meeting
-/// beat no notes.
+/// code passes `MlxCleanupService.general.generateAgent`, which has a 4k-ish
+/// useful context, so a long meeting is **map-reduced**: each chunk becomes
+/// bullets, then the bullets become notes. A chunk whose call fails is skipped,
+/// not fatal — notes from most of a meeting beat no notes.
+///
+/// **Each call's ceiling is the model's, not this type's.** 12 s on a
+/// non-reasoning model; on the shipped reasoning assistant, up to
+/// `MlxCleanupService.reasoningTimeoutSeconds` (60 s) per call, so a one-hour
+/// meeting (~13 calls) can take minutes to write up. That cost has not been
+/// measured on a real meeting yet.
 struct MeetingNotesGenerator {
     typealias Generate = @Sendable (_ user: String, _ system: String, _ maxTokens: Int) async -> String?
 
     let generate: Generate
 
     /// Words per map chunk. Big enough that a 1 h meeting is ~12 calls, small
-    /// enough that one chunk plus its answer fits well inside the timeout.
+    /// enough that one chunk plus its answer fits well inside a call's budget.
     static let chunkWords = 700
 
     static let chunkSystem = """

@@ -78,4 +78,72 @@ final class AssistantModelTests: XCTestCase {
     func testTheCleanupArchiveIsChecksumPinned() {
         XCTAssertNotNil(ModelChecksums.sha256[CleanupModel.archiveName])
     }
+
+    // MARK: - Which assistant loads
+
+    private typealias General = CleanupModel.General
+
+    func testTheShippedModelFromTheMirrorWinsOverEverythingElse() {
+        let everything: Set<URL> = [General.shippedDirectory, General.hubCacheDirectory,
+                                    General.previousDirectory]
+        XCTAssertEqual(General.resolveInstalledDirectory { everything.contains($0) },
+                       General.shippedDirectory)
+    }
+
+    func testTheHuggingFaceCopyOfTheShippedModelBeatsThePreviousModel() {
+        let onDisk: Set<URL> = [General.hubCacheDirectory, General.previousDirectory]
+        XCTAssertEqual(General.resolveInstalledDirectory { onDisk.contains($0) },
+                       General.hubCacheDirectory)
+    }
+
+    /// The update regression: an install that only has the assistant it used before
+    /// the switch keeps answering with it rather than going to the keyword gate.
+    func testAnInstallWithOnlyThePreviousModelKeepsUsingIt() {
+        XCTAssertEqual(General.resolveInstalledDirectory { $0 == General.previousDirectory },
+                       General.previousDirectory)
+    }
+
+    /// With nothing on disk the answer is where the mirror will unpack, so a fresh
+    /// install still writes where it always has.
+    func testWithNothingOnDiskTheMirrorPathIsTheAnswer() {
+        XCTAssertEqual(General.resolveInstalledDirectory { _ in false }, General.shippedDirectory)
+    }
+
+    func testOnlyTheShippedModelIsRunAsReasoning() {
+        XCTAssertTrue(General.thinks(loadedFrom: General.shippedDirectory))
+        XCTAssertTrue(General.thinks(loadedFrom: General.hubCacheDirectory))
+        XCTAssertFalse(General.thinks(loadedFrom: General.previousDirectory),
+                       "Instruct-2507 never opens a <think> block")
+        XCTAssertFalse(General.thinks(loadedFrom: URL(fileURLWithPath: "/tmp/some-lab-model")))
+    }
+
+    /// MLX's hub client writes under Caches; the Lab reads the same place. The first
+    /// version of this looked in ~/Documents, which is neither, and probing it on
+    /// every tick is what raises the Documents-folder privacy prompt.
+    func testTheHuggingFaceFallbackIsLookedForWhereMLXWritesIt() {
+        XCTAssertEqual(General.hubCacheDirectory,
+                       LabPaths.huggingFaceCacheDirectory(for: General.huggingFaceId))
+        XCTAssertFalse(General.hubCacheDirectory.path.contains("/Documents/"))
+    }
+
+    /// The previous model has to be one the mirror can still serve, so a reinstall of
+    /// it is not refused as unpinned.
+    func testThePreviousAssistantArchiveIsStillPinned() {
+        XCTAssertNotNil(ModelChecksums.sha256[General.previousArchiveName])
+    }
+
+    // MARK: - The chord's wall clock
+
+    func testAReasoningAssistantGetsTheLongerBudget() {
+        XCTAssertEqual(AgentLoop.budget(thinks: true), AgentLoop.reasoningBudget)
+        XCTAssertEqual(AgentLoop.budget(thinks: false), AgentLoop.defaultBudget)
+        XCTAssertGreaterThan(AgentLoop.reasoningBudget, AgentLoop.defaultBudget)
+    }
+
+    /// The classifier only refines a reading that already files the words, so its
+    /// clock on the reasoning model must stay well under a full reasoning turn.
+    func testTheClassifierGivesUpBeforeAFullReasoningTurn() {
+        XCTAssertLessThan(IntentPrompt.reasoningTimeoutSeconds,
+                          MlxCleanupService.reasoningTimeoutSeconds)
+    }
 }

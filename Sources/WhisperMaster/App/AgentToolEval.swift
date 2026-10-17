@@ -245,8 +245,7 @@ enum AgentToolEval {
     private static func handRolled(_ spoken: String, system: String,
                                    tools: [ToolDescriptor]) async -> Verdict {
         let user = AgentLoop.render([.init(role: .user, text: spoken)])
-        let raw = await MlxCleanupService.general.generateAgent(
-            user, systemPrompt: system, thinking: CleanupModel.General.thinks) ?? ""
+        let raw = await MlxCleanupService.general.generateAgent(user, systemPrompt: system) ?? ""
         return verdict(from: ToolCallParser.parse(raw, tools: tools), raw: raw)
     }
 
@@ -256,8 +255,7 @@ enum AgentToolEval {
                                    schemas: [String], tools: [ToolDescriptor]) async -> Verdict {
         let messages = AgentLoop.wireMessages(system: system, [.init(role: .user, text: spoken)])
         let raw = await MlxCleanupService.general.generateWithTools(
-            messages: messages, toolSchemasJSON: schemas,
-            thinking: CleanupModel.General.thinks) ?? ""
+            messages: messages, toolSchemasJSON: schemas) ?? ""
         return verdict(from: NativeToolCallParser.parse(raw, tools: tools), raw: raw)
     }
 
@@ -330,10 +328,9 @@ enum AgentToolEval {
         let viaClean = await MlxCleanupService.general.clean(
             rendered, systemPrompt: handSystem) ?? ""
         let viaAgent = await MlxCleanupService.general.generateAgent(
-            rendered, systemPrompt: handSystem, thinking: CleanupModel.General.thinks) ?? ""
+            rendered, systemPrompt: handSystem) ?? ""
         let viaNative = await MlxCleanupService.general.generateWithTools(
-            messages: wire, toolSchemasJSON: schemas,
-            thinking: CleanupModel.General.thinks) ?? ""
+            messages: wire, toolSchemasJSON: schemas) ?? ""
 
         report("via clean  ", viaClean, parse: { ToolCallParser.parse($0, tools: tools) })
         report("hand-rolled", viaAgent, parse: { ToolCallParser.parse($0, tools: tools) })

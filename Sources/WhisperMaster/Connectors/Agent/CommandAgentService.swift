@@ -80,6 +80,10 @@ struct CommandAgentService {
         /// Why there is no result, or empty when there is one. One of the four decline
         /// rules in this type's doc comment, in words.
         let declineReason: String
+        /// The loop ran out of time or steps. Its last generation may still hold the
+        /// model (`AgentLoop.generateWithinBudget` walks away from it, it can't stop
+        /// it), so a caller about to generate again should not wait behind it.
+        var budgetSpent = false
     }
 
     /// - Parameter onStep: called as the loop moves, so the band can name the
@@ -115,7 +119,7 @@ struct CommandAgentService {
             now: now)
 
         var loop = AgentLoop(tools: tools, router: router, generate: generate)
-        if CleanupModel.General.thinks { loop.budget = AgentLoop.reasoningBudget }
+        loop.budget = AgentLoop.budget(thinks: CleanupModel.General.thinks)
         loop.prompt = AgentPrompt.command(toolList:)
         loop.now = now
         loop.onStep = onStep
@@ -133,7 +137,8 @@ struct CommandAgentService {
                 connectorsAllowed: connectorsAllowed,
                 calls: router.journal,
                 turns: Self.traceTurns(outcome.turns),
-                declineReason: result == nil ? declineReason : "")
+                declineReason: result == nil ? declineReason : "",
+                budgetSpent: outcome.exhausted)
         }
 
         guard !router.executed.isEmpty else {

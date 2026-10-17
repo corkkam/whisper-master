@@ -210,7 +210,11 @@ final class MeetingSession {
 extension MeetingNotesGenerator {
     /// The shipped generator: the on-device general model.
     static let live = MeetingNotesGenerator { user, system, maxTokens in
+        // A cut-off reduce would be returned as the finished notes, half a section and
+        // all; nil hands `finalNotes` its own fallback (the map bullets) instead. A
+        // cut-off map or live call keeps the bullets it finished.
         await MlxCleanupService.general.generateAgent(
-            user, systemPrompt: system, maxTokens: maxTokens, thinking: CleanupModel.General.thinks)
+            user, systemPrompt: system, maxTokens: maxTokens,
+            discardIfCutOff: system == MeetingNotesGenerator.reduceSystem)
     }
 }
