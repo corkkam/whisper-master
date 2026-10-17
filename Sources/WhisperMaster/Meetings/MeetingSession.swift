@@ -98,6 +98,12 @@ final class MeetingSession {
     private var tap: AnyObject?
     private var liveNotesTask: Task<Void, Never>?
     private var liveNotesCursorMs = 0
+    /// Set by `stop`, `cancel` and `discardForTermination`. `start` checks it after
+    /// every suspension: Stop is on screen as soon as the session exists, and the
+    /// two model loads alone take seconds, so a stop can land mid-start. Without
+    /// the check, `start` went on to open the mic and the tap after `stop` had
+    /// already torn everything down, and nothing ever released them.
+    private var isStopped = false
 
     /// How often the running notes are refreshed.
     static let liveNotesInterval: TimeInterval = 180
@@ -112,9 +118,14 @@ final class MeetingSession {
     func start() async throws {
         guard await mic.ensurePermission() else { throw StartError.microphoneDenied }
         guard TranscriberEngine.slidingWindow.isInstalled else { throw StartError.engineNotInstalled }
+        guard !isStopped else { return }
 
         try await micStream.start(recorder: recorder) { [weak self] text in
             Task { @MainActor in self?.ingest(text, from: .me) }
+        }
+        guard !isStopped else {
+            await micStream.cancel()
+            return
         }
         let micStream = micStream
         mic.onCaptureLost = { [weak self] in Task { @MainActor in self?.micLost = true } }
@@ -125,9 +136,18 @@ final class MeetingSession {
                 try await callStream.start(recorder: recorder) { [weak self] text in
                     Task { @MainActor in self?.ingest(text, from: .others) }
                 }
+                guard !isStopped else {
+                    await callStream.cancel()
+                    return
+                }
                 let tap = SystemAudioTap()
                 let callStream = callStream
-                try tap.start(bundleFamily: call.bundleFamily) { callStream.feed($0) }
+                try await tap.start(bundleFamily: call.bundleFamily) { callStream.feed($0) }
+                guard !isStopped else {
+                    await tap.stop()
+                    await callStream.cancel()
+                    return
+                }
                 self.tap = tap
                 capturesCallAudio = true
             } catch {
@@ -135,16 +155,17 @@ final class MeetingSession {
                 await callStream.cancel()
             }
         }
+        guard !isStopped else { return }
         startLiveNotes()
     }
 
     /// Stop capture and return the finished transcript text. The recording is
     /// mixed into `<noteID>.m4a`.
     func stop(noteID: UUID) async -> (transcript: String, audio: NoteAudio?) {
+        isStopped = true
         liveNotesTask?.cancel()
         mic.stop()
-        if #available(macOS 14.2, *) { (tap as? SystemAudioTap)?.stop() }
-        tap = nil
+        await stopTap()
 
         let at = elapsedMs
         async let mine = micStream.finish()
@@ -158,14 +179,35 @@ final class MeetingSession {
         return (transcript.rendered(), audio)
     }
 
+    /// Discard the meeting. A no-op once stopped: `stop` may still be mixing the
+    /// recording, and deleting its tracks here would fail the mix.
     func cancel() async {
+        guard !isStopped else { return }
+        isStopped = true
         liveNotesTask?.cancel()
         mic.stop()
-        if #available(macOS 14.2, *) { (tap as? SystemAudioTap)?.stop() }
-        tap = nil
+        await stopTap()
         await micStream.cancel()
         await callStream.cancel()
         recorder.cancel()
+    }
+
+    /// The app is quitting: no time to mix or transcribe, and nothing awaits.
+    /// Deletes the tracks so both sides of the call do not outlive the app in the
+    /// temporary folder. The private tap goes with the process.
+    func discardForTermination() {
+        isStopped = true
+        liveNotesTask?.cancel()
+        mic.stop()
+        recorder.cancel()
+    }
+
+    /// Core Audio teardown is an IPC round trip, so it runs on the tap's own
+    /// queue and this only waits for it.
+    private func stopTap() async {
+        let tap = self.tap
+        self.tap = nil
+        if #available(macOS 14.2, *), let tap = tap as? SystemAudioTap { await tap.stop() }
     }
 
     /// Fill the transcript and notes for the PNG renderer. Nothing is captured.
@@ -193,7 +235,10 @@ final class MeetingSession {
         liveNotesTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(Self.liveNotesInterval * 1_000_000_000))
-                guard !Task.isCancelled, let self, CleanupModel.General.isInstalled else { continue }
+                // Gone means the meeting is over: leave, rather than wake every
+                // three minutes for the life of the app.
+                guard !Task.isCancelled, let self else { return }
+                guard CleanupModel.General.isInstalled else { continue }
                 let cursor = self.liveNotesCursorMs
                 let recent = self.transcript.rendered(after: cursor)
                 self.liveNotesCursorMs = self.elapsedMs
