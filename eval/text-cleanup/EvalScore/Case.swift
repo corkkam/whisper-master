@@ -39,17 +39,27 @@ public struct EvalCase {
         let asrRef = obj["asr_reference"] as? String
         if audio != nil, (asrRef ?? "").isEmpty { throw err("case \(id): audio case needs asr_reference") }
 
+        // A limit with nothing to measure against would be skipped by the scorer,
+        // leaving a case with no rule that every output passes.
+        let reference = obj["reference"] as? String
+        var maxReferenceWER: Double?
+        if let raw = obj["max_reference_wer"] {
+            guard let limit = raw as? NSNumber else { throw err("case \(id): max_reference_wer must be a number") }
+            guard !(reference ?? "").isEmpty else { throw err("case \(id): max_reference_wer needs a reference") }
+            maxReferenceWER = limit.doubleValue
+        }
+
         return EvalCase(
             id: id,
             category: obj["category"] as? String ?? "uncategorized",
             inputText: text, inputAudio: audio,
-            reference: obj["reference"] as? String, asrReference: asrRef,
+            reference: reference, asrReference: asrRef,
             targets: obj["targets"] as? [String] ?? ["light", "polish"],
             mustContain: obj["must_contain"] as? [String] ?? [],
             mustNotContain: obj["must_not_contain"] as? [String] ?? [],
             mustContainExact: obj["must_contain_exact"] as? [String] ?? [],
             mustNotContainExact: obj["must_not_contain_exact"] as? [String] ?? [],
-            maxReferenceWER: (obj["max_reference_wer"] as? NSNumber)?.doubleValue)
+            maxReferenceWER: maxReferenceWER)
     }
 
     public static func load(_ path: String) throws -> [EvalCase] {

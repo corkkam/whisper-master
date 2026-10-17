@@ -69,6 +69,17 @@ final class ScorerTests: XCTestCase {
         XCTAssertTrue(Scorer.score(evalCase: c, row: row("i don't want this to be a unilateral conversation")).mechanicalPass)
     }
 
+    // A limit with no reference would be skipped by the scorer and leave a case
+    // that every output passes, so the loader refuses it instead.
+    func testALimitWithoutAReferenceIsRefused() {
+        XCTAssertThrowsError(try EvalCase.decode(
+            #"{"id":"n","input":{"text":"a b"},"max_reference_wer":0.2}"#))
+        XCTAssertThrowsError(try EvalCase.decode(
+            #"{"id":"e","input":{"text":"a b"},"reference":"","max_reference_wer":0.2}"#))
+        XCTAssertThrowsError(try EvalCase.decode(
+            #"{"id":"s","input":{"text":"a b"},"reference":"a b","max_reference_wer":"0.2"}"#))
+    }
+
     // Without the opt-in a reference stays diagnostic, as every older case expects.
     func testReferenceAloneNeverFails() throws {
         let c = try EvalCase.decode(
