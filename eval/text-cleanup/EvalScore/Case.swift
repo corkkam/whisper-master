@@ -16,6 +16,11 @@ public struct EvalCase {
     /// compare exactly, so casing becomes assertable without changing what the
     /// existing 100-odd cases mean.
     public let mustContainExact, mustNotContainExact: [String]
+    /// When set, the case fails if the output's word error against `reference`
+    /// is above this. Without it `reference` stays diagnostic. It exists for the
+    /// public suites (`disfluency-cases.jsonl`), whose answer key is a whole
+    /// transcript rather than a keyword, and where a no-op must not pass.
+    public let maxReferenceWER: Double?
 
     public static func decode(_ line: String) throws -> EvalCase {
         guard let obj = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
@@ -43,7 +48,8 @@ public struct EvalCase {
             mustContain: obj["must_contain"] as? [String] ?? [],
             mustNotContain: obj["must_not_contain"] as? [String] ?? [],
             mustContainExact: obj["must_contain_exact"] as? [String] ?? [],
-            mustNotContainExact: obj["must_not_contain_exact"] as? [String] ?? [])
+            mustNotContainExact: obj["must_not_contain_exact"] as? [String] ?? [],
+            maxReferenceWER: (obj["max_reference_wer"] as? NSNumber)?.doubleValue)
     }
 
     public static func load(_ path: String) throws -> [EvalCase] {
