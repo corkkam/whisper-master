@@ -116,6 +116,9 @@ actor MlxCleanupService {
             Int(Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e6)
         }
 
+        // A load evaluates the weights on the GPU, so a quit must wait for it too.
+        guard MlxWorkGate.shared.enter() else { state = .idle; return }
+        defer { MlxWorkGate.shared.leave() }
         do {
             Log.modelPrep.notice("MLX cleanup: loading container\u{2026}")
             let container = try await Self.withTimeout(Self.loadTimeoutSeconds) {
@@ -363,6 +366,8 @@ actor MlxCleanupService {
         do {
             let (raw, cost, ranOut) = try await container.perform {
                 (context: ModelContext) -> (String, GenerationCost, Bool) in
+                guard MlxWorkGate.shared.enter() else { throw MlxWorkGate.Refused.quitting }
+                defer { MlxWorkGate.shared.leave() }
                 let tokens = try context.tokenizer.applyChatTemplate(
                     messages: chatMessages, chatTemplate: nil, addGenerationPrompt: true,
                     truncation: false, maxLength: nil,
@@ -385,7 +390,7 @@ actor MlxCleanupService {
                 let result = MLXLMCommon.generate(
                     input: input, context: context, iterator: iterator
                 ) { (_: [Int]) in
-                    Date().timeIntervalSince(start) > timeout ? .stop : .more
+                    Date().timeIntervalSince(start) > timeout || MlxWorkGate.shared.isQuitting ? .stop : .more
                 }
                 Stream.gpu.synchronize()
                 let reasoning = thinking ? Self.splitReasoning(result.output).reasoning : ""
@@ -473,6 +478,8 @@ actor MlxCleanupService {
         container: ModelContainer, box: CacheBox, systemPrompt: String = CleanupPrompt.system
     ) async throws {
         try await container.perform { (context: ModelContext) in
+            guard MlxWorkGate.shared.enter() else { throw MlxWorkGate.Refused.quitting }
+            defer { MlxWorkGate.shared.leave() }
             try ensurePrimed(context: context, box: box, systemPrompt: systemPrompt)
             Stream.gpu.synchronize()
         }
@@ -530,6 +537,8 @@ actor MlxCleanupService {
     private static func generateFresh(
         context: ModelContext, user: String, maxTokens: Int, systemPrompt: String
     ) throws -> (String, GenerationCost) {
+        guard MlxWorkGate.shared.enter() else { throw MlxWorkGate.Refused.quitting }
+        defer { MlxWorkGate.shared.leave() }
         let tokens = try context.tokenizer.applyChatTemplate(
             messages: [
                 ["role": "system", "content": systemPrompt],
@@ -547,7 +556,8 @@ actor MlxCleanupService {
 
         let start = Date()
         let result = MLXLMCommon.generate(input: input, context: context, iterator: iterator) {
-            (_: [Int]) in Date().timeIntervalSince(start) > timeoutSeconds ? .stop : .more
+            (_: [Int]) in
+            Date().timeIntervalSince(start) > timeoutSeconds || MlxWorkGate.shared.isQuitting ? .stop : .more
         }
         Stream.gpu.synchronize()
         let cost = GenerationCost(
@@ -587,7 +597,7 @@ actor MlxCleanupService {
 
         let start = Date()
         let result = MLXLMCommon.generate(input: input, context: context, iterator: iterator) { (_: [Int]) in
-            Date().timeIntervalSince(start) > timeoutSeconds ? .stop : .more
+            Date().timeIntervalSince(start) > timeoutSeconds || MlxWorkGate.shared.isQuitting ? .stop : .more
         }
         Stream.gpu.synchronize()
 
