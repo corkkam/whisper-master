@@ -880,6 +880,9 @@ final class DictationViewModel {
         (answerSpeaker ?? makeAnswerSpeaker()).speak(headline: entry.answer, detail: nil)
     }
 
+    /// Set once the default natural voice has started its own download this launch.
+    private var naturalVoiceAutoInstallTried = false
+
     /// Kick off (or retry) the natural voice's download, then warm it.
     func downloadNaturalVoice() {
         guard state.naturalVoiceDownload == nil else { return }
@@ -934,6 +937,15 @@ final class DictationViewModel {
             downloadNaturalVoice()
         }
         if state.answerVoiceEngine == .natural {
+            // The natural voice is the default, so it has to fetch itself: once per
+            // launch, from the first answer that wanted speaking (the speaker only
+            // exists from then), never at launch. That answer is read by the system
+            // voice; a failure is retried only from Settings.
+            if !naturalVoiceAutoInstallTried, !NaturalVoiceInstaller.isInstalled,
+               state.naturalVoiceDownload == nil {
+                naturalVoiceAutoInstallTried = true
+                downloadNaturalVoice()
+            }
             speaker.prewarmNaturalVoiceIfNeeded()
             // Guarded: an unguarded write would push an @Observable change through
             // every observer twice a second for the life of the process, which is the
@@ -1466,7 +1478,7 @@ final class DictationViewModel {
         // chunk-joined object fails `IntentClassifier.parse`, which reads here as the
         // model having declined — silently, and most often on the longest captures.
         guard let raw = await MlxCleanupService.general.generateAgent(
-                text, systemPrompt: IntentPrompt.system),
+                text, systemPrompt: IntentPrompt.system, thinking: CleanupModel.General.thinks),
               let parsed = IntentClassifier.parse(raw)
         else { return fallback }
         return parsed

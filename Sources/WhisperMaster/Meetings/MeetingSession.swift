@@ -210,6 +210,7 @@ final class MeetingSession {
 extension MeetingNotesGenerator {
     /// The shipped generator: the on-device general model.
     static let live = MeetingNotesGenerator { user, system, maxTokens in
-        await MlxCleanupService.general.generateAgent(user, systemPrompt: system, maxTokens: maxTokens)
+        await MlxCleanupService.general.generateAgent(
+            user, systemPrompt: system, maxTokens: maxTokens, thinking: CleanupModel.General.thinks)
     }
 }

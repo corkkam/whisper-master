@@ -141,7 +141,11 @@ row of its own, so it can sit beside the shipped assistant in one run.
   refuses it and `LabModelOverride.directory` repeats the refusal, because the
   shipped paths cannot reason and an `.always` model would time out on every turn
   of a dev build's assistant. Making the assistant reason is a change to
-  `CommandAgentService`'s budget and prompt, not a lab toggle.
+  `CommandAgentService`'s budget and prompt, not a lab toggle. **That change was
+  made on 2026-10-17**: the shipped assistant is now Qwen3-4B-Thinking-2507 (the
+  `.shippingAssistant` row) and the shipped paths reason through
+  `CleanupModel.General.thinks`. The override rule still holds: a dev build can point
+  the slot at a non-thinking model, never at another reasoning row.
 - Reasoning tokens per case are kept (`LabCaseResult.reasoningTokens`) and the
   median goes in the run log. Latency already carries the cost in time.
 - **Measured 2026-10-04 (M5, 24 GB, tool suite, 16 cases, run 5).** The shipped

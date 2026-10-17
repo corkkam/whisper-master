@@ -4,8 +4,10 @@ import Foundation
 /// Which voice reads the answers.
 enum AnswerVoiceEngine: String, CaseIterable, Identifiable {
     /// A voice macOS already has. Nothing downloaded, nothing resident in our process.
+    /// Also what answers while the natural voice is still downloading or warming.
     case system
-    /// Kokoro on the Neural Engine. Better, opt-in, ~310 MB on disk, unloaded when idle.
+    /// Kokoro on the Neural Engine. The default: ~310 MB on disk, fetched on the first
+    /// spoken answer, unloaded when idle.
     case natural
 
     var id: String { rawValue }

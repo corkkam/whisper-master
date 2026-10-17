@@ -115,6 +115,7 @@ struct CommandAgentService {
             now: now)
 
         var loop = AgentLoop(tools: tools, router: router, generate: generate)
+        if CleanupModel.General.thinks { loop.budget = AgentLoop.reasoningBudget }
         loop.prompt = AgentPrompt.command(toolList:)
         loop.now = now
         loop.onStep = onStep

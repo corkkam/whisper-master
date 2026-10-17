@@ -54,26 +54,61 @@ enum CleanupModel {
     /// to fetch 1.5 GB for a feature it may never touch. Giving this its own
     /// download affordance is the obvious follow-up.
     enum General {
-        static let archiveName = "Qwen3-4B-Instruct-2507-4bit"
-        static let huggingFaceId = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
+        /// **Qwen3-4B-Thinking-2507** since 2026-10-17, chosen as the best reasoning
+        /// model that loads on the pinned mlx-swift-examples 2.29.1 (Qwen3.5 needs
+        /// 2.31.3+). It always reasons before answering, so every call goes through
+        /// the reasoning budget (`MlxCleanupService.reasoningMaxTokens` /
+        /// `reasoningTimeoutSeconds`) and the agent loop gets `AgentLoop.reasoningBudget`.
+        /// The cost, measured in the Lab on 2026-10-04 (16 tool cases, M5): 15/16 at
+        /// 10.7 s p50 / 64 s p95, against Instruct-2507's 16/16 at 3.9 s. To go back,
+        /// restore the Instruct ids here and the `.shippingAssistant` badge in
+        /// `LabCatalog`; `thinks` follows from the directory.
+        static let archiveName = "Qwen3-4B-Thinking-2507-4bit"
+        static let huggingFaceId = "mlx-community/Qwen3-4B-Thinking-2507-4bit"
         static let label = "assistant model"
+
+        /// Whether the loaded assistant reasons first. True for the shipped model;
+        /// false when a dev build points the slot at another model from the Lab,
+        /// which never allows a reasoning row there (`LabModelOverride`).
+        static var thinks: Bool {
+            LabModelOverride.directory(for: .assistant) == nil
+        }
 
         /// The shipped assistant model, unless a **dev build** has been pointed
         /// at another one from the Model Lab (`LabModelOverride`, which refuses
         /// on every other channel and falls back here whenever the chosen model
         /// is not on disk).
         static var directory: URL {
-            LabModelOverride.directory(for: .assistant) ?? shippedDirectory
+            LabModelOverride.directory(for: .assistant) ?? installedDirectory
         }
 
         static var shippedDirectory: URL {
             CleanupModel.modelsRoot.appendingPathComponent(archiveName, isDirectory: true)
         }
 
-        static var isInstalled: Bool {
+        /// Where the Hugging Face fallback lands: MLX's `HubApi` default,
+        /// `~/Documents/huggingface/models/<repo>`. Without this, a model fetched
+        /// through the fallback was on disk but `isInstalled` never saw it, so
+        /// `prepareGeneralIfInstalled` skipped it on every later launch.
+        static var hubCacheDirectory: URL {
+            FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("huggingface/models/\(huggingFaceId)", isDirectory: true)
+        }
+
+        /// The mirror install if present, else the Hugging Face one, else the
+        /// mirror path (so a fresh install still writes where it always has).
+        static var installedDirectory: URL {
+            if hasModel(at: shippedDirectory) { return shippedDirectory }
+            if hasModel(at: hubCacheDirectory) { return hubCacheDirectory }
+            return shippedDirectory
+        }
+
+        static var isInstalled: Bool { hasModel(at: directory) }
+
+        private static func hasModel(at url: URL) -> Bool {
             let fm = FileManager.default
-            return fm.fileExists(atPath: directory.appendingPathComponent("config.json").path)
-                && fm.fileExists(atPath: directory.appendingPathComponent("tokenizer.json").path)
+            return fm.fileExists(atPath: url.appendingPathComponent("config.json").path)
+                && fm.fileExists(atPath: url.appendingPathComponent("tokenizer.json").path)
         }
     }
 
