@@ -25,6 +25,11 @@ enum AgentAsk: Sendable, Equatable {
         }
     }
 
+    var isShedChoice: Bool {
+        if case .choice(let c) = self { return c.isShed }
+        return false
+    }
+
     /// Build from a `permission` frame. Returns nil when the frame carries no
     /// request id, since there would be nothing to answer.
     static func make(from event: KunaiWire.Event, sessionTitle: String) -> AgentAsk? {
@@ -122,6 +127,9 @@ struct AgentChoice: Sendable, Equatable {
     var questions: [Question]
     /// The session this came from, for the card's second line.
     var context: String
+    /// True for a question read off Shed's terminal. The notch shows those in full
+    /// (`NotchShedChoiceCard`) instead of deferring long ones.
+    var isShed = false
 
     /// The notch answers one question at a time. Claude almost always asks one, and
     /// a band stacking two sets of options is a window, not a notch.

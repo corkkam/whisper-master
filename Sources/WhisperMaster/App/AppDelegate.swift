@@ -343,6 +343,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // poll finds nothing and the surface stays dark, which is the correct
         // outcome on almost every install.
         viewModel.state.agents.start()
+        // The bundled Shed engine, only when its setting is on.
+        ShedEngineSupervisor.shared.start()
 
         // Read the calendar and start ranking the day. Dormant until now for the
         // same reason `agents` is: building an `AppState` under `swift test` or the
@@ -500,6 +502,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Standard Dock-app menu bar. Without it, a `.regular` app has no working
     /// Cmd-Q or Edit shortcuts (cut/copy/paste/select-all/undo) — the latter
     /// matter for the custom-words editor. The tray menu stays the primary surface.
+    @objc private func showAgentsWindow() { ShedSessionWindow.open() }
+
     private func setupMainMenu() {
         let appName = "Whisper Master"
         let mainMenu = NSMenu()
@@ -514,6 +518,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(.separator())
         let settings = appMenu.addItem(withTitle: "Settings…", action: #selector(showWindow), keyEquivalent: ",")
         settings.target = self
+        let agentsWindow = appMenu.addItem(
+            withTitle: "Agents…", action: #selector(showAgentsWindow), keyEquivalent: "")
+        agentsWindow.target = self
         appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Hide \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")

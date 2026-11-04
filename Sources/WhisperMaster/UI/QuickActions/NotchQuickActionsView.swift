@@ -69,6 +69,7 @@ struct NotchQuickActionsView: View {
                 switch tab {
                 case .today: todayPage
                 case .notes: notesPage
+                case .agents: agentsPage
                 case .connector(let id): connectorPage(id)
                 case .settings: settingsPage
                 }
@@ -136,6 +137,18 @@ struct NotchQuickActionsView: View {
         }
     }
 
+    private var agentsPage: some View {
+        let instant = Date()
+        return VStack(alignment: .leading, spacing: 5) {
+            ForEach(model.agentRows) { session in
+                NotchShedAgentRow(
+                    session: session, now: instant,
+                    onOpen: { model.openAgent(session.id) },
+                    onStop: { model.stopAgent(session.id) })
+            }
+        }
+    }
+
     @ViewBuilder
     private func connectorPage(_ id: UUID) -> some View {
         if let instance = model.state.connectorStore.instance(id: id) {
@@ -168,6 +181,11 @@ struct NotchQuickActionsView: View {
                 QuickActionButton(title: "New reminder", icon: "bell.badge") { onOpenNotes(.reminder) }
                 Spacer(minLength: Theme.Space.sm)
                 QuickActionButton(title: "All notes", icon: "arrow.up.forward") { onOpenNotes(nil) }
+            case .agents:
+                Text("Agents run in Shed. Open a row to see the full session.")
+                    .font(Typography.notchCaption)
+                    .foregroundStyle(Theme.Notch.textTertiary)
+                Spacer(minLength: 0)
             case .connector(let id):
                 connectorFooter(id)
             case .settings:
@@ -237,6 +255,11 @@ private struct NotchQuickActionsTabBar: View {
         HStack(spacing: 2) {
             NotchTabButton(title: "Today", isSelected: current == .today) { model.select(.today) }
             NotchTabButton(title: "Notes", isSelected: current == .notes) { model.select(.notes) }
+            if model.showsAgentsTab {
+                NotchTabButton(
+                    title: "Agents", isSelected: current == .agents,
+                    action: { model.select(.agents) })
+            }
             if !pinned.isEmpty {
                 Rectangle()
                     .fill(Theme.Notch.hairline)
@@ -690,4 +713,45 @@ enum NotchQuickActionsFormat {
         f.setLocalizedDateFormatFromTemplate("MMM d")
         return f
     }()
+}
+
+// MARK: - Agent row
+
+/// One Shed agent on the hover page: harness glyph, name or project, harness and
+/// state, how long it has been working, and the way into the full session.
+private struct NotchShedAgentRow: View {
+    let session: AgentSession
+    let now: Date
+    let onOpen: () -> Void
+    let onStop: () -> Void
+
+    var body: some View {
+        HStack(spacing: Theme.Space.sm) {
+            HarnessGlyph(harness: session.harness, size: 14)
+                .frame(width: 18)
+            Text(session.displayName)
+                .font(Typography.sans(12.5, .semibold))
+                .foregroundStyle(Theme.Notch.text)
+                .lineLimit(1)
+                .frame(maxWidth: 180, alignment: .leading)
+            Text("\(session.harness.displayName) \u{00B7} \(session.statusLabel(now: now))")
+                .font(Typography.notchCaption)
+                .foregroundStyle(session.isWaiting ? Theme.Notch.accent : Theme.Notch.textSecondary)
+                .lineLimit(1)
+            Spacer(minLength: Theme.Space.sm)
+            if session.state == .running {
+                Button(action: onStop) {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Theme.Notch.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .accessibilityLabel("Stop \(session.displayName)")
+            }
+            QuickActionButton(title: "Open", icon: "arrow.up.forward", action: onOpen)
+        }
+        .frame(height: 24)
+        .accessibilityElement(children: .contain)
+    }
 }

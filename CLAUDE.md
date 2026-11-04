@@ -451,7 +451,7 @@ a person watching a video can settle it without going to find the terminal. The 
 feature is **interrupt-first** — nothing here is summoned, and it adds **no keyboard
 shortcut at all**.
 
-- **The app is a client, never a host.** It does not ship, start, install or
+- **Kunai: the app is a client, never a host.** It does not ship, start, install or
   supervise [kunai](https://github.com/HEGADE/kunai) (the Go server that drives
   `claude` over its stream-json control protocol and re-publishes the result). If a
   server answers, the surface lights up; if not, the feature is simply absent, which
@@ -460,6 +460,21 @@ shortcut at all**.
   on a fixed port with its own data dir, so a second copy inside this app would fight
   the one already there over the port, `~/.kunai`, and the `~/.claude/commands/kunai.md`
   slash command kunai rewrites on every boot.
+- **Shed: the app can supervise a bundled engine and show Shed agents in the notch,
+  next to Kunai.** `ShedEngineSupervisor` (`ShedEngine/`) watches a Shed engine staged
+  into `Contents/Resources/ShedEngine` by `Scripts/stage-shed-engine.sh` (`SHED_SRC`,
+  default `~/code/shed`; source only, the app runs `npm ci` on the user's Mac). It is
+  a launch agent (`com.whispermaster.shed-engine`) so agents survive a quit, it is
+  **off by default** (`WhisperMaster.shedEngine.enabled.v1`, Settings → Coding agents →
+  Shed → "Agent engine"), and it never starts a second engine when one already answers
+  on 4378 or 4379. `ShedAgents`/`ShedClient` (`Agents/`) are the notch client: Claude
+  Code and Codex sessions, the choice card and the working row, behind the same
+  `AgentTransport` seam as Kunai. **`ShedEndpoint` is one type**: the client uses
+  `ShedEngineSupervisor.shared.endpoint` when it is non-nil, and otherwise its own
+  discovery (Settings URL `WhisperMaster.shedURL.v1`, `SHED_URL`, 4378, 4379).
+  "Open full session" goes through `ShedLink`, which opens the in-app
+  `ShedSessionWindow` (browser only for a self-run Shed the window cannot sign in to).
+  The unit tests start no engine and run no npm or launchctl.
 - **⚠️ Sessions live on the machine that runs them, and so does the fleet socket.**
   `GET /api/machines` lists the fleet (`{id,label,url,self}`); `GET /api/sessions` and
   the fleet push both read the **local** session manager, so a client that talks only

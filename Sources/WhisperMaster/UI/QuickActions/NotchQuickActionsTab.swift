@@ -9,6 +9,8 @@ import Foundation
 enum NotchQuickActionsTab: Equatable, Hashable {
     case today
     case notes
+    /// Shed's coding agents. Offered only while Shed has live sessions.
+    case agents
     case connector(UUID)
     case settings
 
@@ -23,6 +25,7 @@ enum NotchQuickActionsTab: Equatable, Hashable {
         switch self {
         case .today: return "today"
         case .notes: return "notes"
+        case .agents: return "agents"
         case .settings: return "settings"
         case .connector(let id): return "connector:\(id.uuidString)"
         }
@@ -32,6 +35,7 @@ enum NotchQuickActionsTab: Equatable, Hashable {
         switch storageValue {
         case "today": self = .today
         case "notes": self = .notes
+        case "agents": self = .agents
         case "settings": self = .settings
         default:
             let prefix = "connector:"
