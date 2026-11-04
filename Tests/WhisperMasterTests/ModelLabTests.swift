@@ -340,7 +340,9 @@ final class ModelLabTests: XCTestCase {
         defer { if let hadCleanup { defaults.set(hadCleanup, forKey: LabModelOverride.cleanupKey) } }
 
         XCTAssertEqual(CleanupModel.directory, CleanupModel.shippedDirectory)
-        XCTAssertEqual(CleanupModel.General.directory, CleanupModel.General.shippedDirectory)
+        // The assistant's own resolution (mirror, Hugging Face, previous model), with
+        // no say from the lab.
+        XCTAssertEqual(CleanupModel.General.directory, CleanupModel.General.installedDirectory)
     }
 
     // MARK: - Controller

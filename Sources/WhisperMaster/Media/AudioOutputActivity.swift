@@ -24,10 +24,36 @@ enum AudioOutputActivity {
         }
     }
 
+    /// Bundle identifiers of every **other** process reading from an input
+    /// device right now. The meeting detector's evidence: a call app holds the mic
+    /// for as long as the call runs. Our own process is left out, so our own
+    /// dictation and meeting recording never look like someone else's call.
+    static func runningInputBundleIDs() -> [String] {
+        guard #available(macOS 14.2, *) else { return [] }
+        let me = getpid()
+        return processObjects().compactMap { object in
+            guard pid(of: object) != me, isRunning(object, kAudioProcessPropertyIsRunningInput)
+            else { return nil }
+            return bundleID(of: object) ?? ""
+        }
+    }
+
+    /// The Core Audio process objects whose bundle id starts with `prefix`, for a
+    /// process tap on one app's audio. Prefix, because Chrome and Zoom play from
+    /// helper processes with their own suffixed ids.
+    @available(macOS 14.2, *)
+    static func processObjects(bundlePrefix prefix: String) -> [AudioObjectID] {
+        let me = getpid()
+        return processObjects().filter { object in
+            guard pid(of: object) != me, let id = bundleID(of: object) else { return false }
+            return id.hasPrefix(prefix)
+        }
+    }
+
     // MARK: - Core Audio
 
     @available(macOS 14.2, *)
-    private static func processObjects() -> [AudioObjectID] {
+    static func processObjects() -> [AudioObjectID] {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyProcessObjectList,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -47,8 +73,26 @@ enum AudioOutputActivity {
 
     @available(macOS 14.2, *)
     private static func isRunningOutput(_ object: AudioObjectID) -> Bool {
+        isRunning(object, kAudioProcessPropertyIsRunningOutput)
+    }
+
+    @available(macOS 14.2, *)
+    private static func pid(of object: AudioObjectID) -> pid_t? {
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioProcessPropertyIsRunningOutput,
+            mSelector: kAudioProcessPropertyPID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var value: pid_t = 0
+        var size = UInt32(MemoryLayout<pid_t>.size)
+        guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value) == noErr
+        else { return nil }
+        return value
+    }
+
+    @available(macOS 14.2, *)
+    private static func isRunning(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain)
         var running: UInt32 = 0

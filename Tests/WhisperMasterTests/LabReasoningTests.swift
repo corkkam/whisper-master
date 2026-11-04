@@ -75,9 +75,8 @@ final class LabReasoningTests: XCTestCase {
         XCTAssertTrue(ids.contains(LabCatalog.shippedAssistant.id), "the baseline is in the same run")
     }
 
-    /// The shipped paths render with `enable_thinking: false` on a 12 s budget,
-    /// so a slot pointed at a reasoning row would run something other than what
-    /// the lab measured.
+    /// An overridden slot runs without reasoning, so a slot pointed at a
+    /// reasoning row would run something other than what the lab measured.
     func testAReasoningRowCanNeverTakeAShippedSlot() throws {
         let lab = LabController(load: false)
         lab.seedForSnapshot(runs: [], installedIDs: ["qwen3-1.7b-4bit", "qwen3-1.7b-4bit+reasoning"])

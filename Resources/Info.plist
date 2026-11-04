@@ -67,6 +67,8 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<false/>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Whisper Master records the other people on a call only when you choose to take meeting notes. The recording stays on this Mac.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Whisper Master uses Bluetooth to gauge how physically close nearby Macs are.</string>
 	<key>NSBonjourServices</key>
