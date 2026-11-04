@@ -69,14 +69,32 @@ fi
 # the release has to keep. HEAD each one before building anything.
 _mirror="https://${_app_host:-dl.corkkam.com}/models"
 _missing=()
+_unchecked=()
 while read -r _archive; do
-    _code="$(curl -s -o /dev/null -I -w '%{http_code}' "$_mirror/$_archive.zip" || true)"
-    [[ "$_code" == "200" ]] || _missing+=("$_archive ($_code)")
+    _url="$_mirror/$_archive.zip"
+    _code="$(curl -s -o /dev/null -I -w '%{http_code}' "$_url" || true)"
+    # One retry: a dropped connection (000) or a 5xx says nothing about the file.
+    if [[ "$_code" != "200" && "$_code" != "403" && "$_code" != "404" ]]; then
+        _code="$(curl -s -o /dev/null -I -w '%{http_code}' "$_url" || true)"
+    fi
+    case "$_code" in
+        200) ;;
+        403|404) _missing+=("$_archive ($_code)") ;;
+        *) _unchecked+=("$_archive ($_code)") ;;
+    esac
 done < <(sed -n 's|^ *"\([^"]*\)": "[0-9a-f]\{64\}",*$|\1|p' \
     Sources/WhisperMaster/ModelInstall/ModelChecksums.swift)
+if (( ${#_unchecked[@]} )); then
+    {
+        echo "error: could not check the mirror, it did not answer ($_mirror):"
+        printf '  %s\n' "${_unchecked[@]}"
+        echo "Could not check (HTTP code beside each name). Retry the release."
+    } >&2
+    exit 1
+fi
 if (( ${#_missing[@]} )); then
     {
-        echo "error: pinned model archives are not on the mirror ($_mirror):"
+        echo "error: pinned model archives are missing on the mirror ($_mirror):"
         printf '  %s\n' "${_missing[@]}"
         echo "Upload the exact zips the pins describe (see ModelChecksums.swift), then re-run."
         echo "Override for a deliberate one-off with ALLOW_MISSING_MODELS=1."

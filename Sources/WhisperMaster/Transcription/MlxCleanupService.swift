@@ -126,14 +126,30 @@ actor MlxCleanupService {
         directory: URL, thinks: Bool,
         onProgress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async {
+        // An in-flight load of another model would make the inner prepare return at
+        // once and leave that model resident. A load ends within its timeouts, so
+        // this wait is bounded.
+        while case .loading = state { try? await Task.sleep(nanoseconds: 200_000_000) }
+
+        var previous: (url: URL, thinks: Bool)?
         if case .ready = state, let loaded = loadedDirectory,
            loaded.standardizedFileURL != directory.standardizedFileURL {
             Log.modelPrep.notice(
                 "MLX model switching from \(loaded.lastPathComponent, privacy: .public) to \(directory.lastPathComponent, privacy: .public)")
+            previous = (loaded, loadedThinks)
             release()
         }
         await prepare(configuration: ModelConfiguration(directory: directory),
                       thinks: thinks, onProgress: onProgress)
+
+        // A directory that exists but will not load must not take the working
+        // assistant with it: nothing would re-download it, so it would stay dead.
+        if case .failed = state, let previous {
+            Log.modelPrep.error(
+                "MLX model \(directory.lastPathComponent, privacy: .public) failed to load; restoring \(previous.url.lastPathComponent, privacy: .public)")
+            await prepare(configuration: ModelConfiguration(directory: previous.url),
+                          thinks: previous.thinks, onProgress: onProgress)
+        }
     }
 
     /// Load the MLX model for a configuration — a local directory (the R2 mirror
