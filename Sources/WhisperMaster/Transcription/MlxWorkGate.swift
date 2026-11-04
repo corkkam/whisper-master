@@ -46,11 +46,39 @@ final class MlxWorkGate: @unchecked Sendable {
         }
     }
 
-    func leave() { lock.withLock { running -= 1 } }
+    func leave() { lock.withLock { running = max(0, running - 1) } }
 
     enum Refused: Error { case quitting }
 
     func beginQuit() { lock.withLock { quitting = true } }
+
+    /// Short wait after the last generation stops, so the caller that was refused
+    /// or cut short can finish delivering its deterministic text before exit.
+    static let deliveryGraceSeconds: TimeInterval = 0.4
+
+    /// The whole quit policy, for `applicationShouldTerminate`. Returns false when
+    /// nothing is running: the caller answers `.terminateNow`. Returns true when
+    /// the quit must be held, and then `finish` runs exactly once on the main
+    /// actor, after the work drained or `timeout` passed, whichever is first.
+    /// Marking the quit and reading the count share one lock, so no work can
+    /// start between the two.
+    func holdQuit(
+        timeout: TimeInterval = MlxWorkGate.quitTimeoutSeconds,
+        grace: TimeInterval = MlxWorkGate.deliveryGraceSeconds,
+        finish: @escaping @MainActor @Sendable () -> Void
+    ) -> Bool {
+        let busy = lock.withLock { () -> Bool in
+            quitting = true
+            return running > 0
+        }
+        guard busy else { return false }
+        Task { @MainActor in
+            _ = await drain(timeout: timeout)
+            try? await Task.sleep(nanoseconds: UInt64(grace * 1_000_000_000))
+            finish()
+        }
+        return true
+    }
 
     /// True once nothing is running, false if `timeout` passed first.
     func drain(timeout: TimeInterval, poll: TimeInterval = 0.02) async -> Bool {

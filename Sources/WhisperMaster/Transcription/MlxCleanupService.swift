@@ -393,6 +393,8 @@ actor MlxCleanupService {
                     Date().timeIntervalSince(start) > timeout || MlxWorkGate.shared.isQuitting ? .stop : .more
                 }
                 Stream.gpu.synchronize()
+                // A quit stopped the loop early: the text is partial, never return it.
+                if MlxWorkGate.shared.isQuitting { throw MlxWorkGate.Refused.quitting }
                 let reasoning = thinking ? Self.splitReasoning(result.output).reasoning : ""
                 let ranOut = result.tokens.count >= budget || Date().timeIntervalSince(start) > timeout
                 return (result.output, GenerationCost(
@@ -560,6 +562,8 @@ actor MlxCleanupService {
             Date().timeIntervalSince(start) > timeoutSeconds || MlxWorkGate.shared.isQuitting ? .stop : .more
         }
         Stream.gpu.synchronize()
+        // A quit stopped the loop early: the text is partial, never return it.
+        if MlxWorkGate.shared.isQuitting { throw MlxWorkGate.Refused.quitting }
         let cost = GenerationCost(
             promptTokens: tokens.count,
             generatedTokens: result.tokens.count,
@@ -577,6 +581,8 @@ actor MlxCleanupService {
     private static func generateCached(
         context: ModelContext, box: CacheBox, user: String, maxTokens: Int, systemPrompt: String
     ) throws -> String {
+        guard MlxWorkGate.shared.enter() else { throw MlxWorkGate.Refused.quitting }
+        defer { MlxWorkGate.shared.leave() }
         try ensurePrimed(context: context, box: box, systemPrompt: systemPrompt)
 
         // Delta = the [system,user] tokenization minus the cached system prefix.
@@ -600,6 +606,7 @@ actor MlxCleanupService {
             Date().timeIntervalSince(start) > timeoutSeconds || MlxWorkGate.shared.isQuitting ? .stop : .more
         }
         Stream.gpu.synchronize()
+        if MlxWorkGate.shared.isQuitting { throw MlxWorkGate.Refused.quitting }
 
         // Restore the cache to just the system prefix for the next call. If that
         // can't be done cleanly on **every** layer, drop priming so the next call

@@ -56,4 +56,44 @@ final class MlxWorkGateTests: XCTestCase {
         gate.beginQuit()
         XCTAssertTrue(gate.isQuitting)
     }
+
+    // Idle app: the delegate answers `.terminateNow` and never replies later.
+    func testHoldQuitReturnsFalseWhenIdleAndStillBlocksNewWork() {
+        let gate = MlxWorkGate()
+        let finished = expectation(description: "finish must not run")
+        finished.isInverted = true
+        XCTAssertFalse(gate.holdQuit(timeout: 0.1, grace: 0) { finished.fulfill() })
+        XCTAssertTrue(gate.isQuitting)
+        XCTAssertFalse(gate.enter())
+        wait(for: [finished], timeout: 0.3)
+    }
+
+    // Busy app: the quit is held, and `finish` runs once after the work leaves.
+    func testHoldQuitFinishesOnceAfterWorkLeaves() async {
+        let gate = MlxWorkGate()
+        gate.enter()
+        let finished = expectation(description: "finish")
+        let held = gate.holdQuit(timeout: 2, grace: 0) { finished.fulfill() }
+        XCTAssertTrue(held)
+        gate.leave()
+        await fulfillment(of: [finished], timeout: 2)
+    }
+
+    // A load that never returns must not hang a Sparkle quit-to-install:
+    // `finish` still runs when the timeout passes.
+    func testHoldQuitFinishesOnTimeoutWhenWorkNeverLeaves() async {
+        let gate = MlxWorkGate()
+        gate.enter()
+        let finished = expectation(description: "finish")
+        XCTAssertTrue(gate.holdQuit(timeout: 0.1, grace: 0) { finished.fulfill() })
+        await fulfillment(of: [finished], timeout: 2)
+    }
+
+    // A stray leave (after a timed-out drain) cannot push the count negative and
+    // make later work look absent.
+    func testLeaveNeverUnderflows() {
+        let gate = MlxWorkGate()
+        gate.leave()
+        XCTAssertEqual(gate.inFlight, 0)
+    }
 }
