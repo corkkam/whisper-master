@@ -472,6 +472,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// voice), so quitting mid-utterance can leave the Mac talking after the app is
     /// gone — with nothing left on screen to explain it or any way to stop it.
     func applicationWillTerminate(_ notification: Notification) {
+        statusRefreshTimer?.invalidate()
+        statusRefreshTimer = nil
+        bluetoothInputMonitor?.stop()
+        viewModel.shutdown()
         viewModel.stopSpeaking()
         // Whatever we paused for a dictation goes back to playing — otherwise
         // quitting mid-session leaves the speakers silent with nothing left running
@@ -1569,10 +1573,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func quitApp() {
-        statusRefreshTimer?.invalidate()
-        statusRefreshTimer = nil
-        bluetoothInputMonitor?.stop()
-        viewModel.shutdown()
+        // Teardown lives in `applicationWillTerminate`: the quit gate may be cancelled.
         NSApp.terminate(nil)
     }
 }

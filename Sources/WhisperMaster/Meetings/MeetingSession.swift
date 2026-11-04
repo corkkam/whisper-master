@@ -160,7 +160,11 @@ final class MeetingSession {
         return "Not hearing the call yet. Allow audio in System Settings > Privacy & Security > Screen & System Audio Recording."
     }
 
-    var elapsedMs: Int { Int(Date().timeIntervalSince(startedAt) * 1000) }
+    /// Set when the audio starts, so transcript timestamps count from the audio and not
+    /// from the seconds the model loads took.
+    private var captureStartedAt: Date?
+
+    var elapsedMs: Int { Int(Date().timeIntervalSince(captureStartedAt ?? startedAt) * 1000) }
 
     func start() async throws {
         guard await mic.ensurePermission() else { throw StartError.microphoneDenied }
@@ -177,6 +181,7 @@ final class MeetingSession {
         let micStream = micStream
         mic.onCaptureLost = { [weak self] in Task { @MainActor in self?.micLost = true } }
         recorder.markCaptureStart()
+        captureStartedAt = Date()
         try mic.start(bufferHandler: { micStream.feed($0) }, levelHandler: { _ in })
 
         if #available(macOS 14.2, *) {

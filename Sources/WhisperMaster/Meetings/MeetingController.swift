@@ -81,10 +81,22 @@ final class MeetingController {
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             let writing = stopNotes()
+            // The placeholder note is already filed, so a stalled notes pass must not
+            // hold the quit: reply once, from whichever finishes first.
+            var replied = false
+            let reply = {
+                guard !replied else { return }
+                replied = true
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
             Task {
                 await writing?.value
                 // Every path of the notes task ends here, including a failed write.
-                NSApp.reply(toApplicationShouldTerminate: true)
+                reply()
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: 90_000_000_000)
+                reply()
             }
             return .terminateLater
         case .alertSecondButtonReturn:
