@@ -104,6 +104,9 @@ struct MeetingNotesGenerator {
         // Keep the reduce input inside one call's budget.
         let joined = bullets.prefix(80).joined(separator: "\n")
         let notes = await generate(joined, Self.reduceSystem, 700) ?? Self.fallbackNotes(bullets)
+        // A quit refuses every chunk after it began, so these notes cover only part of
+        // the meeting. Keep the placeholder (it says the transcript is saved) instead.
+        guard !MlxWorkGate.shared.isQuitting else { return nil }
         return Self.appendingOwnNotes(notes, ownNotes)
     }
 
