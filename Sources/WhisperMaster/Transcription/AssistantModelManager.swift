@@ -133,8 +133,7 @@ final class AssistantModelManager {
         var attempt = 0
         while !(await service.isReady), attempt < 3 {
             attempt += 1
-            await service.prepare(
-                configuration: .init(directory: CleanupModel.General.directory))
+            await service.prepare(directory: CleanupModel.General.directory)
             if await service.isReady { break }
             Log.modelPrep.error("Assistant model load attempt \(attempt) not ready; retrying")
             try? await Task.sleep(nanoseconds: 2_000_000_000)

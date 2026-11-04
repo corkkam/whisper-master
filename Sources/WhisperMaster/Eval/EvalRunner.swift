@@ -44,7 +44,7 @@ enum EvalRunner {
             return targets.contains { $0 != EvalTarget.transcription }
         }
         if needsCleanupModel {
-            await MlxCleanupService.shared.prepare(configuration: .init(directory: CleanupModel.directory))
+            await MlxCleanupService.shared.prepare(directory: CleanupModel.directory)
             guard await MlxCleanupService.shared.isReady else {
                 Log.modelPrep.error("EvalRunner: cleanup model not ready; aborting")
                 return

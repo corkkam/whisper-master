@@ -308,10 +308,17 @@ final class ModelLabTests: XCTestCase {
 
     func testAnOverrideIsIgnoredWhenTheModelIsNotOnDisk() throws {
         let defaults = try scratchDefaults()
-        LabModelOverride.set("llama-3.2-1b-instruct-4bit", for: .cleanup, defaults: defaults)
+        // An added model whose repo cannot exist, so it is absent on every Mac. A
+        // catalogue id broke this test as soon as a bench run downloaded it.
+        let absent = LabCustomModel(
+            huggingFaceId: "test-only/never-downloaded-\(UUID().uuidString.prefix(8))", modelType: "qwen3",
+            approximateDownloadBytes: 1, parameters: "1B", quantization: "4-bit",
+            supportsTools: false, addedAt: Date())
+        LabCustomModels.save([absent], defaults: defaults)
+        LabModelOverride.set(absent.id, for: .cleanup, defaults: defaults)
 
         XCTAssertEqual(LabModelOverride.modelID(for: .cleanup, defaults: defaults),
-                       "llama-3.2-1b-instruct-4bit", "the choice is remembered, so it can be shown")
+                       absent.id, "the choice is remembered, so it can be shown")
         XCTAssertNil(LabModelOverride.directory(for: .cleanup, defaults: defaults),
                      "but a model that is not installed must not be loaded")
         XCTAssertFalse(LabModelOverride.isOverridden(.cleanup, defaults: defaults))

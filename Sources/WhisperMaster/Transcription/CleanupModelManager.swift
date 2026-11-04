@@ -76,7 +76,7 @@ final class CleanupModelManager {
         var attempt = 0
         while !(await service.isReady), attempt < 3 {
             attempt += 1
-            await service.prepare(configuration: .init(directory: CleanupModel.directory))
+            await service.prepare(directory: CleanupModel.directory)
             if await service.isReady { break }
             Log.modelPrep.error("Smart cleanup load attempt \(attempt) not ready; retrying")
             try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -109,7 +109,7 @@ final class CleanupModelManager {
                     Task { @MainActor in self?.state.cleanupModelDownload = progress }
                 }
             )
-            await service.prepare(configuration: .init(directory: CleanupModel.directory))
+            await service.prepare(directory: CleanupModel.directory)
         } catch {
             Log.modelPrep.error(
                 "Cleanup model mirror unavailable, falling back to Hugging Face: \(error.localizedDescription, privacy: .public)")

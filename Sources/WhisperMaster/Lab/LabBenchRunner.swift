@@ -388,7 +388,9 @@ final class LabBenchRunner {
     /// Load from disk only. `execute` downloads first, because a load that has
     /// to fetch spends its 60-second timeout on the network.
     private func configuration(for model: LabModel) -> ModelConfiguration? {
-        LabPaths.installedDirectory(for: model).map { ModelConfiguration(directory: $0) }
+        // The app's own builder, so a model ranks here on the configuration the
+        // shipped slot would load it with.
+        LabPaths.installedDirectory(for: model).map(MlxModelConfiguration.local)
     }
 
     /// Fetch a model before its load, logging every tenth of the way. The log is
