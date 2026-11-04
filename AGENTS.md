@@ -347,9 +347,9 @@ arrive as "whisper mash" or "visible master".
 - **kunai** — an external Go server that drives Claude Code sessions. This app
   is a client only: it never ships, starts, or supervises kunai. No server →
   the feature is absent, which is the normal state.
-- **Shed** — a second agent server, shown in the notch next to kunai. Unlike kunai,
-  the app can supervise a bundled Shed engine (`ShedEngine/`, off by default,
-  `ShedEngineSupervisor`) and shows Shed's page in the main window's Coding tab.
+- **Shed** — a second agent server, shown in the notch next to kunai. Like kunai,
+  the app is a client only and never ships or runs it. Shed's own page shows in the
+  main window's Coding tab.
 - **Fleet socket / app socket** — `/ws/fleet` pushes every session's state;
   `/ws/app/{id}` carries one conversation. Two sockets, never one per session.
 - **Ask / choice card / nudge** — a permission question answerable on the band;

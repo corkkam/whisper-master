@@ -108,12 +108,6 @@ echo ">> Staging $APP_DIR"
 rm -rf "$APP_DIR"
 cp -R "$PRODUCT" "$APP_DIR"
 
-# The Shed agent engine (source only; the app runs `npm ci` on the user's Mac).
-# Staged before any re-sign below, so the seal covers it. SHED_SRC defaults to
-# ~/code/shed; without it the build continues with a warning.
-ENGINE_DIR="$APP_DIR/Contents/Resources/ShedEngine"
-bash "$(dirname "$0")/stage-shed-engine.sh" "$ENGINE_DIR"
-
 # The `dev` channel ONLY: re-badge the staged bundle so it installs SIDE-BY-SIDE
 # with the shipping app (distinct bundle id → its own TCC/Sparkle/settings) and
 # polls the dev appcast. Done on the staged copy only — project.yml/Info.plist
@@ -169,8 +163,8 @@ fi
 # the staged bundle stays launchable (local `CHANNEL=dev SIGN_IDENTITY=-
 # bundle.sh` smoke checks). Only `dev` needs this; `beta` no longer edits the
 # plist at all. Real releases go through release.sh with a Developer ID.
-if [[ "$SIGN_IDENTITY" == "-" && ( "$CHANNEL" == "dev" || -d "$ENGINE_DIR" ) ]]; then
-    echo ">> Re-signing $CHANNEL bundle ad-hoc (Info.plist or Resources changed)"
+if [[ "$SIGN_IDENTITY" == "-" && "$CHANNEL" == "dev" ]]; then
+    echo ">> Re-signing $CHANNEL bundle ad-hoc (Info.plist was edited)"
     codesign -f -s - --entitlements Resources/WhisperMaster.entitlements "$APP_DIR"
 fi
 

@@ -1,13 +1,40 @@
 import Foundation
 
-/// Notch-client discovery for `ShedEndpoint` (the type itself lives in
-/// `ShedEngine/ShedEngineSupport.swift`).
+/// Where a Shed answers, and where its master token lives.
 ///
-/// The bundled engine wins when it answers (`ShedEngineSupervisor.shared.endpoint`).
-/// Otherwise the discovery order is: the Settings URL, `SHED_URL`, the installed copy on
-/// 4378 (root `~/.shed/app`), then a development copy on 4379 (root `~/code/shed`, or
-/// `SHED_ROOT`). Shed accepts the token only from 127.0.0.1 with a localhost Host header
-/// and no proxy headers, which `URLSession` to a loopback URL satisfies.
+/// The token is read from disk on demand, never cached: Shed writes
+/// `<Shed folder>/.laya-token` on its first boot, and a reinstall can change the file
+/// under a running app.
+struct ShedEndpoint: Equatable, Sendable {
+    let baseURL: URL
+    let tokenFile: URL
+
+    var port: Int { baseURL.port ?? 80 }
+
+    func readToken() -> String? {
+        guard let text = try? String(contentsOf: tokenFile, encoding: .utf8) else { return nil }
+        let token = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return token.isEmpty ? nil : token
+    }
+
+    /// `/` for the session list, `/?session=<id>` for one session. Shed's
+    /// `openFromUrl` reads exactly that query parameter on load.
+    func pageURL(sessionID: String? = nil) -> URL {
+        var parts = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) ?? URLComponents()
+        parts.path = "/"
+        if let sessionID, !sessionID.isEmpty {
+            parts.queryItems = [URLQueryItem(name: "session", value: sessionID)]
+        }
+        return parts.url ?? baseURL
+    }
+}
+
+/// Notch-client discovery. The app is a client of Shed, never its host: it finds a
+/// Shed the user installed and runs nothing itself. The order is: the Settings URL,
+/// `SHED_URL`, the installed copy on 4378 (root `~/.shed/app`), then a development copy
+/// on 4379 (root `~/code/shed`, or `SHED_ROOT`). Shed accepts the token only from
+/// 127.0.0.1 with a localhost Host header and no proxy headers, which `URLSession` to a
+/// loopback URL satisfies.
 extension ShedEndpoint {
     static let installedPort = 4378
     static let developmentPort = 4379
@@ -93,23 +120,8 @@ actor ShedClient: ShedAPI {
 
     var activeEndpoint: ShedEndpoint? { active }
 
-    /// The supervised engine's address, nil while it is not running.
-    private let engine: @Sendable () async -> ShedEndpoint?
-
-    init(
-        candidates: [ShedEndpoint] = ShedEndpoint.candidates(),
-        // Only the engine this app runs outranks the Settings address. The supervisor
-        // also adopts a Shed it finds on 4378 or 4379, and that adopted copy must not
-        // hide the address the user typed; `candidates` finds it, Settings address first.
-        engine: @escaping @Sendable () async -> ShedEndpoint? = {
-            await MainActor.run {
-                let supervisor = ShedEngineSupervisor.shared
-                return supervisor.source == .bundled ? supervisor.endpoint : nil
-            }
-        }
-    ) {
+    init(candidates: [ShedEndpoint] = ShedEndpoint.candidates()) {
         self.candidates = candidates
-        self.engine = engine
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 3
         config.timeoutIntervalForResource = 8
@@ -125,10 +137,7 @@ actor ShedClient: ShedAPI {
     // MARK: Sessions
 
     func agentSessions() async -> [AgentSession] {
-        let ordered: [ShedEndpoint]
-        if let supervised = await engine() { ordered = [supervised] }
-        else if let current = active { ordered = [current] + candidates.filter { $0 != current } }
-        else { ordered = candidates }
+        let ordered = active.map { current in [current] + candidates.filter { $0 != current } } ?? candidates
         for endpoint in ordered {
             guard let (status, data) = await send(endpoint, "GET", "api/sessions"),
                   status == 200,

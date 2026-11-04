@@ -147,6 +147,17 @@ final class ShedAgentsTests: XCTestCase {
         XCTAssertEqual(injected.tokenFile.path, "/t")
     }
 
+    func testEndpointURLsAndToken() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("tok-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try "secret\n".write(to: tmp, atomically: true, encoding: .utf8)
+        let e = ShedEndpoint(baseURL: URL(string: "http://127.0.0.1:4378")!, tokenFile: tmp)
+        XCTAssertEqual(e.port, 4378)
+        XCTAssertEqual(e.readToken(), "secret")
+        XCTAssertEqual(e.pageURL().absoluteString, "http://127.0.0.1:4378/")
+        XCTAssertEqual(e.pageURL(sessionID: "a b&c").absoluteString, "http://127.0.0.1:4378/?session=a%20b%26c")
+    }
+
     @MainActor
     func testOpenSessionGoesThroughShedLink() {
         let endpoint = ShedEndpoint.local(port: 4378, root: URL(fileURLWithPath: "/r"))

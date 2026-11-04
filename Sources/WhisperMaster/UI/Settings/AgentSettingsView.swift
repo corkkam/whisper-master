@@ -49,9 +49,7 @@ struct AgentSettingsView: View {
                 agentDirectoryField
             }
         }
-        // One "Shed" area: the engine that runs it, then what the notch shows of it.
         SectionLabel("Shed")
-        ShedEngineSettingsCard(engine: .shared)
         shedCard
     }
 
@@ -72,8 +70,7 @@ struct AgentSettingsView: View {
             RowDivider()
             SettingsRow(
                 "Shed address",
-                subtitle: "Only for a Shed you run yourself. The agent engine above wins while it runs. "
-                    + "Leave empty to find Shed on this Mac (ports 4378, then 4379)."
+                subtitle: "Leave empty to find Shed on this Mac (ports 4378, then 4379)."
             ) {
                 if isSnapshot {
                     Text(state.shedURL.isEmpty ? "\u{2014}" : state.shedURL)

@@ -47,7 +47,7 @@ final class ShedPage: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     private static let unavailablePage = """
         <body style='font:15px -apple-system;margin:48px;color:#888'>
-        Shed is not running on this Mac. Start Shed, or turn on the agent engine in
+        Shed is not running on this Mac. Install or start Shed, or set its address in
         Settings, under Coding agents. Then open this tab again.</body>
         """
 

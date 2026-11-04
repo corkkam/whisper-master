@@ -343,8 +343,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // poll finds nothing and the surface stays dark, which is the correct
         // outcome on almost every install.
         viewModel.state.agents.start()
-        // The bundled Shed engine, only when its setting is on.
-        ShedEngineSupervisor.shared.start()
 
         // Read the calendar and start ranking the day. Dormant until now for the
         // same reason `agents` is: building an `AppState` under `swift test` or the
