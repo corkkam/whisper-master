@@ -799,7 +799,7 @@ final class AppState {
         didSet { UserDefaults.standard.set(speakAnswersEnabled, forKey: Self.speakAnswersDefaultsKey) }
     }
 
-    var answerVoiceEngine: AnswerVoiceEngine = .system {
+    var answerVoiceEngine: AnswerVoiceEngine = .natural {
         didSet {
             UserDefaults.standard.set(answerVoiceEngine.rawValue, forKey: Self.answerVoiceEngineDefaultsKey)
         }
@@ -867,7 +867,7 @@ final class AppState {
         // Opt-out: you asked out loud, so an answer you can hear is the default.
         speakAnswersEnabled = UserDefaults.standard.object(forKey: Self.speakAnswersDefaultsKey) as? Bool ?? true
         answerVoiceEngine = (UserDefaults.standard.string(forKey: Self.answerVoiceEngineDefaultsKey))
-            .flatMap(AnswerVoiceEngine.init(rawValue:)) ?? .system
+            .flatMap(AnswerVoiceEngine.init(rawValue:)) ?? .natural
         systemVoiceIdentifier = UserDefaults.standard.string(forKey: Self.systemVoiceDefaultsKey) ?? ""
         naturalVoiceID = UserDefaults.standard.string(forKey: Self.naturalVoiceDefaultsKey)
             ?? NaturalVoiceCatalog.defaultVoice

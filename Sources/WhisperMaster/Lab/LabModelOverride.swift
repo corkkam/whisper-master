@@ -46,9 +46,11 @@ enum LabModelOverride {
     /// The directory to load, or nil to use the shipped model. Nil whenever the
     /// override names a model that is not installed right now.
     ///
-    /// Nil for a reasoning row too. The shipped paths cannot reason (they render
-    /// with `enable_thinking: false` on a 12-second budget), and a model that
-    /// always does would time out on every turn of a dev build's assistant.
+    /// Nil for a reasoning row too. The cleanup path cannot reason (it renders with
+    /// `enable_thinking: false` on a 12-second budget). The assistant path can, but
+    /// it only knows the shipped model reasons (`CleanupModel.General.thinks(loadedFrom:)`
+    /// recognises the shipped directories), so any override runs as non-reasoning,
+    /// and a model that always reasons would time out on every turn that way.
     static func directory(for role: LabRole, defaults: UserDefaults = .standard) -> URL? {
         guard let model = model(for: role, defaults: defaults), !model.thinks else { return nil }
         return LabPaths.installedDirectory(for: model)

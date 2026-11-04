@@ -230,7 +230,20 @@ struct AgentLoop {
     /// hang. Thirty seconds covers a three-or-four step chain on a 3B and still gives
     /// up before the user does.
     var maxIterations: Int = 8
-    var budget: TimeInterval = 30
+    var budget: TimeInterval = AgentLoop.defaultBudget
+    /// The wall clock when the assistant reasons first (`CleanupModel.General.thinks`).
+    /// One reasoning turn alone runs ~11 s typical and up to a minute, so 30 s would
+    /// abandon most two-step chains half way. Ninety covers a read and a reply at the
+    /// typical cost; a slow turn still ends in the deterministic fallback.
+    static let reasoningBudget: TimeInterval = 90
+
+    /// The wall clock for an assistant that does or doesn't reason first.
+    static func budget(thinks: Bool) -> TimeInterval {
+        thinks ? reasoningBudget : AgentLoop.defaultBudget
+    }
+
+    /// `budget`'s default, named so `budget(thinks:)` can't drift from it.
+    static let defaultBudget: TimeInterval = 30
     var now: () -> Date = Date.init
     /// The prompt the loop runs under. A question and a spoken command want different
     /// instructions (see `AgentPrompt.command`), and the difference is the caller's to
