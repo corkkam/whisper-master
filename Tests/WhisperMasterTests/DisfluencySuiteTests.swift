@@ -86,8 +86,6 @@ final class DisfluencySuiteTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(graded, 100, "only \(graded) cases are ones a no-op fails")
     }
 
-    /// The grade the file carries is the grade the passes give today. When this
-    /// fails after a change to FillerWordFilter or ITN, regenerate the suite.
     /// The bar is the only thing a no-op is judged by, so a turn that differs from
     /// its reference at all must fail it, and one that does not must pass.
     func testDoingNothingFailsEveryTurnThatDiffersFromItsReference() throws {
@@ -100,6 +98,8 @@ final class DisfluencySuiteTests: XCTestCase {
         }
     }
 
+    /// The grade the file carries is the grade the passes give today. When this
+    /// fails after a change to FillerWordFilter or ITN, regenerate the suite.
     func testTheCommittedGradesMatchTheDeterministicPasses() throws {
         let loaded = try LabSuiteLoader.load(.disfluency, repoRoot: repoRoot)
         for (id, source) in loaded.sources {
