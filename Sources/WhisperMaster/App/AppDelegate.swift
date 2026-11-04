@@ -453,6 +453,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// Hold a quit until MLX work has stopped (policy and the timeout live in
+    /// `MlxWorkGate`). Exiting under a running generation crashes MLX on the way out.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MlxWorkGate.shared.holdQuit { sender.reply(toApplicationShouldTerminate: true) }
+            ? .terminateLater : .terminateNow
+    }
+
     /// Silence any answer still being read aloud.
     ///
     /// **Not optional.** Speech plays out of process (`speechsynthesisd` for the system

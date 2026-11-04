@@ -61,6 +61,23 @@ largest input for which the service's `words * 2 + 32` token budget stays inside
 fails loudly. Chunking is skipped for the `email` context, whose greeting/sign-off
 layout spans the whole text. A chunk that fails keeps its own raw words.
 
+**⚠️ A quit waits for MLX, and every MLX call goes through `MlxWorkGate`.**
+Quitting while a generation ran crashed the app on the way out, on 8 of 8 quits
+in a repro (Metal assertion or a bad access in MLX's compile cache): `exit()` runs
+MLX's static destructors under the running generation. `applicationShouldTerminate`
+is one call, `MlxWorkGate.holdQuit`: it marks the quit and reads the count under one
+lock, returns `.terminateNow` at once when nothing runs, and otherwise returns
+`.terminateLater` and **always** replies, after the work drains or
+`quitTimeoutSeconds` (3 s, for a load that cannot be interrupted) passes, plus a
+0.4 s grace so the refused caller can paste its deterministic text. Keep the policy
+in the gate: the delegate method stays a one-liner.
+Every load and generation in `MlxCleanupService` takes `enter()` / `leave()`; a
+refused `enter()` throws `Refused.quitting`, which every caller already reads as "the
+model returned nothing", so a dictation keeps its deterministic text and an assistant
+capture falls to the fallback and the undelivered banner. A generation the quit cut
+short throws too: **its partial text is never returned** (it would be pasted as a
+finished cleanup). New MLX work must take the gate and must do nothing when it refuses.
+
 **S1-mini's format is exact and every integration bug traces to it**: the system prompt
 is the trained string (not a prompt to tune), the user turn opens with a
 `[Styling: …] [Structure: …] [Context: …]` control line, and **`enable_thinking` must be
