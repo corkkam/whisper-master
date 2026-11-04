@@ -24,9 +24,11 @@ final class UsageSyncClient {
     private let session: URLSession
 
     private var inFlight = false
-    private var lastSyncAt: Date?
-    /// Debounce so the 0.5 s AppDelegate tick can call this freely.
-    private let minInterval: TimeInterval = 20
+    /// Debounce so the 0.5 s AppDelegate tick can call this freely: 20 s between
+    /// pushes, doubling after each failure (see `SyncBackoff`).
+    private(set) var backoff = SyncBackoff()
+    /// The account the last request ran for. A new account starts without its backoff.
+    private var backoffUserID: String?
 
     init(
         store: UsageStore,
@@ -42,20 +44,33 @@ final class UsageSyncClient {
 
     /// Debounced, single-flight trigger — safe to call on every refresh tick.
     /// No-ops when sync is disabled, nothing changed, or a push is in flight.
-    func syncIfNeeded(enabled: Bool) {
-        guard enabled, endpoint != nil, !inFlight else { return }
-        guard !store.dirtyDays.isEmpty else { return }
-        if let last = lastSyncAt, Date().timeIntervalSince(last) < minInterval { return }
+    /// Returns whether a push started.
+    @discardableResult
+    func syncIfNeeded(enabled: Bool) -> Bool {
+        guard enabled, endpoint != nil, !inFlight else { return false }
+        if store.currentUserID != backoffUserID {
+            backoffUserID = store.currentUserID
+            backoff.reset()
+        }
+        guard !store.dirtyDays.isEmpty, backoff.allows() else { return false }
         let days = store.dirtyDays
         inFlight = true
         Task { await self.push(days: days) }
+        return true
     }
 
     /// The actual push. Driven by `syncIfNeeded`; not private so the tests can
     /// exercise it directly, like `daysStillMatching`.
     func push(days: Set<String>) async {
-        defer { inFlight = false; lastSyncAt = Date() }
-        guard let endpoint, let id = await identity() else { return }
+        var failed = false
+        defer {
+            inFlight = false
+            if failed { backoff.failed() } else { backoff.succeeded() }
+        }
+        guard let endpoint else { return }
+        // Signed out, or the session is not loaded yet: nothing was sent, so no backoff.
+        guard let id = await identity() else { return }
+        backoffUserID = id.userId
         // `identity()` awaits a fresh session token, and the store is repointed in
         // place by `activate(userID:)` off the 0.5 s auth reconcile — so another
         // account can sign in *across* that await (the org flow lets several people
@@ -98,13 +113,15 @@ final class UsageSyncClient {
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 let code = (response as? HTTPURLResponse)?.statusCode ?? -1
                 Log.usage.error("usage sync rejected (HTTP \(code, privacy: .public)) — leaving \(days.count) day(s) dirty")
+                failed = true
                 return
             }
             store.clearDirty(daysStillMatching(rollups, of: days))
             Log.usage.notice("usage sync pushed \(rollups.count, privacy: .public) day(s)")
         } catch {
-            // Offline / transient — keep the days dirty and retry on a later tick.
+            // Offline / transient — keep the days dirty and retry after the backoff.
             Log.usage.error("usage sync failed: \(error.localizedDescription, privacy: .public)")
+            failed = true
         }
     }
 
