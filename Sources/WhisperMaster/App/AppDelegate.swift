@@ -499,12 +499,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // exists so the button has a target and accepts both mouse buttons.
     }
 
+    /// Shed lives in the main window's Coding tab, not in a window of its own.
+    @objc private func showCodingTab() {
+        viewModel.state.requestedSettingsSection = .coding
+        showWindow()
+    }
+
     /// Standard Dock-app menu bar. Without it, a `.regular` app has no working
     /// Cmd-Q or Edit shortcuts (cut/copy/paste/select-all/undo) — the latter
     /// matter for the custom-words editor. The tray menu stays the primary surface.
-    @objc private func showAgentsWindow() { ShedSessionWindow.open() }
-
     private func setupMainMenu() {
+        ShedLink.showCodingTab = { [weak self] in self?.showCodingTab() }
         let appName = "Whisper Master"
         let mainMenu = NSMenu()
 
@@ -518,9 +523,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(.separator())
         let settings = appMenu.addItem(withTitle: "Settings…", action: #selector(showWindow), keyEquivalent: ",")
         settings.target = self
-        let agentsWindow = appMenu.addItem(
-            withTitle: "Agents…", action: #selector(showAgentsWindow), keyEquivalent: "")
-        agentsWindow.target = self
+        let coding = appMenu.addItem(withTitle: "Coding", action: #selector(showCodingTab), keyEquivalent: "")
+        coding.target = self
         appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Hide \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")

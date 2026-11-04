@@ -232,8 +232,12 @@ final class ShedAgents {
 
     func isShedSession(_ id: String) -> Bool { sessions.contains { $0.id == id } }
 
-    /// "Open full session" has one door, `ShedLink`, so the in-app window can replace
-    /// the browser there without touching the surfaces.
+    /// The Shed the notch reads. The Coding tab shows the same one.
+    var activeEndpoint: ShedEndpoint? {
+        get async { await client.activeEndpoint }
+    }
+
+    /// "Open full session" has one door, `ShedLink`, which opens the Coding tab.
     func openFullSession(_ id: String) {
         Task { ShedLink.openSession(id: id, endpoint: await client.activeEndpoint) }
     }

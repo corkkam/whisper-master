@@ -110,10 +110,10 @@ final class ReleaseChannelTests: XCTestCase {
         XCTAssertFalse(SettingsSection.mesh.isAvailable(connectorsAndNotes: true))
     }
 
-    /// The sidebar keeps listing all four primaries either way — the gated ones
+    /// The sidebar keeps listing every primary either way — the gated ones
     /// render as "Soon" rather than disappearing, so the roadmap stays visible.
-    func testSidebarStillListsAllFourPrimariesWhenGated() {
-        XCTAssertEqual(SettingsSection.primary, [.today, .notes, .connectors, .settings])
+    func testSidebarStillListsAllPrimariesWhenGated() {
+        XCTAssertEqual(SettingsSection.primary, [.today, .notes, .connectors, .coding, .settings])
     }
 }
 

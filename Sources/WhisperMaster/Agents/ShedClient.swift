@@ -98,8 +98,14 @@ actor ShedClient: ShedAPI {
 
     init(
         candidates: [ShedEndpoint] = ShedEndpoint.candidates(),
+        // Only the engine this app runs outranks the Settings address. The supervisor
+        // also adopts a Shed it finds on 4378 or 4379, and that adopted copy must not
+        // hide the address the user typed; `candidates` finds it, Settings address first.
         engine: @escaping @Sendable () async -> ShedEndpoint? = {
-            await MainActor.run { ShedEngineSupervisor.shared.endpoint }
+            await MainActor.run {
+                let supervisor = ShedEngineSupervisor.shared
+                return supervisor.source == .bundled ? supervisor.endpoint : nil
+            }
         }
     ) {
         self.candidates = candidates

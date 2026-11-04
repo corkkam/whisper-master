@@ -1,17 +1,17 @@
 import AppKit
 import Foundation
 
-/// The single place a Shed session is opened for the user. With the bundled engine
-/// running that is the in-app window; a Shed the user runs themselves has no
-/// token the window can read, so it opens in the browser. Callers never build the URL.
+/// The single place a Shed session is opened for the user: the Coding tab of the main
+/// window, on that session. Callers never build the URL.
 enum ShedLink {
+    /// Brings up the main window on the Coding tab. Set by the AppDelegate, which owns
+    /// the window.
+    @MainActor static var showCodingTab: () -> Void = {}
+
     /// Replaceable, and swapped by tests.
     @MainActor static var open: (_ sessionID: String, _ endpoint: ShedEndpoint?) -> Void = { id, endpoint in
-        if ShedEngineSupervisor.shared.endpoint != nil || endpoint == nil {
-            ShedSessionWindow.open(sessionID: id)
-        } else if let url = endpoint?.pageURL(sessionID: id) {
-            NSWorkspace.shared.open(url)
-        }
+        ShedPage.shared.show(sessionID: id, endpoint: endpoint)
+        showCodingTab()
     }
 
     @MainActor

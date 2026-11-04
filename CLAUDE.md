@@ -470,10 +470,15 @@ shortcut at all**.
   on 4378 or 4379. `ShedAgents`/`ShedClient` (`Agents/`) are the notch client: Claude
   Code and Codex sessions, the choice card and the working row, behind the same
   `AgentTransport` seam as Kunai. **`ShedEndpoint` is one type**: the client uses
-  `ShedEngineSupervisor.shared.endpoint` when it is non-nil, and otherwise its own
-  discovery (Settings URL `WhisperMaster.shedURL.v1`, `SHED_URL`, 4378, 4379).
-  "Open full session" goes through `ShedLink`, which opens the in-app
-  `ShedSessionWindow` (browser only for a self-run Shed the window cannot sign in to).
+  `ShedEngineSupervisor.shared.endpoint` only when that is the **bundled** engine, and
+  otherwise its own discovery (Settings URL `WhisperMaster.shedURL.v1`, `SHED_URL`,
+  4378, 4379). The supervisor also adopts a Shed it finds on 4378 or 4379, and an
+  adopted copy must not hide the address the user typed.
+  **Shed opens in the main window, never in a window of its own**: the sidebar's
+  **Coding** tab (`SettingsSection.coding`) shows `ShedPage`'s one `WKWebView`, edge to
+  edge, on the endpoint the notch reads. "Open full session" and the app menu's
+  **Coding** item both go through `ShedLink`, which selects that tab. The master token
+  goes only to a Shed on loopback; a Shed at another address shows its own sign-in.
   The unit tests start no engine and run no npm or launchctl.
 - **⚠️ Sessions live on the machine that runs them, and so does the fleet socket.**
   `GET /api/machines` lists the fleet (`{id,label,url,self}`); `GET /api/sessions` and
