@@ -37,13 +37,11 @@ final class ShedPage: NSObject, WKNavigationDelegate, WKUIDelegate {
         let load: () -> Void = { [webView] in _ = webView.load(URLRequest(url: url)) }
         // The master token goes only to a Shed on this Mac. A Shed at another address
         // shows its own sign-in page instead.
-        guard let host = endpoint.baseURL.host, Self.loopback.contains(host), let token = endpoint.readToken(),
+        guard endpoint.isLoopback, let host = endpoint.baseURL.host, let token = endpoint.readToken(),
             let cookie = HTTPCookie(properties: [.name: "laya_auth", .value: token, .domain: host, .path: "/"])
         else { return load() }
         webView.configuration.websiteDataStore.httpCookieStore.setCookie(cookie, completionHandler: load)
     }
-
-    private static let loopback: Set<String> = ["127.0.0.1", "localhost", "::1"]
 
     private static let unavailablePage = """
         <body style='font:15px -apple-system;margin:48px;color:#888'>
@@ -51,17 +49,25 @@ final class ShedPage: NSObject, WKNavigationDelegate, WKUIDelegate {
         Settings, under Coding agents. Then open this tab again.</body>
         """
 
-    // Links that leave Shed (docs, Tailscale pages) open in the browser, not in the app.
+    // The web view stays on Shed's own origin (scheme, host and port): the cookie is not
+    // port-scoped, and the page has the open panel. A clicked web link that leaves Shed
+    // (docs, Tailscale pages) opens in the browser. Any other way out is refused.
     func webView(
         _ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        if action.navigationType == .linkActivated, let url = action.request.url,
-            url.host != loadedBase?.host {
+        guard let url = action.request.url, action.targetFrame?.isMainFrame != false,
+            url.scheme != "about", !Self.sameOrigin(url, loadedBase)
+        else { return decisionHandler(.allow) }
+        if action.navigationType == .linkActivated, ["http", "https"].contains(url.scheme ?? "") {
             NSWorkspace.shared.open(url)
-            return decisionHandler(.cancel)
         }
-        decisionHandler(.allow)
+        decisionHandler(.cancel)
+    }
+
+    nonisolated static func sameOrigin(_ url: URL, _ base: URL?) -> Bool {
+        guard let base else { return false }
+        return url.scheme == base.scheme && url.host == base.host && url.port == base.port
     }
 
     // Shed's attach-file button needs the system open panel.

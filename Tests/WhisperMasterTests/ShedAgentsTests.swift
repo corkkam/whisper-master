@@ -158,6 +158,22 @@ final class ShedAgentsTests: XCTestCase {
         XCTAssertEqual(e.pageURL(sessionID: "a b&c").absoluteString, "http://127.0.0.1:4378/?session=a%20b%26c")
     }
 
+    /// The master token and the web view must not reach past this Mac's Shed.
+    func testTokenStaysOnLoopbackAndPageStaysOnItsOrigin() {
+        let at = { (s: String) in ShedEndpoint(baseURL: URL(string: s)!, tokenFile: URL(fileURLWithPath: "/t")) }
+        XCTAssertTrue(at("http://127.0.0.1:4378").isLoopback)
+        XCTAssertTrue(at("http://localhost:4379").isLoopback)
+        XCTAssertFalse(at("https://shed.example.com").isLoopback)
+        XCTAssertFalse(at("http://192.168.1.5:4378").isLoopback)
+
+        let base = URL(string: "http://127.0.0.1:4378")
+        XCTAssertTrue(ShedPage.sameOrigin(URL(string: "http://127.0.0.1:4378/?session=x")!, base))
+        XCTAssertFalse(ShedPage.sameOrigin(URL(string: "http://127.0.0.1:8080/")!, base))
+        XCTAssertFalse(ShedPage.sameOrigin(URL(string: "https://127.0.0.1:4378/")!, base))
+        XCTAssertFalse(ShedPage.sameOrigin(URL(string: "https://evil.example/")!, base))
+        XCTAssertFalse(ShedPage.sameOrigin(URL(string: "http://127.0.0.1:4378/")!, nil))
+    }
+
     @MainActor
     func testOpenSessionGoesThroughShedLink() {
         let endpoint = ShedEndpoint.local(port: 4378, root: URL(fileURLWithPath: "/r"))

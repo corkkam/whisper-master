@@ -72,7 +72,10 @@ final class ShedAgents {
         guard enabled != isEnabled || urlChanged else { return }
         isEnabled = enabled
         self.urlOverride = urlOverride
-        if urlChanged { client = makeClient(urlOverride) }
+        if urlChanged {
+            client = makeClient(urlOverride)
+            generation += 1
+        }
         halt()
         if started { spawn() }
     }
@@ -88,6 +91,9 @@ final class ShedAgents {
     }
 
     private var started = false
+    /// Bumped when the address changes, so a read from the previous Shed that finishes
+    /// late does not write its sessions or question over the new one.
+    private var generation = 0
 
     private func spawn() {
         guard isEnabled, pollTask == nil else { return }
@@ -142,8 +148,10 @@ final class ShedAgents {
 
     func refresh() async {
         guard isEnabled else { return }
+        let generation = generation
         let list = await client.agentSessions()
         let reachable = await client.isReachable
+        guard generation == self.generation else { return }
         isAvailable = reachable
         guard reachable else { clear(); return }
         apply(list)
@@ -181,7 +189,10 @@ final class ShedAgents {
     }
 
     private func loadMenu(for sessionID: String) async {
-        guard let terminal = await client.terminal(sessionID: sessionID),
+        let generation = generation
+        let terminal = await client.terminal(sessionID: sessionID)
+        guard generation == self.generation else { return }
+        guard let terminal,
               let built = ShedAsk.make(
                 sessionID: sessionID,
                 context: sessions.first { $0.id == sessionID }?.displayName ?? "",
@@ -213,7 +224,10 @@ final class ShedAgents {
         let sessionID = choice.requestID
         switch await client.choose(sessionID: sessionID, index: index, label: label) {
         case .chosen:
-            ask = nil; askSessionID = nil; self.menu = nil
+            // A refresh during the send may have put up the next question; keep that one.
+            if askSessionID == sessionID, self.menu?.options == menu.options {
+                ask = nil; askSessionID = nil; self.menu = nil
+            }
             await refresh()
         case .changed:
             // The question moved on while the card was up. Read it again and show it.

@@ -11,6 +11,10 @@ struct ShedEndpoint: Equatable, Sendable {
 
     var port: Int { baseURL.port ?? 80 }
 
+    /// The master token goes only to a Shed on this Mac. The Settings address accepts
+    /// any host, and a Shed elsewhere must not receive this Mac's token.
+    var isLoopback: Bool { ["127.0.0.1", "localhost", "::1"].contains(baseURL.host ?? "") }
+
     func readToken() -> String? {
         guard let text = try? String(contentsOf: tokenFile, encoding: .utf8) else { return nil }
         let token = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -252,7 +256,7 @@ actor ShedClient: ShedAPI {
         guard let url = endpoint.api(path) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        if let token = endpoint.readToken() {
+        if endpoint.isLoopback, let token = endpoint.readToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let timeout { request.timeoutInterval = timeout }
