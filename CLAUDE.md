@@ -39,6 +39,12 @@ bash Scripts/install.sh
 REBUILD=0 bash Scripts/install.sh       # skip rebuild
 RELAUNCH=0 bash Scripts/install.sh      # install without launching
 
+# Local test build beside the real app: "Whisper Master Dev" in /Applications.
+# Use this, not `SIGN_IDENTITY=- bundle.sh`, for anything you run: it signs with a
+# stable Apple Development identity, so the keychain "Always Allow" survives a
+# rebuild. An ad-hoc signature changes every build and re-prompts for every item.
+bash Scripts/dev-install.sh
+
 # Ship a Sparkle auto-update — bump CFBundleShortVersionString AND
 # CFBundleVersion in Resources/Info.plist first, then:
 bash Scripts/release.sh                 # build → sign → appcast → upload to R2
