@@ -61,6 +61,34 @@ final class MeetingAudioStream: @unchecked Sendable {
     }
 }
 
+/// Whether the call audio has carried anything but digital silence. Fed from the
+/// tap's IO queue, so the flag sits behind a lock.
+final class SoundGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var heard = false
+
+    /// True once, for the first buffer with a non-zero sample.
+    func firstSound(in buffer: AVAudioPCMBuffer) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !heard, Self.hasSound(buffer) else { return false }
+        heard = true
+        return true
+    }
+
+    static func hasSound(_ buffer: AVAudioPCMBuffer) -> Bool {
+        guard let data = buffer.floatChannelData else { return false }
+        let channels = Int(buffer.format.channelCount)
+        // Interleaved float keeps every channel in `data[0]`.
+        let (planes, count) = buffer.format.isInterleaved
+            ? (1, Int(buffer.frameLength) * channels) : (channels, Int(buffer.frameLength))
+        for plane in 0..<planes {
+            for i in 0..<count where data[plane][i] != 0 { return true }
+        }
+        return false
+    }
+}
+
 /// A meeting being recorded: the mic as "You", the call app as "Others".
 ///
 /// Owned by `MeetingController`; the live window observes it.
@@ -90,6 +118,16 @@ final class MeetingSession {
     /// than 14.2). The meeting still records the mic.
     private(set) var capturesCallAudio = false
     private(set) var micLost = false
+    /// True when no call app could be singled out, so the tap records every sound
+    /// this Mac plays (music, a video) and not only the call.
+    private(set) var tapsAllSound = false
+    /// Set when the tap delivers a non-zero sample, so exact silence can be told
+    /// from a call that is simply quiet.
+    private(set) var heardCallAudio = false
+    private var tapStartedAt: Date?
+
+    /// How long the tap may deliver only exact silence before the header says so.
+    static let silentCallHintAfter: TimeInterval = 20
 
     private let recorder = MeetingAudioRecorder()
     private let mic = MicrophoneCaptureService()
@@ -113,6 +151,15 @@ final class MeetingSession {
         self.startedAt = now
     }
 
+    /// Shown in the live header when the tap has run a while and heard nothing but
+    /// digital silence. It does not claim the permission is denied: a quiet call
+    /// is also silent.
+    func callAudioHint(now: Date) -> String? {
+        guard capturesCallAudio, !heardCallAudio, let tapStartedAt,
+              now.timeIntervalSince(tapStartedAt) >= Self.silentCallHintAfter else { return nil }
+        return "Not hearing the call yet. Allow audio in System Settings > Privacy & Security > Screen & System Audio Recording."
+    }
+
     var elapsedMs: Int { Int(Date().timeIntervalSince(startedAt) * 1000) }
 
     func start() async throws {
@@ -129,6 +176,7 @@ final class MeetingSession {
         }
         let micStream = micStream
         mic.onCaptureLost = { [weak self] in Task { @MainActor in self?.micLost = true } }
+        recorder.markCaptureStart()
         try mic.start(bufferHandler: { micStream.feed($0) }, levelHandler: { _ in })
 
         if #available(macOS 14.2, *) {
@@ -142,13 +190,27 @@ final class MeetingSession {
                 }
                 let tap = SystemAudioTap()
                 let callStream = callStream
-                try await tap.start(bundleFamily: call.bundleFamily) { callStream.feed($0) }
+                // A start by hand names no app: tap the one on the mic, and only
+                // when there is none does the tap take all sound.
+                var family = call.bundleFamily
+                if family.isEmpty {
+                    family = await Task.detached {
+                        CallDetector.micHolderFamily(in: AudioOutputActivity.runningInputBundleIDs())
+                    }.value ?? ""
+                }
+                let gate = SoundGate()
+                let global = try await tap.start(bundleFamily: family) { [weak self] buffer in
+                    callStream.feed(buffer)
+                    if gate.firstSound(in: buffer) { Task { @MainActor in self?.heardCallAudio = true } }
+                }
                 guard !isStopped else {
                     await tap.stop()
                     await callStream.cancel()
                     return
                 }
                 self.tap = tap
+                tapsAllSound = global
+                tapStartedAt = Date()
                 capturesCallAudio = true
             } catch {
                 Log.meetings.error("call audio unavailable: \(error.localizedDescription, privacy: .public)")

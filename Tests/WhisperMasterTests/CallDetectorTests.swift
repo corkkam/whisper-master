@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 
 @testable import WhisperMaster
@@ -185,5 +186,28 @@ final class CallDetectorTests: XCTestCase {
         ]
         XCTAssertEqual(MeetingController.calendarMeetingTitle(in: events, at: t0), "Standup")
         XCTAssertNil(MeetingController.calendarMeetingTitle(in: [events[3]], at: t0))
+    }
+}
+
+final class MeetingStartHelpersTests: XCTestCase {
+    func testMicHolderPrefersANativeAppOverABrowser() {
+        XCTAssertEqual(
+            CallDetector.micHolderFamily(in: ["com.google.Chrome.helper", "us.zoom.xos.ZoomAudioDevice"]),
+            "us.zoom.xos")
+        XCTAssertEqual(CallDetector.micHolderFamily(in: ["com.google.Chrome.helper"]), "com.google.Chrome")
+        XCTAssertNil(CallDetector.micHolderFamily(in: ["com.apple.VoiceMemos"]))
+    }
+
+    func testSoundGateSeesOnlyANonZeroSample() throws {
+        let format = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000,
+                                                 channels: 2, interleaved: false))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 64))
+        buffer.frameLength = 64
+        for ch in 0..<2 { memset(buffer.floatChannelData![ch], 0, 64 * 4) }
+        let gate = SoundGate()
+        XCTAssertFalse(gate.firstSound(in: buffer))
+        buffer.floatChannelData![1][10] = 0.01
+        XCTAssertTrue(gate.firstSound(in: buffer))
+        XCTAssertFalse(gate.firstSound(in: buffer))
     }
 }

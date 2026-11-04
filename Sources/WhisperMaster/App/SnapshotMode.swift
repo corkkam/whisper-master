@@ -833,6 +833,7 @@ enum SnapshotMode {
         let view = MeetingLiveView(controller: controller)
             .frame(width: 720, height: 480)
         render(view, to: dir.appendingPathComponent("meeting-live.png"))
+        session.discardForTermination()  // removes the temp folder its recorder made
     }
 
     private static func renderPill(_ dir: URL, name: String, configure: (AppState) -> Void) {

@@ -50,13 +50,13 @@ final class SystemAudioTap: @unchecked Sendable {
     /// Start capturing. `bundleFamily` selects the processes to tap; when none of
     /// them is a Core Audio client yet (a web call whose tab has not played sound),
     /// it falls back to everything this Mac plays except ourselves. An empty
-    /// family (a meeting started by hand) takes that fallback directly.
-    func start(bundleFamily: String, handler: @escaping BufferHandler) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+    /// family takes that fallback directly. Returns true when it did, so the
+    /// caller can tell the user all sound on this Mac is being recorded.
+    func start(bundleFamily: String, handler: @escaping BufferHandler) async throws -> Bool {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
             controlQueue.async {
                 do {
-                    try self.create(bundleFamily: bundleFamily, handler: handler)
-                    continuation.resume()
+                    continuation.resume(returning: try self.create(bundleFamily: bundleFamily, handler: handler))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -77,7 +77,7 @@ final class SystemAudioTap: @unchecked Sendable {
 
     // MARK: - Core Audio
 
-    private func create(bundleFamily: String, handler: @escaping BufferHandler) throws {
+    private func create(bundleFamily: String, handler: @escaping BufferHandler) throws -> Bool {
         let processes = bundleFamily.isEmpty
             ? [] : AudioOutputActivity.processObjects(bundlePrefix: bundleFamily)
         let description: CATapDescription
@@ -106,6 +106,7 @@ final class SystemAudioTap: @unchecked Sendable {
             destroy()
             throw error
         }
+        return processes.isEmpty
     }
 
     private func destroy() {

@@ -73,10 +73,17 @@ struct MeetingLiveView: View {
                     Text(session.call.calendarTitle ?? session.call.name)
                         .font(Typography.headline)
                         .lineLimit(1)
-                    TimelineView(.periodic(from: session.startedAt, by: 30)) { context in
-                        Text(Self.status(session: session, now: context.date))
-                            .font(Typography.caption)
-                            .foregroundStyle(Theme.textTertiary)
+                    TimelineView(.periodic(from: session.startedAt, by: 5)) { context in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(Self.status(session: session, now: context.date))
+                                .font(Typography.caption)
+                                .foregroundStyle(Theme.textTertiary)
+                            if let hint = session.callAudioHint(now: context.date) {
+                                Text(hint)
+                                    .font(Typography.caption)
+                                    .foregroundStyle(Theme.danger)
+                            }
+                        }
                     }
                 }
                 Spacer()
@@ -118,6 +125,7 @@ struct MeetingLiveView: View {
         let minutes = max(0, Int(now.timeIntervalSince(session.startedAt) / 60))
         var parts = [minutes < 1 ? "Recording, under 1 min" : "Recording, \(minutes) min"]
         if !session.capturesCallAudio { parts.append("mic only") }
+        else if session.tapsAllSound { parts.append("Recording all sound on this Mac") }
         if session.micLost { parts.append("mic lost") }
         return parts.joined(separator: " · ")
     }

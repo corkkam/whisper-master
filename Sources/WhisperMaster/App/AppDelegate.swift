@@ -462,6 +462,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        viewModel.state.meetings.confirmQuit()
+    }
+
     /// Silence any answer still being read aloud.
     ///
     /// **Not optional.** Speech plays out of process (`speechsynthesisd` for the system

@@ -15,7 +15,9 @@ import Foundation
 /// they asked for. It never leaves the Mac: `NotesSyncClient` does not sync audio.
 final class MeetingAudioRecorder: @unchecked Sendable {
     private let lock = NSLock()
-    private let startedAt = Date()
+    /// When capture began, not when the session was made: the model loads before it
+    /// take seconds, and counting them put that much silence at the head of both tracks.
+    private var startedAt = Date()
     private var tracks: [MeetingSpeaker: Track] = [:]
     /// Set by `finish` and `cancel`. A buffer still in flight after that is
     /// dropped instead of opening a new track in a folder that is already gone.
@@ -38,6 +40,13 @@ final class MeetingAudioRecorder: @unchecked Sendable {
         .appendingPathComponent("\(directoryPrefix)\(UUID().uuidString)", isDirectory: true)) {
         self.directory = directory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    /// Call once, when capture starts. Both tracks lead from this one instant.
+    func markCaptureStart() {
+        lock.lock()
+        startedAt = Date()
+        lock.unlock()
     }
 
     /// Append a 16 kHz mono buffer (`MonoResampler.format`) to one track. The

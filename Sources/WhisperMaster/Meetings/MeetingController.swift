@@ -14,14 +14,18 @@ import Observation
 final class MeetingController {
     /// A call that was just detected and that we are offering to take notes for.
     private(set) var prompt: DetectedCall?
-    private(set) var promptAt: Date?
+    /// Not observed: `holdBannerClocks` moves these every tick, and the views read
+    /// the observed `prompt` and `readyNoteTitle`, which change with them.
+    @ObservationIgnored private(set) var promptAt: Date?
     /// The meeting being recorded, if any.
     private(set) var session: MeetingSession?
     /// True while the notes pass runs after a meeting ends.
-    private(set) var isWritingNotes = false
+    var isWritingNotes: Bool { notesInFlight > 0 }
+    /// Counted, not a Bool: a second meeting can end while the first is still writing.
+    private(set) var notesInFlight = 0
     /// The note filed for the last meeting, announced once on the notch.
     private(set) var readyNoteTitle: String?
-    private(set) var readyAt: Date?
+    @ObservationIgnored private(set) var readyAt: Date?
     /// Why the last start failed, shown in the live window and Settings.
     private(set) var lastError: String?
 
@@ -63,6 +67,33 @@ final class MeetingController {
         self.timer = timer
     }
 
+    /// The quit gate for `applicationShouldTerminate`. A meeting in progress is
+    /// asked about, because quitting used to delete it without a word.
+    func confirmQuit() -> NSApplication.TerminateReply {
+        guard session != nil else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "A meeting is being recorded"
+        alert.informativeText = "Stop and save the notes before quitting? Quitting without saving deletes the recording."
+        alert.addButton(withTitle: "Stop and save notes")
+        alert.addButton(withTitle: "Quit without saving")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            let writing = stopNotes()
+            Task {
+                await writing?.value
+                // Every path of the notes task ends here, including a failed write.
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
+        case .alertSecondButtonReturn:
+            return .terminateNow  // `applicationWillTerminate` discards the tracks
+        default:
+            return .terminateCancel
+        }
+    }
+
     func stop() {
         timer?.invalidate()
         timer = nil
@@ -94,6 +125,9 @@ final class MeetingController {
     // MARK: - Detection
 
     private func poll() {
+        // An offer nobody answered is over: a later start by hand must not inherit
+        // its app family and calendar title.
+        if prompt != nil, !showsPrompt, session == nil { dismissPrompt() }
         guard let state, !polling else { return }
         // Off: still watch an active recording so it can stop by itself, but
         // offer nothing new.
@@ -199,18 +233,21 @@ final class MeetingController {
         }
     }
 
-    func stopNotes() {
-        guard let session, let state else { return }
+    /// Stops the meeting and files the note. The returned task finishes when the
+    /// notes pass does; nil when nothing was recording.
+    @discardableResult
+    func stopNotes() -> Task<Void, Never>? {
+        guard let session, let state else { return nil }
         self.session = nil
-        isWritingNotes = true
+        notesInFlight += 1
         let store = state.notesStore
         let noteID = UUID()
         let title = Self.noteTitle(for: session.call, startedAt: session.startedAt)
-        Task {
+        return Task {
+            defer { notesInFlight -= 1 }
             let (transcript, audio) = await session.stop(noteID: noteID)
             let ownNotes = session.ownNotes
             guard !transcript.isEmpty || audio != nil || !ownNotes.isEmpty else {
-                isWritingNotes = false
                 lastError = "Nothing was recorded."
                 return
             }
@@ -232,7 +269,6 @@ final class MeetingController {
                     store.upsertNote(note)
                 }
             }
-            isWritingNotes = false
             readyNoteTitle = title
             readyAt = Date()
         }

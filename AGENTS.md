@@ -30,7 +30,8 @@ captured to memory, transcribed, and discarded — it is never written to a sock
 and never written to disk on the normal dictation path. **Meeting notes are the
 one deliberate exception** (`Meetings/`, dev builds only): after the user taps
 "Take notes", both sides of the call are written to disk and kept as the note's
-recording. They still never leave the Mac. **That property is the
+recording. The audio and the transcript stay on this Mac. The written notes (title
+and summary) sync like any other note unless the user turns sync off. **That property is the
 product**, not a feature of it. Any change that would send audio off-device is a
 different product and has to be argued as one.
 

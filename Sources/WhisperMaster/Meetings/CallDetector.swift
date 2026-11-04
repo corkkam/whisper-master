@@ -89,6 +89,13 @@ struct CallDetector {
         return nil
     }
 
+    /// The family of the call app on the mic, for a meeting started by hand: native
+    /// apps first, then browsers, the same order `call(in:)` uses. Nil when none.
+    static func micHolderFamily(in bundleIDs: [String]) -> String? {
+        let families = bundleIDs.compactMap(MeetingAppCatalog.family(of:))
+        return families.first { !MeetingAppCatalog.isBrowser($0) } ?? families.first
+    }
+
     /// Whether any process of `family` is on the mic. Helpers count for their app,
     /// and another call app listed first does not hide it.
     static func holdsMic(_ family: String, in evidence: CallEvidence) -> Bool {

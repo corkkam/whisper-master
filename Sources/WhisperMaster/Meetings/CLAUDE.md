@@ -49,7 +49,9 @@ rewrites the note body.
 - **Chrome and Zoom play from helper processes**, so taps and detection match bundle
   ids by prefix (`MeetingAppCatalog.family`). A web call whose tab has not played
   sound yet has no process object; the tap then falls back to a global tap that
-  excludes us. The process list is read once at start; a helper that appears later
+  excludes us, and the live header says "Recording all sound on this Mac". A start by
+  hand has no call app, so `MeetingSession` first looks for the app on the mic
+  (`CallDetector.micHolderFamily`) and taps only that one. The process list is read once at start; a helper that appears later
   is not added (known gap).
 - **Two extra transcribers, never the dictation one.** Push-to-talk keeps working
   during a meeting. Each stream loads Parakeet from disk once; `MeetingSession`
@@ -59,7 +61,10 @@ rewrites the note body.
 - **Audio is written to disk on purpose**, which is the exception to the
   dictation-path rule in the root `AGENTS.md`. Tracks stream to temp CAFs (an hour
   is too big for memory) and are mixed into one AAC file in
-  `NoteAudioStore.directory`. Not synced, same as other note audio. A quit deletes
+  `NoteAudioStore.directory`. Not synced, same as other note audio. The audio and the
+  transcript stay on this Mac; the written notes (title and summary, which can name
+  people, decisions and action items) sync like any other note unless the user turns
+  sync off. A quit deletes
   the temporary tracks (`discardForTermination`), and launch removes any a crash
   left (`MeetingAudioRecorder.removeLeftovers`, skipping a folder written to in the
   last ten minutes).
@@ -76,11 +81,13 @@ rewrites the note body.
 - Not run on a real Slack, Teams, Zoom or Meet call. The tap, the aggregate device
   and two concurrent Parakeet sessions are verified only by build and unit tests.
 - Action items are Markdown checkboxes in the note; there is no one-tap reminder.
-- Quitting the app mid-meeting drops the meeting and deletes its recording (no save
-  on terminate; a crash loses it too, rather than recovering it into a note).
+- Quitting mid-meeting asks first (`MeetingController.confirmQuit`): stop and save, quit
+  without saving, or cancel. A crash still loses the meeting, rather than recovering it
+  into a note.
 - On a real call, still to confirm: whether starting the aggregate (which lists the
   default output as its clock) switches AirPods to the call profile, whether a
-  denied audio-capture permission records silence instead of failing, and whether
+  denied audio-capture permission records silence instead of failing (the live header
+  now says the call is not heard after 20 s of exact silence), and whether
   a Slack huddle's output runs before anyone else has spoken.
 - The two meeting streams each load their own Parakeet; sharing one `AsrModels`
   would save memory on 8 GB Macs. A mic engine rebuild leaves an unpadded gap in
