@@ -45,6 +45,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -130,7 +131,8 @@ def fetch(dest: Path) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
     print(f"fetching {TEST_URL}", file=sys.stderr)
-    urllib.request.urlretrieve(TEST_URL, part)
+    with urllib.request.urlopen(TEST_URL, timeout=60) as response, part.open("wb") as out:
+        shutil.copyfileobj(response, out)
     if (actual := sha256(part)) != TEST_SHA256:
         part.unlink()
         sys.exit(f"{TEST_URL}: sha256 {actual}, expected {TEST_SHA256}")

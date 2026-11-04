@@ -249,7 +249,8 @@ The public anchor is **DisfluencySpeech** (`amaai-lab/DisfluencySpeech`, one
 speaker re-reading Switchboard turns; [dataset card](https://huggingface.co/datasets/amaai-lab/DisfluencySpeech),
 Apache-2.0 as published there). `make-disfluency-cases.py` turns the 250-clip
 **test** split into `disfluency-cases.jsonl`, pinned to dataset revision
-`b7da294f` and checked against the parquet's SHA-256:
+`b7da294f` (the current one on 2026-11-04), downloaded with a 60 s timeout and
+checked against the parquet's SHA-256:
 
 - **Input** is `transcript_a`, every word said.
 - **Reference** is built from `transcript_annotated`, the Switchboard markup:
@@ -265,18 +266,23 @@ Apache-2.0 as published there). `make-disfluency-cases.py` turns the 250-clip
 - **The bar is measured from what the model is handed**, the input after the
   deterministic passes (`LabDeterministicPipeline`), not from the raw input:
   `FillerWordFilter` has already removed "um" and "uh" before any model sees the
-  turn. `max_reference_wer` is half that gap, floored at 10%.
-- **`category` says whether doing nothing passes.** `public-disfluency` (a no-op
-  fails it) or `public-dont-damage` (the passes alone already clear the bar, so
-  only a model that makes the turn worse fails it). The first version measured
-  from the raw input and labelled 207 cases disfluent, 76 of which the do-nothing
-  output passed. Measured honestly, **62 of the 250 are `public-disfluency`** and
-  188 are `public-dont-damage`, 121 of them already word-for-word equal to the
-  reference after the passes: most turns' only disfluency is a filler the filter
-  removes or a discourse marker the reference keeps. Read the suite's pass rate
-  per category, not as one number. `DisfluencySuiteTests` fails if any
-  `public-disfluency` case can be passed by the deterministic text alone, or if
-  the committed bars stop matching what the passes give.
+  turn. `max_reference_wer` is half that gap, rounded down, so it is always below
+  the gap. A turn with no gap gets a 10% bar.
+- **`category` says whether doing nothing passes.** `public-disfluency` (the
+  passes leave the turn different from its reference, so a no-op fails it) or
+  `public-dont-damage` (the passes already leave it word-for-word equal to the
+  reference, so only a model that makes it worse fails). The first version
+  measured from the raw input and labelled 207 cases disfluent, 76 of which the
+  do-nothing output passed. The second fixed that but floored the bar at 10%, so
+  a no-op still passed 67 turns that were 3% to 10% off their reference (188 of
+  250 in all). Measured now, **129 of the 250 are `public-disfluency`**, and a
+  no-op fails all 129. The other **121 are `public-dont-damage`**, and a no-op
+  passes all 121 because they already equal the reference. Read the suite's pass
+  rate per category, not as one number. `DisfluencySuiteTests` fails if a no-op
+  passes any turn that differs from its reference, or if the committed bars stop
+  matching what the passes give.
+- **Trade-off.** A bar of half the gap is tight on a small gap: a turn 4% off its
+  reference needs the model to remove at least half of that 4%.
 
 The grading step is Swift because the passes are: the script writes input and
 reference to `.eval-scratch/`, then runs
@@ -297,8 +303,9 @@ Known limits of this set: it is one speaker on conversational topics, so it says
 nothing about numbers, names or destinations; `cases.jsonl` still owns those. The
 `--audio` cases put the ASR's own errors inside a bar computed from text.
 
-**Licence and citation.** The dataset card publishes it as Apache-2.0. The words
-are Switchboard-1 turns, a corpus the LDC distributes under its own licence, and
+**Licence and citation.** The Hugging Face API reports the dataset licence as
+`apache-2.0` (`cardData.license`, read 2026-11-04). The transcripts derive from
+Switchboard-1 turns, a corpus the LDC distributes under its own licence, and
 this repository is public, so confirm that redistributing these turns is allowed
 before this suite merges. Cite it as the card asks: Kyra Wang and Dorien
 Herremans, "DisfluencySpeech -- Single-Speaker Conversational Speech Dataset with

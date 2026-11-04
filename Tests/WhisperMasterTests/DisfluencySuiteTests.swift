@@ -19,8 +19,8 @@ import XCTest
 final class DisfluencySuiteTests: XCTestCase {
     static let graded = "public-disfluency"
     static let dontDamage = "public-dont-damage"
-    /// A case passes within this word error even when it started cleaner, so a
-    /// turn the passes already left fluent still fails a model that rewrites it.
+    /// The bar for a turn the passes already left identical to its reference, so
+    /// it still fails a model that rewrites it. A turn that differs gets half its gap.
     static let floor = 0.10
 
     struct Grade: Equatable {
@@ -33,14 +33,14 @@ final class DisfluencySuiteTests: XCTestCase {
     /// The reference goes through the same passes, so whatever the app does to
     /// every transcript on its own (digits, a dropped "uh-huh") is in the answer
     /// key too and costs a model nothing. The bar is half the gap the model is
-    /// handed, floored; a case the handed text already clears is a don't-damage
-    /// case, which only a model that makes things worse can fail.
+    /// handed, rounded down, so doing nothing fails every turn that differs from
+    /// its reference. A turn with no gap is a don't-damage control, held to `floor`.
     static func grade(input: String, reference: String) -> Grade? {
         let handed = LabDeterministicPipeline.run(input)
         let answer = LabDeterministicPipeline.run(reference)
         guard !WER.normalize(handed).isEmpty, !WER.normalize(answer).isEmpty else { return nil }
         let gap = WER.score(reference: answer, hypothesis: handed)
-        let limit = (max(floor, gap / 2) * 1000).rounded() / 1000
+        let limit = gap > 0 ? (gap / 2 * 1000).rounded(.down) / 1000 : floor
         // The scorer's own comparison, so the label and the verdict cannot disagree.
         let noOpFails = gap > limit + 1e-9
         return Grade(reference: answer, category: noOpFails ? graded : dontDamage, limit: limit, gap: gap)
@@ -63,7 +63,7 @@ final class DisfluencySuiteTests: XCTestCase {
             let reference = try XCTUnwrap(source.reference, "\(id) has no reference")
             let limit = try XCTUnwrap(source.maxReferenceWER, "\(id) has no limit, so it can only pass")
             XCTAssertFalse(reference.isEmpty, id)
-            XCTAssertGreaterThanOrEqual(limit, Self.floor, id)
+            XCTAssertGreaterThanOrEqual(limit, 0, id)
 
             // The do-nothing output is what ships when the model returns nothing
             // or the guard rejects it: the deterministic passes alone.
@@ -80,14 +80,26 @@ final class DisfluencySuiteTests: XCTestCase {
             }
         }
         // A regeneration that quietly moved every turn to don't-damage would leave
-        // a suite that measures nothing while every assertion above held. 62 of the
-        // 250 are graded today: most turns' only disfluency is a filler the passes
-        // already remove, or a discourse marker the reference keeps.
-        XCTAssertGreaterThanOrEqual(graded, 50, "only \(graded) cases are ones a no-op fails")
+        // a suite that measures nothing while every assertion above held. 129 of
+        // the 250 are graded today; the rest are controls the passes already
+        // leave equal to the reference.
+        XCTAssertGreaterThanOrEqual(graded, 100, "only \(graded) cases are ones a no-op fails")
     }
 
     /// The grade the file carries is the grade the passes give today. When this
     /// fails after a change to FillerWordFilter or ITN, regenerate the suite.
+    /// The bar is the only thing a no-op is judged by, so a turn that differs from
+    /// its reference at all must fail it, and one that does not must pass.
+    func testDoingNothingFailsEveryTurnThatDiffersFromItsReference() throws {
+        let loaded = try LabSuiteLoader.load(.disfluency, repoRoot: repoRoot)
+        for (id, source) in loaded.sources {
+            let handed = LabDeterministicPipeline.run(try XCTUnwrap(source.inputText, id))
+            let gap = WER.score(reference: try XCTUnwrap(source.reference, id), hypothesis: handed)
+            let passes = Scorer.score(evalCase: source, row: row(id, handed)).mechanicalPass
+            XCTAssertEqual(passes, gap == 0, "\(id): gap \(gap), no-op passes \(passes)")
+        }
+    }
+
     func testTheCommittedGradesMatchTheDeterministicPasses() throws {
         let loaded = try LabSuiteLoader.load(.disfluency, repoRoot: repoRoot)
         for (id, source) in loaded.sources {
@@ -112,7 +124,7 @@ final class DisfluencySuiteTests: XCTestCase {
             reference: "Yeah, Steve's mom finally said that God will take care of us."))
         XCTAssertEqual(grade.category, Self.graded)
         XCTAssertGreaterThan(grade.gap, grade.limit)
-        XCTAssertEqual(grade.limit, max(Self.floor, (grade.gap / 2 * 1000).rounded() / 1000), accuracy: 1e-9)
+        XCTAssertEqual(grade.limit, (grade.gap / 2 * 1000).rounded(.down) / 1000, accuracy: 1e-9)
     }
 
     // MARK: - Regeneration (run by make-disfluency-cases.py)
