@@ -2,15 +2,16 @@ import AppKit
 import ClerkKit
 import SwiftUI
 
-/// The sections of the main window. The **primary** four (`today`, `notes`,
-/// `connectors`, `settings`) are the sidebar nav, matching the Organic design;
-/// the rest are **secondary** pages folded under Settings (reached from its
-/// "More" list) so the sidebar stays to four items. `allCases` order is the
-/// sidebar order for the primaries.
+/// The sections of the main window. The **primary** five (`today`, `notes`,
+/// `connectors`, `coding`, `settings`) are the sidebar nav, matching the Organic
+/// design; the rest are **secondary** pages folded under Settings (reached from its
+/// "More" list) so the sidebar stays short. `primary` order is the sidebar order.
 enum SettingsSection: String, CaseIterable, Identifiable {
     case today
     case notes
     case connectors
+    /// Shed's page, in the window rather than a window of its own (`ShedCodingView`).
+    case coding
     case settings
     // Folded under Settings ("More"):
     case insights
@@ -24,8 +25,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// The four items shown in the sidebar.
-    static let primary: [SettingsSection] = [.today, .notes, .connectors, .settings]
+    /// The items shown in the sidebar.
+    static let primary: [SettingsSection] = [.today, .notes, .connectors, .coding, .settings]
     /// The pages folded into the Settings screen's "More" list.
     static let secondary: [SettingsSection] = [.insights, .engine, .agents, .traces, .permissions, .mesh, .lab, .about]
 
@@ -82,6 +83,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .today: return "Today"
         case .notes: return "Notes & Reminders"
         case .connectors: return "Connectors"
+        case .coding: return "Coding"
         case .settings: return "Settings"
         case .insights: return "Insights"
         case .engine: return "Voice engine"
@@ -111,6 +113,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .today: return "Here's the shape of your day. Talk to me any time."
         case .notes: return "Jot notes and set reminders that follow you across your Macs."
         case .connectors: return "Link your calendar so Whisper can brief you and act on what you say."
+        case .coding: return "Your Claude Code and Codex sessions on this Mac, through Shed."
         case .settings: return "Everything you can tune, in one warm place."
         case .insights: return "Your dictation at a glance — words, speed, and streaks."
         case .engine: return "Everything runs on-device. Your audio never leaves this Mac."
@@ -128,6 +131,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .today: return "Your day"
         case .notes: return "Captured by voice"
         case .connectors: return "Integrations"
+        case .coding: return "On this Mac"
         case .settings: return "Preferences"
         case .insights: return "Overview"
         case .engine: return "On-device"
@@ -146,6 +150,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .today: return "sun.max"
         case .notes: return "checklist"
         case .connectors: return "point.3.connected.trianglepath.dotted"
+        case .coding: return "chevron.left.forwardslash.chevron.right"
         case .settings: return "slider.horizontal.3"
         case .insights: return "chart.bar"
         case .engine: return "waveform"
@@ -433,7 +438,20 @@ struct SettingsView: View {
 
     // MARK: - Detail
 
+    @ViewBuilder
     private var detail: some View {
+        if selection == .coding {
+            // Shed's page brings its own scrolling, sidebar and headers, so it fills
+            // the pane edge to edge, clipped to the panel's rounded trailing corners.
+            ShedCodingView(state: state)
+                .clipShape(UnevenRoundedRectangle(
+                    bottomTrailingRadius: 22, topTrailingRadius: 22, style: .continuous))
+        } else {
+            scrollingDetail
+        }
+    }
+
+    private var scrollingDetail: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 if selection.isPrimary {
@@ -540,6 +558,9 @@ struct SettingsView: View {
             } else {
                 ComingSoonPanel(section: .connectors)
             }
+        case .coding:
+            // `detail` draws this tab without the scrolling column; kept for the switch.
+            ShedCodingView(state: state)
         case .settings:
             GeneralSettingsView(viewModel: viewModel, state: state, openSubPage: { selection = $0 })
         case .engine:

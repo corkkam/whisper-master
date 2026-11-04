@@ -72,6 +72,7 @@ the **real** `CleanupFaithfulnessGuard`. The scorer does not re-run the model.
 | CLI | `eval/text-cleanup/EvalScoreCLI/` | `swift run eval-score <results.json> <cases.jsonl>` |
 | Baseline cases | `eval/text-cleanup/cases.jsonl` | 116 text cases across 16 categories, default targets `light`+`polish`. |
 | Destination cases | `eval/text-cleanup/flow-cases.jsonl` | Slack / email / code suite. |
+| Public disfluency cases | `eval/text-cleanup/disfluency-cases.jsonl` | 250 turns from the DisfluencySpeech test split, graded on `max_reference_wer` measured from the deterministic passes' output. Regenerate with `make-disfluency-cases.py`. See **Public suite** below. |
 
 **Adding a batch of cases: stage them in a separate file first.** Write them to
 e.g. `cases-extended.jsonl`, run *that* file, fix every assertion that failed for
@@ -234,6 +235,100 @@ live in `Scorer.categoryWeight` (`faithfulness` and `sensitive` ×3;
 "174/178" could hide a whole category going red while `numbers` carried the
 total. `eval-score` now prints a pass rate per category, marking any that is not
 clean. It is the cheapest real signal in the scorer.
+
+### Public suite and the arena
+
+**No dictation vendor publishes its cleanup eval set.** Checked 2026-10-17:
+Superwhisper reports S1-mini at 94.8% token accuracy on a private 7,519-case set
+and benchmarks other apps on raw ASR only; Wispr Flow publishes no cleanup
+numbers; AssemblyAI's `voice-standard-bench` (MIT) has a dictation task, but its
+dataset is git-ignored, and its grammar is spoken punctuation commands ("comma",
+"new paragraph"), which is not what this app does. So there is nothing to clone.
+
+The public anchor is **DisfluencySpeech** (`amaai-lab/DisfluencySpeech`, one
+speaker re-reading Switchboard turns; [dataset card](https://huggingface.co/datasets/amaai-lab/DisfluencySpeech),
+Apache-2.0 as published there). `make-disfluency-cases.py` turns the 250-clip
+**test** split into `disfluency-cases.jsonl`, pinned to dataset revision
+`b7da294f` (the current one on 2026-11-04), downloaded with a 60 s timeout and
+checked against the parquet's SHA-256:
+
+- **Input** is `transcript_a`, every word said.
+- **Reference** is built from `transcript_annotated`, the Switchboard markup:
+  fillers (`{F uh}`) and false starts (the abandoned half of a `[ X + Y ]`
+  restart, and an editing term between the halves) are dropped, and nothing else.
+  Discourse markers ("you know", "well", "like"), "I mean" outside a restart,
+  conjunctions and asides stay, because `FillerWordFilter` keeps them on purpose.
+  The dataset's own `transcript_c` deletes those too; grading against it failed
+  faithful output on about 30 turns for keeping "I mean" or "you know" and handed
+  the arena to whichever model ignored the policy. The reference then goes
+  through the app's deterministic passes, so digits and a dropped "uh-huh" are in
+  the answer key and cost a model nothing.
+- **The bar is measured from what the model is handed**, the input after the
+  deterministic passes (`LabDeterministicPipeline`), not from the raw input:
+  `FillerWordFilter` has already removed "um" and "uh" before any model sees the
+  turn. `max_reference_wer` is half that gap, rounded down, so it is always below
+  the gap. A turn with no gap gets a 10% bar.
+- **`category` says whether doing nothing passes.** `public-disfluency` (the
+  passes leave the turn different from its reference, so a no-op fails it) or
+  `public-dont-damage` (the passes already leave it word-for-word equal to the
+  reference, so only a model that makes it worse fails). The first version
+  measured from the raw input and labelled 207 cases disfluent, 76 of which the
+  do-nothing output passed. The second fixed that but floored the bar at 10%, so
+  a no-op still passed 67 turns that were 3% to 10% off their reference (188 of
+  250 in all). Measured now, **129 of the 250 are `public-disfluency`**, and a
+  no-op fails all 129. The other **121 are `public-dont-damage`**, and a no-op
+  passes all 121 because they already equal the reference. Read the suite's pass
+  rate per category, not as one number. `DisfluencySuiteTests` fails if a no-op
+  passes any turn that differs from its reference, or if the committed bars stop
+  matching what the passes give.
+- **Trade-off.** A bar of half the gap is tight on a small gap: a turn 4% off its
+  reference needs the model to remove at least half of that 4%.
+
+The grading step is Swift because the passes are: the script writes input and
+reference to `.eval-scratch/`, then runs
+`swift test --filter DisfluencySuiteTests/testRegenerateTheSuite`, which grades
+both through `LabDeterministicPipeline` and writes the file. Regenerate after any
+change to `FillerWordFilter`, ITN or the other deterministic passes.
+
+```bash
+uv run eval/text-cleanup/make-disfluency-cases.py           # rewrites the committed file, byte for byte
+uv run eval/text-cleanup/make-disfluency-cases.py --audio   # + 250 real recordings in .eval-scratch/
+```
+
+`max_reference_wer` is the one opt-in pass rule on `reference`. Without it a
+reference stays diagnostic, as before; a case that sets it without a reference is
+refused at load. The landing site's `lib/eval/scoring.ts` carries the same rule.
+
+Known limits of this set: it is one speaker on conversational topics, so it says
+nothing about numbers, names or destinations; `cases.jsonl` still owns those. The
+`--audio` cases put the ASR's own errors inside a bar computed from text.
+
+**Licence and citation.** The Hugging Face API reports the dataset licence as
+`apache-2.0` (`cardData.license`, read 2026-11-04). The transcripts derive from
+Switchboard-1 turns, a corpus the LDC distributes under its own licence, and
+this repository is public, so confirm that redistributing these turns is allowed
+before this suite merges. Cite it as the card asks: Kyra Wang and Dorien
+Herremans, "DisfluencySpeech -- Single-Speaker Conversational Speech Dataset with
+Paralanguage", arXiv:2406.08820, 2024.
+
+**The arena.** With more than one model in a run, the headless Model Lab bench
+also prints a pairwise ranking (`LabArena`): on every case, a pass beats a fail,
+and two passes or two fails go to the output closer to `reference` (by at least
+one word in twenty), else a tie. A case whose pass rule is `max_reference_wer`
+skips the first step and is decided on word error alone, so a hair either side of
+its bar is a tie rather than a full win. The results are fit with Bradley-Terry and
+printed on the Elo scale, 1000 = the field's average. It breaks the ties a pass
+rate cannot, and the case order does not move it.
+
+```bash
+WM_LAB_BENCH=disfluency WM_LAB_MODELS=s1-mini-4bit,qwen3-1.7b-4bit,gemma-3-1b-it-4bit \
+  WM_LAB_REPO=$PWD WM_LAB_OUT=/tmp/lab-out  # via launchctl setenv, then open the dev app
+```
+
+The dev app must be signed with the same identity as the installed one
+(`CHANNEL=dev CONFIG=Debug bash Scripts/bundle.sh`, no `SIGN_IDENTITY=-`). An
+ad-hoc build blocks at launch on a Keychain prompt for the Clerk device token,
+before the bench starts, and prints nothing.
 
 ---
 

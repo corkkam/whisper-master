@@ -1,5 +1,31 @@
 import Foundation
 
+/// Which coding agent a session runs, for the notch's wing glyph.
+enum AgentHarness: String, Sendable, Equatable {
+    case claude, codex, other
+
+    init(wire: String?) {
+        self = AgentHarness(rawValue: wire?.lowercased() ?? "") ?? .other
+    }
+
+    var displayName: String {
+        switch self {
+        case .claude: return "Claude"
+        case .codex: return "Codex"
+        case .other: return "Agent"
+        }
+    }
+
+    /// Plain glyphs, the same ones Shed's own page uses. Not brand marks.
+    var glyph: String {
+        switch self {
+        case .claude: return "\u{2733}"  // ✳
+        case .codex: return "\u{25C7}"  // ◇
+        case .other: return "\u{25CF}"  // ●
+        }
+    }
+}
+
 /// One agent session as the notch reads it.
 ///
 /// This is the row in the glance: which codebase, what the agent is doing, and
@@ -30,6 +56,10 @@ struct AgentSession: Sendable, Equatable, Identifiable {
     /// The working directory kunai reported, kept so a first spoken prompt has
     /// somewhere sensible to open a new session.
     var cwd: String = ""
+    /// Which coding agent runs it. Kunai rows stay `.other`; Shed reports the real one.
+    var harness: AgentHarness = .other
+    /// The name the user gave a Shed agent, when it has one. Leads the hover row.
+    var agentName: String?
 
     /// Whether this session is somewhere else. What the surfaces test before naming
     /// a machine.

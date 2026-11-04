@@ -20,6 +20,8 @@ struct NotchAgentPanel: View {
     let onResolve: (_ allow: Bool, _ always: Bool) -> Void
     let onAnswer: (_ question: AgentChoice.Question, _ selected: [String]) -> Void
     let onSelectMode: (KunaiWire.PermissionMode) -> Void
+    /// Opens the full session; only Shed cards offer it.
+    var onOpenShed: (() -> Void)?
 
     private var others: [AgentSession] { Self.otherSessions(in: sessions, askingRepo: askingRepo) }
 
@@ -60,7 +62,11 @@ struct NotchAgentPanel: View {
                 .frame(maxHeight: .infinity)
 
         case .choice(let choice):
-            if let primary = choice.primary, choice.isPresentable() {
+            if choice.isShed, let primary = choice.primary {
+                NotchShedChoiceCard(
+                    choice: choice, question: primary,
+                    onAnswer: { onAnswer(primary, $0) }, onOpen: onOpenShed)
+            } else if let primary = choice.primary, choice.isPresentable() {
                 NotchAgentChoiceCard(choice: choice, question: primary) { selected in
                     onAnswer(primary, selected)
                 }
@@ -94,7 +100,8 @@ struct NotchAgentPanel: View {
     /// window creation, so a band taller than its panel is clipped by its own
     /// window — the same trap `maxStateLabelWing` exists for on the width axis.
     static let maxThickness: CGFloat =
-        NotchAgentChoiceCard.Metrics.height(optionCount: AgentChoice.maxVisibleOptions)
+        max(NotchAgentChoiceCard.Metrics.height(optionCount: AgentChoice.maxVisibleOptions),
+            NotchShedChoiceCard.Metrics.height)
         + contextRowHeight
 
     /// How tall the whole band needs to be for a given ask.
@@ -107,6 +114,8 @@ struct NotchAgentPanel: View {
         switch ask {
         case .approval:
             base = banner
+        case .choice(let choice) where choice.isShed:
+            base = NotchShedChoiceCard.Metrics.height
         case .choice(let choice):
             guard let primary = choice.primary, choice.isPresentable() else {
                 // The deferral is a plain banner row.

@@ -17,6 +17,10 @@ enum LabSuite: String, CaseIterable, Identifiable, Codable, Sendable {
     case polish
     /// `flow-cases.jsonl` — the app-aware destinations (slack, email, code).
     case destinations
+    /// `disfluency-cases.jsonl` — 250 real conversational turns from the public
+    /// DisfluencySpeech test split, each graded on word error against its
+    /// fluent transcript. The one suite here nobody at this company wrote.
+    case disfluency
     /// The 16 spoken commands from `AgentToolEval`, scored on whether the model
     /// emitted a parseable call to the right tool.
     case tools
@@ -31,6 +35,7 @@ enum LabSuite: String, CaseIterable, Identifiable, Codable, Sendable {
         case .cleanup: return "Cleanup"
         case .polish: return "Polish"
         case .destinations: return "Destinations"
+        case .disfluency: return "Public disfluency"
         case .tools: return "Tool calling"
         case .audio: return "Audio"
         }
@@ -41,6 +46,7 @@ enum LabSuite: String, CaseIterable, Identifiable, Codable, Sendable {
         case .cleanup: return "The shipped light-cleanup prompt over every text case."
         case .polish: return "The heavier rephrase prompt, where the guard loosens."
         case .destinations: return "Slack, email and code formatting."
+        case .disfluency: return "250 public conversational turns, graded against the fluent transcript."
         case .tools: return "Does the model call the right tool, first turn."
         case .audio: return "Real recordings through the streaming ASR, then cleanup."
         }
@@ -61,7 +67,7 @@ enum LabSuite: String, CaseIterable, Identifiable, Codable, Sendable {
     /// takes its target from each case, so it has none of its own.
     var fixedTarget: CleanupTarget? {
         switch self {
-        case .cleanup, .audio: return .light
+        case .cleanup, .audio, .disfluency: return .light
         case .polish: return .polish
         case .destinations, .tools: return nil
         }
@@ -72,6 +78,7 @@ enum LabSuite: String, CaseIterable, Identifiable, Codable, Sendable {
         switch self {
         case .cleanup, .polish: return "eval/text-cleanup/cases.jsonl"
         case .destinations: return "eval/text-cleanup/flow-cases.jsonl"
+        case .disfluency: return "eval/text-cleanup/disfluency-cases.jsonl"
         case .tools, .audio: return nil
         }
     }
@@ -188,7 +195,7 @@ enum LabSuiteLoader {
         case .audio:
             guard let repoRoot else { throw LoadError.noRepo }
             return LabSuiteCases(cases: try audioCases(repoRoot: repoRoot), sources: [:])
-        case .cleanup, .polish, .destinations:
+        case .cleanup, .polish, .destinations, .disfluency:
             guard let repoRoot else { throw LoadError.noRepo }
             return try textCases(suite, repoRoot: repoRoot)
         }

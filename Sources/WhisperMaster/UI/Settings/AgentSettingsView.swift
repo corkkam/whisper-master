@@ -49,6 +49,67 @@ struct AgentSettingsView: View {
                 agentDirectoryField
             }
         }
+        SectionLabel("Shed")
+        shedCard
+    }
+
+    // MARK: Shed
+
+    private var shed: ShedAgents { state.agents.shed }
+
+    private var shedCard: some View {
+        SettingsCard {
+            SettingsRow(
+                "Show Shed agents",
+                subtitle: shed.isAvailable
+                    ? "Its Claude Code and Codex agents show in the notch."
+                    : "Its agents show in the notch once Shed answers."
+            ) {
+                ThemeToggle(isOn: $state.shedEnabled, label: "Show Shed agents")
+            }
+            RowDivider()
+            SettingsRow(
+                "Shed address",
+                subtitle: "Leave empty to find Shed on this Mac (ports 4378, then 4379)."
+            ) {
+                if isSnapshot {
+                    Text(state.shedURL.isEmpty ? "\u{2014}" : state.shedURL)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(Theme.textSecondary)
+                } else {
+                    TextField("http://127.0.0.1:4378", text: $state.shedURL)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12, design: .monospaced))
+                        .frame(width: 260)
+                }
+            }
+            RowDivider()
+            SettingsRow("Phone access", subtitle: phoneSubtitle) {
+                if shed.phoneAccessSupported, shed.isAvailable, !(shed.phoneAccess?.isTailscale ?? false) {
+                    Button("Use Tailscale for phone access") {
+                        Task { await shed.useTailscaleForPhone() }
+                    }
+                    .disabled(shed.isChangingPhoneAccess || isSnapshot)
+                }
+            }
+            .task { if !isSnapshot { await shed.refreshPhoneAccess() } }
+        }
+    }
+
+    private var phoneSubtitle: String {
+        var lines = [ShedAgents.tailscaleNote]
+        if !shed.isAvailable {
+            lines.append("Shed is not running.")
+        } else if !shed.phoneAccessSupported {
+            lines.append("This Shed has no phone access setting. Update Shed to change it here.")
+        } else if let access = shed.phoneAccess {
+            lines.append(access.isTailscale
+                ? "Phone access is on through Tailscale." + (access.tailscale?.url.map { " \($0)" } ?? "")
+                : "Phone access uses \(access.mode) now.")
+            if let problem = access.tailscale?.problem, !access.isTailscale { lines.append(problem) }
+        }
+        if let message = shed.phoneMessage { lines.append(message) }
+        return lines.joined(separator: " ")
     }
 
     /// Says what the key does, and what is on the other end of it, because "talk to

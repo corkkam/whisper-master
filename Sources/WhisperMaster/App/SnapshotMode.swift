@@ -867,6 +867,7 @@ enum SnapshotMode {
         case .insights: InsightsSettingsView(viewModel: viewModel, state: state)
         case .notes: NotesSettingsView(state: state, tab: .constant(notesTab))
         case .connectors: ConnectorsSettingsView(state: state)
+        case .coding: ShedCodingView(state: state)
         case .settings: GeneralSettingsView(viewModel: viewModel, state: state)
         case .engine: EngineSettingsView(viewModel: viewModel, state: state)
         case .agents: AgentSettingsView(state: state)

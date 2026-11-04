@@ -39,6 +39,12 @@ bash Scripts/install.sh
 REBUILD=0 bash Scripts/install.sh       # skip rebuild
 RELAUNCH=0 bash Scripts/install.sh      # install without launching
 
+# Local test build beside the real app: "Whisper Master Dev" in /Applications.
+# Use this, not `SIGN_IDENTITY=- bundle.sh`, for anything you run: it signs with a
+# stable Apple Development identity, so the keychain "Always Allow" survives a
+# rebuild. An ad-hoc signature changes every build and re-prompts for every item.
+bash Scripts/dev-install.sh
+
 # Ship a Sparkle auto-update — bump CFBundleShortVersionString AND
 # CFBundleVersion in Resources/Info.plist first, then:
 bash Scripts/release.sh                 # build → sign → appcast → upload to R2
@@ -462,7 +468,7 @@ a person watching a video can settle it without going to find the terminal. The 
 feature is **interrupt-first** — nothing here is summoned, and it adds **no keyboard
 shortcut at all**.
 
-- **The app is a client, never a host.** It does not ship, start, install or
+- **Kunai and Shed: the app is a client, never a host.** It does not ship, start, install or
   supervise [kunai](https://github.com/HEGADE/kunai) (the Go server that drives
   `claude` over its stream-json control protocol and re-publishes the result). If a
   server answers, the surface lights up; if not, the feature is simply absent, which
@@ -471,6 +477,22 @@ shortcut at all**.
   on a fixed port with its own data dir, so a second copy inside this app would fight
   the one already there over the port, `~/.kunai`, and the `~/.claude/commands/kunai.md`
   slash command kunai rewrites on every boot.
+- **Shed: the same rule, for the same reason.** Shed shows its agents in the notch next
+  to kunai, and the app finds a Shed the user installed and runs nothing itself. Shed
+  has kunai's shape — a fixed port (4378), its own data folder, two launch agents
+  (`dev.shed.server`, `dev.shed.tunnel`) and its own installer — so a bundled copy would
+  fight the installed one, and running it meant `npm ci` on the user's Mac outside the
+  notarized bundle. A bundled, supervised engine was built on `feature/shed-engine` and
+  **removed before merge**; don't bring it back. `ShedAgents`/`ShedClient` (`Agents/`)
+  are the notch client: Claude Code and Codex sessions, the choice card and the working
+  row, behind the same `AgentTransport` seam as kunai. Discovery is the Settings URL
+  (`WhisperMaster.shedURL.v1`), `SHED_URL`, 4378 (`~/.shed/app`), then 4379
+  (`~/code/shed`), and the address the user typed always comes first.
+  **Shed opens in the main window, never in a window of its own**: the sidebar's
+  **Coding** tab (`SettingsSection.coding`) shows `ShedPage`'s one `WKWebView`, edge to
+  edge, on the endpoint the notch reads. "Open full session" and the app menu's
+  **Coding** item both go through `ShedLink`, which selects that tab. The master token
+  goes only to a Shed on loopback; a Shed at another address shows its own sign-in.
 - **⚠️ Sessions live on the machine that runs them, and so does the fleet socket.**
   `GET /api/machines` lists the fleet (`{id,label,url,self}`); `GET /api/sessions` and
   the fleet push both read the **local** session manager, so a client that talks only

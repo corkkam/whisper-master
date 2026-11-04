@@ -60,6 +60,7 @@ let package = Package(
             name: "WhisperMasterTests",
             dependencies: [
                 "WhisperMaster",
+                "EvalScoreKit",
                 .product(name: "FluidAudio", package: "FluidAudio")
                 // Note: MLX is intentionally NOT a test dependency. mlx-swift's
                 // Metal shaders only compile under xcodebuild (not SwiftPM CLI),

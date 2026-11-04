@@ -109,6 +109,17 @@ lowercased>` so it can never collide with a built-in one.
   until `NWPathMonitor` reports. `LabHuggingFace.download` retries
   `offlineModeError` twice. The client also counts Low Data Mode and a phone
   hotspot as offline, which no retry fixes, and the error says so.
+- **⚠️ Generation stops on the chat template's end-of-turn token, not only on
+  `eos_token`.** Gemma ends a turn with `<end_of_turn>` and Phi-4-mini with
+  `<|end|>`, while their `eos_token` is something else, so without
+  `EndOfTurnTokens` both wrote invented follow-up turns, the guard rejected every
+  output, and run 7 scored them as the no-op fallback. The markers are read from
+  each model's own `tokenizer.json`. **Every load from disk takes the same
+  configuration** (`MlxModelConfiguration.local`, through
+  `MlxCleanupService.prepare(directory:)`): the lab, `EvalRunner`, and both shipped
+  slots. While only the lab added the stops, a model could rank well here and then,
+  pointed at the cleanup slot on a dev build, have every output rejected and do
+  nothing. Do not build a `ModelConfiguration(directory:)` by hand.
 - **Remove takes the files with it.** An added model off the list is a download
   nobody can reach from the page. Saved runs keep their results under its name.
 - Live check of the API shape: `LAB_HF_LIVE=1 swift test --filter LabHuggingFaceTests`
@@ -188,8 +199,24 @@ row of its own, so it can sit beside the shipped assistant in one run.
 `cleanup` and `polish` (the same `cases.jsonl` through the two shipped prompts),
 `destinations` (`flow-cases.jsonl`, one row per declared target — the target joins
 the id, or three rows collide), `tools` (16 spoken commands, native tool schemas,
-first turn only, **assistant-role models only**), and `audio` (the committed
-recordings through the real streaming transcriber, scored on WER).
+first turn only, **assistant-role models only**), `audio` (the committed
+recordings through the real streaming transcriber, scored on WER), and
+`disfluency` (`disfluency-cases.jsonl`, 250 public DisfluencySpeech turns through
+the light prompt, each passing on `max_reference_wer`; see `eval/README.md`). Its
+bars are measured from the deterministic passes' output, the text the model is
+handed, and `DisfluencySuiteTests` both writes them and fails when the committed
+file no longer matches what the passes give.
+
+### Arena
+
+`LabArena` turns a run into head-to-head ratings: every pair of models meets on
+every case, a pass beats a fail, two equal verdicts go to the output closer to
+the case's `reference`, and the points are fit with Bradley-Terry onto the Elo
+scale. A case whose pass rule *is* a word-error limit (`max_reference_wer`) is
+decided on word error and the margin alone, because ruling on its pass first made
+a hair across the bar a full win and a large gap on one side of it a tie. The headless bench prints it after the score table when a run has two or
+more models. It is a fit, not a running Elo, so case order cannot move it, and
+each pair carries one virtual tie so an unbeaten model stays finite.
 
 ### Testing
 

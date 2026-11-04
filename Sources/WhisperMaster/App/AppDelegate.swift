@@ -462,8 +462,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// A meeting in progress is asked about first: its alert can still cancel the quit,
+    /// and `MlxWorkGate.holdQuit` refuses MLX work for good once it runs. Every way out
+    /// then waits for MLX (policy and timeout in `MlxWorkGate`), because exiting under a
+    /// running generation crashes MLX on the way out.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        viewModel.state.meetings.confirmQuit()
+        let meeting = viewModel.state.meetings.confirmQuit { Self.replyAfterMlx(sender) }
+        guard meeting == .terminateNow else { return meeting }
+        return MlxWorkGate.shared.holdQuit { sender.reply(toApplicationShouldTerminate: true) }
+            ? .terminateLater : .terminateNow
+    }
+
+    /// The end of a held quit: the meeting's notes pass can still be generating when
+    /// its time limit replies, so this waits for MLX too.
+    private static func replyAfterMlx(_ sender: NSApplication) {
+        let held = MlxWorkGate.shared.holdQuit { sender.reply(toApplicationShouldTerminate: true) }
+        if !held { sender.reply(toApplicationShouldTerminate: true) }
     }
 
     /// Silence any answer still being read aloud.
@@ -517,10 +531,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // exists so the button has a target and accepts both mouse buttons.
     }
 
+    /// Shed lives in the main window's Coding tab, not in a window of its own.
+    @objc private func showCodingTab() {
+        viewModel.state.requestedSettingsSection = .coding
+        showWindow()
+    }
+
     /// Standard Dock-app menu bar. Without it, a `.regular` app has no working
     /// Cmd-Q or Edit shortcuts (cut/copy/paste/select-all/undo) — the latter
     /// matter for the custom-words editor. The tray menu stays the primary surface.
     private func setupMainMenu() {
+        ShedLink.showCodingTab = { [weak self] in self?.showCodingTab() }
         let appName = "Whisper Master"
         let mainMenu = NSMenu()
 
@@ -534,6 +555,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(.separator())
         let settings = appMenu.addItem(withTitle: "Settings…", action: #selector(showWindow), keyEquivalent: ",")
         settings.target = self
+        let coding = appMenu.addItem(withTitle: "Coding", action: #selector(showCodingTab), keyEquivalent: "")
+        coding.target = self
         appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Hide \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")

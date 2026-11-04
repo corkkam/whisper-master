@@ -68,8 +68,9 @@ final class MeetingController {
     }
 
     /// The quit gate for `applicationShouldTerminate`. A meeting in progress is
-    /// asked about, because quitting used to delete it without a word.
-    func confirmQuit() -> NSApplication.TerminateReply {
+    /// asked about, because quitting used to delete it without a word. On
+    /// `.terminateLater`, `finish` runs exactly once and must answer the quit.
+    func confirmQuit(finish: @escaping @MainActor () -> Void) -> NSApplication.TerminateReply {
         guard session != nil else { return .terminateNow }
         let alert = NSAlert()
         alert.messageText = "A meeting is being recorded"
@@ -87,7 +88,7 @@ final class MeetingController {
             let reply = {
                 guard !replied else { return }
                 replied = true
-                NSApp.reply(toApplicationShouldTerminate: true)
+                finish()
             }
             Task {
                 await writing?.value
