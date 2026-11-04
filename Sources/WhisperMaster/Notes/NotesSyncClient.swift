@@ -27,8 +27,17 @@ final class NotesSyncClient {
     private var pulledForUserID: String?
     /// 20 s between pushes, doubling after each failure. A failed pull waits the same
     /// way: before, it was retried on the next 0.5 s tick, about twice a second.
-    private var pushBackoff = SyncBackoff()
-    private var pullBackoff = SyncBackoff()
+    private(set) var pushBackoff = SyncBackoff()
+    private(set) var pullBackoff = SyncBackoff()
+    /// The account the last request ran for. A new account starts without its backoffs.
+    private var backoffUserID: String?
+
+    private func resetBackoffOnAccountChange() {
+        guard store.currentUserID != backoffUserID else { return }
+        backoffUserID = store.currentUserID
+        pushBackoff.reset()
+        pullBackoff.reset()
+    }
 
     init(
         store: NotesStore,
@@ -48,6 +57,7 @@ final class NotesSyncClient {
     @discardableResult
     func syncIfNeeded(enabled: Bool) -> Bool {
         guard enabled, endpoint != nil, !pushInFlight else { return false }
+        resetBackoffOnAccountChange()
         guard !store.dirtyIDs.isEmpty, pushBackoff.allows() else { return false }
         let ids = store.dirtyIDs
         pushInFlight = true
@@ -62,7 +72,9 @@ final class NotesSyncClient {
             if failed { pushBackoff.failed() } else { pushBackoff.succeeded() }
         }
         guard let endpoint else { return }
-        guard let id = await identity() else { failed = true; return }
+        // Signed out, or the session is not loaded yet: nothing was sent, so no backoff.
+        guard let id = await identity() else { return }
+        backoffUserID = id.userId
         // The account must still be the one we resolved an identity for. On a shared
         // Mac the reconcile tick can repoint `NotesStore` during the `await` above, and
         // pushing one account's notes under another's id is a cross-account leak — the
@@ -119,7 +131,9 @@ final class NotesSyncClient {
     /// Returns whether a pull started.
     @discardableResult
     func pullIfNeeded(enabled: Bool) -> Bool {
-        guard enabled, endpoint != nil, !pullInFlight, pullBackoff.allows() else { return false }
+        guard enabled, endpoint != nil, !pullInFlight else { return false }
+        resetBackoffOnAccountChange()
+        guard pullBackoff.allows() else { return false }
         guard let userID = store.currentUserID, userID != pulledForUserID else { return false }
         pullInFlight = true
         Task { await pull(expectedUserID: userID) }
@@ -128,13 +142,15 @@ final class NotesSyncClient {
 
     /// Driven by `pullIfNeeded`; not private so the tests can await one.
     func pull(expectedUserID: String) async {
+        backoffUserID = expectedUserID
         var failed = false
         defer {
             pullInFlight = false
             if failed { pullBackoff.failed() } else { pullBackoff.succeeded() }
         }
         guard let endpoint else { return }
-        guard let id = await identity() else { failed = true; return }
+        // Signed out, or the session is not loaded yet: nothing was sent, so no backoff.
+        guard let id = await identity() else { return }
         do {
             var request = URLRequest(url: endpoint)
             request.httpMethod = "GET"

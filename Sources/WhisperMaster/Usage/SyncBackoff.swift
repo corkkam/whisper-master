@@ -29,6 +29,12 @@ struct SyncBackoff {
         notBefore = now.addingTimeInterval(base)
     }
 
+    /// Another account signed in: the failures were the previous account's.
+    mutating func reset() {
+        failures = 0
+        notBefore = nil
+    }
+
     mutating func failed(at now: Date = Date()) {
         failures += 1
         let wait = min(cap, base * pow(2, Double(min(failures - 1, 16))))

@@ -26,7 +26,9 @@ final class UsageSyncClient {
     private var inFlight = false
     /// Debounce so the 0.5 s AppDelegate tick can call this freely: 20 s between
     /// pushes, doubling after each failure (see `SyncBackoff`).
-    private var backoff = SyncBackoff()
+    private(set) var backoff = SyncBackoff()
+    /// The account the last request ran for. A new account starts without its backoff.
+    private var backoffUserID: String?
 
     init(
         store: UsageStore,
@@ -46,6 +48,10 @@ final class UsageSyncClient {
     @discardableResult
     func syncIfNeeded(enabled: Bool) -> Bool {
         guard enabled, endpoint != nil, !inFlight else { return false }
+        if store.currentUserID != backoffUserID {
+            backoffUserID = store.currentUserID
+            backoff.reset()
+        }
         guard !store.dirtyDays.isEmpty, backoff.allows() else { return false }
         let days = store.dirtyDays
         inFlight = true
@@ -62,7 +68,9 @@ final class UsageSyncClient {
             if failed { backoff.failed() } else { backoff.succeeded() }
         }
         guard let endpoint else { return }
-        guard let id = await identity() else { failed = true; return }
+        // Signed out, or the session is not loaded yet: nothing was sent, so no backoff.
+        guard let id = await identity() else { return }
+        backoffUserID = id.userId
         // `identity()` awaits a fresh session token, and the store is repointed in
         // place by `activate(userID:)` off the 0.5 s auth reconcile — so another
         // account can sign in *across* that await (the org flow lets several people

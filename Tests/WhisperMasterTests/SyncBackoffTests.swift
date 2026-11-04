@@ -82,6 +82,53 @@ final class SyncBackoffTests: XCTestCase {
     }
 }
 
+extension SyncBackoffTests {
+    /// The failures were the previous account's; the next one syncs at once.
+    func testASwitchedAccountDoesNotInheritTheBackoff() async {
+        let store = NotesStore(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("json"),
+            load: false)
+        store.activate(userID: "user_a")
+        FailingURLProtocol.reset()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [FailingURLProtocol.self]
+        let client = NotesSyncClient(
+            store: store,
+            identity: { (userId: store.currentUserID ?? "", token: "token") },
+            endpoint: URL(string: "https://notes.invalid/api/notes"),
+            session: URLSession(configuration: config))
+
+        await client.pull(expectedUserID: "user_a")
+        await client.pull(expectedUserID: "user_a")
+        XCTAssertEqual(client.pullBackoff.failures, 2)
+        XCTAssertFalse(client.pullIfNeeded(enabled: true), "user_a is still backing off")
+
+        store.activate(userID: "user_b")
+        XCTAssertTrue(client.pullIfNeeded(enabled: true), "user_b must not wait out user_a's failures")
+        // Let that pull finish, so no request outlives the test.
+        for _ in 0..<300 where FailingURLProtocol.requestCount() < 3 {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(FailingURLProtocol.requestCount(), 3)
+    }
+
+    /// Signed out sends nothing, so it must not grow the wait the next sign-in meets.
+    func testNoIdentityIsNotAFailure() async {
+        let store = NotesStore(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("json"),
+            load: false)
+        store.activate(userID: "user_a")
+        store.upsertNote(Note(title: "Groceries"))
+        let client = NotesSyncClient(
+            store: store, identity: { nil },
+            endpoint: URL(string: "https://notes.invalid/api/notes"))
+        for _ in 0..<3 { await client.push(ids: store.dirtyIDs) }
+        XCTAssertEqual(client.pushBackoff.failures, 0)
+    }
+}
+
 /// Answers every request with HTTP 500 and counts them.
 final class FailingURLProtocol: URLProtocol {
     private static let lock = NSLock()
