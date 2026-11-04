@@ -655,7 +655,7 @@ final class AppState {
     /// the immediate consequence of something the user just said out loud and it
     /// denies itself on a timeout, so it must not be the one that waits.
     var shouldShowAgentAsk: Bool {
-        agents.ask != nil && approvals.pending == nil
+        agents.activeAsk != nil && approvals.pending == nil
     }
 
     /// Whether the user has the agent surface open to look at it. Below the ask,
@@ -738,6 +738,26 @@ final class AppState {
     }
 
     static let agentNudgesDefaultsKey = "WhisperMaster.agentNudges.v1"
+
+    /// Show Shed's Claude Code and Codex agents in the notch. On unless turned off;
+    /// with no Shed running there is simply nothing to show.
+    var shedEnabled: Bool = true {
+        didSet {
+            UserDefaults.standard.set(shedEnabled, forKey: Self.shedEnabledDefaultsKey)
+            agents.shed.configure(enabled: shedEnabled, urlOverride: shedURL)
+        }
+    }
+
+    /// Where Shed is, when it is not on its usual local port. Empty means discover.
+    var shedURL: String = "" {
+        didSet {
+            UserDefaults.standard.set(shedURL, forKey: Self.shedURLDefaultsKey)
+            agents.shed.configure(enabled: shedEnabled, urlOverride: shedURL)
+        }
+    }
+
+    static let shedEnabledDefaultsKey = "WhisperMaster.shedEnabled.v1"
+    static let shedURLDefaultsKey = "WhisperMaster.shedURL.v1"
 
     /// From the moment a prompt is delivered until its reply lands, the revealed
     /// band always has something to show. Keying this on the session's *state*
@@ -836,6 +856,8 @@ final class AppState {
         // is dark for everyone who has never opened Settings.
         agentNudgesEnabled =
             UserDefaults.standard.object(forKey: Self.agentNudgesDefaultsKey) as? Bool ?? true
+        shedEnabled = UserDefaults.standard.object(forKey: Self.shedEnabledDefaultsKey) as? Bool ?? true
+        shedURL = UserDefaults.standard.string(forKey: Self.shedURLDefaultsKey) ?? ""
         // Opt-out: on unless the user has explicitly turned it off.
         holdToTalkEnabled = UserDefaults.standard.object(forKey: Self.holdToTalkDefaultsKey) as? Bool ?? true
         pauseMediaWhileListening =

@@ -73,7 +73,24 @@ final class NotchQuickActionsModel {
     /// The tab on screen. Opens on the one used last — a person who checks their
     /// mail from the notch wants the mail, not a walk past Today each time.
     var currentTab: NotchQuickActionsTab {
-        chosenTab.resolved(pinned: pinnedConnectors.map(\.id))
+        // The agents tab only exists while Shed has live sessions to list.
+        if chosenTab == .agents { return showsAgentsTab ? .agents : .today }
+        return chosenTab.resolved(pinned: pinnedConnectors.map(\.id))
+    }
+
+    /// Whether the tab bar offers the agents tab.
+    var showsAgentsTab: Bool { state.agents.shed.isActive }
+
+    /// Shed's live agents for the hover page, running first.
+    var agentRows: [AgentSession] { Array(state.agents.shed.sessions.prefix(Self.agentRowLimit)) }
+    static let agentRowLimit = 5
+
+    func stopAgent(_ id: String) { state.agents.shed.interrupt(sessionID: id) }
+
+    /// Open Shed's page on one session, and let the band go.
+    func openAgent(_ id: String) {
+        state.agents.shed.openFullSession(id)
+        close()
     }
 
     func select(_ tab: NotchQuickActionsTab) {
@@ -172,6 +189,8 @@ final class NotchQuickActionsModel {
             case .events(let events)?: return max(1, events.count)
             case nil: return 1
             }
+        case .agents:
+            return max(1, agentRows.count)
         case .settings:
             return Self.settingsRowCount
         }
@@ -218,7 +237,12 @@ final class NotchQuickActionsModel {
         gesture.update(inside: inside, allowed: canOpen, now: now)
         // Opening is the moment the pinned tabs have to be fresh — their badges are
         // on the tab bar whichever tab is showing.
-        if gesture.isOpen, !wasOpen { feed.refresh(pinnedConnectors) }
+        if gesture.isOpen, !wasOpen {
+            feed.refresh(pinnedConnectors)
+            // Resting on the notch while agents run answers "what are they doing":
+            // open on their page, without persisting it as the tab used last.
+            if state.agents.shed.hasRunning || state.agents.shed.needsYou { chosenTab = .agents }
+        }
         // The band closing ends the glance, however it closed — pointer away, or a
         // dictation taking the notch back. Ticks stop being undoable at that point,
         // so the completed rows drop out of the list rather than reappearing,

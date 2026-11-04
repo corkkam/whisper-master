@@ -215,6 +215,19 @@ final class AgentSurfaceController {
         return sessions.first { $0.id == attachedSessionID }
     }
 
+    // MARK: Shed
+
+    /// Shed's agents, held beside kunai's. They never enter `sessions`: those rows are
+    /// attached to kunai sockets by id, and a Shed id has no socket to attach to.
+    let shed = ShedAgents()
+
+    /// The question on the notch: kunai's, else Shed's. kunai wins a tie because its
+    /// card has a caller suspended behind it.
+    var activeAsk: AgentAsk? { ask ?? shed.ask }
+
+    /// Which project or agent the card on screen is from.
+    var askingRepo: String { ask != nil ? (askingSession?.repo ?? "") : shed.askingLabel }
+
     // MARK: Collaborators
 
     private let rest: KunaiRESTClient
@@ -268,6 +281,7 @@ final class AgentSurfaceController {
 
     /// Begin polling. Idempotent.
     func start() {
+        shed.start()
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -279,6 +293,7 @@ final class AgentSurfaceController {
     }
 
     func stop() {
+        shed.stop()
         pollTask?.cancel()
         pollTask = nil
         fleet.stop()
@@ -480,7 +495,9 @@ final class AgentSurfaceController {
         sessions.contains { $0.id != attendedSessionID && $0.state == .awaitingPermission }
     }
 
-    var runningSessionCount: Int { sessions.count(where: { $0.state == .running }) }
+    var runningSessionCount: Int {
+        sessions.count(where: { $0.state == .running }) + shed.running.count
+    }
 
     /// The one-line interruption raised for another session, and when it was raised.
     private(set) var nudge: AgentAttention.Event?
@@ -763,6 +780,11 @@ final class AgentSurfaceController {
     /// Answer a choice card. Denying is still an allow-with-no-answer in kunai's
     /// model only when the user picked something; a dismissal is a deny.
     func answer(_ choice: AgentChoice, question: AgentChoice.Question, selected: [String]) {
+        // A Shed card answers over Shed's REST route, not a kunai socket.
+        if ask == nil, choice.requestID == shed.ask?.requestID {
+            Task { await shed.answer(choice, selected: selected) }
+            return
+        }
         guard !selected.isEmpty else {
             sendToAskOwner(.permission(requestID: choice.requestID, allow: false))
             ask = nil

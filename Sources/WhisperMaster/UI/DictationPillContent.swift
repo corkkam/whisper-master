@@ -75,6 +75,16 @@ struct DictationPillContent: View {
     /// panel-height band open.
     private var showAgentWorking: Bool { !showAgentAsk && state.shouldShowAgentWorking }
 
+    /// A Shed agent mid-turn: harness glyph in the left wing, orb in the right. Only
+    /// when nothing else owns the band, and it never takes clicks, so the hover panel
+    /// still opens over it.
+    private var showShedWorking: Bool {
+        state.agents.shed.hasRunning && !bandIsBanner && !isFailed && state.download == nil
+            && !state.shouldShowLiveTranscript && !state.shouldShowPolishedBeat
+            && !state.shouldShowDeliveredBeat && state.preparingEngine == nil
+            && state.phase == .idle
+    }
+
     /// The finished turn's answer, as one banner line.
     private var showAgentReply: Bool { !showAgentAsk && state.shouldShowAgentReply }
 
@@ -82,7 +92,7 @@ struct DictationPillContent: View {
     /// as in the panel because the band's thickness depends on whether there are any.
     private var otherAgentSessions: [AgentSession] {
         NotchAgentPanel.otherSessions(
-            in: state.agents.sessions, askingRepo: state.agents.askingSession?.repo ?? "")
+            in: state.agents.sessions, askingRepo: state.agents.askingRepo)
     }
 
     /// The finished reply, parsed once per render. Both the band's thickness and its
@@ -128,7 +138,7 @@ struct DictationPillContent: View {
     /// rest with a meeting coming up. Its own branch because there is no orb and
     /// no state word to draw beside it.
     private var showAmbientOnly: Bool {
-        nowItem != nil && !bandIsBanner && !isFailed && state.download == nil
+        nowItem != nil && !showShedWorking && !bandIsBanner && !isFailed && state.download == nil
             && !state.shouldShowLiveTranscript && !state.shouldShowPolishedBeat
             && !state.shouldShowDeliveredBeat && state.preparingEngine == nil
             && state.phase == .idle
@@ -182,7 +192,7 @@ struct DictationPillContent: View {
 
     private var bandThickness: CGFloat {
         if showApproval { return layout.bannerThickness }
-        if showAgentAsk, let ask = state.agents.ask {
+        if showAgentAsk, let ask = state.agents.activeAsk {
             return NotchAgentPanel.thickness(
                 for: ask, otherSessions: otherAgentSessions.count,
                 banner: layout.bannerThickness)
@@ -238,7 +248,7 @@ struct DictationPillContent: View {
         // caption in one wing, the orb in the other, at menu-bar height. Rendering
         // it as a dropped band put a slab of empty black under the bezel with a
         // caption lost in it — nothing else in the app treats "working" that way.
-        if showAgentWorking { return true }
+        if showAgentWorking || showShedWorking { return true }
         // The day on its own is a menu-bar row like every other "nothing to read"
         // state. Dropping a band for one line would put a slab of empty black
         // under the bezel for the ten minutes before a meeting.
@@ -341,7 +351,7 @@ struct DictationPillContent: View {
             || showAgentReply { return .wide }
         // The day is a row in the wings, so it needs the bar's width even though
         // nothing is running — at banner width the title runs under the housing.
-        if showAmbientOnly { return .wide }
+        if showAmbientOnly || showShedWorking { return .wide }
         guard bandIsDictation else { return .banner }
         return isDeliveredBadge ? .glyph : .wide
     }
@@ -460,7 +470,7 @@ struct DictationPillContent: View {
         // govern it — that switch means "do not show me the app at rest", and this
         // has its own (`AppState.nowSurfaceEnabled`). Checked before that guard
         // rather than after, or turning one off would silently disable the other.
-        if showAmbientOnly { return true }
+        if showAmbientOnly || showShedWorking { return true }
         guard hasContent else { return false }
         if state.phase == .idle && state.hidePillWhenIdle { return false }
         return true
@@ -572,11 +582,11 @@ struct DictationPillContent: View {
             NotchApprovalBanner(approval: approval) { outcome in
                 state.approvals.resolve(outcome)
             }
-        } else if showAgentAsk, let ask = state.agents.ask {
+        } else if showAgentAsk, let ask = state.agents.activeAsk {
             NotchAgentPanel(
                 ask: ask,
                 sessions: state.agents.sessions,
-                askingRepo: state.agents.askingSession?.repo ?? "",
+                askingRepo: state.agents.askingRepo,
                 mode: state.agents.askingSession?.mode ?? .ask,
                 now: now,
                 onResolve: { allow, always in
@@ -586,7 +596,9 @@ struct DictationPillContent: View {
                     guard case .choice(let choice) = ask else { return }
                     state.agents.answer(choice, question: question, selected: selected)
                 },
-                onSelectMode: { state.agents.setMode($0) })
+                onSelectMode: { state.agents.setMode($0) },
+                onOpenShed: ask.isShedChoice
+                    ? { state.agents.shed.openFullSession(ask.requestID) } : nil)
         } else if showAgentWorking, let session = state.agents.openSession {
             NotchAgentWorkingRow(
                 session: session, now: now,
@@ -657,6 +669,11 @@ struct DictationPillContent: View {
             NotchBluetoothBanner(state: state)
         } else if showReminder, let line = state.activeReminder {
             NotchReminderBanner(text: line)
+        } else if showShedWorking {
+            NotchShedWorkingRow(
+                harnesses: state.agents.shed.runningHarnesses,
+                orbSize: layout.rowOrbDiameter(for: geometry),
+                verticalInset: layout.rowVerticalPadding)
         } else if showAmbientOnly, let ambientSlot {
             // The day on its own: no orb, no state word, one line in the leading
             // wing. The trailing wing stays empty on purpose — an orb here would
