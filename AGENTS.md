@@ -213,11 +213,10 @@ These hold even when the file that explains them is not loaded.
 
 ## 7. What is in flight right now
 
-**⚠️ Release freeze, set 2026-08-14. No stable release.** Do not merge anything
-into `main`, and do not bump `CFBundleShortVersionString` on `dev` — either one
-makes CI build, sign, notarize, and ship. If a release run starts by accident,
-cancel it (`gh run cancel`) instead of letting it finish. Only the owner lifts
-this.
+**No release freeze.** The freeze set on 2026-08-14 was lifted by the owner on
+2026-09-06; the `releasing` skill keeps its record. A version change on `dev` still
+ships the dev channel and a merge into `main` still ships stable, so both still need
+the confirmation in §8. Only the owner sets or lifts a freeze.
 
 `dev` carries a large uncommitted change set. Treat these as **built but not
 released**, and do not describe them as shipped:
@@ -243,11 +242,9 @@ released**, and do not describe them as shipped:
     offer is narrowed by `ProviderRegistry.shippedKinds`.
   - **Nearby Macs is closed** on every channel (`SettingsSection.isAvailable`).
 
-Released and current: **`v1.1.0-beta.6`** on the beta channel (Gmail, Drive, and
-Zoom connectors reading for real), **`v1.0.1`** on stable (the mic-crash hotfix).
-`main` is at `0ad6611`; `dev` is 76 commits ahead of it and carries
-`1.1.0-beta.6` in `Resources/Info.plist`. **1.1.0 has never reached `main`**, and
-under the freeze above it is not going to yet.
+Released: **`v1.2.0`** on stable (2026-09-14, the merge of `release/1.2.0` into
+`main`), after `v1.2.0-beta.1` and `v1.2.0-dev.1`. `dev` carries the next dev-channel
+version in `Resources/Info.plist`; read it there rather than here.
 
 **There is one version source: `Resources/Info.plist`.** `GENERATE_INFOPLIST_FILE:
 NO` plus literal version keys mean nothing interpolates a build setting, and the
