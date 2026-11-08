@@ -5,8 +5,9 @@ import MLXLMCommon
 import Tokenizers
 
 /// On-device transcript cleanup via MLX. Two instances, two models: `shared` is
-/// S1-mini on the dictation hot path, `general` is Qwen3-4B-Instruct-2507 for the
-/// callers that need to tool-call.
+/// S1-mini on the dictation hot path, `general` is the assistant
+/// (`CleanupModel.General`: Qwen3-4B-Thinking-2507) for the callers that need to
+/// tool-call.
 ///
 /// An `actor` so the (large, single) model loads once and is shared without
 /// races. It is deliberately dumb: given a loaded model it cleans a string; it
@@ -43,7 +44,16 @@ actor MlxCleanupService {
     /// just call it before they generate.
     static func prepareGeneralIfInstalled() async {
         guard CleanupModel.General.isInstalled else { return }
-        await general.prepare(directory: CleanupModel.General.directory)
+        await general.prepareAssistant()
+    }
+
+    /// Load whatever `CleanupModel.General.directory` resolves to now, replacing a
+    /// different model already resident: the previous assistant once the shipped one
+    /// has downloaded, or a dev build's Lab override after it changes.
+    func prepareAssistant() async {
+        let directory = CleanupModel.General.directory
+        await prepare(directory: directory,
+                      thinks: CleanupModel.General.thinks(loadedFrom: directory))
     }
 
     /// Safety net against a runaway decode, not a normal-path limit. Generous so
@@ -92,17 +102,69 @@ actor MlxCleanupService {
     private var state: LoadState = .idle
     private let box = CacheBox()
 
+    /// The directory the resident model came from, nil when nothing is loaded or it
+    /// was loaded by Hugging Face id.
+    private(set) var loadedDirectory: URL?
+    /// Whether the **resident** model reasons before answering. Recorded with the
+    /// load rather than read from `CleanupModel.General.thinks` at call time: a Lab
+    /// override takes effect on the next load, so the live setting can name a model
+    /// that is not the one generating. Run a reasoning model as if it didn't reason
+    /// and unfinished reasoning reaches the tool-call parser; the other way round,
+    /// every answer is discarded for lacking a `</think>`.
+    private(set) var loadedThinks = false
+
     /// Whether the model is loaded and `clean` can run.
     var isReady: Bool {
         if case .ready = state { return true }
         return false
     }
 
+    /// Load the model in `directory`, releasing a **different** resident model first.
+    /// `prepare(configuration:)` alone returns early once anything is loaded, which
+    /// is right for a slot whose model never changes and wrong for the assistant's.
+    func prepare(
+        directory: URL, thinks: Bool,
+        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async {
+        // An in-flight load of another model would make the inner prepare return at
+        // once and leave that model resident. A load ends within its timeouts, so
+        // this wait is bounded.
+        while case .loading = state { try? await Task.sleep(nanoseconds: 200_000_000) }
+        // The assistant paths call this before every generation: return before
+        // `MlxModelConfiguration.local` re-reads tokenizer.json for a model already here.
+        if case .ready = state,
+           loadedDirectory.map({ $0.standardizedFileURL == directory.standardizedFileURL }) ?? true {
+            return
+        }
+
+        var previous: (url: URL, thinks: Bool)?
+        if case .ready = state, let loaded = loadedDirectory,
+           loaded.standardizedFileURL != directory.standardizedFileURL {
+            Log.modelPrep.notice(
+                "MLX model switching from \(loaded.lastPathComponent, privacy: .public) to \(directory.lastPathComponent, privacy: .public)")
+            previous = (loaded, loadedThinks)
+            release()
+        }
+        await prepare(configuration: MlxModelConfiguration.local(directory),
+                      thinks: thinks, onProgress: onProgress)
+
+        // A directory that exists but will not load must not take the working
+        // assistant with it: nothing would re-download it, so it would stay dead.
+        if case .failed = state, let previous {
+            Log.modelPrep.error(
+                "MLX model \(directory.lastPathComponent, privacy: .public) failed to load; restoring \(previous.url.lastPathComponent, privacy: .public)")
+            await prepare(configuration: MlxModelConfiguration.local(previous.url),
+                          thinks: previous.thinks, onProgress: onProgress)
+        }
+    }
+
     /// Load the MLX model for a configuration — a local directory (the R2 mirror
     /// path) or a Hugging Face id (fallback, downloads on demand, progress via
     /// `onProgress`). Idempotent; also prefills the system prompt (warmup).
+    /// `thinks` says whether this model reasons first (see `loadedThinks`).
     func prepare(
         configuration: ModelConfiguration,
+        thinks: Bool = false,
         onProgress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async {
         switch state {
@@ -132,6 +194,12 @@ actor MlxCleanupService {
                 try await Self.primeSystemPrompt(container: container, box: box)
             }
             state = .ready(container)
+            if case .directory(let url) = configuration.id {
+                loadedDirectory = url
+            } else {
+                loadedDirectory = nil
+            }
+            loadedThinks = thinks
             Log.modelPrep.notice("MLX cleanup model ready (total \(elapsedMs())ms, load \(loadMs)ms)")
         } catch {
             state = .failed
@@ -181,6 +249,8 @@ actor MlxCleanupService {
     /// buffers are actually handed back.
     func release() {
         state = .idle
+        loadedDirectory = nil
+        loadedThinks = false
         box.cache = []
         box.primed = false
         MLX.GPU.clearCache()
@@ -314,7 +384,7 @@ actor MlxCleanupService {
             // The control line is part of the input format, not decoration: without
             // it the model has no styling/structure/context to normalise against.
             let user = CleanupPrompt.userTurn(trimmed, target: target)
-            let (raw, cost) = try await container.perform { (context: ModelContext) in
+            let (raw, cost, _) = try await container.perform { (context: ModelContext) in
                 try Self.generateFresh(
                     context: context, user: user,
                     maxTokens: maxTokens, systemPrompt: systemPrompt)
@@ -343,30 +413,34 @@ actor MlxCleanupService {
     func generateWithTools(
         messages: [[String: String]],
         toolSchemasJSON: [String],
-        maxTokens: Int = 512
+        maxTokens: Int = 512,
+        thinking: Bool? = nil
     ) async -> String? {
         await generateWithToolsMeasured(
-            messages: messages, toolSchemasJSON: toolSchemasJSON, maxTokens: maxTokens).text
+            messages: messages, toolSchemasJSON: toolSchemasJSON, maxTokens: maxTokens,
+            thinking: thinking).text
     }
 
     /// `generateWithTools`, with what it cost — the tool-calling bench's half of
     /// `cleanMeasured`. Same path, same result.
     ///
-    /// `thinking` is **the Model Lab's alone**: every shipped path renders with
-    /// `enable_thinking: false` (see `templateContext`). On, the template may open
-    /// a reasoning block, the budget grows to `reasoningMaxTokens` and
-    /// `reasoningTimeoutSeconds`, and a generation that is still reasoning when
-    /// the budget runs out returns nil. Its reasoning can name the tool it is
-    /// thinking about, and handing that to the parser would score a model that
-    /// never answered as one that called the right tool.
+    /// `thinking` defaults to the resident model's own answer (`loadedThinks`), which
+    /// is what the shipped assistant uses; the Model Lab passes it explicitly because
+    /// it runs one model as two rows. On, the template may open a reasoning block,
+    /// the budget grows to `reasoningMaxTokens` and `reasoningTimeoutSeconds`, and a
+    /// generation that is still reasoning when the budget runs out returns nil. Its
+    /// reasoning can name the tool it is thinking about, and handing that to the
+    /// parser would score a model that never answered as one that called the right
+    /// tool.
     func generateWithToolsMeasured(
         messages: [[String: String]],
         toolSchemasJSON: [String],
         maxTokens: Int = 512,
-        thinking: Bool = false
+        thinking: Bool? = nil
     ) async -> (text: String?, cost: GenerationCost) {
         guard case .ready(let container) = state else { return (nil, GenerationCost()) }
         guard !messages.isEmpty else { return (nil, GenerationCost()) }
+        let thinking = thinking ?? loadedThinks
 
         let tools: [ToolSpec] = toolSchemasJSON.compactMap {
             (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any]
@@ -457,20 +531,39 @@ actor MlxCleanupService {
     /// None of that is `clean`'s fault — it was never the agent's generator. Returns
     /// `nil` on the same terms as `clean`, so the loop's budget race and fallback are
     /// unchanged. `AgentToolEval`'s `via clean` arm is the regression guard.
+    ///
+    /// `thinking` defaults to the resident model's own answer (`loadedThinks`): the
+    /// reasoning model writes a `<think>` block first, so it gets the reasoning
+    /// budget, and a run that stops before `</think>` returns nil rather than
+    /// handing its reasoning to a parser as though it were the answer.
+    ///
+    /// - Parameters:
+    ///   - timeoutSeconds: a tighter wall clock than the default for this kind of
+    ///     generation, for a caller with somewhere better to be (the intent
+    ///     classifier, which only refines a reading that is already good enough).
+    ///     The generation itself stops, so the model is free for the next caller.
+    ///   - discardIfCutOff: return nil when the run hit its token or time limit,
+    ///     rather than the text it had got to. For output a reader takes as finished
+    ///     (meeting notes), where half a section is worse than the caller's fallback.
     func generateAgent(
-        _ user: String, systemPrompt: String, maxTokens: Int = 384
+        _ user: String, systemPrompt: String, maxTokens: Int = 384, thinking: Bool? = nil,
+        timeoutSeconds: Double? = nil, discardIfCutOff: Bool = false
     ) async -> String? {
         guard case .ready(let container) = state else { return nil }
         let trimmed = user.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        let thinking = thinking ?? loadedThinks
         do {
             // `generateFresh` also returns the run's token/latency cost, which the
             // Model Lab records per case. The agent loop has nowhere to put it.
-            let (raw, _) = try await container.perform { (context: ModelContext) in
+            let (raw, _, ranOut) = try await container.perform { (context: ModelContext) in
                 try Self.generateFresh(
                     context: context, user: trimmed,
-                    maxTokens: maxTokens, systemPrompt: systemPrompt)
+                    maxTokens: maxTokens, systemPrompt: systemPrompt, thinking: thinking,
+                    timeoutSeconds: timeoutSeconds)
             }
+            if thinking, Self.splitReasoning(raw).answer == nil { return nil }
+            if discardIfCutOff, ranOut { return nil }
             return Self.sanitize(raw)
         } catch {
             return nil
@@ -548,9 +641,13 @@ actor MlxCleanupService {
     ///
     /// What is left is what the model card's own reference implementation does:
     /// tokenize `[system, user]`, generate, done.
+    ///
+    /// The third value is whether the run was cut off by its token or time limit
+    /// rather than ending on its own.
     private static func generateFresh(
-        context: ModelContext, user: String, maxTokens: Int, systemPrompt: String
-    ) throws -> (String, GenerationCost) {
+        context: ModelContext, user: String, maxTokens: Int, systemPrompt: String,
+        thinking: Bool = false, timeoutSeconds timeoutOverride: Double? = nil
+    ) throws -> (String, GenerationCost, Bool) {
         guard MlxWorkGate.shared.enter() else { throw MlxWorkGate.Refused.quitting }
         defer { MlxWorkGate.shared.leave() }
         let tokens = try context.tokenizer.applyChatTemplate(
@@ -560,10 +657,14 @@ actor MlxCleanupService {
             ],
             chatTemplate: nil, addGenerationPrompt: true,
             truncation: false, maxLength: nil, tools: nil,
-            additionalContext: Self.templateContext)
+            additionalContext: thinking ? ["enable_thinking": true] : Self.templateContext)
 
         let input = LMInput(tokens: MLXArray(tokens.map { Int32($0) }))
-        let params = GenerateParameters(maxTokens: maxTokens, temperature: 0)
+        // Reasoning comes before the answer, so it is added to the answer's budget
+        // rather than competing with it.
+        let budget = thinking ? maxTokens + reasoningMaxTokens : maxTokens
+        let timeout = timeoutOverride ?? (thinking ? reasoningTimeoutSeconds : timeoutSeconds)
+        let params = GenerateParameters(maxTokens: budget, temperature: 0)
         let cache = context.model.newCache(parameters: nil)
         let iterator = try TokenIterator(
             input: input, model: context.model, cache: cache, parameters: params)
@@ -571,18 +672,19 @@ actor MlxCleanupService {
         let start = Date()
         let result = MLXLMCommon.generate(input: input, context: context, iterator: iterator) {
             (_: [Int]) in
-            Date().timeIntervalSince(start) > timeoutSeconds || MlxWorkGate.shared.isQuitting ? .stop : .more
+            Date().timeIntervalSince(start) > timeout || MlxWorkGate.shared.isQuitting ? .stop : .more
         }
         Stream.gpu.synchronize()
         // A quit stopped the loop early: the text is partial, never return it.
         if MlxWorkGate.shared.isQuitting { throw MlxWorkGate.Refused.quitting }
+        let ranOut = result.tokens.count >= budget || Date().timeIntervalSince(start) > timeout
         let cost = GenerationCost(
             promptTokens: tokens.count,
             generatedTokens: result.tokens.count,
             promptSeconds: result.promptTime,
             generateSeconds: result.generateTime,
             passes: 1)
-        return (result.output, cost)
+        return (result.output, cost, ranOut)
     }
 
     /// Generate a cleanup for `user` reusing the cached system prefix, then trim
@@ -654,7 +756,8 @@ actor MlxCleanupService {
     /// integration bug, and it is invisible until you read the raw output.
     private static let templateContext: [String: Any] = ["enable_thinking": false]
 
-    /// The budget a reasoning generation gets in the Model Lab. A 4B model at
+    /// The budget a reasoning generation gets, in the Model Lab and on every
+    /// shipped call to the reasoning assistant. A 4B model at
     /// ~40 tokens a second spends most of a minute thinking about one tool call;
     /// the shipped 512 tokens / 12 s cut every one off before it answered.
     static let reasoningMaxTokens = 2048
