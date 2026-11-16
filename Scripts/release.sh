@@ -67,7 +67,7 @@ fi
 # 404s on the mirror and takes the slow Hugging Face path, and for the 2.3 GB
 # assistant that path was the one that failed outright. So a pin is a promise
 # the release has to keep. HEAD each one before building anything.
-_mirror="https://${_app_host:-dl.corkkam.com}/models"
+_mirror="https://${_app_host:-pub-98e94ebcf8904c07b38b85605ad49284.r2.dev}/models"
 _missing=()
 _unchecked=()
 while read -r _archive; do

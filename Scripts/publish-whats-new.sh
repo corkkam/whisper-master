@@ -68,4 +68,4 @@ export RCLONE_S3_REGION=auto
 # copyto (not copy) so the staged temp dir's name never leaks into the key.
 rclone copyto "$STAGE/$REMOTE_NAME" ":s3:$R2_BUCKET/$REMOTE_NAME" --s3-no-check-bucket
 
-echo ">> Published: https://dl.corkkam.com/$REMOTE_NAME"
+echo ">> Published: https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/$REMOTE_NAME"

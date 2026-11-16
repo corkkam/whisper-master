@@ -90,7 +90,7 @@
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://dl.corkkam.com/appcast.xml</string>
+	<string>https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>MNSycgAfQ8X2YX/xQJ22uuqoM/oH5mwjYcVo204vB8Y=</string>
 	<key>SUScheduledCheckInterval</key>

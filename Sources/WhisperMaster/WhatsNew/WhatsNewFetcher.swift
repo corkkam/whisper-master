@@ -21,7 +21,7 @@ struct RemoteWhatsNewFetcher: WhatsNewFetching {
         case badResponse(status: Int)
     }
 
-    static let manifestURL = URL(string: "https://dl.corkkam.com/whats-new.json")
+    static let manifestURL = URL(string: "https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/whats-new.json")
 
     private let url: URL?
     private let session: URLSession
