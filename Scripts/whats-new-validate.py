@@ -25,10 +25,10 @@ import sys
 
 # The public host the shipped app reads. Deliberately NOT derived from
 # $R2_PUBLIC_BASE_URL: that secret is stale (it still names a retired r2.dev
-# host) while the app hardcodes dl.corkkam.com in Auth/BetaAccess.swift. Media
+# host) while the app hardcodes its own host in Auth/BetaAccess.swift. Media
 # URLs built from the secret would 404 for every user. See CLAUDE.md →
 # "The public R2 host is baked into shipped bundles in three places".
-PUBLIC_BASE_URL = "https://dl.corkkam.com"
+PUBLIC_BASE_URL = "https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev"
 
 # Matches SemanticVersion.swift: major[.minor[.patch]][-prerelease][+build].
 SEMVER = re.compile(r"^\d+(\.\d+){0,2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$")

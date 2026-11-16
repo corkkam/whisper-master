@@ -22,7 +22,7 @@ cd "$(dirname "$0")/.."
 # a retired r2.dev host — so URLs built from it would 404 for every user. See
 # CLAUDE.md → "The public R2 host is baked into shipped bundles in three
 # places". Change this only alongside those.
-PUBLIC_BASE_URL="${WHATS_NEW_PUBLIC_BASE_URL:-https://dl.corkkam.com}"
+PUBLIC_BASE_URL="${WHATS_NEW_PUBLIC_BASE_URL:-https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev}"
 PREFIX="whats-new"
 
 usage() {

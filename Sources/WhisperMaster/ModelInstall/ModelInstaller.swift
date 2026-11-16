@@ -14,8 +14,13 @@ enum ModelInstaller {
     /// Not `private`, so `DistributionHostTests` can hold this and the Sparkle feed
     /// host together — they must name the same bucket, and when they didn't, model
     /// archives 404'd with nothing anywhere reporting it.
+    ///
+    /// Temporary: `corkkam.com` lapsed on 2026-11-07 and its registrar parked it, so
+    /// `dl.corkkam.com` stopped reaching this bucket. This is the same bucket's own
+    /// `r2.dev` address (rate-limited and uncached). Move every site in the releasing
+    /// skill's host list back to `dl.corkkam.com` once that domain resolves to R2 again.
     static let mirrorBaseURL = URL(
-        string: "https://dl.corkkam.com/models"
+        string: "https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/models"
     )!
 
     /// A step of the install, surfaced to the UI.
