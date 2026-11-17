@@ -206,6 +206,10 @@ jobs:
           # it too.
           EVAL_INGEST_TOKEN: ${{ secrets.EVAL_INGEST_TOKEN }}
           RUN_EVAL: ${{ github.ref_name == 'main' && '1' || '0' }}
+          # One-off for 1.3.0-dev.1 on the dev channel only: three pinned model
+          # archives are not on R2 yet, so those models install from Hugging
+          # Face, as they do today. Remove this line once they are uploaded.
+          ALLOW_MISSING_MODELS: ${{ github.ref_name == 'dev' && '1' || '0' }}
         run: bash Scripts/release.sh
 
       - name: Publish shareable DMG to R2
