@@ -15,7 +15,9 @@ enum LabToolBench {
     /// `CommandAgentService` does it. Persistence is off, so seeding never touches
     /// a real account file.
     static func buildTools() -> [ToolDescriptor] {
-        let store = ConnectorInstanceStore()
+        // `load: false`: the default init reads the user's own connections first, and
+        // a bench whose tool list depends on the Mac it runs on is not a bench.
+        let store = ConnectorInstanceStore(load: false)
         store.persistenceEnabled = false
         store.add(ConnectorInstance(
             kind: .googleCalendar, label: "Work", identity: "sam@acme.com",

@@ -31,14 +31,18 @@ struct WhisperMasterApp {
         // not: `Scripts/release.sh` grades the bundle it just built, and that bundle
         // is Release. A suite that only exists in Debug cannot grade a release. The
         // hook is inert unless WM_AGENT_TOOL_EVAL is set.
-        if ProcessInfo.processInfo.environment["WM_AGENT_TOOL_EVAL"] != nil {
+        // `WM_AGENT_CHAIN_EVAL` runs the multi-step chain bench instead (the same
+        // posture: inert unless set, and it wins when both are).
+        let environment = ProcessInfo.processInfo.environment
+        let chainEval = environment["WM_AGENT_CHAIN_EVAL"] != nil
+        if chainEval || environment["WM_AGENT_TOOL_EVAL"] != nil {
             // Pump the main run loop (which services the main actor) until the async
             // harness finishes — a semaphore would deadlock the main-actor work the
             // harness schedules. The heavy MLX compute runs on `MlxCleanupService`'s
             // own actor, off main, so pumping stays responsive between awaits.
             let done = AgentToolEval.Done()
             Task { @MainActor in
-                await AgentToolEval.run()
+                if chainEval { await AgentChainEval.run() } else { await AgentToolEval.run() }
                 done.set()
             }
             while !done.get() {

@@ -126,6 +126,41 @@ decide that question again.** They separate on the turn that reads a result:
   default needs a case the bench can show, not the argument that the chat template
   is more in-distribution.
 
+### Assistant chain bench (`WM_AGENT_CHAIN_EVAL`)
+
+The tool bench above scores the **first turn**. `App/AgentChainEval.swift` runs the
+whole shipped loop (hand-rolled generator, `AgentPrompt.command`, 8 iterations, 30 s)
+on commands that need two or more tool calls, against scripted tools, and grades what
+the model *called*. Same bundle and model requirements as above.
+
+```bash
+WM_AGENT_CHAIN_EVAL=1 "./build/Whisper Master.app/Contents/MacOS/WhisperMaster"
+# WM_CHAIN_OUT=<file.json>   WM_CHAIN_ONLY=<id,id>   WM_CHAIN_NATIVE=1 (comparison arm)
+```
+
+**Measured 2026-11-17 (M4, 24 GB, one run per case).** 10/24 chains: two reads 4/7,
+a read then a write 5/8, three steps 1/5, two actions in one sentence **0/4**.
+**First-turn 16/16 does not carry to chains — don't infer it.** What happens instead:
+
+- On a sentence with two actions it does the first and then **reports the second as
+  done** ("the design channel has been notified", with no `send_message` call).
+- It invents a day for `when` ("tomorrow at 9" for "my first meeting") and narrows a
+  read to one connector nobody named.
+- Three-step chains run out of the 30 s budget (5 of 32 runs exhausted).
+- One injection probe got a calendar event created from text inside a tool result.
+  The approval card is all that stands between that and the user's calendar, and a
+  standing grant removes it.
+- Long results were not the problem: one fact in a 600- and a 1,200-word listing was
+  found 4/4.
+- Offering the 13 planned tools beside the shipped 11 kept first-turn choice at 16/16
+  (15/16 at 16 tools) and raised p50 from 4.7 s to 6.7 s.
+- The native arm scored 1/24: each native turn took ~15 s, so two turns filled the
+  budget. Cause not investigated, and it is one more reason native stays unwired.
+
+Seconds are model time only — a scripted tool returns at once and no approval card is
+waited on. The cases cannot be passed without reading (`AgentChainEvalTests` refuses a
+graded fragment that is already in the spoken command); keep that when adding one.
+
 **⚠️ A keyword rule only sees what somebody thought to assert.** The 2026-08-21
 long-form truncation dropped three fifths of a 525-word input and passed every
 `must_contain` in its case. So `eval-score` reports the *shape* of each output
