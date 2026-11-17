@@ -334,6 +334,18 @@ enum SnapshotMode {
                     ToolDescriptor.instanceArgument: "Work",
                 ]))
         }
+        // The same card after the run read connector text: Once and No only, because
+        // the target may come from text other people wrote.
+        renderPill(dir, name: "pill-9c-approval-after-read") { s in
+            s.phase = .idle
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "send_message",
+                instanceID: UUID(),
+                instanceLabel: "Work",
+                target: "#eng-standup",
+                arguments: ["channel": "#eng-standup", "text": "Shipping the fix now."],
+                grantOffered: false))
+        }
         // A coding agent asking to run a command. Same three answers as the connector
         // card above, because it is the same question: the payload is unbounded, so
         // it must be the words that give way and never the buttons.

@@ -8,6 +8,10 @@ import SwiftUI
 /// connection. Approving "post to #standup" must never read as approving Slack in
 /// general.
 ///
+/// A run that has read connector text gets two choices, Once and No
+/// (`PendingApproval.grantOffered`). The target may come from text other people
+/// wrote, so the card does not offer a grant that would outlast it.
+///
 /// Interactive, so it's in `DictationPillContent.allowsHitTesting` and the
 /// `setInteractive` call in the AppDelegate refresh loop, alongside the Bluetooth and
 /// undelivered banners.
@@ -29,7 +33,7 @@ struct NotchApprovalBanner: View {
             trailing: {
                 HStack(spacing: 6) {
                     choice("Once", .allowedOnce)
-                    choice("Always", .allowedAlways)
+                    if approval.grantOffered { choice("Always", .allowedAlways) }
                     choice("No", .denied, isDestructive: true)
                 }
             })
@@ -38,7 +42,8 @@ struct NotchApprovalBanner: View {
     /// VoiceOver gets the full payload untruncated — a screen-reader user must not be
     /// asked to consent to something the visual layout abbreviated away.
     private var accessibilityText: String {
-        "\(approval.headline). \(approval.detail). Choose once, always, or no."
+        let choices = approval.grantOffered ? "once, always, or no" : "once or no"
+        return "\(approval.headline). \(approval.detail). Choose \(choices)."
     }
 
     private func choice(_ title: String,
