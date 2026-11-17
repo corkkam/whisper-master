@@ -43,7 +43,8 @@ final class CommandToolRouter: AgentToolRunning {
     /// the wall clock.
     private let now: () -> Date
 
-    /// Tool names that reached a runner, in call order.
+    /// Tool names that ran and came back ok, in call order. A refused or failed call
+    /// changed nothing, so it is not "having acted" — `journal` still records it.
     private(set) var executed: [String] = []
     /// Side effects the calls reported, in call order.
     private(set) var effects: [Effect] = []
@@ -79,7 +80,6 @@ final class CommandToolRouter: AgentToolRunning {
     }
 
     func run(_ call: ToolCall) async -> ToolResult {
-        executed.append(call.tool)
         let started = now()
         let result: ToolResult
         if LocalToolCatalog.names.contains(call.tool) {
@@ -113,7 +113,10 @@ final class CommandToolRouter: AgentToolRunning {
             milliseconds: max(elapsed - result.approvalMilliseconds, 0),
             approvalMilliseconds: result.approvalMilliseconds,
             authorization: result.authorization))
-        if result.ok { lastResult = result.text }
+        if result.ok {
+            executed.append(call.tool)
+            lastResult = result.text
+        }
         return result
     }
 

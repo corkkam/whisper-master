@@ -136,10 +136,13 @@ struct CommandAgentService {
         }
 
         guard !router.executed.isEmpty else {
-            return run(nil, tools.isEmpty
-                ? "No tools were available, so there was nothing the assistant could do."
-                : "The model answered without calling a tool, so nothing was acted on "
-                    + "and the words were filed instead.")
+            if tools.isEmpty {
+                return run(nil, "No tools were available, so there was nothing the assistant could do.")
+            }
+            return run(nil, (router.journal.isEmpty
+                ? "The model answered without calling a tool"
+                : "Every tool call failed or was refused")
+                + ", so nothing was acted on and the words were filed instead.")
         }
         // An exhausted loop that already *created* something is not a failure to hand
         // back to the caller — the reminder exists, or the message went out. Falling
