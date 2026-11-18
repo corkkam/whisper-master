@@ -339,7 +339,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // on the refresh tick picks up later toggles.
         reconcileRemoteServer()
         // Discover other Macs running Whisper Master on the network (the mesh).
-        meshCoordinator.start()
+        // Gated on the same answer as the Nearby Macs page: while that page reads
+        // "Coming soon", nothing may browse Bonjour or use Bluetooth in its name —
+        // it raised Local Network and Bluetooth prompts for a feature nobody can open.
+        if SettingsSection.mesh.isAvailable { meshCoordinator.start() }
 
         // Watch for coding agents on this Mac. Held behind the gate with the rest of
         // the bring-up, and dormant until now so `swift test` and the headless
