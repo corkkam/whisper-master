@@ -386,8 +386,8 @@ final class OnboardingTimelineTests: XCTestCase {
         XCTAssertEqual(OrbDip.frame(at: 0.14, policy: still), OrbDip.rest)
     }
 
-    /// A replay gathers the orb from 0 to 1 over 540 ms; the reveal ends at rest.
-    func testTheReplayGathersOver540ms() {
+    /// With no stage the orb gathers from 0 to 1 over 540 ms; the reveal ends at rest.
+    func testTheRevealWithNoStageGathersOver540ms() {
         XCTAssertEqual(BandReveal.frame(at: 0, gathers: true, policy: full).orbGather, 0)
         XCTAssertEqual(BandReveal.frame(at: 0.54, gathers: true, policy: full).orbGather, 1)
         XCTAssertEqual(BandReveal.frame(at: 0, gathers: true, policy: full).rowCap, 0.5)

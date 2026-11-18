@@ -428,7 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .seedAsSeen:
             if let userID { OnboardingProgress.markSeen(OnboardingStep.allCases.map(\.id), userID: userID) }
         case .show:
-            showOnboarding(userID: userID, opening: .stage)
+            showOnboarding(userID: userID)
         case .skip:
             break
         }
@@ -1546,9 +1546,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// and the engine download that starts at launch would otherwise draw its
     /// progress band straight through the onboarding one.
     ///
-    /// `opening` is `.stage` on the launch path only; the menu and About replays
-    /// start at the band.
-    private func showOnboarding(userID: String? = nil, opening: OnboardingOpening = .reveal) {
+    /// Every path in plays the opening (the stage): the launch, and the menu and
+    /// About replays too, so an existing user sees it when they ask for setup.
+    private func showOnboarding(userID: String? = nil) {
         // Every path in (the launch, a reveal after sign-in, About, the tray) is
         // behind the gate. During a sign-out the surfaces are already hidden, so a
         // window made now would outlive the hide that should release it.
@@ -1557,7 +1557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if let onboardingWindow {
-            onboardingWindow.show(opening: opening)
+            onboardingWindow.show()
             return
         }
 
@@ -1588,7 +1588,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onRetryEngine: { [weak self] in self?.viewModel.prepareDefaultEngineOnLaunch() },
             settingsVisible: { [weak self] in self?.window?.isVisible == true }
         )
-        onboardingWindow?.show(opening: opening)
+        onboardingWindow?.show()
     }
 
     /// The finish plan, for every way setup ends: a finish kind, or nil for ×

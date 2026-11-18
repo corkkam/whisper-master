@@ -803,9 +803,10 @@ enum SnapshotMode {
             .snapshot(step: .microphone, clock: clock)
         }
 
-        // A replay with the microphone on: the band and its orb gather in, no dip.
+        // Skip to band: no stage (no screen for it), microphone on. The band and
+        // its orb gather in, no dip. A replay plays the stage, like the launch.
         for t in [0, 0.27, 0.54] {
-            renderOnboarding(dir, name: "onboarding-1-replay-\(ms(t))", state: state, orbTime: 0.6 + t) {
+            renderOnboarding(dir, name: "onboarding-1-skip-to-band-\(ms(t))", state: state, orbTime: 0.6 + t) {
                 let model = NotchOnboardingModel.snapshot(
                     step: .microphone, micGranted: true, micGrantedOnEntry: true, clock: clock)
                 model.pinReveal(at: t)

@@ -16,7 +16,7 @@ import SwiftUI
 /// a click on it; it never activates the app to get it. When setup ends it
 /// gives focus back to the app the user came from.
 ///
-/// On the launch path it also owns the opening's `OnboardingStagePanel`, and
+/// It also owns the opening's `OnboardingStagePanel`, and
 /// turns the model's stage cues into panel changes.
 @MainActor
 final class NotchOnboardingWindow {
@@ -92,10 +92,10 @@ final class NotchOnboardingWindow {
         panel.onKey = { [weak model] key, isRepeat, time in model?.handleKey(key, isRepeat: isRepeat, at: time) }
     }
 
-    /// `opening` applies only when the band is not already up: the launch path
-    /// opens on the stage, a replay at the band. It never activates the app: the
-    /// band takes the keyboard only if our app is active already.
-    func show(opening: OnboardingOpening = .reveal) {
+    /// A show while the band is not up plays the opening: the launch path and a
+    /// replay alike. It never activates the app: the band takes the keyboard
+    /// only if our app is active already.
+    func show() {
         let front = NSWorkspace.shared.frontmostApplication
         previousApp = front == NSRunningApplication.current ? nil : front
         if model.isLive {
@@ -106,18 +106,18 @@ final class NotchOnboardingWindow {
             }
             model.refresh()
         } else {
-            begin(opening)
+            begin()
         }
         startPolling()
         startFollowing()
     }
 
-    /// The first show. The launch path opens on the stage; a replay, and
-    /// VoiceOver, start at the band.
-    private func begin(_ opening: OnboardingOpening) {
+    /// The first show opens on the stage. VoiceOver, or no screen to put the
+    /// stage on, starts at the band.
+    private func begin() {
         let policy = Self.currentPolicy()
         model.updatePolicy(policy, switchControl: NSWorkspace.shared.isSwitchControlEnabled)
-        if opening == .stage, !policy.skipsStage, let screen = targetScreen {
+        if !policy.skipsStage, let screen = targetScreen {
             let stage = OnboardingStagePanel(model: model, screen: screen, layout: layout)
             wire(stage.panel)
             self.stage = stage

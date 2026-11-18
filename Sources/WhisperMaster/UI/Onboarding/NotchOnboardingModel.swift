@@ -3,9 +3,10 @@ import Observation
 
 /// How the band arrives.
 enum OnboardingOpening: Equatable {
-    /// First launch: the stage opens, folds into the band, and the band reveals.
+    /// Every show, a replay included: the stage opens, folds into the band, and
+    /// the band reveals.
     case stage
-    /// A replay, or VoiceOver on a first launch: the band reveals at once.
+    /// VoiceOver, or no screen for the stage: the band reveals at once.
     case reveal
 }
 
@@ -248,12 +249,12 @@ final class NotchOnboardingModel {
     let clock: OnboardingClock
     /// Read when the band shows. The window's poll keeps it current from the key work on.
     private(set) var policy = OnboardingMotionPolicy(layers: .full, skipsStage: false, orbIsStatic: false)
-    /// First launch only: T0, when the stage was ordered front.
+    /// With the stage only: T0, when the stage was ordered front.
     private(set) var openingStartedAt: TimeInterval?
     private(set) var openingSkip: OpeningSkip?
     /// When the band's content starts to fade up.
     private(set) var revealStartedAt: TimeInterval?
-    /// A replay gathers the orb as it reveals; after the stage it is already there.
+    /// With no stage the orb gathers as the band reveals; after the stage it is already there.
     private(set) var revealGathers = false
     private(set) var beatChange: BeatChange?
     private(set) var rowChange: RowChange?
@@ -400,7 +401,7 @@ final class NotchOnboardingModel {
         refresh()
         let now = clock.now()
         guard opening == .stage, !policy.skipsStage else {
-            inputOpensAt = OnboardingInputGate.opensAt(.replay, at: now, policy: policy)
+            inputOpensAt = OnboardingInputGate.opensAt(.reveal, at: now, policy: policy)
             startReveal(at: now, gathers: policy.layers == .full, afterStage: false)
             scheduleIntroEnd(revealAt: now)
             // Under VoiceOver the band is the first thing shown: one
@@ -1189,7 +1190,7 @@ final class NotchOnboardingModel {
         if t >= swap { startReveal(at: start + swap, gathers: false, afterStage: true) }
     }
 
-    /// Pins a replay's reveal `t` seconds in.
+    /// Pins a reveal with no stage before it `t` seconds in.
     func pinReveal(at t: TimeInterval) {
         startReveal(at: clock.now() - t, gathers: true, afterStage: false)
     }

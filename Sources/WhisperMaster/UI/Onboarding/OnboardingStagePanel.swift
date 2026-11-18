@@ -1,13 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// The tall black stage the first launch opens on. A second panel, not the
+/// The tall black stage setup opens on. A second panel, not the
 /// band's, because it is far bigger than the band and the band's panel is sized
 /// once. It sits on the display the pointer was on when it was made, holds no
 /// ask, and lives until the swap (about 3.6 s) or a skip. The model's 5 s
 /// watchdog ends it whatever happens to the cues.
 ///
-/// Made only on the launch path, never for a replay or under VoiceOver. Each
+/// Made on the launch path and for a replay from About or the tray, never
+/// under VoiceOver. Each
 /// presentation is a new object; nothing about it is persisted.
 ///
 /// It takes the keyboard on the band's terms (only while our app is active),

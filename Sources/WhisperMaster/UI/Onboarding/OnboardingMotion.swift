@@ -331,10 +331,10 @@ enum OpeningTimeline {
     }
 }
 
-/// The band's content fading up: at the swap on a first launch, at once on a
-/// replay, where the orb also gathers because no stage brought it.
+/// The band's content fading up: at the swap after the stage, or at once with
+/// no stage, where the orb also gathers because no stage brought it.
 enum BandReveal {
-    /// Input opens here, 540 ms in (4,100 ms on a first launch).
+    /// Input opens here, 540 ms in (4,100 ms after the stage).
     static let opensAt: TimeInterval = 0.54
     /// Under the still version the band shows at rest and input opens 300 ms later.
     static let stillOpensAt: TimeInterval = 0.3

@@ -181,11 +181,11 @@ final class OnboardingInputTests: XCTestCase {
         let gate = OnboardingInputGate.self
         XCTAssertEqual(gate.opensAt(.opening, at: 0, policy: full), 4.1, accuracy: 1e-9)
         XCTAssertEqual(gate.opensAt(.skip, at: 1.24, policy: full), 1.24 + 0.79, accuracy: 1e-9)
-        XCTAssertEqual(gate.opensAt(.replay, at: 0, policy: full), 0.54, accuracy: 1e-9)
+        XCTAssertEqual(gate.opensAt(.reveal, at: 0, policy: full), 0.54, accuracy: 1e-9)
         XCTAssertEqual(gate.opensAt(.step, at: 10, policy: full), 10.5, accuracy: 1e-9)
         XCTAssertEqual(gate.opensAt(.row, at: 10, policy: full), 10.3, accuracy: 1e-9)
         // Still: 300 ms after the band appears, and after a step change.
-        XCTAssertEqual(gate.opensAt(.replay, at: 0, policy: still), 0.3, accuracy: 1e-9)
+        XCTAssertEqual(gate.opensAt(.reveal, at: 0, policy: still), 0.3, accuracy: 1e-9)
         XCTAssertEqual(gate.opensAt(.opening, at: 0, policy: still), OpeningTimeline.stillSwapAt + 0.3, accuracy: 1e-9)
         XCTAssertEqual(gate.opensAt(.step, at: 10, policy: still), 10.3, accuracy: 1e-9)
     }
