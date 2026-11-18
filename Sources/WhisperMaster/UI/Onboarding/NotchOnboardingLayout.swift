@@ -14,15 +14,33 @@ struct NotchOnboardingLayout {
     /// Smallest wing either side of the notch, so the surface always reads as
     /// flowing out of the notch rather than as a slab that happens to touch it.
     var minSideExtension: CGFloat = 70
-    /// Depth of the band below the notch: top row, dots, orb, two lines of copy
-    /// and the action row.
-    var thickness: CGFloat = 234
-    /// Radius of the concave flare where the top meets the bezel.
+    /// Depth of the band below the notch: top padding 12, top bar 24, dots 5,
+    /// gap 8, orb 62, gap 12, a one-line headline (~23), gap 3, a body of at most
+    /// two lines (~32), gap 16, the action row (~36) and bottom padding 16. That
+    /// sums to ~249, so about 15 pt spare. Copy is shortened before this grows.
+    var thickness: CGFloat = 264
+    /// Centre of the 62 pt band orb below the notch: 12 + 24 + 5 + 8 + 31.
+    var orbCenterY: CGFloat = 80
+    /// Radius of the concave flare where the top meets the bezel. The opening
+    /// stage uses the same flare, so the swap from stage to band matches.
     var topConcaveRadius: CGFloat = 14
     /// Radius of the surface's rounded bottom corners.
     var bottomCornerRadius: CGFloat = 24
     /// Body width used on notch-less displays so the surface still has presence.
     var fallbackBodyWidth: CGFloat = 180
+    /// The widest the top-bar line (between back and settings) may run, on one line.
+    var topBarLineMaxWidth: CGFloat = 260
+
+    // The opening stage that folds into the band on a first launch. Its panel is
+    // `min(stageWidth, screenWidth − 56)` × `(notchHeight + stageDepth)`.
+    var stageWidth: CGFloat = 640
+    var stageDepth: CGFloat = 420
+    var stageBottomRadius: CGFloat = 40
+    var stageOrbDiameter: CGFloat = 150
+    /// Below the notch, like `orbCenterY`. The orb rises from here to `orbCenterY`.
+    var stageOrbCenterY: CGFloat = 172
+    var stageWordmarkY: CGFloat = 300
+    var stageTaglineY: CGFloat = 340
 
     /// Full width of the black surface — the notch body plus its wings, or the
     /// content width when that's wider (which it is on every real display).

@@ -197,17 +197,15 @@ struct NotchOnboardingView: View {
     /// What the orb is depicting: thinking while an ask is outstanding, working
     /// while the system prompt is up, listening once it can hear.
     private var orbMode: OrbView.Mode {
+        let granted: Bool
         switch model.step {
-        case .microphone:
-            if model.requestingMic { return .working }
-            return model.micGranted ? .listening : .thinking
-        case .accessibility:
-            return model.accessibilityGranted ? .listening : .thinking
-        case .openAtLogin:
-            return model.launchAtLoginEnabled ? .listening : .thinking
-        case .ready:
-            return .listening
+        case .microphone: granted = model.micGranted
+        case .accessibility: granted = model.accessibilityGranted
+        case .openAtLogin: granted = model.launchAtLoginEnabled
+        case .ready: granted = true
         }
+        return OrbFigure.resolve(
+            step: model.step, requestingMic: model.requestingMic, granted: granted, micCheckFailed: false)
     }
 
     // MARK: - Actions
@@ -229,7 +227,7 @@ struct NotchOnboardingView: View {
         case .openAtLogin:
             loginActions
         case .ready:
-            NotchPillButton(title: "Start dictating", action: model.finish)
+            NotchPillButton(title: "Start dictating") { model.finish(.handBack) }
         }
     }
 
