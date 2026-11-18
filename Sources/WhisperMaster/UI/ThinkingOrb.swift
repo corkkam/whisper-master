@@ -55,6 +55,11 @@ struct ThinkingOrb: View {
     /// Extra mode options merged verbatim after preset resolution (e.g. the
     /// notch passes `["gain": …]` to make the listening wave react to the mic).
     var extraOpts: ModeOpts = [:]
+    /// Draw this instant instead of the wall clock. Wins over `paused`, the
+    /// snapshot renderer and Reduce Motion, so a snapshot can show any frame.
+    var time: Double? = nil
+    /// Force the one static frame. Wins over `time`.
+    var staticFrame: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isSnapshot) private var isSnapshot
@@ -66,16 +71,21 @@ struct ThinkingOrb: View {
     var body: some View {
         let r = resolved
         let effSpeed = r.speed * speed
+        let still = reduceMotion || isSnapshot || paused
         Group {
-            if reduceMotion || isSnapshot || paused {
-                // One static, deterministic frame (matches the upstream reduced
-                // path, which paints `t = 0.6`).
+            if staticFrame || time != nil || still {
+                // One deterministic frame: the given instant, or the upstream
+                // reduced path's `t = 0.6`.
+                let t = OrbTime.resolve(
+                    staticFrame: staticFrame, time: time, environmentStill: still, wall: 0, speed: effSpeed)
                 Canvas { ctx, size in
-                    OrbEngine.draw(r.mode, ctx, Double(min(size.width, size.height)), 0.6, dark, r.opts)
+                    OrbEngine.draw(r.mode, ctx, Double(min(size.width, size.height)), t, dark, r.opts)
                 }
             } else {
                 TimelineView(.animation) { context in
-                    let t = context.date.timeIntervalSinceReferenceDate * effSpeed
+                    let t = OrbTime.resolve(
+                        staticFrame: false, time: nil, environmentStill: false,
+                        wall: context.date.timeIntervalSinceReferenceDate, speed: effSpeed)
                     Canvas { ctx, size in
                         OrbEngine.draw(r.mode, ctx, Double(min(size.width, size.height)), t, dark, r.opts)
                     }
@@ -91,6 +101,26 @@ struct ThinkingOrb: View {
         .working: "Working", .searching: "Searching", .solving: "Solving",
         .listening: "Listening", .composing: "Composing", .shaping: "Shaping",
     ]
+}
+
+/// Which instant the orb draws. The first rule that applies wins:
+/// 1. `staticFrame`: the reduced frame, `t = 0.6`. Only a caller's policy sets it.
+/// 2. A given `time`, scaled by the effective speed. It wins over the snapshot
+///    renderer, `paused` and Reduce Motion, so onboarding snapshots can show any
+///    instant (pass `0.6 + elapsed` to start where the still frame is).
+/// 3. Any of those three: `t = 0.6`, as before.
+/// 4. Otherwise the wall clock, scaled by the effective speed.
+enum OrbTime {
+    static let stillFrame = 0.6
+
+    static func resolve(
+        staticFrame: Bool, time: Double?, environmentStill: Bool, wall: Double, speed: Double
+    ) -> Double {
+        if staticFrame { return stillFrame }
+        if let time { return time * speed }
+        if environmentStill { return stillFrame }
+        return wall * speed
+    }
 }
 
 // MARK: - Engine

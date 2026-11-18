@@ -16,8 +16,10 @@ final class NotchOnboardingModel {
     // MARK: Presented state
 
     private(set) var step: NotchOnboardingStep = .microphone
-    private(set) var micGranted = false
-    private(set) var micDenied = false
+    /// The microphone authorization, re-read on every refresh.
+    private(set) var micStatus: PermissionsManager.MicStatus = .notDetermined
+    var micGranted: Bool { micStatus == .granted }
+    var micDenied: Bool { micStatus == .denied }
     /// True while the system's microphone prompt is up.
     private(set) var requestingMic = false
     private(set) var accessibilityGranted = false
@@ -36,13 +38,21 @@ final class NotchOnboardingModel {
     /// Latched the first time real audio arrives during the mic check.
     private(set) var heardVoice = false
 
+    /// The microphone as the Ready beat words it.
+    var readyMicStatus: ReadyMicStatus { ReadyMicStatus(micStatus) }
+
     // MARK: Collaborators
 
-    private let permissions: PermissionsManager
+    private let permissions: PermissionsProviding
     /// Its own capture session for the mic check — deliberately **not** the one
     /// inside `DictationViewModel`, since each `MicrophoneCaptureService` owns an
     /// `AVAudioEngine` and dictation must not share this one.
-    private let capture = MicrophoneCaptureService()
+    private let capture: MicCheckCapturing
+    /// The voice engine's state for the Ready beat. The model never reads
+    /// `AppState`, so the window passes this in.
+    let engineStatus: @MainActor () -> EngineStatus
+    /// Try Again on a failed Ready beat. Optional until `AppDelegate` wires it.
+    let onRetryEngine: (() -> Void)?
     private var envelope = LevelEnvelope()
     private var isCheckingMic = false
     /// Guards the auto-advance beat so the 0.75 s poll can't queue several.
@@ -54,17 +64,23 @@ final class NotchOnboardingModel {
     /// Prevents a double hand-off when a grant lands and the user also taps.
     private var didFinish = false
 
-    private let onComplete: () -> Void
+    private let onComplete: (OnboardingFinish) -> Void
     private let onDismiss: () -> Void
 
     init(
-        permissions: PermissionsManager,
-        onComplete: @escaping () -> Void,
-        onDismiss: @escaping () -> Void
+        permissions: PermissionsProviding,
+        capture: MicCheckCapturing = MicrophoneCaptureService(),
+        engineStatus: @escaping @MainActor () -> EngineStatus,
+        onComplete: @escaping (OnboardingFinish) -> Void,
+        onDismiss: @escaping () -> Void,
+        onRetryEngine: (() -> Void)? = nil
     ) {
         self.permissions = permissions
+        self.capture = capture
+        self.engineStatus = engineStatus
         self.onComplete = onComplete
         self.onDismiss = onDismiss
+        self.onRetryEngine = onRetryEngine
     }
 
     // MARK: Lifecycle
@@ -73,9 +89,7 @@ final class NotchOnboardingModel {
     /// the app comes back from System Settings — the same three triggers the
     /// window-based flow used, since neither grant has a change notification.
     func refresh() {
-        let status = permissions.microphoneStatus()
-        micGranted = status == .granted
-        micDenied = status == .denied
+        micStatus = permissions.microphoneStatus()
         accessibilityGranted = permissions.accessibilityGranted()
         refreshLaunchAtLogin()
         if micGrantedOnEntry == nil { micGrantedOnEntry = micGranted }
@@ -144,19 +158,27 @@ final class NotchOnboardingModel {
 
     func advance() {
         guard let next = step.next else {
-            finish()
+            finish(.handBack)
             return
         }
         step = next
         syncMicCheck()
     }
 
-    /// The user finished the flow (or tapped through the last beat).
-    func finish() {
+    /// The user finished the flow: Done (`.handBack`) or Close and open
+    /// Settings (`.openSettings`). Runs once; a second tap is ignored.
+    func finish(_ kind: OnboardingFinish) {
         guard !didFinish else { return }
         didFinish = true
         teardown()
-        onComplete()
+        onComplete(kind)
+    }
+
+    /// The capture key went down on Ready with the microphone on: finish at once,
+    /// with no outro, so `AppDelegate` can start the recording in the same call
+    /// and keep the first word. `finish(_:)` gains an outro later; this stays a cut.
+    func handOff() {
+        finish(.handBack)
     }
 
     /// The user closed the band early.
@@ -270,10 +292,10 @@ final class NotchOnboardingModel {
         heardVoice: Bool = false,
         level: Float = 0
     ) -> NotchOnboardingModel {
-        let model = NotchOnboardingModel(permissions: PermissionsManager(), onComplete: {}, onDismiss: {})
+        let model = NotchOnboardingModel(
+            permissions: PermissionsManager(), engineStatus: { .ready }, onComplete: { _ in }, onDismiss: {})
         model.step = step
-        model.micGranted = micGranted
-        model.micDenied = micDenied
+        model.micStatus = micGranted ? .granted : (micDenied ? .denied : .notDetermined)
         model.accessibilityGranted = accessibilityGranted
         model.launchAtLoginEnabled = launchAtLoginEnabled
         model.launchAtLoginNeedsApproval = launchAtLoginNeedsApproval

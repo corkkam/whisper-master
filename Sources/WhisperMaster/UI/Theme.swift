@@ -240,9 +240,11 @@ enum Theme {
     enum Motion {
         /// The house curve, `cubic-bezier(0.16, 1, 0.3, 1)`: fast out, long soft
         /// settle. Springs are deliberately *not* used — they overshoot, and
-        /// this system never does.
-        static let settle = Animation.timingCurve(0.16, 1, 0.3, 1, duration: 0.42)
-        static let quick = Animation.timingCurve(0.16, 1, 0.3, 1, duration: 0.25)
+        /// this system never does. The four numbers live in `CubicBezier.settle`,
+        /// which the time-driven onboarding frames read as well.
+        static let settleDuration: Double = 0.42
+        static let settle = CubicBezier.settle.animation(duration: settleDuration)
+        static let quick = CubicBezier.settle.animation(duration: 0.25)
         static let fade = Animation.easeOut(duration: 0.2)
 
         static let toggle = quick
@@ -339,6 +341,13 @@ enum Theme {
         /// The live listening wave is **ember** — it is your voice.
         static let waveGradient = Gradient(colors: [Ember.base, Ember.bright])
         static let accent = Ember.base
+
+        /// Onboarding's steps not reached yet. `hairline` is under 3 to 1 on
+        /// `surface`; this is about 3.1 to 1.
+        static let futureStep = Color.white.opacity(0.35)
+        /// The cap for onboarding's grant bloom, ember or signal, inside the
+        /// 0.10 to 0.22 band `NotchGlow` keeps to.
+        static let bloomAlpha: Double = 0.16
     }
 
     // MARK: Legacy tonal ramps
@@ -492,6 +501,11 @@ enum Typography {
     static let notchTitle = sans(12, .semibold, relativeTo: .caption)
     static let notchBody = sans(13, .medium, relativeTo: .caption)
     static let notchCaption = sans(10.5, .semibold, relativeTo: .caption2)
+
+    // Onboarding's opening stage.
+    static let stageWordmark = heading(40, .bold, relativeTo: .largeTitle)
+    static let stageWordmarkTracking = trackingFor(40)
+    static let stageTagline = sans(15, .medium, relativeTo: .title3)
 
     /// The instrument voice: mono, uppercase, widely tracked. Apply with
     /// `.monoLabel()` so the casing and tracking travel with the font.

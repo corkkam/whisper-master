@@ -1485,7 +1485,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Keep engine prep going (download-if-missing / load-if-present).
                 self.viewModel.prepareDefaultEngineOnLaunch()
             },
-            onComplete: { [weak self] in
+            onComplete: { [weak self] _ in
                 guard let self else { return }
                 markSeen()
                 self.dismissOnboarding()

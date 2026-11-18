@@ -13,7 +13,7 @@ import SwiftUI
 /// around the microphone prompt, which needs the app frontmost.
 @MainActor
 final class NotchOnboardingWindow {
-    private let panel: NSPanel
+    private let panel = OnboardingKeyPanel()
     private let host: NSHostingView<NotchOnboardingView>
     private let model: NotchOnboardingModel
     private let state: AppState
@@ -36,32 +36,18 @@ final class NotchOnboardingWindow {
         permissions: PermissionsManager,
         onOpenSettings: @escaping () -> Void,
         onClose: @escaping () -> Void,
-        onComplete: @escaping () -> Void
+        onComplete: @escaping (OnboardingFinish) -> Void,
+        onRetryEngine: (() -> Void)? = nil
     ) {
         self.state = state
         self.onOpenSettings = onOpenSettings
         model = NotchOnboardingModel(
             permissions: permissions,
+            engineStatus: { EngineStatus(state) },
             onComplete: onComplete,
-            onDismiss: onClose
+            onDismiss: onClose,
+            onRetryEngine: onRetryEngine
         )
-
-        panel = NSPanel(
-            contentRect: .zero,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.level = .statusBar
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        // Drawn on the physical black bezel, so it stays ink whatever the
-        // app-wide light/dark setting is — and `Theme.Notch` keeps resolving
-        // on-dark.
-        panel.appearance = NSAppearance(named: .darkAqua)
-        panel.hasShadow = false
-        panel.isMovable = false
 
         host = NSHostingView(rootView: NotchOnboardingView(
             model: model, state: state, onOpenSettings: onOpenSettings))
@@ -80,6 +66,12 @@ final class NotchOnboardingWindow {
         model.refresh()
         startPolling()
         startFollowing()
+    }
+
+    /// The capture key went down on Ready with the microphone on: cut the band
+    /// with no outro. The caller starts the recording in the same call.
+    func handOff() {
+        model.handOff()
     }
 
     /// Hide the band, stop polling and release the mic check. Safe to call twice.
