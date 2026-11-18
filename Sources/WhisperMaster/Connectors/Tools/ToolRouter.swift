@@ -43,6 +43,11 @@ struct ToolRouter {
     /// Injected so a `when` phrase ("tomorrow", "next monday") resolves against a
     /// fixed clock in tests rather than the wall clock.
     var now: () -> Date = Date.init
+    /// Set once a connector read has come back ok, and never cleared: see
+    /// `WriteAuthorizer.authorize(tainted:)`. A box because `run` is non-mutating.
+    /// `CommandAgentService.run` builds one router per run, so the flag cannot leak
+    /// into the next command.
+    private let taint = Taint()
 
     func run(_ call: ToolCall) async -> ToolResult {
         guard let descriptor = ToolCatalog.descriptor(named: call.tool) else {
@@ -72,10 +77,12 @@ struct ToolRouter {
             // the whole design turns on.
             let scoped = named.flatMap { ConnectorLabelMatcher.match($0, in: candidates) }
             let targets = scoped.map { [$0] } ?? candidates
-            return await read(capability: capability,
-                              from: targets,
-                              scopedTo: scoped?.displayLabel,
-                              call: call)
+            let result = await read(capability: capability,
+                                    from: targets,
+                                    scopedTo: scoped?.displayLabel,
+                                    call: call)
+            if result.ok { taint.isSet = true }
+            return result
 
         case .write:
             // Unqualified writes use the kind default and say which one — never merge,
@@ -183,7 +190,8 @@ struct ToolRouter {
         switch WriteAuthorizer.authorize(tool: descriptor,
                                          instanceID: instance.id,
                                          target: target,
-                                         grants: store.grants) {
+                                         grants: store.grants,
+                                         tainted: taint.isSet) {
         case .refused(let reason):
             return .failure(reason)
 
@@ -194,7 +202,8 @@ struct ToolRouter {
                 instanceID: instance.id,
                 instanceLabel: instance.displayLabel,
                 target: target,
-                arguments: arguments)
+                arguments: arguments,
+                grantOffered: !taint.isSet)
             let askedAt = now()
             let outcome = await requestApproval(approval)
             waited = Int(now().timeIntervalSince(askedAt) * 1000)
@@ -215,6 +224,11 @@ struct ToolRouter {
                                       + "so nothing was sent.",
                                   instanceLabels: [], authorization: .timedOut,
                                   approvalMilliseconds: waited)
+            case .allowedAlways where taint.isSet:
+                // The card hides Always in a tainted run, so only a caller that ignores
+                // `grantOffered` gets here. A grant would outlast the card for a target
+                // planted text may have chosen, so this runs once and stores nothing.
+                authorization = .allowedOnce
             case .allowedAlways:
                 store.addGrant(Grant(tool: call.tool, instanceID: instance.id, target: target))
                 authorization = .allowedAlways
@@ -359,4 +373,11 @@ struct ToolRouter {
         formatter.dateFormat = "h:mm a"
         return formatter
     }()
+}
+
+/// `ToolRouter`'s taint flag. Copies of the router share it, which is right: a copy
+/// still serves the same run.
+@MainActor
+private final class Taint {
+    var isSet = false
 }

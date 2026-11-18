@@ -392,6 +392,31 @@ final class AgentLoopTests: XCTestCase {
         XCTAssertEqual(calls(), 1, "the second iteration is past the budget")
     }
 
+    /// Time on the approval card is the user's, not the model's. A card can wait a
+    /// minute against a 30 s budget, so counting it would exhaust a run that was only
+    /// waiting on a person.
+    func testTimeOnTheApprovalCardDoesNotSpendTheBudget() async {
+        let store = makeStore()
+        store.add(ConnectorInstance(kind: .slack, label: "Work chat", identity: "acme"))
+        let clock = TestClock(Date(timeIntervalSince1970: 0))
+        let (generate, _) = scripted([
+            ##"{"tool":"send_message","args":{"channel":"#ops","text":"hi"}}"##,
+            ##"{"answer":"You declined it."}"##,
+        ])
+        let router = StubConnectorRouter(
+            ToolResult(ok: false, text: "The user declined that.", instanceLabels: [],
+                       authorization: .denied, approvalMilliseconds: 60_000),
+            whileRunning: { clock.advance(60) })
+        var loop = AgentLoop(tools: ToolRegistry.available(store: store),
+                             router: router, generate: generate)
+        loop.now = { clock.now }
+
+        let outcome = await loop.run(question: "post hi to ops")
+
+        XCTAssertFalse(outcome.exhausted, "a minute on the card must not use up the budget")
+        XCTAssertEqual(outcome.answer, "You declined it.")
+    }
+
     /// …and the budget also has to survive a generation that never comes back.
     ///
     /// It used to be checked only *between* iterations, with a bare `await` on the

@@ -279,7 +279,7 @@ struct AgentLoop {
             ? nativePrompt()
             : prompt(ToolRegistry.promptDescription(for: tools))
         let toolSchemas = useNative ? ToolSchema.functionSchemas(for: tools) : []
-        let deadline = now().addingTimeInterval(budget)
+        var deadline = now().addingTimeInterval(budget)
 
         var turns: [AgentTurn] = []
         var labels: [String] = []
@@ -358,6 +358,10 @@ struct AgentLoop {
                 madeCalls.insert(key)
                 onStep(.running(call))
                 let result = await router.run(call)
+                // Time on the approval card is the user's, not the model's. A card can
+                // wait a minute against a 30 s budget, so the wait moves the deadline;
+                // the iteration cap still bounds the run.
+                deadline.addTimeInterval(TimeInterval(result.approvalMilliseconds) / 1000)
                 // Only `call.tool` — the catalog's own fixed name — reaches analytics.
                 // The arguments are the user's dictated content and never leave, the
                 // same rule the notch caption and the consent card follow.

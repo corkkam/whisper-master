@@ -38,9 +38,11 @@ struct Grant: Codable, Equatable, Sendable, Identifiable {
 
 /// The decision a write needs before it can run.
 enum WriteAuthorization: Equatable, Sendable {
-    /// A standing grant covers it — run without asking.
+    /// A standing grant covers it, and no connector read came first in this run — run
+    /// without asking.
     case granted
-    /// No grant. The user must approve this specific call.
+    /// No grant, or a grant in a run that has read connector text. The user must
+    /// approve this specific call.
     case needsApproval
     /// Structurally impossible to authorise, so never ask. A write tool with no
     /// resolvable target can only ever be blanket permission, which isn't on offer.
@@ -73,6 +75,10 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
     /// Every argument, shown in full. An approval card that hides part of the payload
     /// isn't consent to the action that actually runs.
     let arguments: [String: String]
+    /// Whether the card offers Always. False once the run has read connector text:
+    /// the target may then come from an instruction planted in that text, and a
+    /// standing grant for it would outlast this one card.
+    let grantOffered: Bool
     let requestedAt: Date
 
     init(id: UUID = UUID(),
@@ -81,6 +87,7 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
          instanceLabel: String,
          target: String,
          arguments: [String: String],
+         grantOffered: Bool = true,
          requestedAt: Date = Date()) {
         self.id = id
         self.tool = tool
@@ -88,6 +95,7 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
         self.instanceLabel = instanceLabel
         self.target = target
         self.arguments = arguments
+        self.grantOffered = grantOffered
         self.requestedAt = requestedAt
     }
 
@@ -107,10 +115,15 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
 /// Decides whether a write may proceed. Pure, so the leak case that motivated the
 /// three-part key is directly testable.
 enum WriteAuthorizer {
+    /// - Parameter tainted: a connector read has returned in this run. Mail, chat,
+    ///   tasks and events are written by other people, and a write the model composes
+    ///   after reading them can be an instruction planted there. A grant was given for
+    ///   the user's own requests, so it does not answer for that write: the card shows.
     static func authorize(tool: ToolDescriptor,
                           instanceID: UUID,
                           target: String?,
-                          grants: [Grant]) -> WriteAuthorization {
+                          grants: [Grant],
+                          tainted: Bool = false) -> WriteAuthorization {
         guard tool.access == .write else { return .granted }
         guard tool.targetArg != nil else {
             return .refused(reason: "\(tool.name) declares no target, so it can't be scoped.")
@@ -119,6 +132,6 @@ enum WriteAuthorizer {
             return .refused(reason: "\(tool.name) was called without a target.")
         }
         let covered = grants.contains { $0.matches(tool: tool.name, instanceID: instanceID, target: target) }
-        return covered ? .granted : .needsApproval
+        return covered && !tainted ? .granted : .needsApproval
     }
 }
