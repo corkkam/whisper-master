@@ -25,7 +25,7 @@ Whisper Master is a menu-bar app that transcribes your speech with **NVIDIA Para
 
 **Dictation** — the core loop, on every build.
 
-- **Streaming transcription while you speak**, on Apple Silicon, with the words appearing in the notch as you talk rather than after you stop.
+- **Streaming transcription**, on Apple Silicon: audio is decoded in windows while you speak and the finished text lands when you release the key. The notch shows that it is listening, not live words.
 - **Instant paste, background refine** — the deterministic cleanup pastes immediately and the optional LLM polish lands a beat later, in place, so you never wait on a model.
 - **Deterministic cleanup** — filler and stutter removal, inverse text normalization (spoken numbers to digits, currency, percentages, times, emails), spoken **self-correction collapsing** ("twenty no thirty no forty" becomes 40), and a custom-vocabulary glossary.
 - **Paste routing per application** — native fields, web views, and terminals each get the mechanism that actually works there.
@@ -35,7 +35,7 @@ Whisper Master is a menu-bar app that transcribes your speech with **NVIDIA Para
 **The assistant** — held **fn + control**, a separate key from dictation and deliberately so.
 
 - File a note, set a reminder, ask what is on the calendar. **Notes keep the recording they came from**, alongside the verbatim transcript and the tidied text.
-- **Eleven connectors** — Apple, Google, and Exchange calendars, Gmail, Drive, Slack, Notion, Linear, GitHub, Zoom, Asana. Reads are direct; **writes always go behind an approval card** you see first.
+- **Connectors** — Apple Calendar, Google Calendar, Gmail, Slack, and Outlook through macOS Calendar. Teams and Outlook sign-in switch on once a Microsoft client id is configured. Reads are direct; **writes always go behind an approval card** you see first.
 - Answers are **spoken back** as well as shown, on the same on-device model.
 - **Gentle reminders** surface in the notch band, never in Notification Centre.
 
