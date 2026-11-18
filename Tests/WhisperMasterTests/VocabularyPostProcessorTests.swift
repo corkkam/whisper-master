@@ -5,8 +5,8 @@ import XCTest
 final class VocabularyPostProcessorTests: XCTestCase {
     func testAliasIsReplacedWithCanonical() {
         XCTAssertEqual(
-            VocabularyPostProcessor.apply("the laser agent handles routing", glossary: ["Lyzr: laser, lizer"]),
-            "the Lyzr agent handles routing"
+            VocabularyPostProcessor.apply("the laser agent handles routing", glossary: ["Lazur: laser, lizer"]),
+            "the Lazur agent handles routing"
         )
     }
 
@@ -34,8 +34,8 @@ final class VocabularyPostProcessorTests: XCTestCase {
 
     func testPunctuationAroundTermIsPreserved() {
         XCTAssertEqual(
-            VocabularyPostProcessor.apply("using laser, then done.", glossary: ["Lyzr: laser"]),
-            "using Lyzr, then done."
+            VocabularyPostProcessor.apply("using laser, then done.", glossary: ["Lazur: laser"]),
+            "using Lazur, then done."
         )
     }
 
@@ -53,16 +53,16 @@ final class VocabularyPostProcessorTests: XCTestCase {
 
     func testUnrelatedTextIsUnchanged() {
         let text = "the quick brown fox jumps"
-        XCTAssertEqual(VocabularyPostProcessor.apply(text, glossary: ["Lyzr: laser"]), text)
+        XCTAssertEqual(VocabularyPostProcessor.apply(text, glossary: ["Lazur: laser"]), text)
     }
 
     func testP5RegressionCasing() {
         // The exact vocab-off P5 transcript → all four terms corrected, nothing lost.
         let raw = "We are using Parakeet for transcription and rag pipeline for retrieval. The laser agent handles the routing, and it all runs on the Nvidia card only."
         let out = VocabularyPostProcessor.apply(
-            raw, glossary: ["Parakeet", "RAG: rack, rag", "Lyzr: laser, lizer", "NVIDIA"])
+            raw, glossary: ["Parakeet", "RAG: rack, rag", "Lazur: laser, lizer", "NVIDIA"])
         XCTAssertTrue(out.contains("RAG pipeline"), out)
-        XCTAssertTrue(out.contains("Lyzr agent"), out)
+        XCTAssertTrue(out.contains("Lazur agent"), out)
         XCTAssertTrue(out.contains("NVIDIA card"), out)
         XCTAssertEqual(out.split(whereSeparator: \.isWhitespace).count,
                        raw.split(whereSeparator: \.isWhitespace).count)

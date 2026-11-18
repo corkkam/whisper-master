@@ -16,8 +16,8 @@ final class VocabularyTermParserTests: XCTestCase {
     }
 
     func testWhitespaceIsTrimmedEverywhere() {
-        let term = VocabularyTermParser.term(from: "  Lyzr :  liser ,lizer  ")
-        XCTAssertEqual(term?.text, "Lyzr")
+        let term = VocabularyTermParser.term(from: "  Lazur :  liser ,lizer  ")
+        XCTAssertEqual(term?.text, "Lazur")
         XCTAssertEqual(term?.aliases, ["liser", "lizer"])
     }
 
