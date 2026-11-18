@@ -601,6 +601,9 @@ enum AgentChainEval {
         var loop = AgentLoop(tools: tools, router: router, generate: AgentLoop.liveGenerator())
         loop.prompt = AgentPrompt.command(toolList:)
         loop.requiresToolBeforeAnswer = true
+        // The shipped budget, as `CommandAgentService` sets it: the default 30 s
+        // exhausts a chain on the thinking model that the app would let finish.
+        loop.budget = AgentLoop.budget(thinks: CleanupModel.General.thinks)
         if native {
             loop.generateNative = AgentLoop.liveNativeGenerator()
             loop.nativePrompt = AgentPrompt.commandNative

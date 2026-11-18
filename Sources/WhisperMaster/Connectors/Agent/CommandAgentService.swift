@@ -170,6 +170,16 @@ struct CommandAgentService {
                 : "Every tool call failed or was refused")
                 + ", so nothing was acted on and the words were filed instead.")
         }
+        // Reading the selection is not acting. The prompt invites that call on every
+        // chord press, so "remind me to email Dana" with text selected can end as
+        // read_selection plus prose — and the paste is suppressed, so the words would
+        // be lost. A capture that opens with a note or reminder trigger is therefore
+        // filed unless something else ran. (Legal here: this is behind the chord.)
+        if router.executed.allSatisfy({ $0 == LocalToolCatalog.readSelection.name }),
+           CommandDetector.detect(spoken) != nil {
+            return run(nil, "The model only read the selection, so nothing was acted on "
+                + "and the words were filed instead.")
+        }
         // An exhausted loop that already *created* something is not a failure to hand
         // back to the caller — the reminder exists, or the message went out. Falling
         // through to the deterministic path there would file the same words a second
