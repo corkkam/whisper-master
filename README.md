@@ -17,7 +17,7 @@ Hold a key, talk, and clean formatted text lands wherever your cursor is — tra
 
 ---
 
-Whisper Master is a menu-bar app that transcribes your speech with **NVIDIA Parakeet** (via [FluidAudio](https://github.com/FluidInference/FluidAudio)) and cleans it up the way you would actually have typed it — filler words gone, numbers and times formatted, spoken self-corrections resolved — then pastes it into whatever app you are in. An optional on-device language model (qwen2.5-3B via **MLX**) adds a deeper polish, always behind a faithfulness guard, so it only ever *cleans* your words and never answers or acts on them.
+Whisper Master is a menu-bar app that transcribes your speech with **NVIDIA Parakeet** (via [FluidAudio](https://github.com/FluidInference/FluidAudio)) and cleans it up the way you would actually have typed it — filler words gone, numbers and times formatted, spoken self-corrections resolved — then pastes it into whatever app you are in. An optional on-device language model (**S1-mini** by Superwhisper, a 0.6B text normalizer converted to 4-bit, run via **MLX**) adds a deeper polish, always behind a faithfulness guard, so it only ever *cleans* your words and never answers or acts on them.
 
 **Audio is captured to memory, transcribed, and discarded.** It is never written to a network socket and never written to disk on the normal dictation path. That is the product, not a feature of it.
 
@@ -55,7 +55,7 @@ Sign-in is required at first run. It identifies the licence and the beta entitle
 
 ```
  mic  ─▶  Parakeet streaming ASR  ─▶  deterministic cleanup  ─▶  optional on-device LLM  ─▶  paste
-                                       · spacing repair            · qwen2.5-3B (MLX)
+                                       · spacing repair            · S1-mini (MLX)
                                        · self-correction collapse  · faithfulness guard
                                        · inverse text normalization  (falls back to the
                                        · filler removal               deterministic text
@@ -68,13 +68,7 @@ Transcription and cleanup are separate, testable stages. The deterministic passe
 
 Every change is graded against the **real shipped pipeline**, not a proxy, on real human speech (LibriSpeech) plus synthetic, noisy, and Bluetooth-mic conditions. It measures word error rate, cleanup quality, and faithfulness, attributes a failure to ASR or to cleanup, and stores each run over time.
 
-| Condition | Word error rate |
-|---|---|
-| Clean human speech | **3.4%** |
-| Bluetooth HFP mic | **16.3%** |
-| Noisy environment | **23.5%** |
-
-The weak numbers are published on purpose. **Quote all three or none** — quoting 3.4% alone is the fastest way to lose the trust the whole product rests on.
+The one figure recorded in this repo is **3.4% mean word error rate on 20 LibriSpeech dev-clean clips** (median 0.0%, 15 of 20 under 5%), from the 2026-08-21 run in [`eval/text-cleanup/judgment.md`](eval/text-cleanup/judgment.md). That is clean human speech only. The same file reports ASR failures on noisy and Bluetooth-HFP audio but gives no word error rate for them, so do not quote 3.4% as a general accuracy claim.
 
 **Published runs: [whisper.corkkam.com/eval](https://whisper.corkkam.com/eval)**
 
@@ -115,7 +109,7 @@ For UI work, `WM_SNAPSHOT=<dir> .build/debug/WhisperMaster` renders every settin
 
 ## Tech stack
 
-Swift · SwiftUI · AppKit · [FluidAudio](https://github.com/FluidInference/FluidAudio) (NVIDIA Parakeet) · [MLX](https://github.com/ml-explore/mlx-swift) (qwen2.5-3B) · [Sparkle](https://sparkle-project.org) · [Clerk](https://clerk.com) · PostHog · Cloudflare R2 · SvelteKit + Prisma + MongoDB (eval dashboard).
+Swift · SwiftUI · AppKit · [FluidAudio](https://github.com/FluidInference/FluidAudio) (NVIDIA Parakeet) · [MLX](https://github.com/ml-explore/mlx-swift) (S1-mini for cleanup, Qwen3-4B-Thinking-2507 for the assistant) · [Sparkle](https://sparkle-project.org) · [Clerk](https://clerk.com) · PostHog · Cloudflare R2 · Next.js + Supabase (eval dashboard, in the landing-page repo).
 
 ## License
 
