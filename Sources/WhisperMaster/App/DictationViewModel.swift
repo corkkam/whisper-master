@@ -111,6 +111,10 @@ final class DictationViewModel {
     /// Auto-clears a lingering `.failed` phase back to `.idle` so a failure
     /// message doesn't sit in the notch forever.
     private var failedResetTask: Task<Void, Never>?
+    /// Setup closed before the speech files were ready, so the Ready notice goes
+    /// up once they are (`armReadyNotice`).
+    private var readyNoticeArmed = false
+    private var readyNoticeHold = ReadyNoticeHold()
 
     init(
         state: AppState,
@@ -1874,6 +1878,36 @@ final class DictationViewModel {
         prepareSelectedEngineInBackground()
     }
 
+    // MARK: Ready notice
+
+    /// Setup closed before the speech files were ready: one line at the notch
+    /// says so once they are. A failed prep keeps it armed for the next attempt.
+    func armReadyNotice() {
+        readyNoticeArmed = true
+    }
+
+    /// Something above the notice holds the band. Called on every such tick; it
+    /// writes nothing to `state`, only the start of the hold, once.
+    func holdReadyNotice(now: Date = Date()) {
+        guard state.readyNoticeAt != nil else { return }
+        readyNoticeHold.hold(at: now)
+    }
+
+    /// The band is free again: the notice's clock moves forward by the time
+    /// held, so it still gets its full time on screen. A no-op when not held.
+    func resumeReadyNotice(now: Date = Date()) {
+        guard let shownAt = state.readyNoticeAt,
+              let moved = readyNoticeHold.resume(shownAt: shownAt, at: now)
+        else { return }
+        state.readyNoticeAt = moved
+    }
+
+    /// The notice has had its time on screen.
+    func dropReadyNotice() {
+        readyNoticeHold = ReadyNoticeHold()
+        if state.readyNoticeAt != nil { state.readyNoticeAt = nil }
+    }
+
     func prepareSelectedEngineInBackground() {
         let engine = state.selectedEngine
         guard state.preparedEngine != engine, state.preparingEngine != engine else { return }
@@ -2001,6 +2035,12 @@ final class DictationViewModel {
         state.download = nil
         state.usingFallbackModelSource = false
         state.statusMessage = "Voice engine ready."
+        if readyNoticeArmed {
+            readyNoticeArmed = false
+            readyNoticeHold = ReadyNoticeHold()
+            state.readyNoticeTypingOn = permissionsManager.accessibilityGranted()
+            state.readyNoticeAt = Date()
+        }
 
         // Warm the mic graph now (once, at launch) so the first push-to-talk
         // doesn't pay the cold Core Audio start that was clipping first words.
@@ -2220,5 +2260,23 @@ final class DictationViewModel {
             pasteboard.clearContents()
             if let saved { pasteboard.setString(saved, forType: .string) }
         }
+    }
+}
+
+/// The Ready notice's paused clock. A hold stores its start once and the resume
+/// returns the shown-at time moved forward by the time held, so a hold of any
+/// length is one write to `AppState`, at its end. Pure, so that is testable.
+struct ReadyNoticeHold {
+    private(set) var heldAt: Date?
+
+    mutating func hold(at now: Date) {
+        if heldAt == nil { heldAt = now }
+    }
+
+    /// The shown-at time moved forward by the hold, or nil when nothing was held.
+    mutating func resume(shownAt: Date, at now: Date) -> Date? {
+        guard let heldAt else { return nil }
+        self.heldAt = nil
+        return shownAt.addingTimeInterval(now.timeIntervalSince(heldAt))
     }
 }

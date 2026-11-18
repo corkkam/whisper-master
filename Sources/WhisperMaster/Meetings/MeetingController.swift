@@ -39,6 +39,11 @@ final class MeetingController {
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var polling = false
     @ObservationIgnored private lazy var window = MeetingLiveWindow(controller: self)
+    /// What the Start buttons (the live window, the notch offer) call. The App
+    /// layer sets it to its gated start, the tray's path: sign-in, then setup's
+    /// capture gate, then `takeNotes()`. Until it is set it does nothing, so a
+    /// button cannot start a recording past the gate.
+    @ObservationIgnored var requestNotes: () -> Void = {}
 
     var isRecording: Bool { session != nil }
 
@@ -289,6 +294,12 @@ final class MeetingController {
 
     func showLiveWindow() {
         window.show()
+    }
+
+    /// Behind the sign-in gate. A meeting still recording keeps recording; the
+    /// tray's Stop ends it.
+    func hideLiveWindow() {
+        window.hide()
     }
 
     // MARK: - Snapshot seeding

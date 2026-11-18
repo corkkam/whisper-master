@@ -81,8 +81,8 @@ struct DictationPillContent: View {
     private var showShedWorking: Bool {
         state.agents.shed.hasRunning && !bandIsBanner && !isFailed && state.download == nil
             && !state.shouldShowLiveTranscript && !state.shouldShowPolishedBeat
-            && !state.shouldShowDeliveredBeat && state.preparingEngine == nil
-            && state.phase == .idle
+            && !state.shouldShowDeliveredBeat && !state.shouldShowReadyNotice
+            && state.preparingEngine == nil && state.phase == .idle
     }
 
     /// The finished turn's answer, as one banner line.
@@ -140,8 +140,8 @@ struct DictationPillContent: View {
     private var showAmbientOnly: Bool {
         nowItem != nil && !showShedWorking && !bandIsBanner && !isFailed && state.download == nil
             && !state.shouldShowLiveTranscript && !state.shouldShowPolishedBeat
-            && !state.shouldShowDeliveredBeat && state.preparingEngine == nil
-            && state.phase == .idle
+            && !state.shouldShowDeliveredBeat && !state.shouldShowReadyNotice
+            && state.preparingEngine == nil && state.phase == .idle
     }
 
     /// The leading slot, wired up. Nil in every band form, so a dropped banner is
@@ -225,6 +225,7 @@ struct DictationPillContent: View {
         if showCleanupReady { return layout.cleanupReadyThickness }
         if showMeeting || showBanner { return layout.bannerThickness }
         if showReminder { return layout.reminderThickness }
+        if showsReadyNotice { return layout.reminderThickness }
         if isFailed { return layout.failedThickness }
         // The polished line is the one band that breathes: it takes a row per
         // wrapped line, up to the three-line window.
@@ -258,6 +259,8 @@ struct DictationPillContent: View {
         // state. Dropping a band for one line would put a slab of empty black
         // under the bezel for the ten minutes before a meeting.
         if showAmbientOnly { return true }
+        // The notice is a sentence, too long for a wing: it drops a band.
+        if showsReadyNotice { return false }
         guard bandIsDictation || isDeliveredBadge else { return false }
         return transcriptModel.isEmpty
     }
@@ -305,6 +308,11 @@ struct DictationPillContent: View {
         // the rails and the type, not haze.
         return bandIsBanner ? .idle : NotchActivity.resolve(from: state)
     }
+
+    /// The Ready notice: the lowest banner rung, drawn by `DictationStatusView`
+    /// after the delivered beat. Read from `activity`, so every band above it,
+    /// and any live work, already wins.
+    private var showsReadyNotice: Bool { activity == .readyNotice }
 
     /// The words the band is carrying, resolved here rather than in the row so the
     /// band's thickness and the row's line count come from the same wrap — no
@@ -357,7 +365,7 @@ struct DictationPillContent: View {
         // The day is a row in the wings, so it needs the bar's width even though
         // nothing is running — at banner width the title runs under the housing.
         if showAmbientOnly || showShedWorking { return .wide }
-        guard bandIsDictation else { return .banner }
+        guard bandIsDictation, !showsReadyNotice else { return .banner }
         return isDeliveredBadge ? .glyph : .wide
     }
 
@@ -470,7 +478,7 @@ struct DictationPillContent: View {
             || showDueReminder || showCommandConfirmation || showDaySummary || showUndelivered
             || showAgentNudge || showLearned || showCleanupReady || showMeeting || showBanner || showReminder
             || state.shouldShowDeliveredBeat || state.shouldShowLiveTranscript
-            || state.shouldShowPolishedBeat { return true }
+            || state.shouldShowPolishedBeat || showsReadyNotice { return true }
         // The day is not the dictation indicator, so `hidePillWhenIdle` does not
         // govern it — that switch means "do not show me the app at rest", and this
         // has its own (`AppState.nowSurfaceEnabled`). Checked before that guard
@@ -580,6 +588,7 @@ struct DictationPillContent: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showAgentNudge)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowDeliveredBeat)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: state.shouldShowPolishedBeat)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.appear), value: showsReadyNotice)
     }
 
     @ViewBuilder

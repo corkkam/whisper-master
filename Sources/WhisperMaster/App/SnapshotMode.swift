@@ -215,6 +215,17 @@ enum SnapshotMode {
             s.phase = .idle
             s.deliveredAt = Date()
         }
+        // The Ready notice: setup closed before the speech files were ready, and
+        // now they are. The lowest banner rung, one line, typing on and off.
+        renderPill(dir, name: "pill-13-ready-notice") { s in
+            s.phase = .idle
+            s.readyNoticeAt = Date()
+        }
+        renderPill(dir, name: "pill-13b-ready-notice-typing-off") { s in
+            s.phase = .idle
+            s.readyNoticeAt = Date()
+            s.readyNoticeTypingOn = false
+        }
         renderPill(dir, name: "pill-4-failed") { s in
             s.phase = .failed("The network appears to be offline")
             s.failedAt = Date()

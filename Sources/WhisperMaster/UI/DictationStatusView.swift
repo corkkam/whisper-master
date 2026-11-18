@@ -7,8 +7,8 @@ import SwiftUI
 /// shows the rewritten transcript for a beat; any **working** state shows the
 /// dictation line (the state in words plus the orb — listening while recording,
 /// thinking while the on-device polish runs, and *never* the transcript as it
-/// streams); a just-landed transcript shows the **delivered** checkmark;
-/// otherwise nothing.
+/// streams); a just-landed transcript shows the **delivered** checkmark; the
+/// **Ready notice** after setup says the speech files are ready; otherwise nothing.
 struct DictationStatusView: View {
     let state: AppState
     /// The transcript already wrapped for the current band width. Resolved by the
@@ -44,6 +44,9 @@ struct DictationStatusView: View {
                 liveTranscript
             case .delivered:
                 delivered
+            case .readyNotice:
+                // The same one non-interactive line as a gentle reminder.
+                NotchReminderBanner(text: readyNoticeText)
             case .idle:
                 EmptyView()
             }
@@ -76,6 +79,12 @@ struct DictationStatusView: View {
             holdToTalk: keyIsHoldingItOpen,
             commandCapture: state.commandCaptureArmed || state.commandAgentRunning,
             agentActivity: state.agentActivity)
+    }
+
+    /// "I'm ready." with the key the user chose, or the typing-off line.
+    private var readyNoticeText: String {
+        OnboardingCopy(key: state.hotkey, holdToTalk: state.holdToTalkEnabled)
+            .readyNotice(typingOn: state.readyNoticeTypingOn)
     }
 
     /// Whether the *key* is what's keeping the band open. False in toggle mode and

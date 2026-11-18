@@ -30,12 +30,16 @@ enum NotchActivity: Equatable {
     case delivered
     /// The session failed.
     case failed
+    /// The speech files finished after setup closed: one line, "I'm ready."
+    /// The lowest rung, below the delivered beat; the ambient row yields to it.
+    case readyNotice
 
     /// Resolves the band's state from the app.
     ///
     /// The branch order mirrors `DictationStatusView`'s exactly — download beats a
-    /// failure beats the polished beat beats live work beats the delivered beat —
-    /// because a mismatch would light the band one colour while it renders another.
+    /// failure beats the polished beat beats live work beats the delivered beat
+    /// beats the Ready notice — because a mismatch would light the band one colour
+    /// while it renders another.
     ///
     /// This deliberately does **not** account for the banners (Bluetooth,
     /// undelivered, approval, …). Those own their own chrome and priority in
@@ -57,6 +61,7 @@ enum NotchActivity: Equatable {
         case .idle, .failed, .recording: break
         }
         if state.shouldShowDeliveredBeat { return .delivered }
+        if state.shouldShowReadyNotice { return .readyNotice }
         return .idle
     }
 
@@ -66,7 +71,8 @@ enum NotchActivity: Equatable {
     /// the physical bezel and has no light mode.
     var accent: Color? {
         switch self {
-        case .idle: nil
+        // The notice is a line of news, matte like every banner.
+        case .idle, .readyNotice: nil
         case .listening: Theme.Notch.accent        // ember — your voice
         case .preparing, .transcribing, .polishing, .polished, .delivered:
             Theme.Notch.success                     // signal — the machine
@@ -87,7 +93,7 @@ enum NotchActivity: Equatable {
     /// convincingly black, not about how visible the state is.
     var glowStrength: Double {
         switch self {
-        case .idle: 0
+        case .idle, .readyNotice: 0
         case .preparing: 0.10
         case .listening: 0.22
         case .transcribing: 0.14
@@ -106,7 +112,7 @@ enum NotchActivity: Equatable {
     /// the trailing edge, so a glow over there would float in empty space.
     var lightAnchor: UnitPoint {
         switch self {
-        case .delivered, .failed: .center
+        case .delivered, .failed, .readyNotice: .center
         case .idle, .preparing, .listening, .transcribing, .polishing, .polished: .trailing
         }
     }
@@ -118,7 +124,7 @@ enum NotchActivity: Equatable {
         case .listening: .listening
         case .polishing: .thinking
         case .preparing, .transcribing: .working
-        case .idle, .polished, .delivered, .failed: nil
+        case .idle, .polished, .delivered, .failed, .readyNotice: nil
         }
     }
 
@@ -166,7 +172,8 @@ enum NotchActivity: Equatable {
         case .transcribing: "Transcribing"
         case .delivered: "Delivered"
         case .failed: "Failed"
-        case .idle: ""
+        // The notice draws its own line; it has no state word.
+        case .idle, .readyNotice: ""
         }
     }
 }

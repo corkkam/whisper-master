@@ -18,7 +18,7 @@ struct NotchMeetingPromptBanner: View {
         ) {
             Spacer(minLength: Theme.Space.sm)
 
-            Button("Take notes") { controller.takeNotes() }
+            Button("Take notes") { controller.requestNotes() }
                 .buttonStyle(.plain)
                 .font(Typography.notchCaption)
                 .foregroundStyle(Theme.Notch.text)

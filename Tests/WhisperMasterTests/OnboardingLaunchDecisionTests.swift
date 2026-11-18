@@ -32,6 +32,89 @@ final class OnboardingLaunchDecisionTests: XCTestCase {
         XCTAssertEqual(decide(signingOut: true), .skip)
         XCTAssertEqual(decide(mic: true, accessibility: true, signingOut: true), .skip)
     }
+
+    /// A nil user has no record to look up or seed, so it is shown setup, as the
+    /// launch always did, even with both grants on. A sign-out still holds it.
+    func testANilUserIsShownAndNeverSeeded() {
+        for (mic, accessibility) in [(false, false), (true, true)] {
+            XCTAssertEqual(
+                OnboardingLaunchDecision.resolve(
+                    userID: nil, micGranted: mic, accessibilityGranted: accessibility, signOutInFlight: false),
+                .show)
+        }
+        XCTAssertEqual(
+            OnboardingLaunchDecision.resolve(
+                userID: nil, micGranted: true, accessibilityGranted: true, signOutInFlight: true),
+            .skip)
+    }
+}
+
+/// The `AppDelegate` entry with a real id, which reads the account's record.
+/// The nil user is `OnboardingLaunchDecisionTests.testANilUserIsShownAndNeverSeeded`.
+final class OnboardingLaunchDecisionRecordTests: XCTestCase {
+    private let key = "WhisperMaster.onboardingSeenSteps.v1"
+    private var saved: Any?
+    private let user = "onboarding-launch-tests-\(UUID().uuidString)"
+
+    override func setUp() {
+        super.setUp()
+        saved = UserDefaults.standard.object(forKey: key)
+    }
+
+    override func tearDown() {
+        if let saved {
+            UserDefaults.standard.set(saved, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        super.tearDown()
+    }
+
+    private func decide(mic: Bool = false, accessibility: Bool = false) -> OnboardingLaunchDecision {
+        OnboardingLaunchDecision.resolve(
+            userID: user, micGranted: mic, accessibilityGranted: accessibility, signOutInFlight: false)
+    }
+
+    func testANewAccountWithNoRecordIsShownSetup() {
+        XCTAssertFalse(OnboardingProgress.hasRecord(userID: user))
+        XCTAssertEqual(decide(), .show)
+    }
+
+    /// The migration: no record, both grants already on.
+    func testANewAccountWithBothGrantsIsSeeded() {
+        XCTAssertEqual(decide(mic: true, accessibility: true), .seedAsSeen)
+    }
+
+    func testAFinishedAccountIsNotShownSetup() {
+        OnboardingProgress.markSeen(OnboardingStep.allCases.map(\.id), userID: user)
+        XCTAssertEqual(decide(), .skip)
+        XCTAssertEqual(decide(mic: true, accessibility: true), .skip)
+    }
+}
+
+/// The hold that keeps the sign-in gate up while Clerk's sign-out is on the
+/// network, ended by the call returning or by `SignOutHold.limit`.
+final class SignOutHoldTests: XCTestCase {
+    func testTheCallReturningEndsTheHold() {
+        var hold = SignOutHold()
+        let token = hold.begin()
+        XCTAssertTrue(hold.inFlight)
+        XCTAssertTrue(hold.end(token))
+        XCTAssertFalse(hold.inFlight)
+        // The limit's timer then finds nothing to end.
+        XCTAssertFalse(hold.end(token))
+    }
+
+    /// An older sign-out's timer must not release a newer sign-out's gate.
+    func testAStaleEndChangesNothing() {
+        var hold = SignOutHold()
+        let first = hold.begin()
+        _ = hold.end(first)
+        let second = hold.begin()
+        XCTAssertFalse(hold.end(first))
+        XCTAssertTrue(hold.inFlight)
+        XCTAssertTrue(hold.end(second))
+    }
 }
 
 /// Locks what "this account has onboarded" means, so the new flow cannot
