@@ -384,3 +384,14 @@ arrive as "whisper mash" or "visible master".
 - **XcodeGen / `project.yml`** — `project.yml` is the source of truth; the
   `.xcodeproj` is generated and git-ignored. Dependencies are declared in both
   `project.yml` and `Package.swift`.
+
+## 10. Agent roles
+
+Five role agents live in `.claude/agents/`: `cto`, `cpo`, `marketing`, `sales`, `cfo`. This section is the rule set they all follow.
+
+1. **This is a personal project.** Never use any employer's connectors, data, accounts, email domain or name. Before a connector call, check that the account behind it is the owner's personal one.
+2. **Draft freely, send never.** Anything a real person receives (email, message, post, outreach, invoice) is a draft until the owner approves that exact item. Approval does not carry over to the next item (§8).
+3. **No spend, no billing change, no release.** Recommend. The release freeze in §7 applies to every role.
+4. **Every claim needs a source.** Cite a file, a test result, a published eval number or a public page. Say what you did not verify.
+5. **Commit identity.** Use the repo-local git config: author `corkkam`, GitHub noreply address, pushes over HTTPS as `corkkam` through the credential helper in `.git/config`. Never commit a secret or a personal address.
+6. **Output goes in the repo** under `docs/<role>/`, on a `feature/<slug>` branch off `dev`.
