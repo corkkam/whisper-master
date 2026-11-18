@@ -27,7 +27,9 @@ struct SelectionContext: Equatable, Sendable {
 
     /// What `read_selection` hands the model.
     var toolText: String {
-        let window = windowTitle.map { " — \u{201C}\($0)\u{201D}" } ?? ""
+        // A page sets its own title, so it is clamped like the app name: an unbounded
+        // title is resent on every later turn.
+        let window = windowTitle.map { " — \u{201C}\(Self.promptSafe($0, limit: 120))\u{201D}" } ?? ""
         let cut = wasCut ? "\n[\(originalLength - text.count) more characters not shown]" : ""
         return "Selected in \(appName)\(window) (\(originalLength) characters):\n\(text)\(cut)"
     }
@@ -41,6 +43,10 @@ struct SelectionContext: Equatable, Sendable {
     /// The shortest run of the selection that counts as repeating it. A shorter run is
     /// a common phrase, and matching it would blank ordinary arguments.
     static let repeatRun = 40
+    /// A selection shorter than `repeatRun` is matched whole, once it is this long: a
+    /// 20-character key or PIN is exactly what a short selection tends to be, while
+    /// anything shorter is too likely to be an ordinary word.
+    static let wholeSelectionMinimum = 12
 
     /// `other` as a trace or the answer log may keep it: unchanged, or a placeholder
     /// when it repeats `repeatRun` characters of the selection in a row. A model that
@@ -52,6 +58,9 @@ struct SelectionContext: Equatable, Sendable {
     /// Scalars, not characters: hashing 8,000 windows of `Character` is slow enough to
     /// feel on the main actor, and the threshold does not need grapheme precision.
     private func repeats(in other: String) -> Bool {
+        if text.count < Self.repeatRun {
+            return text.count >= Self.wholeSelectionMinimum && other.contains(text)
+        }
         let run = Self.repeatRun
         let mine = Array(text.unicodeScalars), theirs = Array(other.unicodeScalars)
         guard mine.count >= run, theirs.count >= run else { return false }
@@ -61,10 +70,10 @@ struct SelectionContext: Equatable, Sendable {
 
     /// An app name is the app's own, but it still goes into a system prompt: one line,
     /// and short.
-    private static func promptSafe(_ name: String) -> String {
+    private static func promptSafe(_ name: String, limit: Int = 60) -> String {
         let line = name.components(separatedBy: .newlines).joined(separator: " ")
             .trimmingCharacters(in: .whitespaces)
-        return line.isEmpty ? "another app" : String(line.prefix(60))
+        return line.isEmpty ? "another app" : String(line.prefix(limit))
     }
 }
 
@@ -166,7 +175,13 @@ struct SelectionReader: Sendable {
             // changes another app's behaviour, which is the owner's call.
             child(of: AXUIElementCreateApplication(pid), kAXFocusedUIElementAttribute,
                   timeout: messagingTimeout)
-                .flatMap { FocusedElementInspector.stringAttribute($0, kAXSelectedTextAttribute) }
+                .flatMap { element in
+                    // Secure input is global and may be off while a revealed field
+                    // still holds a secret, so the element's own subrole is asked too.
+                    if FocusedElementInspector.stringAttribute(element, kAXSubroleAttribute)
+                        == (kAXSecureTextFieldSubrole as String) { return nil }
+                    return FocusedElementInspector.stringAttribute(element, kAXSelectedTextAttribute)
+                }
         })
 
     /// An attribute whose value is itself an element, with the timeout set on the
