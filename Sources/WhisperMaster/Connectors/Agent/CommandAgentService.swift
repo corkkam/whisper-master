@@ -181,14 +181,20 @@ struct CommandAgentService {
         /// impossible.
         func run(_ result: CommandAgentResult?, _ declineReason: String = "") -> Run {
             let answer = result?.answer ?? ""
+            var storable = router.selectionRead?.storable(answer) ?? answer
+            // A model that repeats its draft in the answer must not store it there.
+            if let draft = router.draft {
+                storable = DeviceToolCatalog.strip(draft.text, from: storable)
+            }
             return Run(result: result,
                        toolsOffered: tools.map(\.name),
                        connectorsAllowed: connectorsAllowed,
                        calls: router.journal,
-                       turns: Self.traceTurns(outcome.turns, selection: router.selectionRead),
+                       turns: Self.traceTurns(outcome.turns, selection: router.selectionRead,
+                                              draft: router.draft),
                        declineReason: result == nil ? declineReason : "",
                        budgetSpent: outcome.exhausted,
-                       storableAnswer: router.selectionRead?.storable(answer) ?? answer,
+                       storableAnswer: storable,
                        tainted: taint.isSet,
                        draft: router.draft)
         }
@@ -256,11 +262,16 @@ struct CommandAgentService {
     /// After a `read_selection`, a turn that repeats the selection is kept as a
     /// placeholder, because traces persist.
     private static func traceTurns(_ turns: [AgentTurn],
-                                   selection: SelectionContext?) -> [TraceTurn] {
+                                   selection: SelectionContext?,
+                                   draft: AgentDraft?) -> [TraceTurn] {
         turns
             .filter { $0.role != .tool }
             .map { turn in
-                let text = selection?.storable(turn.text) ?? turn.text
+                // A model turn that calls a draft tool keeps the call, not the text,
+                // and any later turn that repeats the staged draft keeps its length.
+                var shown = turn.role == .model ? DeviceToolCatalog.storableTurn(turn.text) : turn.text
+                if let draft { shown = DeviceToolCatalog.strip(draft.text, from: shown) }
+                let text = selection?.storable(shown) ?? shown
                 return TraceTurn(role: turn.role.rawValue, text: TraceText.clamp(text))
             }
     }

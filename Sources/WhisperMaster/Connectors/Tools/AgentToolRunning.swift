@@ -130,7 +130,8 @@ final class CommandToolRouter: AgentToolRunning {
         let storable = { (text: String) in self.selectionRead?.storable(text) ?? text }
         journal.append(ToolCallTrace(
             tool: call.tool,
-            arguments: call.arguments.mapValues(storable),
+            // A draft keeps only its length: it is the user's text, rewritten.
+            arguments: DeviceToolCatalog.storableArguments(call).mapValues(storable),
             connectors: result.instanceLabels,
             ok: result.ok,
             result: readTheSelection

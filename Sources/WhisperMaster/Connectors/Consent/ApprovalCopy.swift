@@ -63,10 +63,13 @@ enum ApprovalCopy {
     /// Personal on Personal" — a headline that reads like a bug and spends the
     /// band's width saying one name twice.
     static func headline(tool: String, target: String, instanceLabel: String) -> String {
-        // A link's headline names the host, the part that decides; the whole link is
-        // the payload line under it.
+        // A link's headline names the host, the part that decides, cut at its front so
+        // the domain stays visible; the whole link is the payload line under it.
+        // `open_url` refuses a host whose domain does not fit, so the fallback is
+        // only for a card raised some other way.
         if tool == "open_url" {
-            return "Open \(URL(string: target)?.host() ?? target) in your browser"
+            let host = URL(string: target)?.host() ?? target
+            return DeviceToolCatalog.linkHeadline(host: host) ?? "Open \(host) in your browser"
         }
         let scope = target.compare(instanceLabel, options: .caseInsensitive) == .orderedSame
             ? instanceLabel

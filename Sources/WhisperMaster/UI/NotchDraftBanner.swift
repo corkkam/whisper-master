@@ -38,6 +38,9 @@ struct NotchDraftBanner: View {
         /// Lines shown before the text scrolls. Kept so `maxThickness` stays inside
         /// the panel's height, which is sized once (`NotchAgentPanel.maxThickness`).
         static let maxBodyLines = 8
+        /// The column is measured this much narrower than it is set: `Text` breaks a
+        /// little earlier than the greedy wrap. `NotchAgentReplyExpanded` uses 0.94.
+        static let measureSlack: CGFloat = 0.94
         /// The shape's frame includes its concave top flares, so the black body is
         /// `topConcaveRadius` narrower on each side than the frame. A centred banner
         /// never shows this; a band filled edge to edge does.
@@ -146,17 +149,24 @@ struct NotchDraftBanner: View {
 
     // MARK: - Height
 
-    /// Lines the draft takes at `width`, wrapped the way `Text` wraps it, with each
-    /// line break kept. Measured with `NotchTextMetrics`, whose font is
-    /// `Typography.notchBody`, so the band is as tall as the text it carries.
+    /// Lines the draft takes at `width`, with each line break kept. Measured with
+    /// `NotchTextMetrics`, whose font is `Typography.notchBody`.
+    ///
+    /// Two corrections keep it from under-counting, the one error that shows (the
+    /// band clips the tail and nothing scrolls): the column is measured narrower than
+    /// it is set (`measureSlack`, the expanded reply's figure), and a token wider than
+    /// the column (a URL, a path, base64) counts a line per column width, where the
+    /// greedy wrap gives it one.
     static func lineCount(_ text: String, width: CGFloat) -> Int {
-        text.components(separatedBy: .newlines).reduce(0) { total, paragraph in
-            let words = paragraph.split(separator: " ").map(String.init)
-            let lines = NotchTranscriptModel.wrap(
-                widths: words.map(NotchTextMetrics.width),
-                spacing: NotchTextMetrics.spaceWidth,
-                maxWidth: width).count
-            return total + max(1, lines)
+        let column = max(width * Metrics.measureSlack, 1)
+        return text.components(separatedBy: .newlines).reduce(0) { total, paragraph in
+            let widths = paragraph.split(separator: " ").map { NotchTextMetrics.width(String($0)) }
+            let wrapped = NotchTranscriptModel.wrap(
+                widths: widths, spacing: NotchTextMetrics.spaceWidth, maxWidth: column).count
+            let overflow = widths.reduce(0) { sum, word in
+                sum + max(0, Int((word / column).rounded(.up)) - 1)
+            }
+            return total + max(1, wrapped + overflow)
         }
     }
 

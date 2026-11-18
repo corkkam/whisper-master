@@ -135,6 +135,95 @@ enum DeviceToolCatalog {
         tool != openURL.name
     }
 
+    // MARK: - What a trace keeps
+
+    static let draftToolNames: Set<String> = [replaceSelection.name, insertText.name]
+
+    /// What a trace keeps in place of a draft: its length. Traces persist, and a
+    /// draft is a rewrite of the user's text from another app, which the selection's
+    /// own 40-character rule (`SelectionContext.storable`) does not catch.
+    static func draftPlaceholder(_ text: String) -> String {
+        "[draft, \(text.count) characters]"
+    }
+
+    /// `text` with every copy of `draft` kept as its length: as written, and as a
+    /// model writes it inside JSON (`\n`, `\"`), where a plain search misses it.
+    static func strip(_ draft: String, from text: String) -> String {
+        let placeholder = draftPlaceholder(draft)
+        var kept = text.replacingOccurrences(of: draft, with: placeholder)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .withoutEscapingSlashes
+        if let data = try? encoder.encode(draft),
+           let quoted = String(data: data, encoding: .utf8), quoted.count > 2 {
+            kept = kept.replacingOccurrences(of: String(quoted.dropFirst().dropLast()), with: placeholder)
+        }
+        return kept
+    }
+
+    /// A call's arguments as the journal may keep them.
+    static func storableArguments(_ call: ToolCall) -> [String: String] {
+        guard draftToolNames.contains(call.tool) else { return call.arguments }
+        return call.arguments.mapValues(draftPlaceholder)
+    }
+
+    /// A model turn as a trace may keep it: one that calls a draft tool keeps the
+    /// call's shape and loses the text, malformed or not.
+    static func storableTurn(_ text: String) -> String {
+        guard let tool = draftToolNames.sorted().first(where: { text.contains($0) }) else { return text }
+        var draft = text
+        if case .success(.call(let call)) = ToolCallParser.parse(text, tools: all),
+           let body = call.arguments["text"] {
+            draft = body
+        }
+        return #"{"tool":"\#(tool)","args":{"text":"\#(draftPlaceholder(draft))"}}"#
+    }
+
+    // MARK: - The link card's headline
+
+    /// Width the headline may take on the wide card beside Once and No: the text
+    /// column there measures about 426 pt (`pill-9g`), so this leaves a margin for a
+    /// narrower notch. A link card never shows Always, which would take more.
+    static let linkHeadlineWidth: CGFloat = 380
+
+    /// "Open <host> in your browser", measured in the card's title font. A long host
+    /// loses labels from its **front**, so the end, where the registrable domain is,
+    /// stays on screen: a tail cut would show `accounts.google.com.…` for a host that
+    /// ends in somebody else's domain. Nil when even the domain does not fit, and the
+    /// link is then refused rather than shown as a prefix that misleads.
+    static func linkHeadline(host: String) -> String? {
+        func line(_ shown: String) -> String { "Open \(shown) in your browser" }
+        guard width(of: line(host)) > linkHeadlineWidth else { return line(host) }
+        var labels = host.split(separator: ".").map(String.init)
+        while labels.count > registrableLabels(labels) {
+            labels.removeFirst()
+            let candidate = line("\u{2026}" + labels.joined(separator: "."))
+            if width(of: candidate) <= linkHeadlineWidth { return candidate }
+        }
+        return nil
+    }
+
+    /// Labels the registrable domain takes: two, or three under a short second level
+    /// of a country code (`example.co.uk`).
+    // shortcut: no public suffix list, so a rarer suffix (`example.blogspot.com`) can
+    // be cut to its suffix plus one; ship the list if links like that matter.
+    private static func registrableLabels(_ labels: [String]) -> Int {
+        guard labels.count >= 3, let top = labels.last, top.count == 2,
+              labels[labels.count - 2].count <= 3
+        else { return min(2, labels.count) }
+        return 3
+    }
+
+    /// The headline's width in `Typography.notchTitle`, the face the card sets it in.
+    private static func width(of text: String) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: titleFont]).width)
+    }
+
+    nonisolated(unsafe) private static let titleFont: NSFont = {
+        let descriptor = NSFontDescriptor(fontAttributes: [.family: BrandFont.body])
+            .addingAttributes([.traits: [NSFontDescriptor.TraitKey.weight: NSFont.Weight.semibold.rawValue]])
+        return NSFont(descriptor: descriptor, size: 12) ?? .systemFont(ofSize: 12, weight: .semibold)
+    }()
+
     /// An http or https link from the model's argument, or nil. A bare domain
     /// ("github.com") is read as https; any other scheme, a link with a user name in
     /// it (`https://github.com@evil.example`), or one with no host is refused.
@@ -179,42 +268,65 @@ struct AgentDraft: Equatable, Sendable {
 
     static let focusMoved = "You switched apps after you spoke, so this is copy only."
     static let afterReading = "I wrote this after reading text from your accounts, so this is copy only."
+    static let afterReadingSelection = "I wrote this after reading your selection, so this is copy only."
     static let multiLineInTerminal = "A terminal runs each line, so a multi-line draft is copy only."
+    static let hiddenCharacters = "The draft has characters the band can't show, so this is copy only."
 
     /// The insert rules, in one place, or nil for a draft with nothing in it.
     ///
-    /// - A terminal loses trailing newlines (one would run the command) and a
-    ///   multi-line draft there is copy only (each line would run).
     /// - Focus that moved since key-down makes it copy only: the words were meant
     ///   for the other app.
-    /// - Text from an account (mail, chat) read in this run makes it copy only. The
-    ///   run's own selection read does not: "make this shorter" reads the text it
-    ///   replaces, and a rewrite of it typed back over it reaches nothing new.
+    /// - A control or format character the band cannot show (an escape sequence, a
+    ///   bidi override, a zero-width mark) makes it copy only: the tap must type
+    ///   exactly what the user read. A tab is allowed, and so is a line break outside
+    ///   a terminal.
+    /// - Text from an account (mail, chat) read in this run makes it copy only.
+    /// - The run's own selection read is exempt in one case only: a Replace outside a
+    ///   terminal, where "make this shorter" types a rewrite back over the text it
+    ///   read. An insert, or anything in a terminal, after that read is copy only.
+    /// - A terminal loses trailing newlines (one would run the command), and a
+    ///   multi-line draft there is copy only (each line would run).
     static func stage(_ kind: Kind,
                       text: String,
                       app: SelectionReader.FrontApp,
                       selection: String?,
                       frontNow: SelectionReader.FrontApp?,
+                      tainted: Bool,
                       readOutsideSelection: Bool) -> AgentDraft? {
+        let terminal = TerminalApps.isTerminal(bundleID: app.bundleID)
         var text = text
-        var multiLine = false
-        if TerminalApps.isTerminal(bundleID: app.bundleID) {
+        if terminal {
             while let last = text.last, last.isNewline { text.removeLast() }
-            multiLine = text.contains(where: \.isNewline)
         }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let reason: String?
         if frontNow?.pid != app.pid {
             reason = focusMoved
+        } else if hasHiddenCharacters(text) {
+            reason = hiddenCharacters
         } else if readOutsideSelection {
             reason = afterReading
-        } else if multiLine {
+        } else if tainted, kind == .insertText || terminal {
+            reason = afterReadingSelection
+        } else if terminal, text.contains(where: \.isNewline) {
             reason = multiLineInTerminal
         } else {
             reason = nil
         }
         return AgentDraft(kind: kind, text: text, app: app, selection: selection,
                           copyOnlyReason: reason)
+    }
+
+    /// Any Cc or Cf scalar except a tab and a line break. Line breaks are left to the
+    /// terminal rule, which is the one place they run something.
+    static func hasHiddenCharacters(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            guard scalar != "\t", scalar != "\n", scalar != "\r" else { return false }
+            switch scalar.properties.generalCategory {
+            case .control, .format: return true
+            default: return false
+            }
+        }
     }
 
     /// The same draft, made copy only because a check at the tap failed.
@@ -302,11 +414,14 @@ struct DeviceToolRunner {
               let host = url.host()
         else { return (.failure("Only an http or https link can be opened."), nil) }
         let link = url.absoluteString
-        guard link.count <= DeviceToolCatalog.maxURLLength else {
+        guard link.count <= DeviceToolCatalog.maxURLLength,
+              DeviceToolCatalog.linkHeadline(host: host) != nil
+        else {
             return (.failure("That link is too long to show in full on the card, so it wasn't opened."), nil)
         }
-        // A query or a fragment can carry what this run read to a server that planted
-        // text chose. A plain address still goes to the card.
+        // A query or a fragment is the easiest place for read text to ride out, so a
+        // tainted run refuses one. It can leave in a path or a subdomain as well; the
+        // card on every link, with the whole address on it, is what covers those.
         if taint.isSet, url.query() != nil || url.fragment() != nil {
             return (.failure("This run read text from your accounts or your selection, so a link "
                 + "with a query or a fragment can't be opened."), nil)
@@ -398,6 +513,7 @@ struct DeviceToolRunner {
             app: app,
             selection: kind == .replaceSelection ? selection?.text : nil,
             frontNow: environment.frontApp(),
+            tainted: taint.isSet,
             readOutsideSelection: taint.outsideSelection)
         else { return (.failure("The draft is empty."), nil) }
         let text = draft.copyOnlyReason.map { "The draft is on screen for the user to copy. \($0)" }

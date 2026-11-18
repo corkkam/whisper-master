@@ -460,6 +460,18 @@ enum SnapshotMode {
                 copyOnlyReason: nil)
             s.agentDraftAt = Date()
         }
+        // A 300-character unbroken token (a key, a long link): the band counts every
+        // line it wraps to, so the tail is on the band rather than clipped.
+        renderPill(dir, name: "pill-14c-draft-long-token") { s in
+            s.phase = .idle
+            s.agentDraft = AgentDraft(
+                kind: .insertText,
+                text: "Here is the token:\n" + String(repeating: "a1B2c3D4e5", count: 29) + "ENDTOKEN!!",
+                app: SelectionReader.FrontApp(bundleID: "com.apple.Notes", name: "Notes", pid: 1),
+                selection: nil,
+                copyOnlyReason: nil)
+            s.agentDraftAt = Date()
+        }
         // A multi-line draft for a terminal: copy only, and the band says why.
         renderPill(dir, name: "pill-14b-draft-copy-only") { s in
             s.phase = .idle

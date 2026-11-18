@@ -325,6 +325,134 @@ final class DeviceToolRunnerTests: XCTestCase {
         XCTAssertEqual(run.result?.createdSomething, true)
     }
 
+    // MARK: - Review fixes
+
+    /// B3: the selection read is exempt only for a Replace outside a terminal.
+    func testAfterASelectionReadAnInsertOrATerminalIsCopyOnly() async {
+        let taint = Taint()
+        taint.isSet = true
+        let (_, insert) = await runner(recorder: Recorder(), taint: taint, keyDown: mail)
+            .run(call("insert_text", ["text": "Summary: numbers look good."]))
+        guard case .draftStaged(let inserted)? = insert else { return XCTFail("no draft") }
+        XCTAssertEqual(inserted.copyOnlyReason, AgentDraft.afterReadingSelection)
+
+        let (_, replace) = await runner(recorder: Recorder(), taint: taint,
+                                        keyDown: terminal, selection: selection("ls -la"))
+            .run(call("replace_selection", ["text": "ls -lah"]))
+        guard case .draftStaged(let replaced)? = replace else { return XCTFail("no draft") }
+        XCTAssertEqual(replaced.copyOnlyReason, AgentDraft.afterReadingSelection)
+    }
+
+    /// B4: what the band cannot show, the tap must not type.
+    func testHiddenCharactersMakeTheDraftCopyOnly() async {
+        for text in ["clear\u{1B}[2J", "pay \u{202E}0001$", "ok\u{200B}go", "a\u{0}b", "line\u{85}two"] {
+            let (_, effect) = await runner(recorder: Recorder(), keyDown: mail)
+                .run(call("insert_text", ["text": text]))
+            guard case .draftStaged(let draft)? = effect else { return XCTFail("no draft") }
+            XCTAssertEqual(draft.copyOnlyReason, AgentDraft.hiddenCharacters, text.debugDescription)
+        }
+        for text in ["a\tb", "Hi Sam,\n\nThanks.\r\nDana"] {
+            let (_, effect) = await runner(recorder: Recorder(), keyDown: mail)
+                .run(call("insert_text", ["text": text]))
+            guard case .draftStaged(let draft)? = effect else { return XCTFail("no draft") }
+            XCTAssertNil(draft.copyOnlyReason, "a tab or a line break outside a terminal is fine")
+        }
+    }
+
+    /// B1: traces persist, so a draft is kept as its length, in the call and in the
+    /// model turn that made it. The band still gets the real text.
+    func testATraceKeepsTheDraftsLengthNotItsText() async {
+        // Two lines, so the model's JSON carries it escaped (`\n`) and a plain search
+        // for the text would miss it.
+        let secret = "Board approved the merger at 4.2 billion.\nWe announce Monday."
+        let json = #"Board approved the merger at 4.2 billion.\nWe announce Monday."#
+        let notes = NotesStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("device-\(UUID()).json"), load: false)
+        var service = CommandAgentService(
+            store: emptyStore(), notes: notes, approvals: ApprovalCoordinator(),
+            connectorsAllowed: false)
+        service.frontApp = mail
+        service.device = DeviceToolRunner.Environment(
+            installedApp: { _ in nil }, openApp: { _ in false }, openURL: { _ in false },
+            frontApp: { [mail] in mail })
+        let run = await service.run(
+            "write that the board approved it",
+            generate: ScriptedModel([
+                #"{"tool":"insert_text","args":{"text":"\#(json)"}}"#,
+                #"{"answer":"\#(json)"}"#,
+            ]).generate)
+
+        XCTAssertEqual(run.draft?.text, secret)
+        XCTAssertEqual(run.calls.first?.arguments["text"], "[draft, \(secret.count) characters]")
+        XCTAssertFalse(run.turns.contains { $0.text.contains("merger") }, "\(run.turns)")
+        XCTAssertFalse(run.storableAnswer.contains("merger"))
+    }
+
+    func testTheJournalKeepsAReplacementsLengthOnly() async {
+        let notes = NotesStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("device-\(UUID()).json"), load: false)
+        let router = CommandToolRouter(
+            local: LocalToolRunner(notes: notes), connectors: nil,
+            device: runner(recorder: Recorder(), keyDown: mail, selection: selection()))
+        _ = await router.run(call("replace_selection", ["text": "Numbers look good."]))
+        XCTAssertEqual(router.journal.first?.arguments, ["text": "[draft, 18 characters]"])
+    }
+
+    /// B2: a token wider than the column takes a line per column width, so the band
+    /// is tall enough (or scrolls) instead of clipping its tail.
+    func testALongUnbrokenTokenCountsEveryLineItTakes() {
+        let token = String(repeating: "a1B2c3D4e5", count: 30)
+        let column: CGFloat = 500
+        let needed = Int((NotchTextMetrics.width(token) / column).rounded(.up))
+        XCTAssertGreaterThanOrEqual(NotchDraftBanner.lineCount(token, width: column), needed)
+        XCTAssertGreaterThan(needed, 1)
+    }
+
+    /// A1: a long host is cut at the front, so its real domain stays on the card;
+    /// one whose domain cannot fit is refused rather than shown as a prefix.
+    func testTheLinkHeadlineKeepsTheDomainOrRefuses() async {
+        let host = "login.accounts.google.com.secure-verification-center.attacker-controlled-domain.net"
+        let headline = DeviceToolCatalog.linkHeadline(host: host)
+        XCTAssertEqual(headline?.hasPrefix("Open \u{2026}"), true, headline ?? "nil")
+        XCTAssertEqual(headline?.hasSuffix("attacker-controlled-domain.net in your browser"), true)
+        XCTAssertEqual(DeviceToolCatalog.linkHeadline(host: "github.com"), "Open github.com in your browser")
+        XCTAssertNil(DeviceToolCatalog.linkHeadline(host: String(repeating: "x", count: 60) + ".co.uk"),
+                     "never cut down to the public suffix")
+
+        let recorder = Recorder()
+        let (result, _) = await runner(recorder: recorder)
+            .run(call("open_url", ["url": "https://" + String(repeating: "a", count: 60) + ".com/"]))
+        XCTAssertFalse(result.ok)
+        XCTAssertTrue(recorder.cards.isEmpty)
+    }
+
+    /// A4: Escape drops a staged draft, even when it also denies a waiting card.
+    func testEscapeDropsAStagedDraft() {
+        let viewModel = DictationViewModel()
+        viewModel.state.agentDraft = AgentDraft.stage(
+            .insertText, text: "On my way.", app: mail, selection: nil, frontNow: mail,
+            tainted: false, readOutsideSelection: false)
+        viewModel.state.agentDraftAt = Date()
+        viewModel.state.approvals.seedPendingForSnapshot(PendingApproval(
+            tool: "open_app", instanceID: DeviceToolCatalog.thisMacID,
+            instanceLabel: DeviceToolCatalog.thisMacLabel, target: "Figma", arguments: [:]))
+
+        XCTAssertTrue(viewModel.handleAssistantEscape())
+        XCTAssertNil(viewModel.state.agentDraft)
+        XCTAssertNil(viewModel.state.approvals.pending)
+    }
+
+    /// A6: a device call is an action in the trace, and This Mac is not a connector.
+    func testATraceShowsADeviceCallAsAnActionNotAConnector() {
+        let opened = ToolCallTrace(tool: "open_app", arguments: ["app": "Figma"],
+                                   connectors: [DeviceToolCatalog.thisMacLabel], ok: true,
+                                   result: "Opened Figma.", milliseconds: 3)
+        XCTAssertTrue(opened.isWrite)
+        var trace = AssistantTrace(askedAt: Date(), heard: "open figma", asked: "open figma", stages: [])
+        trace.calls = [opened]
+        XCTAssertTrue(trace.touchedConnectors.isEmpty)
+    }
+
     /// The band shows the draft as it will be typed, a line per line break, and its
     /// tallest form stays inside the panel, which is sized once at window creation.
     func testTheDraftBandKeepsLineBreaksAndFitsThePanel() {

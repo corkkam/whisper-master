@@ -867,14 +867,11 @@ final class DictationViewModel {
     }
 
     private func applyDraft(_ draft: AgentDraft) async {
-        if let reason = await draftBlocker(draft) {
-            copyToClipboard(draft.text)
-            // Only this draft: a newer one may have landed while the check ran.
-            if state.agentDraft == draft { state.agentDraft = draft.copyOnly(reason) }
-            state.statusMessage = "\(reason) It is on the clipboard."
-            return
-        }
+        if let reason = await draftBlocker(draft) { return copyInstead(draft, reason) }
         guard state.agentDraft == draft else { return }
+        // Again, with nothing between this and the paste: the selection read above
+        // can take half a second, long enough to switch apps.
+        if let reason = focusBlocker(draft) { return copyInstead(draft, reason) }
         clearDraft()
         // A real ⌘V with the clipboard put back after, never a Return: the draft is
         // typed, and sending it is still the user's own keystroke.
@@ -884,13 +881,16 @@ final class DictationViewModel {
             : "Typed the draft into \(draft.app.name)."
     }
 
-    /// Why a tap must copy rather than type. Checked at the tap, not trusted from
-    /// when the draft was staged: the user may have moved since.
-    private func draftBlocker(_ draft: AgentDraft) async -> String? {
-        if let reason = draft.copyOnlyReason { return reason }
-        guard permissionsManager.accessibilityGranted() else {
-            return "Typing needs Accessibility, so this is copy only."
-        }
+    private func copyInstead(_ draft: AgentDraft, _ reason: String) {
+        copyToClipboard(draft.text)
+        // Only this draft: a newer one may have landed while the check ran.
+        if state.agentDraft == draft { state.agentDraft = draft.copyOnly(reason) }
+        state.statusMessage = "\(reason) It is on the clipboard."
+    }
+
+    /// The two checks that can change in a moment, so they run at the tap and again
+    /// right before the paste.
+    private func focusBlocker(_ draft: AgentDraft) -> String? {
         // The WindowServer drops a synthesized ⌘V then, and the paste would restore
         // the old clipboard over the draft.
         guard !TerminalApps.secureKeyboardEntryEnabled() else {
@@ -899,6 +899,17 @@ final class DictationViewModel {
         guard SelectionReader.FrontApp.current()?.pid == draft.app.pid else {
             return AgentDraft.focusMoved
         }
+        return nil
+    }
+
+    /// Why a tap must copy rather than type. Checked at the tap, not trusted from
+    /// when the draft was staged: the user may have moved since.
+    private func draftBlocker(_ draft: AgentDraft) async -> String? {
+        if let reason = draft.copyOnlyReason { return reason }
+        guard permissionsManager.accessibilityGranted() else {
+            return "Typing needs Accessibility, so this is copy only."
+        }
+        if let reason = focusBlocker(draft) { return reason }
         if draft.kind == .replaceSelection {
             // The same off-main read the chord makes, so a hung app costs the wait.
             let capture = SelectionCapture()
@@ -1997,7 +2008,9 @@ final class DictationViewModel {
             commandAgentTask.cancel()
             handled = true
         }
-        if !handled, state.agentDraft != nil {
+        // Not gated on the two above: Escape always drops a staged draft, even when it
+        // also denied a card, so nothing is left waiting to be typed.
+        if state.agentDraft != nil {
             clearDraft()
             handled = true
         }

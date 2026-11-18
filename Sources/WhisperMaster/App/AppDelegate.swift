@@ -1479,10 +1479,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the working row is what interrupts).
         //
         // The assistant is asked first (`handleAssistantEscape`): it denies a waiting
-        // approval card, stops a running loop, or closes a long answer. Because the
-        // key is only observed, an Esc meant for another app does this too; each of
-        // the three is safe to do by mistake (a denial, words filed as a note, a
-        // band closed).
+        // approval card, stops a running loop, drops a staged draft, or closes a long
+        // answer. Because the key is only observed, an Esc meant for another app does
+        // this too; each is safe to do by mistake (a denial, words filed as a note,
+        // nothing typed, a band closed).
         escKeyMonitorGlobal = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) {
             [weak self] event in
             self?.handleEscIfAgentSurfaceShowing(event)
