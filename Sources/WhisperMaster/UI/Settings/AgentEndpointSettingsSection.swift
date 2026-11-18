@@ -210,6 +210,8 @@ struct AgentEndpointConsentSheet: View {
         "The name of the app in front and how much text you selected. The selected "
             + "text and the window title when the assistant reads them.",
         "What the assistant reads for you: calendar events, mail, messages, notes and reminders.",
+        "What happens when it acts on this Mac: which app or link it opened, or that no such app is installed.",
+        "Text the assistant writes for the app you are in, and whether you used it.",
         "The assistant's instructions and the list of tools it can use.",
         "Your API key, to this address only.",
     ]

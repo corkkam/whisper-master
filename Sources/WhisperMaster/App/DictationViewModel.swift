@@ -1594,7 +1594,7 @@ final class DictationViewModel {
                                              calls: remote.calls),
               CleanupModel.General.isInstalled else { return remote }
         var local = await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice,
-                             keyDownApp: keyDownApp)
+                              keyDownApp: keyDownApp)
         local.priorDecisions = [TraceDecision(
             title: "Your endpoint",
             detail: remote.decision.detail + " The on-device assistant took it next.",

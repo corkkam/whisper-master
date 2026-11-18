@@ -367,7 +367,8 @@ struct EndpointSendTrace: Codable, Hashable, Sendable {
     var spoken: Int = 0
     /// The model's own earlier replies.
     var modelReplies: Int = 0
-    /// What the tools read: calendar, mail, messages, the selection.
+    /// What the tools returned: calendar, mail, messages, the selection, and the results
+    /// of acting on this Mac.
     var toolResults: Int = 0
     /// The tool descriptions.
     var toolList: Int = 0
