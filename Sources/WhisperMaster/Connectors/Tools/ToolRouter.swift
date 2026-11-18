@@ -49,6 +49,14 @@ struct ToolRouter {
     /// `LocalToolRunner`, so a `read_selection` taints the run too, and the flag
     /// cannot leak into the next command.
     var taint = Taint()
+    /// The provider that performs a write. Injected so a test can stand in for the
+    /// network.
+    var writeProvider: (ConnectorInstance) -> (any WriteCapableProvider)? = {
+        ProviderRegistry.provider(for: $0) as? any WriteCapableProvider
+    }
+
+    /// What a write stopped by a cancel (Escape, sign-out) reports. Nothing was sent.
+    static let stoppedBeforeWrite = "Stopped before it ran, so nothing was sent."
 
     func run(_ call: ToolCall) async -> ToolResult {
         guard let descriptor = ToolCatalog.descriptor(named: call.tool) else {
@@ -113,7 +121,7 @@ struct ToolRouter {
             let lines = summary.events.map { event in
                 let when = event.isAllDay ? "all day" : Self.time.string(from: event.start)
                 let whose = event.instanceLabel.isEmpty ? "" : " [\(event.instanceLabel)]"
-                return "\(when) — \(event.title)\(whose)"
+                return "\(when) — \(Self.oneLine(event.title))\(whose)"
             }
             // Gaps are named rather than read as an empty day: "couldn't look" and
             // "nothing scheduled" mean opposite things.
@@ -137,19 +145,22 @@ struct ToolRouter {
             for instance in instances {
                 guard let provider = ProviderRegistry.itemProvider(for: instance) else { continue }
                 let outcome = await provider.recentItems(for: instance, limit: 15)
+                // A read cut by a cancel says nothing about the connection, so it
+                // marks no error on it.
                 if let error = outcome.error {
-                    store.setError(instance.id, error)
+                    if !Task.isCancelled { store.setError(instance.id, error) }
                     // Named, not swallowed — a partial answer must admit what's missing.
                     lines.append("[\(instance.displayLabel)] couldn't be read: \(error.message)")
                     unreadable.append(instance.displayLabel)
                     continue
                 }
-                store.setError(instance.id, nil)
+                if !Task.isCancelled { store.setError(instance.id, nil) }
                 served.append(instance.displayLabel)
                 lines += outcome.value.map { item in
-                    let parts = (item.isUnread ? ["unread"] : []) + (item.detail.isEmpty ? [] : [item.detail])
+                    let parts = (item.isUnread ? ["unread"] : [])
+                        + (item.detail.isEmpty ? [] : [Self.oneLine(item.detail)])
                     let detail = parts.isEmpty ? "" : " (\(parts.joined(separator: " · ")))"
-                    return "\(item.title)\(detail) [\(instance.displayLabel)]"
+                    return "\(Self.oneLine(item.title))\(detail) [\(instance.displayLabel)]"
                 }
             }
             let text = lines.isEmpty ? "Nothing to report." : lines.joined(separator: "\n")
@@ -163,7 +174,7 @@ struct ToolRouter {
     private func write(_ call: ToolCall,
                        descriptor: ToolDescriptor,
                        instance: ConnectorInstance) async -> ToolResult {
-        guard let provider = ProviderRegistry.provider(for: instance) as? any WriteCapableProvider else {
+        guard let provider = writeProvider(instance) else {
             return .failure("\(instance.displayLabel) can't be written to.")
         }
         // A tool whose target *is* the connection (a calendar event goes to a
@@ -198,6 +209,8 @@ struct ToolRouter {
 
         case .needsApproval:
             guard let target else { return .failure("No target to approve.") }
+            // A stopped run raises no card.
+            guard !Task.isCancelled else { return .failure(Self.stoppedBeforeWrite) }
             let approval = PendingApproval(
                 tool: call.tool,
                 instanceID: instance.id,
@@ -241,8 +254,17 @@ struct ToolRouter {
             authorization = .standingGrant
         }
 
-        let result = await provider.performWrite(
-            tool: call.tool, arguments: arguments, instance: instance)
+        // Checked again after the card: a cancel that arrived while it waited (Escape,
+        // sign-out) stops the write even if the card was answered Once.
+        guard !Task.isCancelled else {
+            return ToolResult(ok: false, text: Self.stoppedBeforeWrite, instanceLabels: [],
+                              approvalMilliseconds: waited)
+        }
+        // Its own task, so a cancel cannot cut a request already on the wire: the
+        // server may have taken it, and the receipt must then say it was sent.
+        let result = await Task {
+            await provider.performWrite(tool: call.tool, arguments: arguments, instance: instance)
+        }.value
         return ToolResult(ok: result.ok, text: result.summary,
                           instanceLabels: [instance.displayLabel],
                           authorization: authorization,
@@ -367,6 +389,12 @@ struct ToolRouter {
         }
         let text = rows.isEmpty ? "No connectors are set up." : rows.joined(separator: "\n")
         return ToolResult(ok: true, text: text, instanceLabels: store.ordered.map(\.displayLabel))
+    }
+
+    /// One row is one line: a chat or mail preview can carry line breaks, and
+    /// `ToolResultReducer` counts and cuts by line.
+    nonisolated static func oneLine(_ text: String) -> String {
+        text.components(separatedBy: .newlines).filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     private static let time: DateFormatter = {

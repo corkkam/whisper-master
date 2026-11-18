@@ -457,6 +457,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.state.usageStore.deactivate()
         viewModel.state.notesStore.deactivate()
         viewModel.state.connectorStore.deactivate()
+        // The assistant's run, card and last answer belong to that account too.
+        viewModel.handleSignOut()
         // The day belongs to the account that was signed in — stop reading it and
         // clear what is held, or the next person to sign in sees the last one's
         // meetings on the bezel.
@@ -903,7 +905,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 || state.shouldShowMeetingBanner
                 || state.shouldShowCommandConfirmation
                 || state.shouldShowDueReminderBanner
-                || state.shouldShowUndeliveredBanner)
+                || state.shouldShowUndeliveredBanner
+                // A long answer's Copy.
+                || state.shouldShowExpandedAnswer)
 
         // Keep the optional coding-agent key in step with the preference, and give
         // the menu bar back once a revealed session has been read.
@@ -1314,6 +1318,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // the polished transcript when the on-device pass produced one.
                 self?.viewModel.copyUndeliveredTranscript()
             },
+            onCopyAnswer: { [weak self] in
+                self?.viewModel.copyAnswer()
+            },
             onToggleDueReminder: { [weak self] in
                 // The checkbox on a reminder that just came due — ticks it off, or
                 // puts it back if the tick was a misfire.
@@ -1457,6 +1464,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // swallow the key, and does not need to; the band closing is the whole
         // effect. The turn itself keeps running server-side (the stop button on
         // the working row is what interrupts).
+        //
+        // The assistant is asked first (`handleAssistantEscape`): it denies a waiting
+        // approval card, stops a running loop, or closes a long answer. Because the
+        // key is only observed, an Esc meant for another app does this too; each of
+        // the three is safe to do by mistake (a denial, words filed as a note, a
+        // band closed).
         escKeyMonitorGlobal = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) {
             [weak self] event in
             self?.handleEscIfAgentSurfaceShowing(event)
@@ -1470,6 +1483,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleEscIfAgentSurfaceShowing(_ event: NSEvent) {
         guard event.keyCode == 53 else { return }
+        if viewModel.handleAssistantEscape() { return }
         let state = viewModel.state
         guard state.shouldShowAgentReply || state.shouldShowAgentGlance
             || state.shouldShowAgentWorking

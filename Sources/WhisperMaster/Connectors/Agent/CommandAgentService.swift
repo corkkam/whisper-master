@@ -60,6 +60,10 @@ struct CommandAgentService {
     /// What the user had selected when they held the chord. Set, it adds
     /// `read_selection` to the tools and one line of context to the prompt.
     var selection: SelectionContext?
+    /// The last answered command, when it is recent (`FollowUpWindow`). Set, the loop
+    /// sends it as an earlier turn of the conversation (`AgentLoop.earlier`) and, when
+    /// that run was tainted, this one is tainted from the start.
+    var followUp: FollowUpWindow.Digest?
 
     /// A run of the agent, result **and** the record of how it got there.
     ///
@@ -90,6 +94,9 @@ struct CommandAgentService {
         /// The answer as the trace and the answer log may keep it: a placeholder when
         /// it repeats the selection the run read. The band still shows `result.answer`.
         let storableAnswer: String
+        /// Untrusted text entered the run (`Taint`). Carried into a follow-up, never
+        /// stored.
+        var tainted = false
     }
 
     /// - Parameter onStep: called as the loop moves, so the band can name the
@@ -109,13 +116,17 @@ struct CommandAgentService {
             : []
         // Local first in the list: it's the fallback the prompt names, and a small
         // model biases toward what it read first.
-        let tools = LocalToolCatalog.all
-            + (selection == nil ? [] : [LocalToolCatalog.readSelection])
-            + connectorTools
+        let tools = ToolPackRouter.pack(
+            LocalToolCatalog.all
+                + (selection == nil ? [] : [LocalToolCatalog.readSelection])
+                + connectorTools,
+            spoken: spoken)
 
         // One flag for the whole run: a connector read and a selection read both gate
-        // a later write, whichever runner served them.
+        // a later write, whichever runner served them. A follow-up starts with the
+        // flag of the run it follows, whose answer is in its prompt.
         let taint = Taint()
+        taint.isSet = followUp?.tainted ?? false
         let connectorRouter = connectorTools.isEmpty
             ? nil
             : ToolRouter(store: store,
@@ -139,6 +150,7 @@ struct CommandAgentService {
             let prompt = AgentPrompt.command(toolList: toolList)
             return selection.map { prompt + "\n\n" + $0.promptLine } ?? prompt
         }
+        loop.earlier = followUp.map { ($0.question, $0.answer) }
         loop.now = now
         loop.onStep = onStep
         // The chord suppresses the paste, so an answer with nothing executed behind it
@@ -158,9 +170,16 @@ struct CommandAgentService {
                        turns: Self.traceTurns(outcome.turns, selection: router.selectionRead),
                        declineReason: result == nil ? declineReason : "",
                        budgetSpent: outcome.exhausted,
-                       storableAnswer: router.selectionRead?.storable(answer) ?? answer)
+                       storableAnswer: router.selectionRead?.storable(answer) ?? answer,
+                       tainted: taint.isSet)
         }
 
+        // Escape stopped the loop. Something a tool already created stands, and is
+        // reported below like any run that ran dry after acting.
+        if Task.isCancelled, outcome.exhausted, !router.didCreateSomething {
+            return run(nil, "Stopped with Escape before anything was created, so the "
+                + "words were filed instead.")
+        }
         guard !router.executed.isEmpty else {
             if tools.isEmpty {
                 return run(nil, "No tools were available, so there was nothing the assistant could do.")

@@ -63,6 +63,47 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
   activity. `send_message` passes the spoken channel name straight to
   `chat.postMessage`, so a DM by person name does not resolve.
 
+## What the assistant loop shows the model (`Agent/`)
+
+- **A tool result is reduced before the next turn** (`ToolResultReducer`, applied in
+  `AgentLoop.shown`). The loop resends every result on each later turn, so a listing
+  over 8,000 characters keeps the rows that fit, chosen unread first and then in the
+  tool's order (a row too long is passed over for a shorter one after it), shows them
+  in the tool's own order, and ends "N more not shown." `ToolRouter.read` joins each
+  item onto one line, so that count is honest. Other text is cut with "[N more
+  characters not shown]". **The budget is a stop for a runaway result, not a
+  squeeze:** the Phase 0 chain bench found one fact in 600- and 1,200-word listings 4
+  of 4 times with no cut, so do not lower it without a bench run that shows the model
+  needs it. `read_selection` is exempt: `SelectionReader` already caps it at 8,000
+  with its own stated cut. The trace keeps the full result (its own clamp).
+- **At most 16 tools per prompt** (`ToolPackRouter`, from the Phase 0 sweep: 16/16 at
+  11 tools, 15/16 at 16). Local tools always stay. Past 16, the connector tools that
+  share the fewest words with the command go. Today's catalog is 12, so nothing is
+  dropped yet.
+- **A follow-up window** (`FollowUpWindow`, owned by the view model). For 120 s after
+  an answer, the next chord capture is given the last question and the storable
+  answer (400 characters at most) as an earlier user and assistant turn
+  (`AgentLoop.earlier`), never in the system prompt. The answer never holds a run of
+  40 or more characters of the selection; a summary or translation of the selection
+  can still reach it, the same limit the answer log has. The next capture takes it,
+  nothing writes it to disk, and sign-out (`handleSignOut`) clears it, stops a run in
+  flight, and moves the window's generation so a run that finishes later cannot
+  remember. A tainted run hands its taint to the follow-up.
+- **Escape** goes through the existing Escape monitor in `AppDelegate`, no new one:
+  `DictationViewModel.handleAssistantEscape` denies a waiting card, cancels the loop's
+  task (the loop then ends like a spent budget and the words are filed), or closes a
+  long answer. With none of the three pending it does nothing and returns false, so
+  the coding-agent bands keep their own Escape. **Known limit:** the key is only
+  observed, never consumed, so an Escape pressed in another app (an editor, a dialog)
+  also cancels a running assistant or denies a pending card. That is the safe
+  direction: a denial, or the words filed as a note. A cancel never starts a write
+  (`ToolRouter.write` checks before the card and again before the provider), and never
+  cuts one already started: `performWrite` runs in its own task, and a write that
+  came back ok is reported as done.
+- **A long answer** (over 220 characters or two sentences, `AppState.answerIsLong`)
+  opens the coding agent's expanded reply (`NotchAgentReplyExpanded`) with Copy, not a
+  new surface.
+
 ## Verifying
 
 `swift test --filter "MicrosoftConnectorTests|SlackProviderTests|Connector"`. No

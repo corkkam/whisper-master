@@ -190,6 +190,31 @@ final class TraceTests: XCTestCase {
         XCTAssertNil(trace.calls.first?.authorization)
     }
 
+    /// The general form of the test above: a trace written today, with every key the
+    /// old shape did not have taken out, must still decode. A field added later that
+    /// is not optional fails here, before it empties the page on someone's Mac.
+    func testEveryFieldAddedSinceTheOldShapeIsOptional() throws {
+        let oldTraceKeys: Set = ["id", "askedAt", "heard", "asked", "stages", "decisions",
+                                 "connectorsAllowed", "toolsOffered", "calls", "answer",
+                                 "provenance", "createdSomething", "milliseconds"]
+        let oldCallKeys: Set = ["id", "tool", "arguments", "connectors", "ok", "result",
+                                "milliseconds"]
+        var trace = AssistantTrace()
+        trace.decisions = [TraceDecision(title: "Agent", detail: "Answered.", taken: true)]
+        trace.calls = [ToolCallTrace(tool: "send_message", approvalMilliseconds: 900,
+                                     authorization: .allowedOnce)]
+        trace.turns = [TraceTurn(role: "model", text: "{}")]
+
+        let encoded = try JSONEncoder().encode(trace)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let calls = try XCTUnwrap(object["calls"] as? [[String: Any]])
+        object = object.filter { oldTraceKeys.contains($0.key) }
+        object["calls"] = calls.map { $0.filter { oldCallKeys.contains($0.key) } }
+
+        let stripped = try JSONSerialization.data(withJSONObject: object)
+        XCTAssertNoThrow(try JSONDecoder().decode(AssistantTrace.self, from: stripped))
+    }
+
     func testAnAuthorizationBadgeSaysWhichOfTheFiveWaysItWasPermitted() {
         XCTAssertEqual(ToolAuthorization.standingGrant.label, "standing grant")
         XCTAssertEqual(ToolAuthorization.timedOut.label, "no answer")

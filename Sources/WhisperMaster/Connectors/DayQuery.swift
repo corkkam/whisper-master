@@ -75,6 +75,10 @@ struct DaySummary: Equatable, Sendable {
     /// The instance label this answer was narrowed to, when the user named one
     /// ("what's on my *work* calendar"). nil for a merged answer across all of them.
     let scopedTo: String?
+    /// The spoken question, set only for an assistant answer
+    /// (`DictationViewModel.presentAnswer`). A long one opens the expanded band, which
+    /// shows this above it. In memory only.
+    var question: String? = nil
 
     var accessibilityText: String {
         var parts = [headline, detail]

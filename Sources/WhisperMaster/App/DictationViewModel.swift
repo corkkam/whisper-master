@@ -94,6 +94,12 @@ final class DictationViewModel {
     /// in-place refine). Cancelled when a new recording starts so a stale refine
     /// never edits the next session's field.
     private var refinementTask: Task<Void, Never>?
+    /// The assistant loop while it runs, held so Escape can stop it
+    /// (`handleAssistantEscape`).
+    private var commandAgentTask: Task<CommandAgentService.Run, Never>?
+    /// The last answered command, offered to the next chord capture for a short while.
+    /// Memory only; sign-out clears it.
+    let followUps = FollowUpWindow()
     /// Merge accumulator for confirmed streaming chunks. Kept unfiltered so
     /// `TranscriptMerger`'s overlap detection always compares raw engine text
     /// against raw engine text; only what goes into `state` is filler-filtered.
@@ -1226,6 +1232,8 @@ final class DictationViewModel {
         // The denominator for every assistant number below: how often the chord
         // was actually used, before any tier has had a chance to take it.
         Analytics.shared.send(.assistantInvoked)
+        // Taken here, before any tier, so whatever this capture becomes replaces it.
+        let followUp = followUps.take()
         // Using the chord is what asks for the assistant's model — nothing fetches
         // it at launch. This capture is **not** made to wait on it: the fetch runs
         // in the background and the tiers below take the deterministic path exactly
@@ -1264,7 +1272,7 @@ final class DictationViewModel {
 
         await requestCalendarAccessIfNeeded()
 
-        let attempt = await runCommandAgent(text, selectionRead: selectionRead)
+        let attempt = await runCommandAgent(text, selectionRead: selectionRead, followUp: followUp)
         trace.decisions.append(attempt.decision)
         trace.connectorsAllowed = attempt.connectorsAllowed
         trace.toolsOffered = attempt.toolsOffered
@@ -1364,7 +1372,8 @@ final class DictationViewModel {
     }
 
     private func runCommandAgent(_ text: String,
-                                 selectionRead: Task<SelectionContext?, Never>?) async -> AgentAttempt {
+                                 selectionRead: Task<SelectionContext?, Never>?,
+                                 followUp: FollowUpWindow.Digest?) async -> AgentAttempt {
         // **The assistant's own model, not the cleanup slot.** This gate read
         // `MlxCleanupService.shared.isReady` — S1-mini, the dictation text normalizer
         // — which is a different model with a different download, and it was wrong in
@@ -1396,7 +1405,8 @@ final class DictationViewModel {
             alertStyle: state.reminderDefaultAlertStyle,
             soundName: state.reminderDefaultSound,
             takeNoteAudio: { [weak self] id in self?.takeNoteAudio(for: id) },
-            selection: selection)
+            selection: selection,
+            followUp: followUp)
         // The orb shows the thinking figure while the loop runs — the paste is
         // suppressed, so without it the notch sits silent through a multi-second
         // tool call and reads as having dropped the command. `isPolishing` is what
@@ -1405,12 +1415,23 @@ final class DictationViewModel {
         state.isPolishing = true
         state.commandAgentRunning = true
         state.agentActivity = .thinking
-        let run = await agent.run(
-            text,
-            generate: AgentLoop.liveGenerator(),
-            // The loop reports; the view model is what writes `AppState`, so the
-            // "one writer" rule survives the callback.
-            onStep: { [weak self] step in self?.state.agentActivity = step })
+        // Its own task so Escape can cancel the loop without cancelling the session.
+        // The generation is read before it starts: a sign-out during the run must keep
+        // its answer away from the next account.
+        let generation = followUps.generation
+        let task = Task { [weak self] in
+            await agent.run(
+                text,
+                generate: AgentLoop.liveGenerator(),
+                // The loop reports; the view model is what writes `AppState`, so the
+                // "one writer" rule survives the callback.
+                onStep: { step in self?.state.agentActivity = step })
+        }
+        commandAgentTask = task
+        let run = await task.value
+        // Only its own handle: a second capture's run keeps the one it set.
+        if commandAgentTask == task { commandAgentTask = nil }
+        followUps.remember(run, question: text, generation: generation)
         state.isPolishing = false
         state.commandAgentRunning = false
         state.agentActivity = nil
@@ -1481,8 +1502,11 @@ final class DictationViewModel {
     /// for them.
     private func presentAnswer(question: String, answer: String, provenance: String,
                                logged: Bool = true) {
+        // The question rides along for the expanded band a long answer opens into
+        // (`AppState.shouldShowExpandedAnswer`).
         state.activeDaySummary = DaySummary(
-            headline: answer, detail: provenance, events: [], gaps: [], scopedTo: nil)
+            headline: answer, detail: provenance, events: [], gaps: [], scopedTo: nil,
+            question: question)
         state.daySummaryAt = Date()
         // The band's line is truncated and gone in seconds; this is where a long
         // answer stays readable.
@@ -1713,6 +1737,7 @@ final class DictationViewModel {
     func shutdown() {
         correctionLearner.cancel()
         refinementTask?.cancel()
+        commandAgentTask?.cancel()
         preparationTask?.cancel()
         microphoneCapture.stop()
         pendingAppendTasks.values.forEach { $0.cancel() }
@@ -1798,6 +1823,49 @@ final class DictationViewModel {
         let text = state.undeliveredText ?? state.history.first?.text ?? ""
         guard !text.isEmpty else { return }
         copyToClipboard(text)
+    }
+
+    /// The Copy on a long answer's band: the answer as the band shows it.
+    func copyAnswer() {
+        guard let answer = state.activeDaySummary?.headline, !answer.isEmpty else { return }
+        copyToClipboard(answer)
+    }
+
+    /// Escape, observed by the app's existing Escape monitor. A waiting approval card
+    /// is denied and a running assistant loop is stopped (the loop then ends like a
+    /// spent budget, so its words are filed rather than lost); with neither, a long
+    /// answer's band closes, as its foot says. With none of the three pending it
+    /// touches nothing. Returns whether it did any of that, so the caller leaves the
+    /// coding-agent bands alone.
+    @discardableResult
+    func handleAssistantEscape() -> Bool {
+        var handled = false
+        if state.approvals.pending != nil {
+            state.approvals.resolve(.denied)
+            handled = true
+        }
+        if let commandAgentTask {
+            commandAgentTask.cancel()
+            handled = true
+        }
+        if !handled, state.shouldShowExpandedAnswer {
+            stopSpeaking()
+            state.activeDaySummary = nil
+            state.daySummaryAt = nil
+            state.daySummaryWasSpoken = false
+            handled = true
+        }
+        return handled
+    }
+
+    /// Sign-out: nothing the assistant holds for the account that left may reach the
+    /// next one. A waiting card is denied, a running loop is stopped, and the follow-up
+    /// is forgotten — the window's generation moves too, so a run that finishes after
+    /// this cannot leave its answer behind.
+    func handleSignOut() {
+        if state.approvals.pending != nil { state.approvals.resolve(.denied) }
+        commandAgentTask?.cancel()
+        followUps.clear()
     }
 
     func pasteLastTranscript() {

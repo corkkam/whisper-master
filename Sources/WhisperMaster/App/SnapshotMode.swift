@@ -287,6 +287,19 @@ enum SnapshotMode {
             s.daySummaryWasSpoken = true
             s.isSpeakingAnswer = true
         }
+        // A long assistant answer: more than one band line, so it opens the coding
+        // agent's expanded reply, with Copy, instead of being cut to one line.
+        renderPill(dir, name: "pill-6e-answer-long") { s in
+            s.phase = .idle
+            s.activeDaySummary = DaySummary(
+                headline: "Three meetings today, and the first is the design review at ten. "
+                    + "Lunch with Priya is at one, in the usual place. The vendor call at four "
+                    + "moved to Thursday, so the afternoon is free after two.",
+                detail: "From Work calendar",
+                events: [], gaps: [], scopedTo: nil,
+                question: "What does my day look like?")
+            s.daySummaryAt = Date()
+        }
         // The assistant working, captioned by the connector it's waiting on rather
         // than by one static "Working on it" for the whole 30-second budget. The
         // chord suppresses the paste, so this row is the only thing saying the words

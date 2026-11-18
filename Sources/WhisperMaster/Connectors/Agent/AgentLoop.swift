@@ -120,11 +120,12 @@ enum AgentPrompt {
     }
 }
 
-/// One-shot winner flag for the generation race in `AgentLoop`.
+/// One-shot winner flag for a race between a value and a timeout
+/// (`SelectionCapture.settle`).
 ///
 /// Locked rather than actor-isolated so whichever racer finishes first can settle it
 /// wherever it happens to be running: a hop would leave a window in which both of them
-/// resume the same continuation, which traps. `SelectionCapture.settle` races on it too.
+/// resume the same continuation, which traps.
 final class FirstPastThePost: @unchecked Sendable {
     private let lock = NSLock()
     private var claimed = false
@@ -136,6 +137,44 @@ final class FirstPastThePost: @unchecked Sendable {
         if claimed { return false }
         claimed = true
         return true
+    }
+}
+
+/// The generation race in `AgentLoop`: the first of the model, the budget and a
+/// cancel settles it, and the rest are ignored.
+///
+/// It holds the result as well as the continuation because a cancel can arrive before
+/// the continuation exists — a task already cancelled runs its handler at once — and
+/// that settle must still end the wait. Locked for the same reason as
+/// `FirstPastThePost`.
+final class RaceOutcome: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<String?, Never>?
+    private var settled = false
+    private var value: String?
+
+    /// Hand over the waiter. Resumed at once when the race is already settled.
+    func arm(_ continuation: CheckedContinuation<String?, Never>) {
+        lock.lock()
+        guard !settled else {
+            lock.unlock()
+            continuation.resume(returning: value)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    /// The first call wins; later calls do nothing.
+    func settle(_ value: String?) {
+        lock.lock()
+        guard !settled else { lock.unlock(); return }
+        settled = true
+        self.value = value
+        let waiter = continuation
+        continuation = nil
+        lock.unlock()
+        waiter?.resume(returning: value)
     }
 }
 
@@ -274,6 +313,11 @@ struct AgentLoop {
     /// wanted one. A question (`AgentPrompt.system`) leaves this off: answering
     /// without a tool is a legitimate outcome there.
     var requiresToolBeforeAnswer: Bool = false
+    /// An earlier question and its answer that this command may refer back to ("and
+    /// tomorrow?"), sent as earlier turns of the conversation. Not in the system prompt:
+    /// the answer can carry words from mail or a selection, and a turn has no more
+    /// authority than the user's own words.
+    var earlier: (question: String, answer: String)?
 
     func run(question: String) async -> AgentOutcome {
         guard !tools.isEmpty else { return .failed }
@@ -299,7 +343,14 @@ struct AgentLoop {
         var madeCalls = Set<String>()
         /// Whether the one correction `requiresToolBeforeAnswer` allows has been spent.
         var correctedPrematureAnswer = false
-        var messages: [AgentMessage] = [.init(role: .user, text: question)]
+        var messages: [AgentMessage] = []
+        if let earlier {
+            // In the shape the model itself replies in on this path.
+            messages += [.init(role: .user, text: earlier.question),
+                         .init(role: .assistant,
+                               text: useNative ? earlier.answer : Self.answerEnvelope(earlier.answer))]
+        }
+        messages.append(.init(role: .user, text: question))
 
         // Reported once, not before every generate. After a call returns, the model
         // is reasoning *about that connector's result*, so holding its caption is
@@ -309,7 +360,8 @@ struct AgentLoop {
 
         for _ in 0..<maxIterations {
             let remaining = deadline.timeIntervalSince(now())
-            guard remaining > 0 else { break }
+            // Cancelled is Escape on the band: stop like a spent budget.
+            guard remaining > 0, !Task.isCancelled else { break }
 
             let raw: String?
             if let generateNative {
@@ -373,7 +425,8 @@ struct AgentLoop {
                 Analytics.shared.send(.assistantToolRun(tool: call.tool, succeeded: result.ok))
                 labels.append(contentsOf: result.instanceLabels)
                 turns.append(AgentTurn(role: .tool, text: result.text))
-                messages.append(.init(role: .tool, text: result.text, tool: call.tool))
+                messages.append(.init(role: .tool, text: Self.shown(result.text, tool: call.tool),
+                                      tool: call.tool))
                 // Nudge toward finishing: without it a 3B will often keep exploring
                 // rather than answer from a result it already has. It's a nudge, not a
                 // rule — a further call with different arguments is still allowed.
@@ -401,8 +454,9 @@ struct AgentLoop {
         //
         // Counted, because this is the interesting failure: the loop spent its whole
         // budget and the user still got the deterministic fallback. Against
-        // `Assistant.invoked` it says how often the agent is worth its 30 seconds.
-        Analytics.shared.send(.assistantFailed(reason: .budgetExhausted))
+        // `Assistant.invoked` it says how often the agent is worth its 30 seconds. A run
+        // the user stopped is not that failure.
+        if !Task.isCancelled { Analytics.shared.send(.assistantFailed(reason: .budgetExhausted)) }
         return AgentOutcome(answer: "", instanceLabels: labels, turns: turns, exhausted: true)
     }
 
@@ -445,46 +499,36 @@ struct AgentLoop {
                                              text: String,
                                              systemPrompt: String,
                                              seconds: TimeInterval) async -> String? {
-        let work = Task { await generate(text, systemPrompt) }
-        let produced = await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
-            let race = FirstPastThePost()
-            let timeout = Task {
-                try? await Task.sleep(nanoseconds: UInt64(max(seconds, 0) * 1_000_000_000))
-                if race.claim() { continuation.resume(returning: nil) }
-            }
-            Task {
-                let value = await work.value
-                timeout.cancel()
-                if race.claim() { continuation.resume(returning: value) }
-            }
-        }
-        // A no-op when it already finished, and the only thing that can be done about
-        // one that hasn't.
-        work.cancel()
-        return produced
+        await settle(Task { await generate(text, systemPrompt) }, within: seconds)
     }
 
     /// The native twin of `generateWithinBudget`: same walk-away-on-timeout guarantee,
-    /// for the structured `(messages, tools)` generator. Kept separate rather than
-    /// generic because the two generators have genuinely different argument shapes and
-    /// a shared wrapper would only obscure that.
+    /// for the structured `(messages, tools)` generator.
     private static func generateNativeWithinBudget(_ generate: @escaping GenerateNative,
                                                    messages: [[String: String]],
                                                    tools: [String],
                                                    seconds: TimeInterval) async -> String? {
-        let work = Task { await generate(messages, tools) }
-        let produced = await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
-            let race = FirstPastThePost()
-            let timeout = Task {
-                try? await Task.sleep(nanoseconds: UInt64(max(seconds, 0) * 1_000_000_000))
-                if race.claim() { continuation.resume(returning: nil) }
-            }
-            Task {
-                let value = await work.value
-                timeout.cancel()
-                if race.claim() { continuation.resume(returning: value) }
-            }
+        await settle(Task { await generate(messages, tools) }, within: seconds)
+    }
+
+    /// `work`'s value, or nil once `seconds` pass or the calling task is cancelled
+    /// (Escape on the band), whichever comes first.
+    private static func settle(_ work: Task<String?, Never>,
+                               within seconds: TimeInterval) async -> String? {
+        let outcome = RaceOutcome()
+        let timeout = Task {
+            try? await Task.sleep(nanoseconds: UInt64(max(seconds, 0) * 1_000_000_000))
+            outcome.settle(nil)
         }
+        Task { outcome.settle(await work.value) }
+        let produced = await withTaskCancellationHandler {
+            await withCheckedContinuation { outcome.arm($0) }
+        } onCancel: {
+            outcome.settle(nil)
+        }
+        timeout.cancel()
+        // A no-op when it already finished, and the only thing that can be done about
+        // one that hasn't.
         work.cancel()
         return produced
     }
@@ -524,6 +568,21 @@ struct AgentLoop {
             case .system: return message.text
             }
         }.joined(separator: "\n\n")
+    }
+
+    /// `{"answer":"…"}`, escaped as JSON.
+    static func answerEnvelope(_ answer: String) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .withoutEscapingSlashes
+        guard let data = try? encoder.encode(["answer": answer]) else { return answer }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// A tool result as the model sees it on later turns (`ToolResultReducer`). A
+    /// selection is already capped with its cut stated (`SelectionReader.limit`), so it
+    /// is not cut twice.
+    static func shown(_ text: String, tool: String) -> String {
+        tool == LocalToolCatalog.readSelection.name ? text : ToolResultReducer.reduce(text)
     }
 
     /// A call's identity for repeat detection: the tool plus its arguments, with keys
