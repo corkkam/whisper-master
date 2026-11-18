@@ -62,6 +62,13 @@ diff or a decision log, and would be a poor version of whichever it wasn't.
   A standing grant, a tap on Once, a tap on Always, a refusal and an unanswered card are
   five different stories, and the row used to tell none of them. A read carries none —
   there was nothing to authorize — so the badge is absent rather than saying so.
+- **What left the Mac is on the trace** (`AssistantTrace.endpoint`, an
+  `EndpointSendTrace`). When the user's endpoint tier ran, the row carries a "Your
+  endpoint" badge and the expansion says how many requests went to which host and how
+  many characters of each kind (your words, tool results, model replies, instructions,
+  tool list). **Counts, never the content, and the host, never the URL** (a URL can carry
+  a key). When the endpoint failed and the on-device tier ran after it, the decisions list
+  both rungs and the calls of both runs are kept. See `Connectors/CLAUDE.md`.
 - **The approval wait is not the connector's latency** (`ToolCallTrace.approvalMilliseconds`).
   `milliseconds` is measured with the wait taken out, because a write that sat a minute
   on the consent card otherwise reads as a minute of provider latency and sends the
@@ -100,7 +107,7 @@ non-optional property; the default is used by the memberwise init and nowhere el
 `var approvalMilliseconds: Int = 0` added to `ToolCallTrace` throws
 `keyNotFound` on every trace already written, and the `try?` load turns that into a
 page that is silently empty until it refills. `ToolCallTrace.approvalMilliseconds`,
-`ToolCallTrace.authorization` and `AssistantTrace.turns` are optional for exactly this
+`ToolCallTrace.authorization`, `AssistantTrace.turns` and `AssistantTrace.endpoint` are optional for exactly this
 reason, and `TraceTests.testATraceWrittenBeforeTheNewFieldsExistedStillDecodes` is the
 lock — it decodes the old shape by hand. Device-wide, not per-account: a trace describes *this machine's*
 pipeline, and it has to be readable while signed out, since "it stopped working" gets

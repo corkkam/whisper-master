@@ -21,6 +21,9 @@ struct AssistantSettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel("Assistant")
             assistantSection
+            if FeatureFlags.agentEndpointAvailable {
+                AgentEndpointSettingsSection(endpoint: $state.agentEndpoint)
+            }
             speechSection
         }
     }

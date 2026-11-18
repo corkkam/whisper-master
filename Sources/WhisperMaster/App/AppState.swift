@@ -568,6 +568,14 @@ final class AppState {
     /// whole run. Nil outside a run, and while the loop is between steps the last
     /// one stands — see `AgentLoop.onStep`.
     var agentActivity: AgentActivity?
+    /// Which tier that loop runs on. `.endpoint` puts the static "Your endpoint" mark
+    /// on the band, because the words are leaving the Mac while it shows.
+    var commandAgentTier: AgentTier = .onDevice
+    /// The model behind an endpoint the user set (dev builds only). The key is in the
+    /// Keychain, not here (`AgentEndpoint.apiKey()`).
+    var agentEndpoint = AgentEndpoint() {
+        didSet { if agentEndpoint != oldValue { agentEndpoint.save() } }
+    }
     /// Default alert style new reminders inherit (per-reminder overridable).
     /// Persisted as the enum raw value. This is the "configure in settings" knob.
     var reminderDefaultAlertStyle: ReminderAlertStyle = .notification {
@@ -897,6 +905,7 @@ final class AppState {
             UserDefaults.standard.stringArray(forKey: Self.meetingIgnoredAppsDefaultsKey) ?? []
         // Opt-out: a connected connector is used unless the user turns this off.
         connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? true
+        agentEndpoint = AgentEndpoint.load()
         // Opt-out: you asked out loud, so an answer you can hear is the default.
         speakAnswersEnabled = UserDefaults.standard.object(forKey: Self.speakAnswersDefaultsKey) as? Bool ?? true
         answerVoiceEngine = (UserDefaults.standard.string(forKey: Self.answerVoiceEngineDefaultsKey))

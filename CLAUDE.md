@@ -330,6 +330,15 @@ capabilities and auth**. Outlook and Teams sign in through Microsoft, which is d
 until `MicrosoftOAuthClientID` is set. Details and the Entra setup:
 **`Sources/WhisperMaster/Connectors/CLAUDE.md`**.
 
+**The chord can use a model behind an endpoint the user sets** (dev builds only,
+`FeatureFlags.agentEndpointAvailable`; `Connectors/Agent/CloudToolGenerator.swift`).
+**Text only leaves the Mac, never audio**: the transcript, what the assistant reads
+(mail, calendar, messages, the selection) and the tool list go to that address, after a
+per-address consent sheet. The on-device model stays the fallback, a password manager
+in front or secure input keeps a capture local, the tray can pause it, and every
+endpoint counts as off-device, loopback included. The key is in the Keychain. Rules and
+history rebuild: the endpoint section of `Connectors/CLAUDE.md`.
+
 ### Reading answers aloud (`Speech/`)
 
 An assistant answer is spoken as well as shown; a dictation is never read back.

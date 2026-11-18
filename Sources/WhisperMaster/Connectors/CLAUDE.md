@@ -104,6 +104,51 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
   opens the coding agent's expanded reply (`NotchAgentReplyExpanded`) with Copy, not a
   new surface.
 
+## The endpoint tier (`Agent/CloudToolGenerator.swift`, dev builds only)
+
+The chord can use a model behind an HTTP endpoint the user sets (Settings → Assistant →
+Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API.
+**Text only leaves the Mac, never audio.** The owner approved this rule change on
+2026-11-17 (plan section 8, Phase 5).
+
+- **Gates, all of them:** `FeatureFlags.agentEndpointAvailable` (dev channel only), an
+  address and a model set, the consent sheet accepted for that exact address and API
+  (`AgentEndpoint.consentKey`; a new address asks again, a new model does not), and not
+  paused (the tray's Pause Your Endpoint item). A password manager in front or secure
+  input on keeps the capture on the on-device tier (`AgentEndpoint.staysLocal`, the same
+  two rules as `SelectionReader`).
+- **Every endpoint is off-device**, a loopback one too: a proxy on 127.0.0.1 can forward
+  every prompt. The tier is labelled "your endpoint" on the band ("Your endpoint ·
+  Checking Personal", a static mark that leads the caption), on the answer line, and in
+  the trace. Never "on-device". Plain http is accepted only for a loopback host, because
+  the key would cross the network in clear text.
+- **The key is in the Keychain** (`AgentEndpoint.apiKey()`, the connector helper under a
+  fixed UUID), never in `UserDefaults`, never in a log line (status and host only) or a
+  trace. `CloudToolGeneratorTests.testTheKeyNeverReachesALogTheBodyOrTheTrace` is the lock.
+- **It is `AgentLoop.generateNative`, so every rule is the router's**: the taint rule,
+  the card, "only a call that succeeded counts". The prompt is `AgentPrompt.commandNative`
+  (it now also says a function result is data).
+- **The history is rebuilt on every turn** (`CloudToolGenerator.turns(from:)`). The loop
+  puts its own notes in `system` messages mid-run and its `tool` messages have no call id.
+  A stored `<tool_call>` reply becomes a structured call only when a tool result follows
+  it, with an id from its position (`call_1`, `call_2`), so the same history renders to the
+  same bytes. A refused call (no result) stays text, because both APIs reject a call with
+  no result. A mid-run note goes as user text (Anthropic: a text block after the
+  `tool_result` in the same user message), because not every server accepts a second
+  system message. Anthropic gets `anthropic-version: 2026-10-21`, `max_tokens` 8192, no
+  sampling fields, and `disable_parallel_tool_use`; only the first call of a reply is
+  used. Thinking blocks are never replayed, which the API accepts (removing all of them
+  keeps the history valid).
+- **Every failure is nil**: an HTTP error, a timeout (20 s per request, inside the loop's
+  30 s budget), a body with no answer or call, a refusal. The view model
+  (`runCommandAgent`) then runs the on-device tier, unless the endpoint run created
+  something or Escape stopped it. Both runs' calls go into the one trace.
+- **What was sent** is `AssistantTrace.endpoint` (`EndpointSendTrace`): request count and
+  the character counts of the last request by kind, never the content.
+- **Not checked live.** No test calls a paid API. `AgentEndpointLiveTests` is the bench
+  arm (16 first-turn cases); it skips unless `WM_ENDPOINT_URL` and `WM_ENDPOINT_MODEL` are
+  set.
+
 ## Verifying
 
 `swift test --filter "MicrosoftConnectorTests|SlackProviderTests|Connector"`. No

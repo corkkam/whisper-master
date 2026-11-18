@@ -1036,6 +1036,12 @@ final class DictationViewModel {
         }
     }
 
+    /// The tray's pause item for the user's endpoint. Paused, every capture stays on
+    /// this Mac; the address, the consent and the key are kept.
+    func setAgentEndpointPaused(_ paused: Bool) {
+        state.agentEndpoint.paused = paused
+    }
+
     /// Mirror the private arm into `AppState` so the notch can say which of the two
     /// things the band is doing. One writer, so the two can't drift.
     private func setCommandArmed(_ armed: Bool) {
@@ -1273,11 +1279,12 @@ final class DictationViewModel {
         await requestCalendarAccessIfNeeded()
 
         let attempt = await runCommandAgent(text, selectionRead: selectionRead, followUp: followUp)
-        trace.decisions.append(attempt.decision)
+        trace.decisions += attempt.priorDecisions + [attempt.decision]
         trace.connectorsAllowed = attempt.connectorsAllowed
         trace.toolsOffered = attempt.toolsOffered
         trace.calls = attempt.calls
         trace.turns = attempt.turns
+        trace.endpoint = attempt.endpoint
         if attempt.handled {
             trace.answer = attempt.answer
             trace.provenance = attempt.provenance
@@ -1369,11 +1376,66 @@ final class DictationViewModel {
         var createdSomething = false
         /// The loop ran out of time or steps (`CommandAgentService.Run.budgetSpent`).
         var budgetSpent = false
+        /// Escape stopped the run. No other tier may take the words after that.
+        var cancelled = false
+        /// Rungs decided before this one, such as the endpoint tier that declined.
+        var priorDecisions: [TraceDecision] = []
+        /// What went to the user's endpoint, or nil when nothing left the Mac.
+        var endpoint: EndpointSendTrace?
     }
 
+    /// The endpoint tier first when the user set one, then the on-device tier.
+    ///
+    /// **Text only leaves the Mac, never audio**, and only after the consent sheet
+    /// for that endpoint. A password manager in front or secure input on keeps the
+    /// capture on this Mac. An endpoint that fails (HTTP error, timeout, bad body) or
+    /// acts on nothing hands the words to the on-device tier, unless it already
+    /// created something (filing them again would be a second copy) or Escape
+    /// stopped it.
     private func runCommandAgent(_ text: String,
                                  selectionRead: Task<SelectionContext?, Never>?,
                                  followUp: FollowUpWindow.Digest?) async -> AgentAttempt {
+        let endpoint = state.agentEndpoint
+        guard FeatureFlags.agentEndpointAvailable, endpoint.isActive else {
+            return await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp)
+        }
+        let front = SelectionReader.FrontApp.current()
+        if AgentEndpoint.staysLocal(frontBundleID: front?.bundleID,
+                                    secureInput: TerminalApps.secureKeyboardEntryEnabled()) {
+            var local = await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp)
+            local.priorDecisions.insert(TraceDecision(
+                title: "Your endpoint",
+                detail: "Skipped — a password manager was in front or secure input was on, "
+                    + "so nothing left this Mac.",
+                taken: false), at: 0)
+            return local
+        }
+        let selection = await SelectionCapture.settle(selectionRead)
+        let sent = EndpointSendLog(host: endpoint.host)
+        guard let generator = CloudToolGenerator(endpoint: endpoint, apiKey: AgentEndpoint.apiKey(),
+                                                 sent: sent) else {
+            return await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp)
+        }
+        var remote = await runAgent(text, selection: selection, followUp: followUp,
+                                    tier: .endpoint, generateNative: generator.generate)
+        remote.endpoint = sent.snapshot
+        guard !remote.handled, !remote.cancelled, !remote.createdSomething,
+              CleanupModel.General.isInstalled else { return remote }
+        var local = await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice)
+        local.priorDecisions = [TraceDecision(
+            title: "Your endpoint",
+            detail: remote.decision.detail + " The on-device assistant took it next.",
+            taken: false)]
+        // Both runs happened: what the endpoint read is part of the story too.
+        local.calls = remote.calls + local.calls
+        local.turns = remote.turns + local.turns
+        local.endpoint = remote.endpoint
+        return local
+    }
+
+    private func runOnDeviceAgent(_ text: String,
+                                  selectionRead: Task<SelectionContext?, Never>?,
+                                  followUp: FollowUpWindow.Digest?) async -> AgentAttempt {
         // **The assistant's own model, not the cleanup slot.** This gate read
         // `MlxCleanupService.shared.isReady` — S1-mini, the dictation text normalizer
         // — which is a different model with a different download, and it was wrong in
@@ -1397,6 +1459,15 @@ final class DictationViewModel {
         }
         // Usually done long before the words are; a hung app costs at most the wait.
         let selection = await SelectionCapture.settle(selectionRead)
+        return await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice)
+    }
+
+    /// One tier's run of the agent, and everything the trace needs from it.
+    private func runAgent(_ text: String,
+                          selection: SelectionContext?,
+                          followUp: FollowUpWindow.Digest?,
+                          tier: AgentTier,
+                          generateNative: AgentLoop.GenerateNative? = nil) async -> AgentAttempt {
         let agent = CommandAgentService(
             store: state.connectorStore,
             notes: state.notesStore,
@@ -1415,6 +1486,7 @@ final class DictationViewModel {
         state.isPolishing = true
         state.commandAgentRunning = true
         state.agentActivity = .thinking
+        state.commandAgentTier = tier
         // Its own task so Escape can cancel the loop without cancelling the session.
         // The generation is read before it starts: a sign-out during the run must keep
         // its answer away from the next account.
@@ -1423,18 +1495,22 @@ final class DictationViewModel {
             await agent.run(
                 text,
                 generate: AgentLoop.liveGenerator(),
+                generateNative: generateNative,
+                tier: tier,
                 // The loop reports; the view model is what writes `AppState`, so the
                 // "one writer" rule survives the callback.
                 onStep: { step in self?.state.agentActivity = step })
         }
         commandAgentTask = task
         let run = await task.value
+        let cancelled = task.isCancelled
         // Only its own handle: a second capture's run keeps the one it set.
         if commandAgentTask == task { commandAgentTask = nil }
         followUps.remember(run, question: text, generation: generation)
         state.isPolishing = false
         state.commandAgentRunning = false
         state.agentActivity = nil
+        state.commandAgentTier = .onDevice
 
         /// Everything the run knows, whatever it decided — so a decline carries the
         /// tool list and the calls that were made, which is exactly what makes it
@@ -1442,7 +1518,8 @@ final class DictationViewModel {
         func attempt(handled: Bool, detail: String) -> AgentAttempt {
             AgentAttempt(
                 handled: handled,
-                decision: TraceDecision(title: "Agent", detail: detail, taken: handled),
+                decision: TraceDecision(title: tier == .endpoint ? "Your endpoint" : "Agent",
+                                        detail: detail, taken: handled),
                 toolsOffered: run.toolsOffered,
                 connectorsAllowed: run.connectorsAllowed,
                 calls: run.calls,
@@ -1450,7 +1527,8 @@ final class DictationViewModel {
                 answer: run.storableAnswer,
                 provenance: run.result?.detail ?? "",
                 createdSomething: run.result?.createdSomething ?? false,
-                budgetSpent: run.budgetSpent)
+                budgetSpent: run.budgetSpent,
+                cancelled: cancelled)
         }
 
         guard let result = run.result else {

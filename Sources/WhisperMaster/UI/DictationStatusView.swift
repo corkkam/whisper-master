@@ -78,7 +78,8 @@ struct DictationStatusView: View {
         activity.label(
             holdToTalk: keyIsHoldingItOpen,
             commandCapture: state.commandCaptureArmed || state.commandAgentRunning,
-            agentActivity: state.agentActivity)
+            agentActivity: state.agentActivity,
+            viaEndpoint: state.commandAgentTier == .endpoint)
     }
 
     /// "I'm ready." with the key the user chose, or the typing-off line.

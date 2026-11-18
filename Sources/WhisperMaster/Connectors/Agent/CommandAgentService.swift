@@ -97,6 +97,8 @@ struct CommandAgentService {
         /// Untrusted text entered the run (`Taint`). Carried into a follow-up, never
         /// stored.
         var tainted = false
+        /// Which brain ran it.
+        var tier: AgentTier = .onDevice
     }
 
     /// - Parameter onStep: called as the loop moves, so the band can name the
@@ -108,8 +110,15 @@ struct CommandAgentService {
         await run(spoken, generate: generate, onStep: onStep).result
     }
 
+    /// - Parameters:
+    ///   - generateNative: set, the loop runs the native tool-calling path on this
+    ///     generator instead of `generate` (`CloudToolGenerator` for the endpoint tier).
+    ///   - tier: which brain this is, for the answer line and the trace. Every rule
+    ///     below — the taint, the card, the execution rule — is the same for both.
     func run(_ spoken: String,
              generate: @escaping AgentLoop.Generate,
+             generateNative: AgentLoop.GenerateNative? = nil,
+             tier: AgentTier = .onDevice,
              onStep: @escaping (AgentActivity) -> Void = { _ in }) async -> Run {
         let connectorTools = connectorsAllowed
             ? ToolRegistry.available(store: store, includeWrites: true)
@@ -144,10 +153,18 @@ struct CommandAgentService {
             now: now)
 
         var loop = AgentLoop(tools: tools, router: router, generate: generate)
-        loop.budget = AgentLoop.budget(thinks: CleanupModel.General.thinks)
+        loop.generateNative = generateNative
+        // `thinks` describes the on-device model; an endpoint gets the plain budget.
+        loop.budget = tier == .onDevice
+            ? AgentLoop.budget(thinks: CleanupModel.General.thinks)
+            : AgentLoop.defaultBudget
         // The prompt names the selection; the text itself comes only through the tool.
         loop.prompt = { [selection] toolList in
             let prompt = AgentPrompt.command(toolList: toolList)
+            return selection.map { prompt + "\n\n" + $0.promptLine } ?? prompt
+        }
+        loop.nativePrompt = { [selection] in
+            let prompt = AgentPrompt.commandNative()
             return selection.map { prompt + "\n\n" + $0.promptLine } ?? prompt
         }
         loop.earlier = followUp.map { ($0.question, $0.answer) }
@@ -171,7 +188,8 @@ struct CommandAgentService {
                        declineReason: result == nil ? declineReason : "",
                        budgetSpent: outcome.exhausted,
                        storableAnswer: router.selectionRead?.storable(answer) ?? answer,
-                       tainted: taint.isSet)
+                       tainted: taint.isSet,
+                       tier: tier)
         }
 
         // Escape stopped the loop. Something a tool already created stands, and is
@@ -224,7 +242,8 @@ struct CommandAgentService {
             answer: answer,
             detail: Self.detailLine(effects: router.effects,
                                     served: outcome.instanceLabels,
-                                    unreadable: router.unreadable),
+                                    unreadable: router.unreadable,
+                                    tier: tier),
             icon: icon(for: router),
             createdSomething: router.didCreateSomething))
     }
@@ -255,10 +274,17 @@ struct CommandAgentService {
     /// day. The wording is the deterministic day summary's own tail, so the two
     /// surfaces report a gap identically.
     /// Pure, so the gap rule is testable without a provider that can fail on demand.
+    /// An endpoint run says so on this line too, never "On-device assistant".
     static func detailLine(effects: [CommandToolRouter.Effect],
                            served: [String],
-                           unreadable: [String]) -> String {
-        let line = destination(effects: effects, served: served)
+                           unreadable: [String],
+                           tier: AgentTier = .onDevice) -> String {
+        var line = destination(effects: effects, served: served)
+        if tier == .endpoint {
+            line = line == onDeviceLine
+                ? "Answered by \(AgentTier.endpointLabel)"
+                : line + "  \u{00B7}  via \(AgentTier.endpointLabel)"
+        }
         guard !unreadable.isEmpty else { return line }
         return line + "  ·  couldn't read \(unreadable.joined(separator: ", "))"
     }
@@ -285,8 +311,10 @@ struct CommandAgentService {
         }
         let labels = Set(served).sorted()
         if !labels.isEmpty { return "From \(labels.joined(separator: ", "))" }
-        return "On-device assistant"
+        return onDeviceLine
     }
+
+    private static let onDeviceLine = "On-device assistant"
 
     private func icon(for router: CommandToolRouter) -> String {
         for effect in router.effects {

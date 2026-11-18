@@ -116,6 +116,8 @@ enum SnapshotMode {
             render(accountPopover, to: dir.appendingPathComponent("\(name).png"))
         }
 
+        renderAgentEndpoint(dir)
+
         // Onboarding, in the notch — one render per beat, plus the two states
         // inside the microphone beat that the orb is doing the work in.
         let engine: @MainActor () -> EngineStatus = { EngineStatus(state) }
@@ -334,6 +336,15 @@ enum SnapshotMode {
             s.commandAgentRunning = true
             s.agentActivity = .running(
                 tool: "list_calendar_events", target: "Personal Google Calendar")
+        }
+        // The static mark while the user's endpoint answers: the words are leaving the
+        // Mac while it shows, so it leads the caption and never animates.
+        renderPill(dir, name: "pill-7f-agent-your-endpoint") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.commandAgentRunning = true
+            s.commandAgentTier = .endpoint
+            s.agentActivity = .running(tool: "list_calendar_events", target: "Personal")
         }
         // The consent card for a connector write — the one banner that carries three
         // buttons beside its two lines, so it takes the *wide* surface. These two
@@ -1171,6 +1182,32 @@ enum SnapshotMode {
             .frame(width: 720, height: 480)
         render(view, to: dir.appendingPathComponent("meeting-live.png"))
         session.discardForTermination()  // removes the temp folder its recorder made
+    }
+
+    /// The endpoint section before and after consent, and the consent sheet. Drawn from
+    /// a constant binding, so no mock endpoint is written into this process's defaults;
+    /// the mock key goes to the in-memory store `seedMockData` switched to.
+    private static func renderAgentEndpoint(_ dir: URL) {
+        var endpoint = AgentEndpoint(api: .anthropic,
+                                     url: "https://api.anthropic.com/v1/messages",
+                                     model: "claude-opus-5-5")
+        func section(_ value: AgentEndpoint) -> some View {
+            AgentEndpointSettingsSection(endpoint: .constant(value))
+                .frame(width: 680, alignment: .leading)
+                .padding(.horizontal, 44)
+                .padding(.vertical, 40)
+                .background(WarmBackground())
+        }
+        render(section(endpoint), to: dir.appendingPathComponent("panel-agent-endpoint.png"))
+        endpoint.consentedTo = endpoint.consentKey
+        AgentEndpoint.setAPIKey("snapshot-mock-key")
+        render(section(endpoint), to: dir.appendingPathComponent("panel-agent-endpoint-allowed.png"))
+        AgentEndpoint.setAPIKey(nil)
+        render(
+            AgentEndpointConsentSheet(host: endpoint.host, onAllow: {}, onCancel: {})
+                .padding(20)
+                .background(Color(white: 0.9)),
+            to: dir.appendingPathComponent("sheet-agent-endpoint-consent.png"))
     }
 
     private static func renderPill(_ dir: URL, name: String, configure: (AppState) -> Void) {

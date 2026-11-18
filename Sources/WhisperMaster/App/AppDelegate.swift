@@ -90,6 +90,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the meeting state. Hidden where meeting notes are not built in.
     private var meetingItem: NSMenuItem?
     private var appliedMeetingItemTitle: String?
+    /// Pause or resume the user's endpoint. Hidden until one is set and agreed to.
+    private var endpointItem: NSMenuItem?
+    /// nil while hidden, so the first tick that shows it writes the title.
+    private var appliedEndpointItemTitle: String?
     private var pasteLastItem: NSMenuItem?
     private var historyMenu: NSMenu?
     private var historyMenuItem: NSMenuItem?
@@ -763,6 +767,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(meeting)
         meetingItem = meeting
 
+        let endpoint = NSMenuItem(
+            title: "Pause Your Endpoint",
+            action: #selector(toggleEndpointPause),
+            keyEquivalent: ""
+        )
+        endpoint.isHidden = true
+        menu.addItem(endpoint)
+        endpointItem = endpoint
+
         let cancel = NSMenuItem(
             title: "Cancel Voice Engine Setup",
             action: #selector(cancelVoiceEngineSetup),
@@ -873,6 +886,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if appliedMeetingItemTitle != meetingTitle {
             appliedMeetingItemTitle = meetingTitle
             meetingItem?.title = meetingTitle
+        }
+        let endpointTitle: String? = FeatureFlags.agentEndpointAvailable
+            && state.agentEndpoint.hasConsent
+            ? (state.agentEndpoint.paused ? "Resume Your Endpoint" : "Pause Your Endpoint")
+            : nil
+        if appliedEndpointItemTitle != endpointTitle {
+            appliedEndpointItemTitle = endpointTitle
+            endpointItem?.isHidden = endpointTitle == nil
+            if let endpointTitle { endpointItem?.title = endpointTitle }
         }
 
         // The notch panel is click-through except while an interactive banner is
@@ -1665,6 +1687,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startRecording() {
         guard ensureCanDictate(), onboardingAllowsCapture() else { return }
         viewModel.startRecording()
+    }
+
+    @objc
+    private func toggleEndpointPause() {
+        viewModel.setAgentEndpointPaused(!viewModel.state.agentEndpoint.paused)
     }
 
     @objc
