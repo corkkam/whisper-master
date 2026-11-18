@@ -888,6 +888,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // menu-bar clicks for the whole ten minutes before a meeting.
             state.ambientRowTakesClicks
                 || state.approvals.pending != nil
+                // The draft band's Replace / Copy, which is the consent to type.
+                || state.shouldShowAgentDraft
                 // The nudge is a pointer to another session, so it has to be
                 // tappable — a band that says "tap to answer" and swallows the tap
                 // is worse than no band.
@@ -965,6 +967,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            Date().timeIntervalSince(at) >= AppState.undeliveredBannerDuration {
             state.undeliveredTranscriptAt = nil
             state.undeliveredText = nil
+        }
+
+        // Drop an unanswered draft once its window elapses: it holds text from
+        // another app, so it is not kept a moment longer than the band shows it.
+        if let at = state.agentDraftAt,
+           Date().timeIntervalSince(at) >= AppState.agentDraftDuration {
+            state.agentDraftAt = nil
+            state.agentDraft = nil
         }
 
         // Retract the polished-transcript beat once its window elapses.
@@ -1320,6 +1330,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onCopyAnswer: { [weak self] in
                 self?.viewModel.copyAnswer()
+            },
+            onDraft: { [weak self] action in
+                self?.viewModel.handleDraftAction(action)
             },
             onToggleDueReminder: { [weak self] in
                 // The checkbox on a reminder that just came due — ticks it off, or

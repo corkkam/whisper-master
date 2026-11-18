@@ -32,8 +32,26 @@ enum ApprovalCopy {
         switch tool {
         case "send_message": return "Post to"
         case "create_calendar_event": return "Add an event to"
+        case "open_app", "open_url": return "Open"
         default: return "Run \(tool) on"
         }
+    }
+
+    /// The payload line of an `open_app` card. The app is the target, so it is in
+    /// the headline; this says what a yes does.
+    static let openAppDetail = "It comes to the front, or starts if it isn't running."
+
+    /// Characters of a link one caption line holds on the wide card, rounded down so
+    /// a reserved line is never short. `DeviceToolCatalog.maxURLLength` is three of
+    /// these, which is the most the card reserves.
+    static let linkCharactersPerLine = 50
+
+    /// Lines the payload may take: one, except a link, which wraps rather than being
+    /// cut, because the end of a link is where a planted address hides.
+    static func detailLines(tool: String, detail: String) -> Int {
+        guard tool == "open_url" else { return 1 }
+        let lines = (detail.count + linkCharactersPerLine - 1) / linkCharactersPerLine
+        return min(3, max(1, lines))
     }
 
     /// One line: what is about to happen, and where.
@@ -45,6 +63,11 @@ enum ApprovalCopy {
     /// Personal on Personal" — a headline that reads like a bug and spends the
     /// band's width saying one name twice.
     static func headline(tool: String, target: String, instanceLabel: String) -> String {
+        // A link's headline names the host, the part that decides; the whole link is
+        // the payload line under it.
+        if tool == "open_url" {
+            return "Open \(URL(string: target)?.host() ?? target) in your browser"
+        }
         let scope = target.compare(instanceLabel, options: .caseInsensitive) == .orderedSame
             ? instanceLabel
             : "\(target) on \(instanceLabel)"
@@ -88,6 +111,16 @@ enum ApprovalCopy {
             remaining.removeValue(forKey: "channel")
             if let text = remaining.removeValue(forKey: "text"), !text.isEmpty {
                 parts.append(quoted(text))
+            }
+
+        case "open_app":
+            remaining.removeValue(forKey: "app")
+            parts.append(openAppDetail)
+
+        case "open_url":
+            // Unquoted and whole: the address is the consent.
+            if let url = remaining.removeValue(forKey: "url"), !url.isEmpty {
+                parts.append(url)
             }
 
         default:

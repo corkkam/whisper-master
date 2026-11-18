@@ -91,8 +91,8 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
   remember. A tainted run hands its taint to the follow-up.
 - **Escape** goes through the existing Escape monitor in `AppDelegate`, no new one:
   `DictationViewModel.handleAssistantEscape` denies a waiting card, cancels the loop's
-  task (the loop then ends like a spent budget and the words are filed), or closes a
-  long answer. With none of the three pending it does nothing and returns false, so
+  task (the loop then ends like a spent budget and the words are filed), drops a draft
+  waiting on the band, or closes a long answer. With none of these pending it does nothing and returns false, so
   the coding-agent bands keep their own Escape. **Known limit:** the key is only
   observed, never consumed, so an Escape pressed in another app (an editor, a dialog)
   also cancels a running assistant or denies a pending card. That is the safe
@@ -104,8 +104,46 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
   opens the coding agent's expanded reply (`NotchAgentReplyExpanded`) with Copy, not a
   new surface.
 
+## Device tools: acting on this Mac (`Tools/DeviceTools.swift`)
+
+Four tools with no connector behind them: `open_app`, `open_url`, `replace_selection`
+and `insert_text`. `CommandToolRouter` routes them to `DeviceToolRunner` **before**
+the connector branch, so a user with no connection still gets the card.
+
+- **The approval route.** `open_app` and `open_url` go through `WriteAuthorizer` and
+  the same card as a connector write, bound to the fixed `DeviceToolCatalog.thisMacID`
+  ("This Mac") instead of a `ConnectorInstance`. The taint rule is unchanged: after
+  untrusted text a grant does not answer and the card offers no Always. Grants for
+  This Mac appear in the Connectors page's revoke list under that label.
+- **`open_app` opens only an installed app** (`InstalledApps`, exact name match,
+  never fuzzy). Always is offered, and the grant binds to the app's real name.
+- **`open_url` shows the card every time.** `PendingApproval.grantable` is false, so
+  Always is hidden and no grant is stored even if a caller answers Always. Only
+  `http` and `https`, no user name in the link, at most `maxURLLength` (150)
+  characters so the whole address fits the card's three wrapped lines
+  (`ApprovalCopy.detailLines`). A tainted run refuses a link with a query or a
+  fragment before any card: that is where read text would leave the Mac.
+- **The draft tools only stage a draft** (`AgentDraft`, `AppState.agentDraft`). No
+  card: the band (`NotchDraftBanner`) is the consent, and its Replace or Insert types
+  the text with a real ⌘V and never a Return. The band offers Copy only when the
+  focus left the key-down app, when the run read account text
+  (`Taint.outsideSelection`; the run's own `read_selection` does not count, or
+  "make this shorter" could never replace), or in a terminal for a multi-line draft
+  (trailing newlines are removed there). The tap checks again: Accessibility, Secure
+  Keyboard Entry, the front app, and for Replace that the selection is unchanged
+  (read off the main actor, like the chord's read). Any failure copies instead.
+- **The fast path** (`Agent/AgentIntentMatcher.swift`): a whole capture of "open
+  <installed app>" opens it with no model and no card, like "pause the music". "go
+  to <domain>" sends the link to the same card. Legal only inside
+  `routeCommandCapture`.
+- **No `media_control` tool.** `MediaCommandDetector` already handles transport ahead
+  of the model, and a model-route key press during a hold is the bug `Media/CLAUDE.md`
+  forbids.
+
 ## Verifying
 
+`swift test --filter "DeviceToolRunnerTests|AgentIntentMatcherTests|ApprovalCopyTests"`
+for the device tools.
 `swift test --filter "MicrosoftConnectorTests|SlackProviderTests|Connector"`. No
 test reaches the live Graph or Slack APIs. The first real sign-in after the client
 id is set is the end-to-end check.

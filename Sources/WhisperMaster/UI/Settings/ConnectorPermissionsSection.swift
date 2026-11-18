@@ -49,7 +49,9 @@ struct ConnectorPermissionsSection: View {
                 Text("\(ApprovalCopy.verb(for: grant.tool)) \(grant.target)")
                     .font(Typography.sans(13, .semibold))
                     .foregroundStyle(Theme.textPrimary)
-                Text(store.instance(id: grant.instanceID)?.displayLabel ?? "a removed connector")
+                Text(grant.instanceID == DeviceToolCatalog.thisMacID
+                     ? DeviceToolCatalog.thisMacLabel
+                     : store.instance(id: grant.instanceID)?.displayLabel ?? "a removed connector")
                     .font(Typography.caption)
                     .foregroundStyle(Theme.textSecondary)
             }
