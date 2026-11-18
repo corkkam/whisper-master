@@ -225,6 +225,76 @@ final class CloudToolGeneratorTests: XCTestCase {
         XCTAssertNil(AgentEndpoint.validate(""))
     }
 
+    /// A user, a password or a query string is a place a secret hides.
+    func testAnAddressWithCredentialsOrAQueryIsRefused() {
+        XCTAssertNil(AgentEndpoint.validate("https://me:pw@api.example.com/v1/chat/completions"))
+        XCTAssertNil(AgentEndpoint.validate("https://me@api.example.com/v1/chat/completions"))
+        XCTAssertNil(AgentEndpoint.validate("https://api.example.com/v1/chat/completions?key=abc"))
+        XCTAssertNil(AgentEndpoint.validate("http://user:pw@127.0.0.1:11434/v1/chat/completions"))
+        XCTAssertNotNil(AgentEndpoint.validate("https://api.example.com/v1/chat/completions"))
+    }
+
+    /// A redirect would carry the key and the conversation to a host nobody agreed to.
+    /// The live transport refuses it; the 3xx is the reply, which is nil.
+    func testARedirectIsNeverFollowed() async {
+        RedirectingURLProtocol.reset()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RedirectingURLProtocol.self]
+        var generator = generator(.openAICompatible, FakeEndpoint([]))
+        generator.transport = CloudToolGenerator.transport(session: URLSession(configuration: config))
+
+        let reply = await generator.reply(loopHistory, tools: [])
+
+        XCTAssertNil(reply)
+        XCTAssertEqual(RedirectingURLProtocol.hosts, ["127.0.0.1"],
+                       "the redirect target must never be asked: \(RedirectingURLProtocol.hosts)")
+        XCTAssertEqual(generator.sent.snapshot.failures, 1)
+    }
+
+    // MARK: - Staying local, and the fallback
+
+    /// The chord press and the routing are two moments; either keeps the capture local,
+    /// and so does a follow-up of a capture that stayed local.
+    func testAStayLocalCaptureAndItsFollowUpNeverReachTheEndpoint() async {
+        XCTAssertTrue(AgentEndpoint.staysLocal(frontBundleID: "com.apple.Safari", secureInput: false,
+                                               atPress: true))
+        XCTAssertTrue(AgentEndpoint.staysLocal(frontBundleID: "com.apple.Safari", secureInput: false,
+                                               followUpKeptLocal: true))
+
+        let window = FollowUpWindow()
+        let run = await CommandAgentService(
+            store: { let s = ConnectorInstanceStore(load: false); s.persistenceEnabled = false; return s }(),
+            notes: notesStore(), approvals: ApprovalCoordinator(), connectorsAllowed: false)
+            .run("what reminders do I have", generate: ScriptedModel([
+                #"{"tool":"list_reminders","args":{}}"#, #"{"answer":"None."}"#]).generate)
+        window.remember(run, question: "what reminders do I have",
+                        generation: window.generation, keptLocal: true)
+        let digest = window.take()
+        XCTAssertEqual(digest?.keptLocal, true, "the follow-up carries the mark")
+        XCTAssertTrue(AgentEndpoint.staysLocal(frontBundleID: "com.apple.Safari", secureInput: false,
+                                               followUpKeptLocal: digest?.keptLocal ?? false))
+
+        window.remember(run, question: "q", generation: window.generation)
+        XCTAssertEqual(window.take()?.keptLocal, false, "an ordinary capture is not marked")
+    }
+
+    /// A card the user declined must not come back from the on-device tier.
+    func testTheOnDeviceTierDoesNotRetryAfterARefusedCard() {
+        func may(_ authorization: ToolAuthorization?) -> Bool {
+            DictationViewModel.onDeviceMayFollowEndpoint(
+                handled: false, cancelled: false, createdSomething: false,
+                calls: [ToolCallTrace(tool: "list_calendar_events"),
+                        ToolCallTrace(tool: "send_message", authorization: authorization)])
+        }
+        XCTAssertFalse(may(.denied))
+        XCTAssertFalse(may(.timedOut))
+        XCTAssertTrue(may(nil), "a failed read leaves the words to the on-device tier")
+        XCTAssertFalse(DictationViewModel.onDeviceMayFollowEndpoint(
+            handled: false, cancelled: true, createdSomething: false, calls: []))
+        XCTAssertFalse(DictationViewModel.onDeviceMayFollowEndpoint(
+            handled: false, cancelled: false, createdSomething: true, calls: []))
+    }
+
     func testConsentIsForOneAddress() {
         var endpoint = AgentEndpoint(api: .openAICompatible,
                                      url: "http://127.0.0.1:11434/v1/chat/completions", model: "m")
@@ -420,6 +490,50 @@ final class FakeEndpoint: @unchecked Sendable {
     private static func json(_ object: Any) -> Data {
         (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
     }
+}
+
+/// Answers every request to 127.0.0.1 with a 302 to another host, and records each
+/// host asked. A followed redirect shows up as a second host.
+final class RedirectingURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var asked: [String] = []
+
+    static func reset() {
+        lock.lock()
+        asked = []
+        lock.unlock()
+    }
+
+    static var hosts: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return asked
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let url = request.url!
+        Self.lock.lock()
+        Self.asked.append(url.host ?? "")
+        Self.lock.unlock()
+        guard url.host == "127.0.0.1" else {
+            let ok = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: ok, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(#"{"choices":[{"message":{"content":"leaked"}}]}"#.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+        let target = URL(string: "https://elsewhere.example/v1/chat/completions")!
+        let redirect = HTTPURLResponse(url: url, statusCode: 302, httpVersion: nil,
+                                       headerFields: ["Location": target.absoluteString])!
+        client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: target), redirectResponse: redirect)
+        client?.urlProtocol(self, didReceive: redirect, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
 /// Collects log lines from a `@Sendable` closure.

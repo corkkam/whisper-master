@@ -72,10 +72,13 @@ struct AgentEndpoint: Codable, Equatable, Sendable {
     /// Ready to take a capture: set, agreed to, and not paused.
     var isActive: Bool { isConfigured && hasConsent && !paused }
 
+    /// No user, password or query string either: each is a place a secret hides, and
+    /// the address is shown in Settings and its host goes into traces.
     static func validate(_ raw: String) -> URL? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), let host = url.host, !host.isEmpty,
-              let scheme = url.scheme?.lowercased()
+              let scheme = url.scheme?.lowercased(),
+              url.user == nil, url.password == nil, url.query == nil
         else { return nil }
         if scheme == "https" { return url }
         return scheme == "http" && isLoopback(host) ? url : nil
@@ -88,8 +91,15 @@ struct AgentEndpoint: Codable, Equatable, Sendable {
     /// True when this capture must stay on the on-device tier: a password manager is
     /// in front, or secure input is on (a password field has focus somewhere). The
     /// same two rules that stop the selection read.
-    static func staysLocal(frontBundleID: String?, secureInput: Bool) -> Bool {
-        if secureInput { return true }
+    ///
+    /// - Parameters:
+    ///   - atPress: the same check made when the chord went down. The front app can
+    ///     change during the hold, so either moment keeps the capture local.
+    ///   - followUpKeptLocal: the follow-up digest came from a capture that stayed
+    ///     local (`FollowUpWindow.Digest.keptLocal`), and the digest goes with this run.
+    static func staysLocal(frontBundleID: String?, secureInput: Bool,
+                           atPress: Bool = false, followUpKeptLocal: Bool = false) -> Bool {
+        if secureInput || atPress || followUpKeptLocal { return true }
         guard let id = frontBundleID?.lowercased() else { return false }
         return SelectionReader.privateApps.contains(id)
     }
@@ -198,7 +208,7 @@ struct CloudToolGenerator: Sendable {
     /// Shorter than the loop's 30 s budget, so a hung server fails in time for the
     /// on-device tier to run.
     var timeout: TimeInterval = 20
-    var transport: Transport = { try await URLSession.shared.data(for: $0) }
+    var transport: Transport = CloudToolGenerator.transport(session: .shared)
     /// Status and host only. Never the key, never a body.
     var log: @Sendable (String) -> Void = { Log.connectors.notice("\($0, privacy: .public)") }
 
@@ -223,6 +233,22 @@ struct CloudToolGenerator: Sendable {
 
     var generate: AgentLoop.GenerateNative {
         { messages, tools in await reply(messages, tools: tools) }
+    }
+
+    /// Every request goes through `RefuseRedirects`: a redirect would carry the key
+    /// and the conversation to a host the user never agreed to. The 3xx comes back
+    /// as the response, which `reply` treats like any other HTTP error.
+    static func transport(session: URLSession) -> Transport {
+        { request in try await session.data(for: request, delegate: RefuseRedirects()) }
+    }
+
+    final class RefuseRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest,
+                        completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
     }
 
     func reply(_ messages: [[String: String]], tools: [String]) async -> String? {

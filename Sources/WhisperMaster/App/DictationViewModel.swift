@@ -54,6 +54,9 @@ final class DictationViewModel {
     /// the chord merely re-labelled a session the push-to-talk key owns — there,
     /// letting go of control must not cut the recording short.
     private var commandChordOwnsSession = false
+    /// A password manager was in front or secure input was on when the chord went
+    /// down. Read once by `runCommandAgent`, which keeps that capture off the endpoint.
+    private var commandPressStaysLocal = false
     /// The front app's selection, read off the main actor from the chord press.
     /// Taken at stop with the arm, so a read cannot reach the next session.
     private let selectionCapture = SelectionCapture()
@@ -1010,6 +1013,10 @@ final class DictationViewModel {
         // session we'd have to un-arm at the end would put "Note or reminder" in
         // the notch and then paste the words anyway.
         guard FeatureFlags.connectorsAndNotesAvailable else { return }
+        // Read now as well as at routing: the front app can change during the hold.
+        commandPressStaysLocal = AgentEndpoint.staysLocal(
+            frontBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+            secureInput: TerminalApps.secureKeyboardEntryEnabled())
         if state.canStop || state.phase == .preparingModels {
             setCommandArmed(true)
             state.statusMessage = "Listening for the assistant..."
@@ -1396,30 +1403,40 @@ final class DictationViewModel {
                                  selectionRead: Task<SelectionContext?, Never>?,
                                  followUp: FollowUpWindow.Digest?) async -> AgentAttempt {
         let endpoint = state.agentEndpoint
-        guard FeatureFlags.agentEndpointAvailable, endpoint.isActive else {
-            return await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp)
-        }
-        let front = SelectionReader.FrontApp.current()
-        if AgentEndpoint.staysLocal(frontBundleID: front?.bundleID,
-                                    secureInput: TerminalApps.secureKeyboardEntryEnabled()) {
-            var local = await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp)
-            local.priorDecisions.insert(TraceDecision(
-                title: "Your endpoint",
-                detail: "Skipped — a password manager was in front or secure input was on, "
-                    + "so nothing left this Mac.",
-                taken: false), at: 0)
+        let atPress = commandPressStaysLocal
+        commandPressStaysLocal = false
+        // Decided whether or not an endpoint is on, so a capture that stayed local
+        // marks its follow-up even while the endpoint is paused.
+        let keptLocal = AgentEndpoint.staysLocal(
+            frontBundleID: SelectionReader.FrontApp.current()?.bundleID,
+            secureInput: TerminalApps.secureKeyboardEntryEnabled(),
+            atPress: atPress,
+            followUpKeptLocal: followUp?.keptLocal ?? false)
+        guard FeatureFlags.agentEndpointAvailable, endpoint.isActive, !keptLocal else {
+            var local = await runOnDeviceAgent(text, selectionRead: selectionRead,
+                                               followUp: followUp, keptLocal: keptLocal)
+            if keptLocal, FeatureFlags.agentEndpointAvailable, endpoint.isActive {
+                local.priorDecisions.insert(TraceDecision(
+                    title: "Your endpoint",
+                    detail: "Skipped — a password manager was in front or secure input was on, "
+                        + "now or in the capture this follows, so nothing left this Mac.",
+                    taken: false), at: 0)
+            }
             return local
         }
         let selection = await SelectionCapture.settle(selectionRead)
         let sent = EndpointSendLog(host: endpoint.host)
         guard let generator = CloudToolGenerator(endpoint: endpoint, apiKey: AgentEndpoint.apiKey(),
                                                  sent: sent) else {
-            return await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp)
+            return await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp,
+                                          keptLocal: false)
         }
         var remote = await runAgent(text, selection: selection, followUp: followUp,
                                     tier: .endpoint, generateNative: generator.generate)
         remote.endpoint = sent.snapshot
-        guard !remote.handled, !remote.cancelled, !remote.createdSomething,
+        guard Self.onDeviceMayFollowEndpoint(handled: remote.handled, cancelled: remote.cancelled,
+                                             createdSomething: remote.createdSomething,
+                                             calls: remote.calls),
               CleanupModel.General.isInstalled else { return remote }
         var local = await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice)
         local.priorDecisions = [TraceDecision(
@@ -1433,9 +1450,20 @@ final class DictationViewModel {
         return local
     }
 
+    /// Whether the on-device tier may take the words after the endpoint tier gave them
+    /// back. Not after an answer, an Escape or a creation (a second copy), and not after
+    /// a card the user declined or left to time out: the same question must not come
+    /// back from the other tier.
+    static func onDeviceMayFollowEndpoint(handled: Bool, cancelled: Bool,
+                                          createdSomething: Bool, calls: [ToolCallTrace]) -> Bool {
+        !handled && !cancelled && !createdSomething
+            && !calls.contains { $0.authorization?.isRefusal == true }
+    }
+
     private func runOnDeviceAgent(_ text: String,
                                   selectionRead: Task<SelectionContext?, Never>?,
-                                  followUp: FollowUpWindow.Digest?) async -> AgentAttempt {
+                                  followUp: FollowUpWindow.Digest?,
+                                  keptLocal: Bool) async -> AgentAttempt {
         // **The assistant's own model, not the cleanup slot.** This gate read
         // `MlxCleanupService.shared.isReady` — S1-mini, the dictation text normalizer
         // — which is a different model with a different download, and it was wrong in
@@ -1459,15 +1487,18 @@ final class DictationViewModel {
         }
         // Usually done long before the words are; a hung app costs at most the wait.
         let selection = await SelectionCapture.settle(selectionRead)
-        return await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice)
+        return await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice,
+                              keptLocal: keptLocal)
     }
 
     /// One tier's run of the agent, and everything the trace needs from it.
+    /// - Parameter keptLocal: this capture had to stay on this Mac; its follow-up does too.
     private func runAgent(_ text: String,
                           selection: SelectionContext?,
                           followUp: FollowUpWindow.Digest?,
                           tier: AgentTier,
-                          generateNative: AgentLoop.GenerateNative? = nil) async -> AgentAttempt {
+                          generateNative: AgentLoop.GenerateNative? = nil,
+                          keptLocal: Bool = false) async -> AgentAttempt {
         let agent = CommandAgentService(
             store: state.connectorStore,
             notes: state.notesStore,
@@ -1506,7 +1537,7 @@ final class DictationViewModel {
         let cancelled = task.isCancelled
         // Only its own handle: a second capture's run keeps the one it set.
         if commandAgentTask == task { commandAgentTask = nil }
-        followUps.remember(run, question: text, generation: generation)
+        followUps.remember(run, question: text, generation: generation, keptLocal: keptLocal)
         state.isPolishing = false
         state.commandAgentRunning = false
         state.agentActivity = nil

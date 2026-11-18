@@ -116,7 +116,14 @@ Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API
   (`AgentEndpoint.consentKey`; a new address asks again, a new model does not), and not
   paused (the tray's Pause Your Endpoint item). A password manager in front or secure
   input on keeps the capture on the on-device tier (`AgentEndpoint.staysLocal`, the same
-  two rules as `SelectionReader`).
+  two rules as `SelectionReader`), checked at the chord press **and** at routing, since
+  the front app can change during the hold. **A capture kept local marks its follow-up**
+  (`FollowUpWindow.Digest.keptLocal`): the next capture that carries its answer stays
+  local too and hands the mark on, so the answer never reaches the endpoint through
+  `AgentLoop.earlier`.
+- **The address has no user, password or query string** (`AgentEndpoint.validate`), and
+  **a redirect is never followed** (`CloudToolGenerator.RefuseRedirects`): it would carry
+  the key and the conversation to a host the user did not agree to. The 3xx is a failure.
 - **Every endpoint is off-device**, a loopback one too: a proxy on 127.0.0.1 can forward
   every prompt. The tier is labelled "your endpoint" on the band ("Your endpoint ·
   Checking Personal", a static mark that leads the caption), on the answer line, and in
@@ -142,7 +149,9 @@ Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API
 - **Every failure is nil**: an HTTP error, a timeout (20 s per request, inside the loop's
   30 s budget), a body with no answer or call, a refusal. The view model
   (`runCommandAgent`) then runs the on-device tier, unless the endpoint run created
-  something or Escape stopped it. Both runs' calls go into the one trace.
+  something, Escape stopped it, or a card in it was declined or timed out
+  (`DictationViewModel.onDeviceMayFollowEndpoint`: the same question must not come back
+  from the other tier). Both runs' calls go into the one trace.
 - **What was sent** is `AssistantTrace.endpoint` (`EndpointSendTrace`): request count and
   the character counts of the last request by kind, never the content.
 - **Not checked live.** No test calls a paid API. `AgentEndpointLiveTests` is the bench
