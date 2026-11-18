@@ -40,6 +40,10 @@ final class MeetingLiveWindow {
         }
         panel?.orderFrontRegardless()
     }
+
+    func hide() {
+        panel?.orderOut(nil)
+    }
 }
 
 struct MeetingLiveView: View {
@@ -96,7 +100,7 @@ struct MeetingLiveView: View {
                     ProgressView().controlSize(.small)
                     Text("Writing notes").font(Typography.caption)
                 } else {
-                    Button("Start notes") { controller.takeNotes() }
+                    Button("Start notes") { controller.requestNotes() }
                         .secondaryButton()
                 }
             }

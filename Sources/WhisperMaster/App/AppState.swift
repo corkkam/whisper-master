@@ -112,6 +112,8 @@ final class AppState {
     static let learnedBannerDuration: TimeInterval = 4
     /// How long the "smart cleanup is ready" notch confirmation stays down.
     static let cleanupReadyBannerDuration: TimeInterval = 5
+    /// How long the Ready notice stays on screen. Counted only while it shows.
+    static let readyNoticeDuration: TimeInterval = 4
     /// How long the success "delivered" checkmark holds in the notch after a
     /// transcript lands at the cursor, before the surface retracts.
     static let deliveredBeatDuration: TimeInterval = 1.1
@@ -346,6 +348,15 @@ final class AppState {
     /// "smart cleanup is ready" notch banner. Transient (never persisted),
     /// auto-expired by the AppDelegate refresh loop after `cleanupReadyBannerDuration`.
     var cleanupModelReadyAt: Date?
+    /// When the Ready notice went up: setup closed before the speech files were
+    /// ready, and they now are. Transient (never persisted), written only by the
+    /// view model and only on change. While a higher band holds the notch, the
+    /// AppDelegate tick moves it forward by the time held, then drops it after
+    /// `readyNoticeDuration` on screen.
+    var readyNoticeAt: Date?
+    /// Whether typing was on when the notice went up, which picks its line.
+    /// Transient; written by the view model with `readyNoticeAt`.
+    var readyNoticeTypingOn = true
     /// Whether the cleanup model is currently loaded and usable. Transient;
     /// mirrors `MlxCleanupService.isReady` synchronously for the Settings status
     /// (works for both the R2 and Hugging Face load paths). Written by
@@ -1116,6 +1127,22 @@ final class AppState {
             && preparingEngine == nil
             && !shouldShowUndeliveredBanner
             && !shouldShowDueReminderBanner
+    }
+
+    /// The Ready notice: the lowest banner rung, below the delivered beat and
+    /// above the ambient row (`NotchActivity.readyNotice`). Not in
+    /// `notchIsOccupied`, so the hover panel still opens over it.
+    var shouldShowReadyNotice: Bool { readyNoticeAt != nil }
+
+    /// Whether the band is free to carry the Ready notice: no dictation, and no
+    /// band above it in `DictationPillContent`'s ladder. While this is false the
+    /// AppDelegate tick holds the notice's clock rather than letting it run out
+    /// behind something else.
+    var canShowReadyNotice: Bool {
+        // Every band above the meeting banner, then the rest of the ladder down
+        // to the delivered beat.
+        canShowMeetingBanner && !shouldShowMeetingBanner && !shouldShowBluetoothBanner
+            && !shouldShowReminder && !isPolishing && !shouldShowPolishedBeat && !shouldShowDeliveredBeat
     }
 
     /// Whether the band should show the live dictation line (the state word + the

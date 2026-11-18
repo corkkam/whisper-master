@@ -175,6 +175,9 @@ struct SettingsView: View {
     var startSetup: () -> Void = {}
     var cancelSetup: () -> Void = {}
     var signOut: () -> Void = {}
+    /// The mic cards' Start. The App layer runs the sign-in and setup capture
+    /// gates first, as it does for the tray's Start Dictation.
+    var startDictation: () -> Void = {}
     var initialSection: SettingsSection = .today
 
     @State private var selection: SettingsSection
@@ -201,6 +204,7 @@ struct SettingsView: View {
         startSetup: @escaping () -> Void = {},
         cancelSetup: @escaping () -> Void = {},
         signOut: @escaping () -> Void = {},
+        startDictation: @escaping () -> Void = {},
         initialSection: SettingsSection = .today
     ) {
         self.viewModel = viewModel
@@ -210,6 +214,7 @@ struct SettingsView: View {
         self.startSetup = startSetup
         self.cancelSetup = cancelSetup
         self.signOut = signOut
+        self.startDictation = startDictation
         self.initialSection = initialSection
         _selection = State(initialValue: initialSection.isAvailable ? initialSection : .today)
     }
@@ -300,7 +305,7 @@ struct SettingsView: View {
                 if let version = state.availableUpdateVersion {
                     SidebarUpdateCard(version: version, install: checkForUpdates)
                 }
-                SidebarMicCard(state: state, viewModel: viewModel)
+                SidebarMicCard(state: state, viewModel: viewModel, start: startDictation)
                 SidebarAccountRow(
                     isSnapshot: isSnapshot,
                     updateVersion: state.availableUpdateVersion,
@@ -542,7 +547,9 @@ struct SettingsView: View {
     private var panelContent: some View {
         switch selection {
         case .today:
-            TodayView(viewModel: viewModel, state: state, openConnectors: { selection = .connectors })
+            TodayView(
+                viewModel: viewModel, state: state, openConnectors: { selection = .connectors },
+                startDictation: startDictation)
         case .notes:
             // Defensive: the sidebar row is disabled on stable, so this branch is
             // unreachable there — but a stale `requestedSettingsSection` must not
@@ -699,6 +706,7 @@ private struct SidebarUpdateCard: View {
 private struct SidebarMicCard: View {
     @Bindable var state: AppState
     let viewModel: DictationViewModel
+    let start: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
@@ -767,7 +775,7 @@ private struct SidebarMicCard: View {
     }
 
     private func toggle() {
-        if isRecording { viewModel.stopRecording() } else { viewModel.startRecording() }
+        if isRecording { viewModel.stopRecording() } else { start() }
     }
 }
 

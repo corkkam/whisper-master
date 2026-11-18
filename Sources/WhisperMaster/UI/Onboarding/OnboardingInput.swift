@@ -10,9 +10,7 @@ enum OnboardingFinish: Equatable {
 }
 
 /// What `AppDelegate` does once setup finishes. Every kind also marks the flow
-/// seen, dismisses the band and keeps engine prep going.
-///
-/// Used from PR 4.
+/// seen, dismisses the band and keeps engine prep going (`AppDelegate.endOnboarding`).
 struct OnboardingFinishPlan: Equatable {
     var opensSettings: Bool
     /// Give focus back to the app the user came from.
@@ -23,8 +21,10 @@ struct OnboardingFinishPlan: Equatable {
         case .handBack:
             return OnboardingFinishPlan(opensSettings: false, handsFocusBack: true)
         case .openSettings:
-            // A sign-out during the outro lets the completion run, but the gate
-            // owns the screen: no Settings window opens behind it.
+            // A sign-out during the 400 ms outro releases the window, which stops
+            // the delayed completion: the flow is not marked seen, and that
+            // account sees setup again at the next sign-in. If a completion ever
+            // runs while the gate is up, no Settings window opens behind it.
             return OnboardingFinishPlan(opensSettings: !signOutInFlight, handsFocusBack: false)
         }
     }

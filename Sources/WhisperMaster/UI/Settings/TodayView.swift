@@ -9,6 +9,8 @@ struct TodayView: View {
     let viewModel: DictationViewModel
     @Bindable var state: AppState
     var openConnectors: () -> Void = {}
+    /// Start, through the App layer's sign-in and setup capture gates.
+    var startDictation: () -> Void = {}
 
     @Environment(\.isSnapshot) private var isSnapshot
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -307,7 +309,7 @@ struct TodayView: View {
                 .font(Typography.subheadline)
                 .foregroundStyle(Theme.textSecondary)
             Button {
-                if isRecording { viewModel.stopRecording() } else { viewModel.startRecording() }
+                if isRecording { viewModel.stopRecording() } else { startDictation() }
             } label: {
                 HStack(spacing: 7) {
                     Image(systemName: "mic.fill").font(.system(size: 12, weight: .semibold))
