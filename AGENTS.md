@@ -394,4 +394,4 @@ Five role agents live in `.claude/agents/`: `cto`, `cpo`, `marketing`, `sales`, 
 3. **No spend, no billing change, no release.** Recommend. The release freeze in §7 applies to every role.
 4. **Every claim needs a source.** Cite a file, a test result, a published eval number or a public page. Say what you did not verify.
 5. **Commit identity.** Use the repo-local git config: author `corkkam`, GitHub noreply address, pushes over HTTPS as `corkkam` through the credential helper in `.git/config`. Never commit a secret or a personal address.
-6. **Output goes in the repo** under `docs/<role>/`, on a `feature/<slug>` branch off `dev`.
+6. **Business output is private.** Write finance, product, marketing, sales and engineering reports into the private repo `corkkam/whisper-master-business` (checked out at `~/code/whisper-master-business`), in `<role>/`, on a `feature/<slug>` branch with a PR to `main`. Never commit them to this public repo.
