@@ -10,9 +10,14 @@ import Foundation
 /// exactly the same validated-call path a connector tool goes through, so a malformed
 /// call is rejected here for the same reasons it is there.
 ///
-/// Kept to three. The tool list is prompt text a 4-bit 3B model has to hold in its
-/// head alongside the connector tools, and every extra line is one more thing for it
-/// to pick wrong.
+/// Kept small. The tool list is prompt text the on-device model has to hold in its
+/// head alongside the connector tools. "Three" was a convention, not a measured limit:
+/// the Phase 0 sweep kept first-turn accuracy from 11 to 24 tools, so that range is
+/// the limit now.
+///
+/// `all` is what every run offers. `readSelection` is offered only when the chord
+/// captured a selection, so it is outside `all` and inside `names`, which is what
+/// `CommandToolRouter` dispatches on.
 enum LocalToolCatalog {
     static let all: [ToolDescriptor] = [
         ToolDescriptor(
@@ -52,10 +57,18 @@ enum LocalToolCatalog {
             parameters: []),
     ]
 
-    static let names: Set<String> = Set(all.map(\.name))
+    static let readSelection = ToolDescriptor(
+        name: "read_selection",
+        summary: "Read the text the user selected. Use this when they say \"this\" or ask about their selection.",
+        access: .local,
+        capability: nil,
+        targetArg: nil,
+        parameters: [])
+
+    static let names: Set<String> = Set((all + [readSelection]).map(\.name))
 
     static func descriptor(named name: String) -> ToolDescriptor? {
-        all.first { $0.name == name }
+        (all + [readSelection]).first { $0.name == name }
     }
 }
 
@@ -102,6 +115,12 @@ struct LocalToolRunner {
     /// Nil when the runner isn't serving a voice capture (tests, and any future
     /// non-spoken caller) — the note is then filed with no transcript or audio.
     var voice: VoiceContext?
+    /// What the user had selected when they held the chord, or nil.
+    var selection: SelectionContext?
+    /// The run's taint flag, shared with its `ToolRouter`. A selection is often
+    /// someone else's words, so reading it gates a later write the way a connector
+    /// read does.
+    var taint = Taint()
 
     /// What a call actually did, for the confirmation the notch shows afterwards.
     /// The answer text comes from the model; this is the app's own record of the
@@ -117,6 +136,7 @@ struct LocalToolRunner {
         case "create_note":   return createNote(call)
         case "create_reminder": return createReminder(call)
         case "list_reminders": return (listReminders(), .read)
+        case "read_selection": return readSelection()
         default:
             return (.failure("No such tool: \(call.tool)."), nil)
         }
@@ -177,6 +197,13 @@ struct LocalToolRunner {
             .map { "\($0.displayTitle) — \(Self.stamp.string(from: $0.dueDate))" }
         let text = rows.isEmpty ? "No reminders are set." : rows.joined(separator: "\n")
         return ToolResult(ok: true, text: text, instanceLabels: [])
+    }
+
+    /// Only a read that returned text taints the run, as with a connector read.
+    private func readSelection() -> (ToolResult, Effect?) {
+        guard let selection else { return (.failure("No text is selected."), nil) }
+        taint.isSet = true
+        return (ToolResult(ok: true, text: selection.toolText, instanceLabels: []), .read)
     }
 
     /// Due time for a reminder whose "when" wasn't stated (or couldn't be parsed):

@@ -57,6 +57,9 @@ struct CommandAgentService {
     /// Hand this capture's recording to a note the agent files, or nil to file
     /// without one. Consumed at most once per capture.
     var takeNoteAudio: (UUID) -> NoteAudio? = { _ in nil }
+    /// What the user had selected when they held the chord. Set, it adds
+    /// `read_selection` to the tools and one line of context to the prompt.
+    var selection: SelectionContext?
 
     /// A run of the agent, result **and** the record of how it got there.
     ///
@@ -84,6 +87,9 @@ struct CommandAgentService {
         /// model (`AgentLoop.generateWithinBudget` walks away from it, it can't stop
         /// it), so a caller about to generate again should not wait behind it.
         var budgetSpent = false
+        /// The answer as the trace and the answer log may keep it: a placeholder when
+        /// it repeats the selection the run read. The band still shows `result.answer`.
+        let storableAnswer: String
     }
 
     /// - Parameter onStep: called as the loop moves, so the band can name the
@@ -103,24 +109,36 @@ struct CommandAgentService {
             : []
         // Local first in the list: it's the fallback the prompt names, and a small
         // model biases toward what it read first.
-        let tools = LocalToolCatalog.all + connectorTools
+        let tools = LocalToolCatalog.all
+            + (selection == nil ? [] : [LocalToolCatalog.readSelection])
+            + connectorTools
 
+        // One flag for the whole run: a connector read and a selection read both gate
+        // a later write, whichever runner served them.
+        let taint = Taint()
         let connectorRouter = connectorTools.isEmpty
             ? nil
             : ToolRouter(store: store,
-                         requestApproval: { [approvals] approval in await approvals.request(approval) })
+                         requestApproval: { [approvals] approval in await approvals.request(approval) },
+                         taint: taint)
         let router = CommandToolRouter(
             local: LocalToolRunner(
                 notes: notes, alertStyle: alertStyle, soundName: soundName, now: now,
                 // The capture's own words and audio, so a note the agent files keeps
                 // what was actually said next to the model's rewrite of it.
-                voice: .init(transcript: spoken, takeAudio: takeNoteAudio)),
+                voice: .init(transcript: spoken, takeAudio: takeNoteAudio),
+                selection: selection,
+                taint: taint),
             connectors: connectorRouter,
             now: now)
 
         var loop = AgentLoop(tools: tools, router: router, generate: generate)
         loop.budget = AgentLoop.budget(thinks: CleanupModel.General.thinks)
-        loop.prompt = AgentPrompt.command(toolList:)
+        // The prompt names the selection; the text itself comes only through the tool.
+        loop.prompt = { [selection] toolList in
+            let prompt = AgentPrompt.command(toolList: toolList)
+            return selection.map { prompt + "\n\n" + $0.promptLine } ?? prompt
+        }
         loop.now = now
         loop.onStep = onStep
         // The chord suppresses the paste, so an answer with nothing executed behind it
@@ -132,13 +150,15 @@ struct CommandAgentService {
         /// the same shape `SessionAccounting` uses to make an unaccounted exit
         /// impossible.
         func run(_ result: CommandAgentResult?, _ declineReason: String = "") -> Run {
-            Run(result: result,
-                toolsOffered: tools.map(\.name),
-                connectorsAllowed: connectorsAllowed,
-                calls: router.journal,
-                turns: Self.traceTurns(outcome.turns),
-                declineReason: result == nil ? declineReason : "",
-                budgetSpent: outcome.exhausted)
+            let answer = result?.answer ?? ""
+            return Run(result: result,
+                       toolsOffered: tools.map(\.name),
+                       connectorsAllowed: connectorsAllowed,
+                       calls: router.journal,
+                       turns: Self.traceTurns(outcome.turns, selection: router.selectionRead),
+                       declineReason: result == nil ? declineReason : "",
+                       budgetSpent: outcome.exhausted,
+                       storableAnswer: router.selectionRead?.storable(answer) ?? answer)
         }
 
         guard !router.executed.isEmpty else {
@@ -185,10 +205,16 @@ struct CommandAgentService {
     ///
     /// Tool turns are dropped — their text is already journalled in `calls`, and a
     /// trace that keeps every result twice is what `TraceText.clamp` exists to stop.
-    private static func traceTurns(_ turns: [AgentTurn]) -> [TraceTurn] {
+    /// After a `read_selection`, a turn that repeats the selection is kept as a
+    /// placeholder, because traces persist.
+    private static func traceTurns(_ turns: [AgentTurn],
+                                   selection: SelectionContext?) -> [TraceTurn] {
         turns
             .filter { $0.role != .tool }
-            .map { TraceTurn(role: $0.role.rawValue, text: TraceText.clamp($0.text)) }
+            .map { turn in
+                let text = selection?.storable(turn.text) ?? turn.text
+                return TraceTurn(role: turn.role.rawValue, text: TraceText.clamp(text))
+            }
     }
 
     /// The second line: where it went, or who answered, plus any connection that

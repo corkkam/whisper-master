@@ -124,8 +124,8 @@ enum AgentPrompt {
 ///
 /// Locked rather than actor-isolated so whichever racer finishes first can settle it
 /// wherever it happens to be running: a hop would leave a window in which both of them
-/// resume the same continuation, which traps.
-private final class FirstPastThePost: @unchecked Sendable {
+/// resume the same continuation, which traps. `SelectionCapture.settle` races on it too.
+final class FirstPastThePost: @unchecked Sendable {
     private let lock = NSLock()
     private var claimed = false
 

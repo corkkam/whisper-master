@@ -54,6 +54,9 @@ final class DictationViewModel {
     /// the chord merely re-labelled a session the push-to-talk key owns — there,
     /// letting go of control must not cut the recording short.
     private var commandChordOwnsSession = false
+    /// The front app's selection, read off the main actor from the chord press.
+    /// Taken at stop with the arm, so a read cannot reach the next session.
+    private let selectionCapture = SelectionCapture()
     /// True when the agent key armed the current session — its finished transcript
     /// goes to a coding agent instead of being typed. Consumed (and reset) at stop,
     /// and mirrored into `state.agentCaptureArmed` for the notch.
@@ -179,6 +182,7 @@ final class DictationViewModel {
         // Every session begins as a normal dictation unless the command chord armed
         // it — reset here so a stale arm can't leak into the next one.
         setCommandArmed(command)
+        _ = selectionCapture.take()
         // A session starts held-open by the key; a double-tap can latch it later.
         state.handsFreeActive = false
 
@@ -308,6 +312,7 @@ final class DictationViewModel {
         // Consume the command arm now (synchronously, at the user's stop) so it
         // can't linger; the async finalize below reads this captured copy.
         let commandMode = commandArmed
+        let selectionRead = selectionCapture.take()
         setCommandArmed(false)
         commandChordOwnsSession = false
         // Same consume-at-stop rule as the assistant arm above: read it here, at the
@@ -440,7 +445,8 @@ final class DictationViewModel {
                     // names a destination rather than a kind of handling.
                     assistantHandled = await routeAgentCapture(cleaned, spoken: spoken)
                 } else if commandMode, !cleaned.isEmpty {
-                    assistantHandled = await routeCommandCapture(cleaned, spoken: spoken)
+                    assistantHandled = await routeCommandCapture(
+                        cleaned, spoken: spoken, selectionRead: selectionRead)
                 }
                 // The frontmost app is the one about to receive the paste — or, for
                 // an assistant capture, the one the user was speaking from. We don't
@@ -997,6 +1003,7 @@ final class DictationViewModel {
         if state.canStop || state.phase == .preparingModels {
             setCommandArmed(true)
             state.statusMessage = "Listening for the assistant..."
+            selectionCapture.begin(.current())
             return
         }
         if state.preparingEngine != nil {
@@ -1005,7 +1012,7 @@ final class DictationViewModel {
         }
         guard state.canStart else { return }
         commandChordOwnsSession = true
-        startRecording(command: true)
+        selectionCapture.begin(after: { startRecording(command: true) })
     }
 
     /// The chord broke (either key came up). Only stops the session when the chord
@@ -1205,7 +1212,8 @@ final class DictationViewModel {
     /// into the user's editor is the one outcome the key press rules out, so the last
     /// tier is what guarantees the words land somewhere even when the model is no
     /// help.
-    private func routeCommandCapture(_ text: String, spoken: SpokenCapture) async -> Bool {
+    private func routeCommandCapture(_ text: String, spoken: SpokenCapture,
+                                     selectionRead: Task<SelectionContext?, Never>?) async -> Bool {
         // Where Notes & Reminders is closed this whole path stays off. Routing
         // would swallow the transcript — suppressing the paste and filing it into
         // a store with no openable surface — so "remind me to call mom" would
@@ -1252,7 +1260,7 @@ final class DictationViewModel {
 
         await requestCalendarAccessIfNeeded()
 
-        let attempt = await runCommandAgent(text)
+        let attempt = await runCommandAgent(text, selectionRead: selectionRead)
         trace.decisions.append(attempt.decision)
         trace.connectorsAllowed = attempt.connectorsAllowed
         trace.toolsOffered = attempt.toolsOffered
@@ -1351,7 +1359,8 @@ final class DictationViewModel {
         var budgetSpent = false
     }
 
-    private func runCommandAgent(_ text: String) async -> AgentAttempt {
+    private func runCommandAgent(_ text: String,
+                                 selectionRead: Task<SelectionContext?, Never>?) async -> AgentAttempt {
         // **The assistant's own model, not the cleanup slot.** This gate read
         // `MlxCleanupService.shared.isReady` — S1-mini, the dictation text normalizer
         // — which is a different model with a different download, and it was wrong in
@@ -1373,6 +1382,8 @@ final class DictationViewModel {
                     + "from Settings → Assistant.",
                 taken: false))
         }
+        // Usually done long before the words are; a hung app costs at most the wait.
+        let selection = await SelectionCapture.settle(selectionRead)
         let agent = CommandAgentService(
             store: state.connectorStore,
             notes: state.notesStore,
@@ -1380,7 +1391,8 @@ final class DictationViewModel {
             connectorsAllowed: state.connectorAgentEnabled,
             alertStyle: state.reminderDefaultAlertStyle,
             soundName: state.reminderDefaultSound,
-            takeNoteAudio: { [weak self] id in self?.takeNoteAudio(for: id) })
+            takeNoteAudio: { [weak self] id in self?.takeNoteAudio(for: id) },
+            selection: selection)
         // The orb shows the thinking figure while the loop runs — the paste is
         // suppressed, so without it the notch sits silent through a multi-second
         // tool call and reads as having dropped the command. `isPolishing` is what
@@ -1410,7 +1422,7 @@ final class DictationViewModel {
                 connectorsAllowed: run.connectorsAllowed,
                 calls: run.calls,
                 turns: run.turns,
-                answer: run.result?.answer ?? "",
+                answer: run.storableAnswer,
                 provenance: run.result?.detail ?? "",
                 createdSomething: run.result?.createdSomething ?? false,
                 budgetSpent: run.budgetSpent)
@@ -1434,7 +1446,9 @@ final class DictationViewModel {
         // voice runs, which the confirmation band's does not), `appendAnswer` so it
         // stays readable in Today → Recent answers, and `speakAnswer`.
         guard result.createdSomething else {
-            presentAnswer(question: text, answer: result.answer, provenance: result.detail)
+            // An answer that repeats the selection is shown and spoken, never logged.
+            presentAnswer(question: text, answer: result.answer, provenance: result.detail,
+                          logged: run.storableAnswer == result.answer)
             return attempt(handled: true, detail: Self.agentDetail(run: run, acted: false))
         }
         showCommandConfirmation(
@@ -1461,13 +1475,16 @@ final class DictationViewModel {
     /// Put an assistant answer on every surface that outlives the band: the notch,
     /// the answer log, and the voice. The single place answers land, whatever asked
     /// for them.
-    private func presentAnswer(question: String, answer: String, provenance: String) {
+    private func presentAnswer(question: String, answer: String, provenance: String,
+                               logged: Bool = true) {
         state.activeDaySummary = DaySummary(
             headline: answer, detail: provenance, events: [], gaps: [], scopedTo: nil)
         state.daySummaryAt = Date()
         // The band's line is truncated and gone in seconds; this is where a long
         // answer stays readable.
-        state.appendAnswer(question: question, answer: answer, provenance: provenance)
+        if logged {
+            state.appendAnswer(question: question, answer: answer, provenance: provenance)
+        }
         Feedback.delivered(soundEnabled: state.soundEnabled)
         // No detail: provenance ("From Work Calendar") is chrome worth seeing, not
         // hearing.
@@ -1663,6 +1680,7 @@ final class DictationViewModel {
         // A cancelled session files nothing, so its arms die with it.
         setCommandArmed(false)
         commandChordOwnsSession = false
+        _ = selectionCapture.take()
         Task {
             await transcriber.cancel()
             await MainActor.run {
@@ -1886,6 +1904,7 @@ final class DictationViewModel {
             // clear the arm so the notch doesn't keep claiming one is in flight.
             self.setCommandArmed(false)
             self.commandChordOwnsSession = false
+            _ = self.selectionCapture.take()
             self.state.failedAt = Date()
             self.state.statusMessage = "Transcription failed: \(error.localizedDescription)"
             self.scheduleFailedReset()

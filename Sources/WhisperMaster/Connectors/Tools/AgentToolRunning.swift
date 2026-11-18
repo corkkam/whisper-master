@@ -67,6 +67,11 @@ final class CommandToolRouter: AgentToolRunning {
     /// loop acts and then runs out of budget before it can summarise — the action
     /// happened, so the band has to say so rather than pretend the command didn't run.
     private(set) var lastResult: String?
+    /// The selection, once a `read_selection` returned it. Traces persist and the
+    /// selection is the user's text from another app, so from then on the journal keeps
+    /// the read as a count and every later run of it as a placeholder
+    /// (`SelectionContext.storable`).
+    private(set) var selectionRead: SelectionContext?
 
     /// - Parameter connectors: the connector router, or nil when the assistant isn't
     ///   opted into them. Taken as the protocol rather than `ToolRouter` so a test can
@@ -104,17 +109,24 @@ final class CommandToolRouter: AgentToolRunning {
         // in it: a write that sat a minute on the consent card reads as a minute of
         // provider latency otherwise, which is the wrong thing to go and investigate.
         let elapsed = Int((now().timeIntervalSince(started) * 1000).rounded())
+        let readTheSelection = result.ok && call.tool == LocalToolCatalog.readSelection.name
+        let storable = { (text: String) in self.selectionRead?.storable(text) ?? text }
         journal.append(ToolCallTrace(
             tool: call.tool,
-            arguments: call.arguments,
+            arguments: call.arguments.mapValues(storable),
             connectors: result.instanceLabels,
             ok: result.ok,
-            result: TraceText.clamp(result.text),
+            result: readTheSelection
+                ? local.selection?.traceLine ?? ""
+                : TraceText.clamp(storable(result.text)),
             milliseconds: max(elapsed - result.approvalMilliseconds, 0),
             approvalMilliseconds: result.approvalMilliseconds,
             authorization: result.authorization))
-        if result.ok {
-            executed.append(call.tool)
+        if result.ok { executed.append(call.tool) }
+        if readTheSelection {
+            // Not `lastResult`: an exhausted loop reports that on the band.
+            selectionRead = local.selection
+        } else if result.ok {
             lastResult = result.text
         }
         return result
