@@ -4,9 +4,10 @@ import Foundation
 // one for every push-to-talk key and both forms. The copy is the app speaking:
 // first person, plain words, one idea per sentence, no semicolons.
 //
-// Hints that name Return, Escape, Left Arrow or Command W ship with the key
-// panel, because a hint must never name a key the band does not answer yet.
-// Until then each such string shows only its part without the key.
+// A hint, tooltip or line names a key only where the key map in
+// `OnboardingReturnTarget` does that in that state, and a visible line names
+// Escape or Command W only while the band has the keyboard. No string names
+// Return: under VoiceOver, Return with no focus does nothing.
 
 /// One of the three forms a push-to-talk key name takes in a sentence.
 enum OnboardingKeyForm {
@@ -186,6 +187,14 @@ enum ReadyVariant: Hashable {
         default: return false
         }
     }
+
+    /// The speech files are still loading, with the microphone on.
+    var isLoadingWithMicOn: Bool {
+        switch self {
+        case .downloading, .preparing, .loadingTypingOff: return true
+        default: return false
+        }
+    }
 }
 
 /// What the top-bar line reads from. At most one line shows: the first rule
@@ -220,19 +229,34 @@ struct OnboardingCopy {
 
     static let wordmark = "Whisper Master"
     static let tagline = "Talk, and I'll type it."
+    /// Every loading Ready variant's headline, and the nudge after a capture key
+    /// press that setup ignored while the speech files load.
+    static let loadingHeadline = "You can talk once I'm ready."
     /// The assistant chord is fixed, so this line always names it.
     static let chordLine = "To ask about your day, hold the fn key and Control."
 
     static let backLabel = "Back"
-    static let backTooltip = "Go back"
     static let backAccessibilityLabel = "Go back"
     static let settingsLabel = "Open Whisper Master Settings"
-    static let closeTooltip = "Close setup"
+    static let closeTooltip = "Close setup (⌘W)"
     static let closeAccessibilityLabel = "Close setup"
+    static let closeHint = "Or press Command W."
     static let stepProgressLabel = "Setup steps"
     static let waitingLine = "Waiting for your answer…"
-    static let movingOnLine = OnboardingLine("Next step in a moment.", fallback: "Next step soon.")
     static let pausedLine = OnboardingLine("Continue goes to the next step.", fallback: "")
+
+    /// Left Arrow goes back only while Back is enabled, so only then do the
+    /// tooltip and hint name it.
+    static func backTooltip(enabled: Bool) -> String { enabled ? "Go back (←)" : "Go back" }
+    static func backHint(enabled: Bool) -> String? { enabled ? "Or press the Left Arrow key." : nil }
+
+    /// Beside the badge of a step that moves on by itself. Escape stops the wait
+    /// only while the band has the keyboard, so only then does the line say so.
+    static func movingOnLine(panelIsKey: Bool) -> OnboardingLine {
+        panelIsKey
+            ? OnboardingLine("Next step in a moment. Press Escape to stay.", fallback: "Next step soon. Press Escape to stay.")
+            : OnboardingLine("Next step in a moment.", fallback: "Next step soon.")
+    }
 
     /// The two VoiceOver announcements, and the only two.
     static let firstAnnouncement = "Whisper Master setup. Talk, and I'll type it. Your voice stays on this Mac."
@@ -367,8 +391,7 @@ struct OnboardingCopy {
     }
 
     private func ready(_ variant: ReadyVariant) -> OnboardingScreen {
-        let loading = "You can talk once I'm ready."
-        let early = holdToTalk ? "Holding \(keyName) early" : "Pressing \(keyName) early"
+        let loading = Self.loadingHeadline
         switch variant {
         case .ready(let assistantLine):
             let short = holdToTalk
@@ -408,14 +431,14 @@ struct OnboardingCopy {
         case .downloading(let percent):
             return OnboardingScreen(
                 headline: loading,
-                body: "I'm downloading speech files (\(percent)%). The download keeps going. \(early) only shows my progress.",
-                fallbackBody: "Downloading (\(percent)%). The download keeps going. \(early) shows progress.",
+                body: "I'm downloading speech files (\(percent)%). The download keeps going. I'll tell you when I'm ready.",
+                fallbackBody: "Downloading (\(percent)%). It keeps going. I'll tell you when I'm ready.",
                 row: .buttons([.closeAndOpenSettings, .done]))
         case .preparing:
             return OnboardingScreen(
                 headline: loading,
-                body: "I'm loading speech files. Loading keeps going. \(early) only shows my progress.",
-                fallbackBody: "Loading keeps going. \(early) shows progress.",
+                body: "I'm loading speech files. Loading keeps going. I'll tell you when I'm ready.",
+                fallbackBody: "Loading keeps going. I'll tell you when I'm ready.",
                 row: .buttons([.closeAndOpenSettings, .done]))
         case .loadingTypingOff:
             return OnboardingScreen(
@@ -449,17 +472,21 @@ struct OnboardingCopy {
     // MARK: Hints
 
     /// A button's VoiceOver hint. The main button has none, except Close and
-    /// open Settings, which says the work keeps going.
+    /// open Settings, which says the work keeps going. Escape presses Not now
+    /// and Done, so their hints name it.
     func hint(for button: OnboardingButton, in state: OnboardingState) -> String? {
         switch button {
         case .notNow:
-            return "Skips this step."
+            // While the system's microphone alert is up it may hold the keyboard,
+            // and Escape there may mean Don't Allow, so this hint names no key.
+            if state == .micPromptUp { return "Skips this step." }
+            return "Skips this step. Or press Escape."
         case .done:
             if case .ready(let variant) = state, variant.invitesHold {
                 let verb = holdToTalk ? "hold" : "press"
-                return "Closes setup. Then click where you want to type, and \(verb) \(keyName)."
+                return "Closes setup. Then click where you want to type, and \(verb) \(keyName). Or press Escape."
             }
-            return "Closes setup."
+            return "Closes setup. Or press Escape."
         case .closeAndOpenSettings:
             if case .ready(.preparing) = state { return "Closes setup and opens Settings. Loading keeps going." }
             return "Closes setup and opens Settings. The download keeps going."
@@ -476,15 +503,18 @@ struct OnboardingCopy {
         // check listens: its own copy already says to hold the key.
         if context.nudging, !context.micCheckListening {
             if early {
-                // The keyboard form names Command W, which ships with the key panel.
-                if context.panelIsKey { return OnboardingLine("Finish setup first.") }
+                if context.panelIsKey {
+                    return OnboardingLine("Finish setup, or close it with Command W.", fallback: "Finish setup first.")
+                }
                 return OnboardingLine(
                     "Finish setup first, or click here to use the keyboard.", fallback: "Finish setup first.")
             }
             switch context.readyMic {
             case .notAsked: return OnboardingLine("Allow the microphone first.")
             case .denied: return OnboardingLine("Turn on the microphone first.")
-            case .on: break
+            case .on:
+                // The press was ignored because the speech files still load.
+                if context.readyVariant?.isLoadingWithMicOn == true { return OnboardingLine(Self.loadingHeadline) }
             }
         }
         // 2. A done step waits because the app is not active.
@@ -499,8 +529,26 @@ struct OnboardingCopy {
             // so the longest key name still fits the line.
             return OnboardingLine(holdToTalk ? "Now hold \(keyName) and talk." : "Press \(keyName) and talk.")
         }
-        // 4. "Command W closes setup." ships with the key panel.
+        // 4. Ready, with the keyboard.
+        if !early { return OnboardingLine("Command W closes setup.") }
         return nil
+    }
+
+    // MARK: Reading order
+
+    /// What VoiceOver reads, in order: the copy and its row first, then the
+    /// top-bar line, the step progress and the three top-bar controls.
+    enum ReadingItem {
+        case headline, body, actions, topBarLine, stepProgress, back, settings, close
+    }
+
+    static let readingOrder: [ReadingItem] = [
+        .headline, .body, .actions, .topBarLine, .stepProgress, .back, .settings, .close,
+    ]
+
+    /// The `accessibilitySortPriority` that puts `item` in its place: higher reads first.
+    static func sortPriority(_ item: ReadingItem) -> Double {
+        Double(readingOrder.count - (readingOrder.firstIndex(of: item) ?? readingOrder.count))
     }
 
     // MARK: Step progress and VoiceOver

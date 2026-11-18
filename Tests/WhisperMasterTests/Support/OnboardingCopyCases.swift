@@ -79,13 +79,15 @@ enum OnboardingCopyCases {
         out.append(("ready notice on", copy.readyNotice(typingOn: true)))
         out.append(("ready notice off", copy.readyNotice(typingOn: false)))
         for step in NotchOnboardingStep.allCases { out.append(("band label", OnboardingCopy.bandLabel(step))) }
+        let movingOn = [false, true].map { OnboardingCopy.movingOnLine(panelIsKey: $0) }
+        let back = [false, true].flatMap { [OnboardingCopy.backTooltip(enabled: $0), OnboardingCopy.backHint(enabled: $0) ?? ""] }
         let fixed = [
-            OnboardingCopy.wordmark, OnboardingCopy.tagline, OnboardingCopy.backLabel, OnboardingCopy.backTooltip,
+            OnboardingCopy.wordmark, OnboardingCopy.tagline, OnboardingCopy.backLabel,
             OnboardingCopy.backAccessibilityLabel, OnboardingCopy.settingsLabel, OnboardingCopy.closeTooltip,
-            OnboardingCopy.closeAccessibilityLabel, OnboardingCopy.stepProgressLabel, OnboardingCopy.waitingLine,
-            OnboardingCopy.movingOnLine.text, OnboardingCopy.movingOnLine.fallback ?? "",
-            OnboardingCopy.pausedLine.text, OnboardingCopy.firstAnnouncement, OnboardingCopy.inactiveAnnouncement,
-        ] + OnboardingButton.allCases.map(\.title)
+            OnboardingCopy.closeAccessibilityLabel, OnboardingCopy.closeHint, OnboardingCopy.stepProgressLabel,
+            OnboardingCopy.waitingLine, OnboardingCopy.pausedLine.text, OnboardingCopy.firstAnnouncement,
+            OnboardingCopy.inactiveAnnouncement,
+        ] + back + movingOn.flatMap { [$0.text, $0.fallback ?? ""] } + OnboardingButton.allCases.map(\.title)
         out += fixed.map { ("fixed", $0) }
         return out
     }

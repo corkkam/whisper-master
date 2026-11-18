@@ -17,13 +17,19 @@ struct NotchOnboardingView: View {
     let state: AppState
     var geometry: NotchGeometry = .none
     var layout: NotchOnboardingLayout = NotchOnboardingLayout()
-    /// Opens the Settings window — the gear in the top row.
-    var onOpenSettings: () -> Void = {}
     /// The orb's instant, for a snapshot (`0.6 + elapsed`). Nil runs the wall clock.
     var orbTime: Double? = nil
     /// Runs when the band's content appears. Nil in the app; the identity test
     /// counts it to prove the timeline below is never added or removed.
     var onContentAppear: (() -> Void)? = nil
+    /// The push-to-talk key and form the copy names. Nil in the app, which reads
+    /// the user's choice from `state`; snapshots pin it without writing a setting.
+    var keyForm: (key: HotkeyManager.HotkeyOption, holdToTalk: Bool)? = nil
+
+    /// Keyboard focus. The model hears every change: a focus move it did not
+    /// make stops a moving-on step, and Return presses what is focused.
+    @FocusState private var focus: OnboardingAction?
+    @AccessibilityFocusState private var headlineFocused: Bool
 
     var body: some View {
         // One timeline for the band's whole life, paused at rest. Adding or
@@ -34,6 +40,16 @@ struct NotchOnboardingView: View {
                 .onAppear { onContentAppear?() }
         }
         .onAppear { model.refresh() }
+        .onChange(of: focus) { _, new in model.focusDidChange(to: new) }
+        .onChange(of: model.focusRequest) { _, request in focus = request.action }
+        .onChange(of: model.headlineFocusToken) {
+            // After the announcement or the copy swap, so VoiceOver reads the
+            // headline once.
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(BeatTransition.actionsAt))
+                headlineFocused = true
+            }
+        }
         // The permission poll deliberately lives in `NotchOnboardingWindow`, not
         // here: a `Timer.publish` created in this body would be re-subscribed on
         // every body pass, and the mic check re-evaluates it ~20×/s, so the tick
@@ -46,8 +62,8 @@ struct NotchOnboardingView: View {
 
     private var copy: OnboardingCopy {
         OnboardingCopy(
-            key: state.hotkey, holdToTalk: state.holdToTalkEnabled, orbIsStatic: model.policy.orbIsStatic,
-            canRetryEngine: model.onRetryEngine != nil)
+            key: keyForm?.key ?? state.hotkey, holdToTalk: keyForm?.holdToTalk ?? state.holdToTalkEnabled,
+            orbIsStatic: model.policy.orbIsStatic, canRetryEngine: model.onRetryEngine != nil)
     }
 
     // MARK: Frame
@@ -101,6 +117,11 @@ struct NotchOnboardingView: View {
                 isDone: { stepIsDone($0) },
                 bead: beadColor
             )
+            .accessibilityLabel(OnboardingCopy.stepProgressLabel)
+            .accessibilityValue(OnboardingCopy.stepProgressValue(
+                current: model.step, micOn: model.micGranted, typingOn: model.accessibilityGranted,
+                loginOn: model.launchAtLoginEnabled))
+            .accessibilitySortPriority(OnboardingCopy.sortPriority(.stepProgress))
             .padding(.top, 2)
             .layer(f.chrome)
 
@@ -112,9 +133,16 @@ struct NotchOnboardingView: View {
 
             ZStack(alignment: .top) {
                 if let previous = f.previous {
-                    copyBlock(copy.screen(previous.state), layers: previous.layers, cap: 1, ring: 1, glyph: 1)
+                    // The copy on its way out: seen, never pressed or read.
+                    copyBlock(
+                        copy.screen(previous.state), state: previous.state, layers: previous.layers, cap: 1,
+                        ring: 1, glyph: 1, live: false)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
-                copyBlock(current, layers: f.incoming, cap: f.rowCap, ring: f.ring, glyph: f.glyph)
+                copyBlock(
+                    current, state: model.bandState, layers: f.incoming, cap: f.rowCap, ring: f.ring,
+                    glyph: f.glyph, live: true)
             }
 
             Spacer(minLength: 0)
@@ -129,11 +157,52 @@ struct NotchOnboardingView: View {
         .accessibilityLabel(OnboardingCopy.bandLabel(model.step))
     }
 
+    /// Back, the top-bar line, Settings and Close. Back holds its place on
+    /// beat 1, so the line stays centred between it and Settings.
     private var topBar: some View {
-        HStack(spacing: Theme.Space.md) {
-            Spacer()
-            NotchIconButton(icon: "gearshape.fill", label: OnboardingCopy.settingsLabel, action: onOpenSettings)
-            NotchIconButton(icon: "xmark", label: OnboardingCopy.closeAccessibilityLabel, action: model.dismiss)
+        let showsBack = model.step.previous != nil
+        let backEnabled = model.backEnabled
+        return HStack(spacing: Theme.Space.md) {
+            NotchIconButton(
+                icon: "chevron.left", label: OnboardingCopy.backAccessibilityLabel,
+                tooltip: OnboardingCopy.backTooltip(enabled: backEnabled),
+                hint: OnboardingCopy.backHint(enabled: backEnabled),
+                focused: model.focusedAction == .back
+            ) { model.press(.back) }
+            .focused($focus, equals: .back)
+            .disabled(!backEnabled)
+            .opacity(showsBack ? 1 : 0)
+            .accessibilityHidden(!showsBack)
+            .accessibilitySortPriority(OnboardingCopy.sortPriority(.back))
+            Spacer(minLength: 0)
+            topBarLine
+            Spacer(minLength: 0)
+            NotchIconButton(
+                icon: "gearshape.fill", label: OnboardingCopy.settingsLabel, tooltip: OnboardingCopy.settingsLabel,
+                focused: model.focusedAction == .settings
+            ) { model.press(.settings) }
+            .focused($focus, equals: .settings)
+            .accessibilitySortPriority(OnboardingCopy.sortPriority(.settings))
+            NotchIconButton(
+                icon: "xmark", label: OnboardingCopy.closeAccessibilityLabel, tooltip: OnboardingCopy.closeTooltip,
+                hint: OnboardingCopy.closeHint, focused: model.focusedAction == .close
+            ) { model.press(.close) }
+            .focused($focus, equals: .close)
+            .accessibilitySortPriority(OnboardingCopy.sortPriority(.close))
+        }
+    }
+
+    /// One line at most: what to do while the band does not have the keyboard,
+    /// a nudge after an ignored capture key press, or how to close setup.
+    @ViewBuilder
+    private var topBarLine: some View {
+        if let line = copy.topBarLine(model.topBarContext),
+           let text = Self.fittingLine(line, width: layout.topBarLineMaxWidth) {
+            Text(text)
+                .font(Typography.notchBody)
+                .foregroundStyle(Theme.Notch.textTertiary)
+                .lineLimit(1)
+                .accessibilitySortPriority(OnboardingCopy.sortPriority(.topBarLine))
         }
     }
 
@@ -187,8 +256,10 @@ struct NotchOnboardingView: View {
 
     /// Headline, body and action row for one state. Written as the app speaking,
     /// one idea per sentence: the band has room for two lines, not a paragraph.
+    /// `live` is the block on screen now; the one on its way out holds no focus.
     private func copyBlock(
-        _ screen: OnboardingScreen, layers: CopyLayers, cap: Double, ring: Double, glyph: Double
+        _ screen: OnboardingScreen, state: OnboardingState, layers: CopyLayers, cap: Double, ring: Double,
+        glyph: Double, live: Bool
     ) -> some View {
         VStack(spacing: 0) {
             VStack(spacing: 3) {
@@ -196,10 +267,13 @@ struct NotchOnboardingView: View {
                     .font(Typography.sans(19, .bold))
                     .foregroundStyle(Theme.Notch.text)
                     .accessibilityAddTraits(.isHeader)
+                    .accessibilityFocused($headlineFocused)
+                    .accessibilitySortPriority(OnboardingCopy.sortPriority(.headline))
                     .layer(layers.headline)
                 Text(Self.fitting(screen, width: layout.bodyFitWidth))
                     .font(Typography.sans(13))
                     .foregroundStyle(Theme.Notch.textSecondary)
+                    .accessibilitySortPriority(OnboardingCopy.sortPriority(.body))
                     .layer(layers.body)
             }
             .multilineTextAlignment(.center)
@@ -207,7 +281,8 @@ struct NotchOnboardingView: View {
             .padding(.top, Theme.Space.md)
             .padding(.horizontal, Theme.Space.lg)
 
-            row(screen.row, ring: ring, glyph: glyph)
+            row(screen.row, state: state, ring: ring, glyph: glyph, live: live)
+                .accessibilitySortPriority(OnboardingCopy.sortPriority(.actions))
                 .padding(.top, Theme.Space.lg)
                 // Until input opens the row draws at half opacity at most.
                 .layer(OnboardingLayer(
@@ -238,7 +313,7 @@ struct NotchOnboardingView: View {
     }
 
     @ViewBuilder
-    private func row(_ row: OnboardingRow, ring: Double, glyph: Double) -> some View {
+    private func row(_ row: OnboardingRow, state: OnboardingState, ring: Double, glyph: Double, live: Bool) -> some View {
         switch row {
         case .buttons(let buttons):
             HStack(spacing: Theme.Space.sm) {
@@ -246,9 +321,8 @@ struct NotchOnboardingView: View {
                     // One primary per state: the main button. A lone Not now is
                     // the way past, not an ask, so it stays outlined.
                     let primary = index == 0 && button != .notNow
-                    NotchPillButton(title: button.title, kind: primary ? .primary : .ghost) {
-                        model.perform(button)
-                    }
+                    pill(button, slot: index == 0 ? .main : .second, kind: primary ? .primary : .ghost,
+                         state: state, live: live)
                 }
             }
         case .waiting:
@@ -256,28 +330,85 @@ struct NotchOnboardingView: View {
                 Text(OnboardingCopy.waitingLine)
                     .font(Typography.notchBody)
                     .foregroundStyle(Theme.Notch.textSecondary)
-                NotchPillButton(title: OnboardingButton.notNow.title, kind: .ghost) { model.perform(.notNow) }
+                pill(.notNow, slot: .main, kind: .ghost, state: state, live: live)
             }
         case .badge(let text, let done):
             HStack(spacing: Theme.Space.sm) {
                 GrantedBadge(text: text, ring: ring, glyph: glyph)
                 switch done {
                 case .movingOn:
-                    Text(OnboardingCopy.movingOnLine.text)
-                        .font(Typography.notchBody)
-                        .foregroundStyle(Theme.Notch.textTertiary)
+                    if let line = Self.fittingLine(
+                        OnboardingCopy.movingOnLine(panelIsKey: model.panelIsKey), width: movingOnWidth(badge: text)) {
+                        Text(line)
+                            .font(Typography.notchBody)
+                            .foregroundStyle(Theme.Notch.textTertiary)
+                    }
                 case .waits:
-                    NotchPillButton(title: OnboardingButton.continue.title) { model.perform(.continue) }
+                    pill(.continue, slot: .main, kind: .primary, state: state, live: live)
                 case .paused:
                     if let line = OnboardingCopy.pausedLine.text.nilIfEmpty {
                         Text(line)
                             .font(Typography.notchBody)
                             .foregroundStyle(Theme.Notch.textTertiary)
                     }
-                    NotchPillButton(title: OnboardingButton.continue.title) { model.perform(.continue) }
+                    pill(.continue, slot: .main, kind: .primary, state: state, live: live)
                 }
             }
         }
+    }
+
+    /// One button of the action row. On the live block it takes focus in its
+    /// slot and draws the focus ring; every press goes through the model's gate.
+    @ViewBuilder
+    private func pill(
+        _ button: OnboardingButton, slot: OnboardingAction, kind: NotchPillButton.Kind, state: OnboardingState,
+        live: Bool
+    ) -> some View {
+        let pill = NotchPillButton(
+            title: button.title, kind: kind, focused: live && model.focusedAction == slot
+        ) { model.perform(button) }
+            .accessibilityHint(copy.hint(for: button, in: state).map { Text($0) } ?? Text(""))
+        if live {
+            pill.focused($focus, equals: slot)
+        } else {
+            pill
+        }
+    }
+
+    /// The room beside the badge for the moving-on line: the row's measure
+    /// (412 pt less 5%) less the badge's 16 pt ring, its gap and its words.
+    private func movingOnWidth(badge: String) -> CGFloat {
+        let row = (layout.contentWidth - 2 * Theme.Space.xl) * 0.95
+        return row - 16 - 2 * Theme.Space.sm - Self.width(badge, font: Self.labelFont)
+    }
+
+    @MainActor private static var lineWidths: [String: CGFloat] = [:]
+
+    private static var lineFont: NSFont { brandFont(13, weight: .medium) }
+    private static var labelFont: NSFont { brandFont(14, weight: .semibold) }
+
+    private static func brandFont(_ size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let descriptor = NSFontDescriptor(fontAttributes: [.family: BrandFont.body])
+            .addingAttributes([.traits: [NSFontDescriptor.TraitKey.weight: weight]])
+        return NSFont(descriptor: descriptor, size: size) ?? .systemFont(ofSize: size, weight: weight)
+    }
+
+    @MainActor
+    private static func width(_ text: String, font: NSFont) -> CGFloat {
+        let key = "\(font.fontName)|\(font.pointSize)|\(text)"
+        if let width = lineWidths[key] { return width }
+        let width = ceil(NSAttributedString(string: text, attributes: [.font: font]).size().width)
+        lineWidths[key] = width
+        return width
+    }
+
+    /// A one-line string, or its fallback when it does not fit `width`. Nil
+    /// when the fallback is empty and the line drops.
+    @MainActor
+    static func fittingLine(_ line: OnboardingLine, width: CGFloat) -> String? {
+        if Self.width(line.text, font: lineFont) <= width { return line.text }
+        guard let fallback = line.fallback else { return line.text }
+        return fallback.isEmpty ? nil : fallback
     }
 
     // MARK: Step dots
@@ -364,7 +495,7 @@ private struct BandFrame {
         }
 
         if let change = model.beatChange {
-            let beat = BeatTransition.frame(at: now - change.at, policy: policy)
+            let beat = BeatTransition.frame(at: now - change.at, backward: change.backward, policy: policy)
             incoming = incoming.combined(with: CopyLayers(headline: beat.headline, body: beat.body, actions: beat.actions))
             previous = (change.previous, CopyLayers(all: beat.outgoing))
             rowCap = min(rowCap, beat.rowCap)
@@ -472,8 +603,8 @@ private struct StepDots: View {
                 .frame(width: Self.width, height: 3)
                 .offset(x: (Self.width + Self.gap) * CGFloat(Double(from) + Double(current - from) * slide))
         }
+        // One element; the band gives it its label and its value.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Step \(current + 1) of \(NotchOnboardingStep.allCases.count)")
     }
 
     private func fill(_ step: NotchOnboardingStep) -> Color {
@@ -494,6 +625,8 @@ private struct NotchPillButton: View {
 
     let title: String
     var kind: Kind = .primary
+    /// Keyboard focus is here: the band's own ring, not the system's.
+    var focused = false
     let action: () -> Void
 
     var body: some View {
@@ -504,6 +637,28 @@ private struct NotchPillButton: View {
                 .padding(.horizontal, 2)
         }
         .modifier(NotchPillRung(kind: kind))
+        .focusEffectDisabled()
+        .overlay { NotchFocusRing(shown: focused, shape: Capsule(style: .continuous)) }
+    }
+}
+
+/// The band's focus ring: 2 pt of `Theme.Notch.text`, 2 pt outside the
+/// control's edge, so a filled button keeps a strip of `surface` between its
+/// fill and the ring.
+private struct NotchFocusRing<S: Shape>: View {
+    let shown: Bool
+    let shape: S
+
+    private static var width: CGFloat { 2 }
+    private static var gap: CGFloat { 2 }
+
+    var body: some View {
+        shape
+            .stroke(Theme.Notch.text, lineWidth: Self.width)
+            .padding(-(Self.gap + Self.width / 2))
+            .opacity(shown ? 1 : 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -520,10 +675,13 @@ private struct NotchPillRung: ViewModifier {
     }
 }
 
-/// The small circular gear / close controls in the band's top row.
+/// The small circular back / gear / close controls in the band's top row.
 private struct NotchIconButton: View {
     let icon: String
     let label: String
+    let tooltip: String
+    var hint: String? = nil
+    var focused = false
     let action: () -> Void
 
     var body: some View {
@@ -531,8 +689,11 @@ private struct NotchIconButton: View {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .semibold))
         }
-        .iconButton(size: 24, tooltip: label)
+        .iconButton(size: 24, tooltip: tooltip)
+        .focusEffectDisabled()
+        .overlay { NotchFocusRing(shown: focused, shape: Circle()) }
         .accessibilityLabel(label)
+        .accessibilityHint(hint.map { Text($0) } ?? Text(""))
     }
 }
 

@@ -165,6 +165,7 @@ enum SnapshotMode {
         }
         state.preparedEngine = engineBefore
         renderOnboardingCues(dir, state: state)
+        renderOnboardingKeyCues(dir, state: state)
 
         // The hover quick-actions band: what the notch holds when the pointer rests
         // on it. Both states, since the empty one is what a fresh account sees.
@@ -716,6 +717,7 @@ enum SnapshotMode {
         name: String,
         state: AppState,
         orbTime: Double? = nil,
+        keyForm: (key: HotkeyManager.HotkeyOption, holdToTalk: Bool)? = nil,
         model: () -> NotchOnboardingModel
     ) {
         let layout = NotchOnboardingLayout()
@@ -725,7 +727,8 @@ enum SnapshotMode {
         let panel = layout.panelSize(for: geometry)
         let view = ZStack(alignment: .top) {
             Color(white: 0.28)
-            NotchOnboardingView(model: model(), state: state, geometry: geometry, layout: layout, orbTime: orbTime)
+            NotchOnboardingView(
+                model: model(), state: state, geometry: geometry, layout: layout, orbTime: orbTime, keyForm: keyForm)
                 .frame(width: panel.width, height: panel.height, alignment: .top)
         }
         .frame(width: panel.width + 92, height: panel.height + 60)
@@ -855,6 +858,119 @@ enum SnapshotMode {
                     accessibilityGranted: typing, launchAtLoginEnabled: true, showsAssistantLine: assistant,
                     engineStatus: { engine })
             }
+        }
+    }
+
+    /// The cues that need the key panel's state: where the keyboard is, the
+    /// top-bar line, Back, the waits, focus, and each push-to-talk key's name.
+    /// Unless a name says "not-key", the band has the keyboard.
+    private static func renderOnboardingKeyCues(_ dir: URL, state: AppState) {
+        let clock = OnboardingClock.fixed(1_000)
+
+        // Beat 1: no voice for about 8 s, and a mic check that could not start.
+        renderOnboarding(dir, name: "onboarding-1-still-silent", state: state) {
+            .snapshot(step: .microphone, micGranted: true, micStillSilent: true)
+        }
+        renderOnboarding(dir, name: "onboarding-1-mic-failed", state: state) {
+            .snapshot(step: .microphone, micGranted: true, micCheckFailed: true)
+        }
+        // Beat 2: asked, back from System Settings, still not trusted.
+        renderOnboarding(dir, name: "onboarding-2-typing-still-off", state: state) {
+            .snapshot(step: .accessibility, micGranted: true, typingStillOff: true)
+        }
+
+        // Back: to "Heard, after Back" and to "Granted, after Back", 250 ms in
+        // and at rest. Neither draws a bloom.
+        renderOnboarding(dir, name: "onboarding-1-back-heard-t0250", state: state, orbTime: 0.85) {
+            let model = NotchOnboardingModel.snapshot(
+                step: .microphone, micGranted: true, heardVoice: true, clock: clock)
+            model.pinBack()
+            model.pinChange(from: .typingAsk, previousFigure: .thinking, at: 0.25, backward: true)
+            return model
+        }
+        renderOnboarding(dir, name: "onboarding-2-back-granted-t0250", state: state, orbTime: 0.85) {
+            let model = NotchOnboardingModel.snapshot(
+                step: .accessibility, micGranted: true, accessibilityGranted: true, clock: clock)
+            model.pinBack()
+            model.pinChange(from: .loginAsk, previousFigure: .thinking, at: 0.25, backward: true)
+            return model
+        }
+        renderOnboarding(dir, name: "onboarding-1-heard-after-back", state: state) {
+            let model = NotchOnboardingModel.snapshot(step: .microphone, micGranted: true, heardVoice: true)
+            model.pinBack()
+            return model
+        }
+        renderOnboarding(dir, name: "onboarding-2-granted-after-back", state: state) {
+            let model = NotchOnboardingModel.snapshot(step: .accessibility, micGranted: true, accessibilityGranted: true)
+            model.pinBack()
+            return model
+        }
+
+        // A done beat three ways: moving on (with and without the keyboard),
+        // after a cancel with Continue, and with the app not active.
+        renderOnboarding(dir, name: "onboarding-2-typing-granted-not-key", state: state) {
+            .snapshot(step: .accessibility, micGranted: true, accessibilityGranted: true, panelIsKey: false)
+        }
+        renderOnboarding(dir, name: "onboarding-2-typing-granted-continue", state: state) {
+            let model = NotchOnboardingModel.snapshot(step: .accessibility, micGranted: true, accessibilityGranted: true)
+            model.pinCancel(.interaction, appActive: true)
+            return model
+        }
+        renderOnboarding(dir, name: "onboarding-2-typing-granted-paused", state: state) {
+            let model = NotchOnboardingModel.snapshot(
+                step: .accessibility, micGranted: true, accessibilityGranted: true, panelIsKey: false)
+            model.pinCancel(.appInactive, appActive: false)
+            return model
+        }
+
+        // The top-bar line: beats 1 to 3 without the keyboard, the nudge with
+        // and without it, and the Ready microphone nudges.
+        renderOnboarding(dir, name: "onboarding-2-not-key", state: state) {
+            .snapshot(step: .accessibility, micGranted: true, panelIsKey: false)
+        }
+        for (name, key) in [("key", true), ("not-key", false)] {
+            renderOnboarding(dir, name: "onboarding-2-nudge-\(name)", state: state) {
+                let model = NotchOnboardingModel.snapshot(step: .accessibility, micGranted: true, panelIsKey: key)
+                model.pinNudge()
+                return model
+            }
+        }
+        for (name, mic) in [("mic-not-asked", PermissionsManager.MicStatus.notDetermined), ("mic-denied", .denied)] {
+            renderOnboarding(dir, name: "onboarding-4-nudge-\(name)", state: state) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .ready, micGranted: mic == .granted, micDenied: mic == .denied, accessibilityGranted: true,
+                    launchAtLoginEnabled: true)
+                model.pinNudge()
+                return model
+            }
+        }
+
+        // Focus: on Not now, and on the main (ember) button, with its 2 pt gap.
+        for (name, action) in [("not-now", OnboardingAction.second), ("main", .main)] {
+            renderOnboarding(dir, name: "onboarding-2-focus-\(name)", state: state) {
+                .snapshot(step: .accessibility, micGranted: true, focusedAction: action)
+            }
+        }
+
+        // Each push-to-talk key's name: the Microphone ask (the first-use form)
+        // and Ready without the keyboard (the top-bar line names the key), then
+        // once in the press form.
+        for key in HotkeyManager.HotkeyOption.allCases {
+            renderOnboarding(dir, name: "onboarding-keys-\(key.rawValue)-mic-ask", state: state, keyForm: (key, true)) {
+                .snapshot(step: .microphone)
+            }
+            renderOnboarding(dir, name: "onboarding-keys-\(key.rawValue)-ready", state: state, keyForm: (key, true)) {
+                .snapshot(
+                    step: .ready, micGranted: true, accessibilityGranted: true, launchAtLoginEnabled: true,
+                    panelIsKey: false)
+            }
+        }
+        renderOnboarding(dir, name: "onboarding-keys-press-mic-ask", state: state, keyForm: (.rightOption, false)) {
+            .snapshot(step: .microphone)
+        }
+        renderOnboarding(dir, name: "onboarding-keys-press-ready", state: state, keyForm: (.rightOption, false)) {
+            .snapshot(
+                step: .ready, micGranted: true, accessibilityGranted: true, launchAtLoginEnabled: true, panelIsKey: false)
         }
     }
 
