@@ -8,25 +8,75 @@ private let full = OnboardingMotionPolicy.resolve(reduceMotion: false, lowPower:
 final class FakePermissions: PermissionsProviding {
     var mic: PermissionsManager.MicStatus = .notDetermined
     var trusted = false
+    /// Hold the microphone request open, as the system prompt does, until the test answers.
+    var holdsRequest = false
+    private var pendingRequest: CheckedContinuation<Bool, Never>?
+    private(set) var micRequests = 0
+    private(set) var accessibilityPrompts = 0
+    private(set) var accessibilityPaneOpens = 0
+    private(set) var microphonePaneOpens = 0
+    private(set) var soundPaneOpens = 0
 
     func microphoneStatus() -> PermissionsManager.MicStatus { mic }
-    func requestMicrophone() async -> Bool { false }
+    func requestMicrophone() async -> Bool {
+        micRequests += 1
+        guard holdsRequest else { return false }
+        return await withCheckedContinuation { pendingRequest = $0 }
+    }
+    func answerRequest(_ granted: Bool) {
+        pendingRequest?.resume(returning: granted)
+        pendingRequest = nil
+    }
     func accessibilityGranted() -> Bool { trusted }
-    func promptAccessibility() {}
-    func openAccessibilitySettings() {}
-    func openMicrophoneSettings() {}
+    func promptAccessibility() { accessibilityPrompts += 1 }
+    func openAccessibilitySettings() { accessibilityPaneOpens += 1 }
+    func openMicrophoneSettings() { microphonePaneOpens += 1 }
+    func openSoundSettings() { soundPaneOpens += 1 }
 }
 
 final class FakeCapture: MicCheckCapturing {
+    struct Unavailable: Error {}
+
     private(set) var starts = 0
     private(set) var stops = 0
+    var fails = false
+    private(set) var levelHandler: MicrophoneCaptureService.LevelHandler?
 
     func start(
         bufferHandler: @escaping MicrophoneCaptureService.BufferHandler,
         levelHandler: @escaping MicrophoneCaptureService.LevelHandler
-    ) throws { starts += 1 }
+    ) throws {
+        starts += 1
+        if fails { throw Unavailable() }
+        self.levelHandler = levelHandler
+    }
 
     func stop() { stops += 1 }
+}
+
+/// The app and system around the model: whether the app is active, the app in
+/// front, and the announcements. `speed` runs every wait that many times faster.
+@MainActor
+final class FakeEnvironment {
+    var active = true
+    var front: String? = "com.apple.finder"
+    private(set) var announcements: [String] = []
+    private(set) var activations = 0
+    let speed: Double
+
+    init(speed: Double = 1) {
+        self.speed = speed
+    }
+
+    var environment: OnboardingEnvironment {
+        let speed = speed
+        return OnboardingEnvironment(
+            isActive: { [unowned self] in self.active },
+            activate: { [unowned self] in self.activations += 1 },
+            announce: { [unowned self] in self.announcements.append($0) },
+            frontmostBundleID: { [unowned self] in self.front },
+            sleep: { seconds in try? await Task.sleep(for: .seconds(seconds / speed)) })
+    }
 }
 
 /// The model's finish API and its microphone state, with fake seams so no test
@@ -40,15 +90,23 @@ final class NotchOnboardingModelTests: XCTestCase {
     /// Lazy so it is made on the main actor, inside a test.
     private lazy var permissions = FakePermissions()
     private let capture = FakeCapture()
+    private lazy var environment = FakeEnvironment()
+    /// Added to system uptime. The clock runs in real time, because these tests
+    /// wait in real time for the model's delayed tasks; a test moves it ahead to
+    /// let a press pass the input gate.
+    private var offset: TimeInterval = 0
 
     private func makeModel() -> NotchOnboardingModel {
         NotchOnboardingModel(
             permissions: permissions,
             capture: capture,
+            clock: OnboardingClock(
+                now: { [unowned self] in ProcessInfo.processInfo.systemUptime + self.offset }, isFixed: false),
             engineStatus: { [unowned self] in self.engine },
             onComplete: { [unowned self] in self.finishes.append($0) },
             onDismiss: { [unowned self] in self.dismissals += 1 },
-            onRetryEngine: { [unowned self] in self.retries += 1 })
+            onRetryEngine: { [unowned self] in self.retries += 1 },
+            environment: environment.environment)
     }
 
     /// No mic check ran, so finishing has nothing to release.
@@ -118,6 +176,7 @@ final class NotchOnboardingModelTests: XCTestCase {
         let model = makeModel()
         model.begin(.reveal, policy: full)
         model.introDidEnd()
+        offset += BandReveal.opensAt
         return model
     }
 
@@ -339,6 +398,8 @@ final class NotchOnboardingModelTests: XCTestCase {
         let model = makeLiveModel()
         for _ in 0..<3 { model.advance() }
         XCTAssertEqual(model.step, .ready)
+        // A step change closes input for 500 ms.
+        offset += BeatTransition.opensAt
         model.perform(.tryAgain)
         XCTAssertEqual(retries, 1)
     }

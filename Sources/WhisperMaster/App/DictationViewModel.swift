@@ -1827,9 +1827,13 @@ final class DictationViewModel {
     /// A double-tap latched the running dictation open — it keeps listening with
     /// the key released, until the next double-tap. Only a live recording can be
     /// latched; anything else would leave the notch claiming hands-free with
-    /// nothing running.
+    /// nothing running. A refused latch also resets the key's gesture, or the
+    /// latch would outlive its session and the next tap would read as "stop".
     func handleHotkeyHandsFree() {
-        guard state.canStop else { return }
+        guard state.canStop else {
+            hotkeyGestureReset()
+            return
+        }
         state.handsFreeActive = true
         state.statusMessage = "Hands-free — double-tap again to stop."
     }

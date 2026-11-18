@@ -249,6 +249,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    /// The onboarding capture gate, run after `ensureCanDictate()` on every
+    /// capture path. It reads the key and the beat, never the words: on beats 1
+    /// to 3, and on Ready with the microphone off or the engine not ready, the
+    /// press records nothing and its gesture resets (else a double-tap here
+    /// leaves the key latched hands-free, and the next hold on Ready ends that
+    /// latch instead of starting). On Ready with the microphone on and the
+    /// engine ready, the band is cut and the caller records in the same call,
+    /// so the first word is kept.
+    private func onboardingAllowsCapture() -> Bool {
+        guard let onboardingWindow else { return true }
+        let decision = OnboardingCaptureDecision.resolve(
+            onboardingOpen: true, step: onboardingWindow.step, micGranted: onboardingWindow.micGranted,
+            engineReady: onboardingWindow.engineReady)
+        return OnboardingCaptureDecision.apply(
+            decision,
+            micCheckListening: onboardingWindow.micCheckListening,
+            resetGesture: { hotkeyManager?.resetGesture() },
+            noteSwallowedPress: { onboardingWindow.noteSwallowedPress() },
+            handOff: { onboardingWindow.handOff() })
+    }
+
     /// Reconcile the gate against the current Clerk session. Driven both once at
     /// launch and from the 0.5s status refresh loop (our @Observable→AppKit
     /// bridge), so sign-in/sign-out flip the gate without any Clerk callback.
@@ -1327,14 +1348,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Gate dictation on sign-in AND waitlist acceptance: a press while
                 // signed out surfaces the sign-in window; while not-yet-accepted,
                 // the waitlist notice — instead of starting a recording.
-                guard self.ensureCanDictate() else { return }
+                guard self.ensureCanDictate(), self.onboardingAllowsCapture() else { return }
                 self.viewModel.handleHotkeyStart()
             case .stop:
                 self.viewModel.handleHotkeyStop()
             case .handsFree:
+                // Gated like `.start`: an ignored press on an early beat must not
+                // latch hands-free either.
+                guard self.ensureCanDictate(), self.onboardingAllowsCapture() else { return }
                 self.viewModel.handleHotkeyHandsFree()
             case .toggle:
-                guard self.ensureCanDictate() else { return }
+                guard self.ensureCanDictate(), self.onboardingAllowsCapture() else { return }
                 self.viewModel.handleHotkeyToggle()
             }
         }
@@ -1362,7 +1386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch event {
             case .engaged:
-                guard self.ensureCanDictate() else { return }
+                guard self.ensureCanDictate(), self.onboardingAllowsCapture() else { return }
                 self.viewModel.handleCommandChordEngaged()
             case .released:
                 self.viewModel.handleCommandChordReleased()
@@ -1436,7 +1460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch event {
             case .start:
-                guard self.ensureCanDictate() else { return }
+                guard self.ensureCanDictate(), self.onboardingAllowsCapture() else { return }
                 self.viewModel.handleAgentKeyStart()
             case .stop:
                 self.viewModel.handleAgentKeyStop()
@@ -1490,7 +1514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Keep engine prep going (download-if-missing / load-if-present).
                 self.viewModel.prepareDefaultEngineOnLaunch()
             },
-            onComplete: { [weak self] _ in
+            onComplete: { [weak self] kind in
                 guard let self else { return }
                 markSeen()
                 self.dismissOnboarding()
@@ -1500,8 +1524,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Engine prep was kicked off at launch; this is idempotent — if the
                 // model is already on disk it just loads, never re-downloads.
                 self.viewModel.prepareDefaultEngineOnLaunch()
-                self.showWindow()
-            }
+                // Done and the capture-key hand-off give focus back to the app the
+                // user came from; opening Settings here would take it away again.
+                if OnboardingFinishPlan.plan(for: kind, signOutInFlight: false).opensSettings {
+                    self.showWindow()
+                }
+            },
+            settingsVisible: { [weak self] in self?.window?.isVisible == true }
         )
         onboardingWindow?.show(opening: opening)
     }
@@ -1539,6 +1568,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             presentAuthGate()
             return
         }
+        // The user chose the tray item, so the app comes forward and the band
+        // can take the keyboard. Setup never activates the app on its own.
+        NSApp.activate(ignoringOtherApps: true)
         showOnboarding()
     }
 
@@ -1552,7 +1584,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func startRecording() {
-        guard ensureCanDictate() else { return }
+        guard ensureCanDictate(), onboardingAllowsCapture() else { return }
         viewModel.startRecording()
     }
 

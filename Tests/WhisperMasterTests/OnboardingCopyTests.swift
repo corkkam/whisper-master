@@ -115,11 +115,13 @@ final class OnboardingCopyTests: XCTestCase {
 
     func testTheMovingOnLineFitsBesideTheWidestBadge() {
         let badge = Self.badges.map(badgeWidth).max()!
-        let line = OnboardingCopy.movingOnLine
-        check(
-            line.text, fallback: line.fallback, limit: "\(Int(Self.rowWidth)) pt row beside the badge",
-            fits: { badge + Theme.Space.sm + self.width($0, self.lineFont) <= Self.rowWidth },
-            measure: { "\(Int((badge + Theme.Space.sm + self.width($0, self.lineFont)).rounded())) pt" })
+        for key in [false, true] {
+            let line = OnboardingCopy.movingOnLine(panelIsKey: key)
+            check(
+                line.text, fallback: line.fallback, limit: "\(Int(Self.rowWidth)) pt row beside the badge",
+                fits: { badge + Theme.Space.sm + self.width($0, self.lineFont) <= Self.rowWidth },
+                measure: { "\(Int((badge + Theme.Space.sm + self.width($0, self.lineFont)).rounded())) pt" })
+        }
     }
 
     func testThePausedLineFitsBesideTheWidestBadgeAndContinue() {
@@ -374,14 +376,15 @@ final class OnboardingCopyTests: XCTestCase {
         XCTAssertTrue(screen.fallbackBody?.hasPrefix("Hold the right Option key and talk.") == true)
     }
 
-    func testLoadingSaysWhatTheKeyDoesEarlyAndThatTheWorkKeepsGoing() {
+    func testLoadingSaysTheWorkKeepsGoingAndThatTheAppWillSayWhenItIsReady() {
         for copy in cases.copies {
-            let verb = copy.holdToTalk ? "Holding" : "Pressing"
             for variant: ReadyVariant in [.downloading(percent: 9), .preparing] {
                 let screen = copy.screen(.ready(variant))
                 for text in [screen.body, screen.fallbackBody ?? ""] {
-                    XCTAssertTrue(text.contains("\(verb) \(OnboardingCopy.key(copy.key, form: .name)) early"), text)
                     XCTAssertTrue(text.contains("keeps going"), text)
+                    XCTAssertTrue(text.contains("I'll tell you when I'm ready."), text)
+                    // The key is ignored until the engine is ready, so no loading text may invite it.
+                    XCTAssertFalse(text.contains("early"), text)
                 }
             }
         }
@@ -407,7 +410,10 @@ final class OnboardingCopyTests: XCTestCase {
         let ready = OnboardingTopBarContext(step: .ready, readyVariant: .ready(assistantLine: false))
         XCTAssertEqual(copy.topBarLine(ready)?.text, "Now hold the left Option key and talk.")
         XCTAssertNil(copy.topBarLine(OnboardingTopBarContext(step: .ready, readyVariant: .failed)))
-        XCTAssertNil(copy.topBarLine(OnboardingTopBarContext(step: .ready, readyVariant: .typingOff, panelIsKey: true)))
+        XCTAssertEqual(
+            copy.topBarLine(OnboardingTopBarContext(step: .ready, readyVariant: .typingOff, panelIsKey: true))?.text,
+            "Command W closes setup.")
+        XCTAssertNil(copy.topBarLine(OnboardingTopBarContext(step: .accessibility, panelIsKey: true)))
         XCTAssertEqual(
             OnboardingCopy(key: .leftOption, holdToTalk: false).topBarLine(ready)?.text,
             "Press the left Option key and talk.")
@@ -420,6 +426,11 @@ final class OnboardingCopyTests: XCTestCase {
             "Finish setup first, or click here to use the keyboard.", fallback: "Finish setup first."))
         nudge.micCheckListening = true
         XCTAssertEqual(copy.topBarLine(nudge)?.text, "Click here to use the keyboard.")
+        var keyNudge = OnboardingTopBarContext(step: .accessibility, nudging: true, panelIsKey: true)
+        XCTAssertEqual(copy.topBarLine(keyNudge), OnboardingLine(
+            "Finish setup, or close it with Command W.", fallback: "Finish setup first."))
+        keyNudge.micCheckListening = true
+        XCTAssertNil(copy.topBarLine(keyNudge))
 
         var paused = beat2
         paused.pausedWhileInactive = true
@@ -445,17 +456,6 @@ final class OnboardingCopyTests: XCTestCase {
                 if context.step == .ready { XCTAssertFalse(line.contains("Click here"), line) }
                 if line == "Turn on the microphone first." { XCTAssertEqual(context.readyMic, .denied) }
                 if line == "Allow the microphone first." { XCTAssertEqual(context.readyMic, .notAsked) }
-            }
-        }
-    }
-
-    /// Lines name no key the band does not answer yet.
-    func testNoLineOrHintNamesAKeyTheBandDoesNotAnswerYet() {
-        for copy in cases.copies {
-            for (source, text) in OnboardingCopyCases.allStrings(copy) {
-                for key in ["Return", "Escape", "Left Arrow", "Command W", "⌘W", "←"] {
-                    XCTAssertFalse(text.contains(key), "\(source): \(text)")
-                }
             }
         }
     }

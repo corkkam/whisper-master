@@ -34,14 +34,18 @@ struct OnboardingFinishPlan: Equatable {
 /// the beat, never the words.
 enum OnboardingCaptureDecision: Equatable {
     case allow
-    /// Ready with the microphone on: cut the band, then record in the same call,
-    /// whatever the engine state, so the first word is kept.
+    /// Ready with the microphone on and the engine ready: cut the band, then
+    /// record in the same call, so the first word is kept.
     case handOffThenAllow
     case ignore
 
-    static func resolve(onboardingOpen: Bool, step: NotchOnboardingStep, micGranted: Bool) -> OnboardingCaptureDecision {
+    /// While the speech files load, the recording would be refused, so a hand-off
+    /// would close setup and record nothing: the press is ignored and setup stays.
+    static func resolve(
+        onboardingOpen: Bool, step: NotchOnboardingStep, micGranted: Bool, engineReady: Bool
+    ) -> OnboardingCaptureDecision {
         guard onboardingOpen else { return .allow }
-        guard step == .ready, micGranted else { return .ignore }
+        guard step == .ready, micGranted, engineReady else { return .ignore }
         return .handOffThenAllow
     }
 
@@ -100,6 +104,118 @@ struct OnboardingAutoAdvance: Equatable {
     /// The Heard swap only: a voice during the "allowed before" wait restarts it.
     mutating func restart(at time: TimeInterval) {
         confirmedVisibleAt = time
+    }
+}
+
+/// A key as the band reads it. The panel maps each `keyDown` to one of these.
+enum OnboardingKey: Equatable {
+    case returnKey
+    case escape
+    case leftArrow
+    /// Space while Full Keyboard Access is off. The model presses the focused button.
+    case space
+    /// Command W. It closes setup and is exempt from the input gate.
+    case closeWindow
+    /// Tab, Shift-Tab, and Space under Full Keyboard Access: the focused
+    /// controls answer these themselves, after the gate.
+    case passThrough
+    /// Any other key. It only counts as a key press, which stops a moving-on wait.
+    case other
+}
+
+/// The band's controls that can hold keyboard focus, in Tab order.
+enum OnboardingAction: Equatable, CaseIterable {
+    /// The first button of the action row.
+    case main
+    /// The second button of the action row.
+    case second
+    case back
+    case settings
+    case close
+}
+
+/// What a key does in one state of the band.
+enum OnboardingKeyAction: Equatable {
+    case press(OnboardingAction)
+    case cancelAutoAdvance
+    case nothing
+}
+
+/// When keys, clicks and accessibility presses start to count, in system uptime
+/// (the clock of `NSEvent.timestamp`). Until then the action row draws at half
+/// opacity, so a press cannot land on a button the user has not seen.
+enum OnboardingInputGate {
+    enum Cause {
+        /// T0 of the first-launch opening.
+        case opening
+        /// A skip of the opening.
+        case skip
+        /// A replay, or the band shown at once under VoiceOver.
+        case replay
+        /// A step change.
+        case step
+        /// A row change inside a beat.
+        case row
+    }
+
+    static func opensAt(_ cause: Cause, at time: TimeInterval, policy: OnboardingMotionPolicy) -> TimeInterval {
+        let full = policy.layers == .full
+        switch cause {
+        case .opening:
+            return time + (full ? OpeningTimeline.swapAt : OpeningTimeline.stillSwapAt) + BandReveal.inputOpens(policy: policy)
+        case .skip:
+            return time + (full ? OpeningTimeline.skipBlend : 0) + BandReveal.inputOpens(policy: policy)
+        case .replay:
+            return time + BandReveal.inputOpens(policy: policy)
+        case .step:
+            return time + (full ? BeatTransition.opensAt : BeatTransition.stillOpensAt)
+        case .row:
+            return time + Flourish.opensAt
+        }
+    }
+
+    /// A repeat never gets through, nor does a press before input opens. Command W always does.
+    static func allows(_ key: OnboardingKey, isRepeat: Bool, at time: TimeInterval, opensAt: TimeInterval) -> Bool {
+        if key == .closeWindow { return true }
+        return !isRepeat && time >= opensAt
+    }
+}
+
+/// What Return, Escape, Space and Left Arrow press in one state of the band.
+enum OnboardingReturnTarget {
+    /// The controls a key may press in this row: its buttons, then Back while
+    /// it is enabled, then Settings and Close.
+    static func available(row: OnboardingRow, backEnabled: Bool) -> [OnboardingAction] {
+        Array([OnboardingAction.main, .second].prefix(row.buttons.count))
+            + (backEnabled ? [.back] : []) + [.settings, .close]
+    }
+
+    static func resolve(
+        _ key: OnboardingKey, row: OnboardingRow, focused: OnboardingAction?, backEnabled: Bool, voiceOver: Bool
+    ) -> OnboardingKeyAction {
+        if key == .closeWindow { return .press(.close) }
+        // A moving-on step: any key stops the wait and presses nothing else.
+        if case .badge(_, .movingOn) = row { return .cancelAutoAdvance }
+        let available = available(row: row, backEnabled: backEnabled)
+        let buttons = row.buttons
+        switch key {
+        case .returnKey:
+            if let focused { return available.contains(focused) ? .press(focused) : .nothing }
+            // Under VoiceOver Return with no focus does nothing, so no hint names Return.
+            return voiceOver || buttons.isEmpty ? .nothing : .press(.main)
+        case .space:
+            guard let focused, available.contains(focused) else { return .nothing }
+            return .press(focused)
+        case .escape:
+            if buttons.count == 2 { return .press(.second) }
+            // A lone button is pressed only when it is the way past: Not now or Done.
+            if buttons == [.notNow] || buttons == [.done] { return .press(.main) }
+            return .nothing
+        case .leftArrow:
+            return backEnabled ? .press(.back) : .nothing
+        case .closeWindow, .passThrough, .other:
+            return .nothing
+        }
     }
 }
 

@@ -9,9 +9,13 @@ import SwiftUI
 ///
 /// Made only on the launch path, never for a replay or under VoiceOver. Each
 /// presentation is a new object; nothing about it is persisted.
+///
+/// It takes the keyboard on the band's terms (only while our app is active),
+/// so its first Return, Escape or Space skips it.
 @MainActor
 final class OnboardingStagePanel {
-    private let panel = OnboardingKeyPanel()
+    /// The window wires its keys to the model.
+    let panel = OnboardingKeyPanel()
 
     init(model: NotchOnboardingModel, screen: NSScreen, layout: NotchOnboardingLayout) {
         let geometry = NotchGeometry.measure(screen)
@@ -30,6 +34,7 @@ final class OnboardingStagePanel {
 
     func show() {
         panel.orderFrontRegardless()
+        panel.makeKeyIfActive()
     }
 
     /// Safe to call twice.
