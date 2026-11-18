@@ -177,16 +177,21 @@ final class CommandAgentTests: XCTestCase {
     }
 
     /// An empty body is the model producing a call-shaped nothing. It must be refused
-    /// at the runner, not saved as a blank note.
+    /// at the runner, not saved as a blank note — and the "Done." written on top of
+    /// that refusal is not accepted, so the caller's fallback still files the words.
     func testAnEmptyNoteBodyIsRefused() async {
         let notes = notesStore()
-        _ = await service(notes: notes, connectors: emptyConnectors()).perform(
+        let run = await service(notes: notes, connectors: emptyConnectors()).run(
             "…",
             generate: scripted([
                 #"{"tool":"create_note","args":{"body":"   "}}"#,
                 #"{"answer":"Done."}"#,
             ]))
         XCTAssertTrue(notes.visibleNotes.isEmpty)
+        XCTAssertNil(run.result, "a refused call is not having acted")
+        XCTAssertEqual(run.calls.count, 1, "the trace still shows the call that was refused")
+        XCTAssertTrue(run.declineReason.hasPrefix("Every tool call failed or was refused"),
+                      run.declineReason)
     }
 
     // MARK: - Tool surface
@@ -249,6 +254,7 @@ final class CommandAgentTests: XCTestCase {
             tool: "send_message", arguments: ["channel": "#ops", "text": "hi"]))
 
         XCTAssertTrue(result.ok)
+        XCTAssertEqual(router.executed, ["send_message"])
         XCTAssertTrue(router.didCreateSomething, "the message went out")
         XCTAssertEqual(router.lastResult, "Sent to #ops.",
                        "so an exhausted loop has the tool's own report to fall back on")
@@ -268,6 +274,8 @@ final class CommandAgentTests: XCTestCase {
 
         XCTAssertFalse(router.didCreateSomething)
         XCTAssertTrue(router.effects.isEmpty)
+        XCTAssertTrue(router.executed.isEmpty, "which is what sends the words to the fallback")
+        XCTAssertEqual(router.journal.count, 1, "the journal still records the attempt")
     }
 
     /// Reading still doesn't count: the answer is the whole of its result.
