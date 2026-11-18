@@ -1,0 +1,51 @@
+name: Test
+
+# `swift build` and `swift test` on every pull request and every push to dev.
+#
+# `swift test` here is the pure unit suite. AudioReplayTests and the other
+# benches skip on their own when their recordings or models are absent, so this
+# job needs no model download and no secrets. The macOS runner bills at 10x, so
+# the paths filter keeps docs-only changes off it.
+on:
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  push:
+    branches: [dev]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # macos-26 (arm64) for the same reason release.yml pins it: macos-15's
+    # Xcode 16.4 cannot resolve this project's package graph.
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      - name: Restore SwiftPM build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          # Keyed on the resolved graph, so a dependency bump starts clean.
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: swiftpm-${{ runner.os }}-
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test

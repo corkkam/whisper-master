@@ -93,8 +93,9 @@ git-ignored.** Dependencies are declared in both `project.yml` and `Package.swif
 
 **The gate for a change here is `swift build` and `swift test` green**, plus the
 audio bench for anything on the transcription path and the eval harness for
-anything on the cleanup path. There is **no CI test workflow** — the only GitHub
-workflow is release automation, so the gate is you running it and pasting the
+anything on the cleanup path. `.github/workflows/test.yml` runs `swift build` and
+`swift test` on every pull request and every push to `dev`, but it does not run the
+audio bench or the eval harness, so you still run those yourself and paste the
 output.
 
 **The tree is green.** As of 2026-08-14: `swift build` clean; `swift test` runs
