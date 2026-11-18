@@ -262,8 +262,9 @@ final class NotchOnboardingModelTests: XCTestCase {
         XCTAssertEqual(capture.starts, 0)
     }
 
-    /// A replay reveals at once and gathers the orb; input opens 540 ms in.
-    func testAReplayRevealsAtOnce() async {
+    /// With no stage (no screen for it) the band reveals at once and gathers the
+    /// orb; input opens 540 ms in.
+    func testWithNoStageTheBandRevealsAtOnce() async {
         let model = makeModel()
         var cues: [OnboardingStageCue] = []
         model.onStageCue = { cues.append($0) }
@@ -342,8 +343,9 @@ final class NotchOnboardingModelTests: XCTestCase {
         XCTAssertNil(model.heldBloom)
     }
 
-    /// A window closed after its stage swapped (a sign-out) and shown again on
-    /// the launch path plays a fresh opening, and the band swaps in again.
+    /// A window closed after its stage swapped (a sign-out, or a finish) and
+    /// shown again, on the launch path or as a replay from About or the tray,
+    /// plays a fresh opening, and the band swaps in again.
     func testASecondBeginAfterTeardownSwapsTheBandIn() async {
         let model = makeModel()
         var cues: [OnboardingStageCue] = []
@@ -364,21 +366,6 @@ final class NotchOnboardingModelTests: XCTestCase {
         XCTAssertEqual(cues, [.primeBand, .swap, .end])
         await wait(BandReveal.opensAt)
         XCTAssertFalse(model.introPlaying)
-    }
-
-    /// The same window reopened from the menu or About passes `.reveal`: no
-    /// stage, and the band reveals at once.
-    func testAReopenAsAReplayHasNoStage() {
-        let model = makeModel()
-        var cues: [OnboardingStageCue] = []
-        model.onStageCue = { cues.append($0) }
-        model.begin(.stage, policy: full)
-        model.teardown()
-        model.begin(.reveal, policy: full)
-        XCTAssertNil(model.openingStartedAt)
-        XCTAssertNotNil(model.revealStartedAt)
-        XCTAssertTrue(model.revealGathers)
-        XCTAssertEqual(cues, [])
     }
 
     /// Try Again on the microphone beat starts the mic check over through the

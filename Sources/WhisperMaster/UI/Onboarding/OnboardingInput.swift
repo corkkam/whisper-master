@@ -150,8 +150,8 @@ enum OnboardingInputGate {
         case opening
         /// A skip of the opening.
         case skip
-        /// A replay, or the band shown at once under VoiceOver.
-        case replay
+        /// The band shown at once with no stage: VoiceOver, or no screen for it.
+        case reveal
         /// A step change.
         case step
         /// A row change inside a beat.
@@ -165,7 +165,7 @@ enum OnboardingInputGate {
             return time + (full ? OpeningTimeline.swapAt : OpeningTimeline.stillSwapAt) + BandReveal.inputOpens(policy: policy)
         case .skip:
             return time + (full ? OpeningTimeline.skipBlend : 0) + BandReveal.inputOpens(policy: policy)
-        case .replay:
+        case .reveal:
             return time + BandReveal.inputOpens(policy: policy)
         case .step:
             return time + (full ? BeatTransition.opensAt : BeatTransition.stillOpensAt)

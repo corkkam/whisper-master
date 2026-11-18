@@ -36,7 +36,7 @@ struct NotchOnboardingLayout {
     /// The widest the top-bar line (between back and settings) may run, on one line.
     var topBarLineMaxWidth: CGFloat = 260
 
-    // The opening stage that folds into the band on a first launch. Its panel is
+    // The opening stage that folds into the band. Its panel is
     // `min(stageWidth, screenWidth − 56)` × `(notchHeight + stageDepth)`.
     var stageWidth: CGFloat = 640
     var stageDepth: CGFloat = 420

@@ -31,7 +31,7 @@ final class NotchOnboardingKeyModelTests: XCTestCase {
             environment: system.environment)
     }
 
-    /// A replay with input open and the band holding the keyboard.
+    /// The band shown with no stage, input open and holding the keyboard.
     private func makeLiveModel(policy: OnboardingMotionPolicy? = nil) -> NotchOnboardingModel {
         let model = makeModel()
         model.begin(.reveal, policy: policy ?? full)
