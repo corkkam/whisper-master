@@ -417,6 +417,83 @@ enum SnapshotMode {
                 ],
                 grantOffered: false))
         }
+        // The device route: a card with no connector behind it, scoped to This Mac.
+        // An app keeps Always; the payload line says what a yes does.
+        renderPill(dir, name: "pill-9e-approval-open-app") { s in
+            s.phase = .idle
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "open_app",
+                instanceID: DeviceToolCatalog.thisMacID,
+                instanceLabel: DeviceToolCatalog.thisMacLabel,
+                target: "Figma",
+                arguments: ["app": "Figma"]))
+        }
+        // A link: never Always, the host in the headline, and the whole address
+        // wrapped onto the lines the card reserved for it rather than cut.
+        renderPill(dir, name: "pill-9f-approval-open-url") { s in
+            s.phase = .idle
+            let link = "https://github.com/corkkam/whisper-master/pull/72/files?diff=split&w=1"
+                + "#diff-4f2c1a9e0b7d3f8a6c5e2d1b0a9f8e7d"
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "open_url",
+                instanceID: DeviceToolCatalog.thisMacID,
+                instanceLabel: DeviceToolCatalog.thisMacLabel,
+                target: link,
+                arguments: ["url": link],
+                grantable: false))
+        }
+        // The longest link the card accepts, in a tainted run: three wrapped lines
+        // plus the warning, and the tail of the address still on the band.
+        renderPill(dir, name: "pill-9g-approval-open-url-longest") { s in
+            s.phase = .idle
+            let head = "https://docs.example.com/guides/setup/whisper-master/agent-mode/device-tools/"
+            let link = head + String(repeating: "x", count: DeviceToolCatalog.maxURLLength - head.count - 4)
+                + "/end"
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "open_url",
+                instanceID: DeviceToolCatalog.thisMacID,
+                instanceLabel: DeviceToolCatalog.thisMacLabel,
+                target: link,
+                arguments: ["url": link],
+                grantOffered: false,
+                grantable: false))
+        }
+        // "Make this shorter": the rewrite on the band with its line breaks, and
+        // nothing typed until Replace.
+        renderPill(dir, name: "pill-14-draft-replace") { s in
+            s.phase = .idle
+            s.agentDraft = AgentDraft(
+                kind: .replaceSelection,
+                text: "Hi Sam,\n\nThe numbers are in and they look good. Revenue is up 12% "
+                    + "on last quarter, mostly from the new plan.\n\nDana",
+                app: SelectionReader.FrontApp(bundleID: "com.apple.mail", name: "Mail", pid: 1),
+                selection: "The quarterly numbers came in this morning.",
+                copyOnlyReason: nil)
+            s.agentDraftAt = Date()
+        }
+        // A 300-character unbroken token (a key, a long link): the band counts every
+        // line it wraps to, so the tail is on the band rather than clipped.
+        renderPill(dir, name: "pill-14c-draft-long-token") { s in
+            s.phase = .idle
+            s.agentDraft = AgentDraft(
+                kind: .insertText,
+                text: "Here is the token:\n" + String(repeating: "a1B2c3D4e5", count: 29) + "ENDTOKEN!!",
+                app: SelectionReader.FrontApp(bundleID: "com.apple.Notes", name: "Notes", pid: 1),
+                selection: nil,
+                copyOnlyReason: nil)
+            s.agentDraftAt = Date()
+        }
+        // A multi-line draft for a terminal: copy only, and the band says why.
+        renderPill(dir, name: "pill-14b-draft-copy-only") { s in
+            s.phase = .idle
+            s.agentDraft = AgentDraft(
+                kind: .insertText,
+                text: "cd ~/code/whisper-master\nswift test --filter DeviceToolRunnerTests",
+                app: SelectionReader.FrontApp(bundleID: "com.apple.Terminal", name: "Terminal", pid: 1),
+                selection: nil,
+                copyOnlyReason: AgentDraft.multiLineInTerminal)
+            s.agentDraftAt = Date()
+        }
         // A coding agent asking to run a command. Same three answers as the connector
         // card above, because it is the same question: the payload is unbounded, so
         // it must be the words that give way and never the buttons.

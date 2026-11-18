@@ -91,6 +91,9 @@ diff or a decision log, and would be a poor version of whichever it wasn't.
   text from another app and traces persist. After that read, later arguments, results,
   turns and the answer are stored as a placeholder when they repeat 40+ characters of
   it, and the read never sets `lastResult`. The full rule is in `Input/CLAUDE.md`.
+- **A draft is journalled as its length, never its text** (`[draft, N characters]`,
+  in the call's arguments and in the model turn that made it). A rewrite of the
+  selection repeats few 40-character runs of it, so the rule above does not catch it.
 
 ### Storage
 

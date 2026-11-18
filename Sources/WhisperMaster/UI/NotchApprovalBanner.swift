@@ -39,13 +39,18 @@ struct NotchApprovalBanner: View {
                     if let warning = approval.readWarning {
                         Text(warning).foregroundStyle(Theme.Notch.warning)
                     }
+                    // A link wraps onto the lines `thickness` reserved for it, and
+                    // shrinks a little rather than lose its tail if a break falls
+                    // badly. A one-line payload keeps its old rendering exactly.
                     Text(approval.detail)
+                        .lineLimit(approval.detailLines)
+                        .minimumScaleFactor(approval.detailLines > 1 ? 0.75 : 1)
                 }
             },
             trailing: {
                 HStack(spacing: 6) {
                     choice("Once", .allowedOnce)
-                    if approval.grantOffered { choice("Always", .allowedAlways) }
+                    if approval.offersAlways { choice("Always", .allowedAlways) }
                     choice("No", .denied, isDestructive: true)
                 }
             })
@@ -60,13 +65,15 @@ struct NotchApprovalBanner: View {
     /// reads it, and `NotchSurfaceLayout.maxBandThickness` adds `warningLineHeight`
     /// to the banner: a band taller than its panel is clipped by its own window.
     static func thickness(for approval: PendingApproval, banner: CGFloat) -> CGFloat {
-        approval.readWarning == nil ? banner : banner + warningLineHeight
+        let warning: CGFloat = approval.readWarning == nil ? 0 : warningLineHeight
+        // A wrapped link line is one more caption line; the gap is the same budget.
+        return banner + warning + CGFloat(approval.detailLines - 1) * warningLineHeight
     }
 
     /// VoiceOver gets the full payload untruncated — a screen-reader user must not be
     /// asked to consent to something the visual layout abbreviated away.
     var accessibilityText: String {
-        let choices = approval.grantOffered ? "once, always, or no" : "once or no"
+        let choices = approval.offersAlways ? "once, always, or no" : "once or no"
         let warning = approval.readWarning.map { " \($0)" } ?? ""
         return "\(approval.headline).\(warning) \(approval.detail). Choose \(choices)."
     }

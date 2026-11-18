@@ -212,6 +212,10 @@ final class SelectionCapture {
 
     private let reader: SelectionReader
     private var pending: Task<SelectionContext?, Never>?
+    /// The app in front at the press, kept whether or not it had a selection: a draft
+    /// may only type into the app the user was speaking to. Read it before `take()`,
+    /// which forgets it with the read.
+    private(set) var frontApp: SelectionReader.FrontApp?
 
     init(reader: SelectionReader = .live) {
         self.reader = reader
@@ -221,6 +225,7 @@ final class SelectionCapture {
     /// session keeps the first read: that is when the user had just selected.
     func begin(_ app: SelectionReader.FrontApp?) {
         guard pending == nil else { return }
+        frontApp = app
         let reader = reader
         pending = Task {
             await withCheckedContinuation { continuation in
@@ -242,7 +247,10 @@ final class SelectionCapture {
 
     /// Hand over this session's read and forget it, so it cannot reach the next one.
     func take() -> Task<SelectionContext?, Never>? {
-        defer { pending = nil }
+        defer {
+            pending = nil
+            frontApp = nil
+        }
         return pending
     }
 

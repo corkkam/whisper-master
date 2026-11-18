@@ -910,6 +910,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // menu-bar clicks for the whole ten minutes before a meeting.
             state.ambientRowTakesClicks
                 || state.approvals.pending != nil
+                // The draft band's Replace / Copy, which is the consent to type.
+                || state.shouldShowAgentDraft
                 // The nudge is a pointer to another session, so it has to be
                 // tappable — a band that says "tap to answer" and swallows the tap
                 // is worse than no band.
@@ -987,6 +989,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            Date().timeIntervalSince(at) >= AppState.undeliveredBannerDuration {
             state.undeliveredTranscriptAt = nil
             state.undeliveredText = nil
+        }
+
+        // Drop an unanswered draft once its window elapses: it holds text from
+        // another app, so it is not kept a moment longer than the band shows it.
+        if let at = state.agentDraftAt,
+           Date().timeIntervalSince(at) >= AppState.agentDraftDuration {
+            state.agentDraftAt = nil
+            state.agentDraft = nil
         }
 
         // Retract the polished-transcript beat once its window elapses.
@@ -1343,6 +1353,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onCopyAnswer: { [weak self] in
                 self?.viewModel.copyAnswer()
             },
+            onDraft: { [weak self] action in
+                self?.viewModel.handleDraftAction(action)
+            },
             onToggleDueReminder: { [weak self] in
                 // The checkbox on a reminder that just came due — ticks it off, or
                 // puts it back if the tick was a misfire.
@@ -1488,10 +1501,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the working row is what interrupts).
         //
         // The assistant is asked first (`handleAssistantEscape`): it denies a waiting
-        // approval card, stops a running loop, or closes a long answer. Because the
-        // key is only observed, an Esc meant for another app does this too; each of
-        // the three is safe to do by mistake (a denial, words filed as a note, a
-        // band closed).
+        // approval card, stops a running loop, drops a staged draft, or closes a long
+        // answer. Because the key is only observed, an Esc meant for another app does
+        // this too; each is safe to do by mistake (a denial, words filed as a note,
+        // nothing typed, a band closed).
         escKeyMonitorGlobal = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) {
             [weak self] event in
             self?.handleEscIfAgentSurfaceShowing(event)

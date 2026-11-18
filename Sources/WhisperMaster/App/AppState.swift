@@ -316,6 +316,14 @@ final class AppState {
     /// button. Replaced in place if a late polish produces better wording, so
     /// what the button copies is always the best version. Transient.
     var undeliveredText: String?
+    /// Text the assistant wrote for the app the user was in (`replace_selection`,
+    /// `insert_text`), on the band until a tap types or copies it. Transient and
+    /// never persisted: a rewrite of the selection is the user's text from another
+    /// app. Set by the view model; expired by the AppDelegate refresh loop.
+    var agentDraft: AgentDraft?
+    var agentDraftAt: Date?
+    /// Long enough to read a paragraph and decide; a tap or Escape ends it sooner.
+    static let agentDraftDuration: TimeInterval = 60
     /// True while the optional on-device polish is running over the transcript we
     /// just delivered. Drives the notch "thinking" orb — the deterministic text
     /// is already pasted, so this is purely a "still improving it" signal.
@@ -758,6 +766,7 @@ final class AppState {
         !shouldShowAgentAsk && !shouldShowAgentGlance && !shouldShowAgentWorking
             && !shouldShowAgentReply
             && approvals.pending == nil
+            && !shouldShowAgentDraft
             && !shouldShowDueReminderBanner
             && !shouldShowCommandConfirmation
             && !shouldShowDaySummary
@@ -1003,6 +1012,7 @@ final class AppState {
             && preparingEngine == nil
             && approvals.pending == nil
             && !shouldShowAgentAsk
+            && !shouldShowAgentDraft
             && !shouldShowReminderTimePrompt
             && !shouldShowUndeliveredBanner
     }
@@ -1104,11 +1114,22 @@ final class AppState {
     /// paused-clock shape as `canShowDueReminderBanner`.
     var canShowMeetingBanner: Bool {
         phase == .idle && download == nil && preparingEngine == nil
-            && approvals.pending == nil
+            && approvals.pending == nil && !shouldShowAgentDraft
             && !shouldShowAgentAsk && !shouldShowAgentGlance && !shouldShowAgentWorking && !shouldShowAgentReply
             && !shouldShowDueReminderBanner && !shouldShowCommandConfirmation && !shouldShowDaySummary
             && !shouldShowUndeliveredBanner && !shouldShowAgentNudge && !shouldShowLearnedBanner
             && !shouldShowCleanupReadyBanner
+    }
+
+    /// The draft band: directly below the two cards with a caller suspended behind
+    /// them, because it is consent too — the tap is what types the text — and above
+    /// everything else. Idle only, so a new dictation takes the band back.
+    var shouldShowAgentDraft: Bool {
+        guard let at = agentDraftAt, agentDraft != nil else { return false }
+        return Date().timeIntervalSince(at) < Self.agentDraftDuration
+            && approvals.pending == nil
+            && !shouldShowAgentAsk
+            && phase == .idle
     }
 
     /// Show the "saved, nowhere to paste" hint when a recent dictation had no
@@ -1233,7 +1254,7 @@ final class AppState {
     var notchIsOccupied: Bool {
         if phase != .idle { return true }
         if download != nil || preparingEngine != nil { return true }
-        if approvals.pending != nil { return true }
+        if approvals.pending != nil || shouldShowAgentDraft { return true }
         if shouldShowAgentAsk || shouldShowAgentGlance || shouldShowAgentWorking
             || shouldShowAgentReply { return true }
         return shouldShowReminderTimePrompt

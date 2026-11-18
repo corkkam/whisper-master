@@ -247,8 +247,14 @@ struct ToolCallTrace: Identifiable, Codable, Hashable, Sendable {
     /// How the write was permitted, or nil for a read.
     var authorization: ToolAuthorization?
 
-    var isWrite: Bool { ToolCatalog.descriptor(named: tool)?.access == .write }
+    /// A device tool acts (it opens something or stages text to type), so it is badged
+    /// as a write, never shown as a read.
+    var isWrite: Bool {
+        ToolCatalog.descriptor(named: tool)?.access == .write || isDevice
+    }
     var isLocal: Bool { LocalToolCatalog.names.contains(tool) }
+    /// Served by this Mac, not by a connector.
+    var isDevice: Bool { DeviceToolCatalog.names.contains(tool) }
 
     /// `list_mail connector=corkkam` — the call as it was actually made.
     var signature: String {
@@ -338,7 +344,7 @@ struct AssistantTrace: Identifiable, Codable, Hashable, Sendable {
     /// never called is its own story.
     var touchedConnectors: [String] {
         var seen: [String] = []
-        for call in calls where !call.isLocal {
+        for call in calls where !call.isLocal && !call.isDevice {
             for label in call.connectors where !seen.contains(label) { seen.append(label) }
         }
         return seen

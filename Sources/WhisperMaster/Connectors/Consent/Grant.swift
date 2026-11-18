@@ -79,6 +79,11 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
     /// the target may then come from an instruction planted in that text, and a
     /// standing grant for it would outlast this one card.
     let grantOffered: Bool
+    /// Whether the tool can ever have a standing grant. False for `open_url`, whose
+    /// card shows every time. Kept apart from `grantOffered` because that one also
+    /// raises the after-reading warning, and an untainted link card has nothing to
+    /// warn about.
+    let grantable: Bool
     let requestedAt: Date
 
     init(id: UUID = UUID(),
@@ -88,6 +93,7 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
          target: String,
          arguments: [String: String],
          grantOffered: Bool = true,
+         grantable: Bool = true,
          requestedAt: Date = Date()) {
         self.id = id
         self.tool = tool
@@ -96,8 +102,12 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
         self.target = target
         self.arguments = arguments
         self.grantOffered = grantOffered
+        self.grantable = grantable
         self.requestedAt = requestedAt
     }
+
+    /// Whether the card shows Always.
+    var offersAlways: Bool { grantOffered && grantable }
 
     /// One line for the notch: "Post to #general on Work".
     var headline: String {
@@ -115,6 +125,12 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
     /// Derived from `grantOffered` so the two can never disagree.
     var readWarning: String? {
         grantOffered ? nil : ApprovalCopy.readWarning
+    }
+
+    /// Lines the payload may take. One, except a link, which wraps rather than
+    /// truncates so the whole address is on the card.
+    var detailLines: Int {
+        ApprovalCopy.detailLines(tool: tool, detail: detail)
     }
 }
 

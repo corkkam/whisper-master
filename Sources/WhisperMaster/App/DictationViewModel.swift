@@ -325,6 +325,8 @@ final class DictationViewModel {
         // Consume the command arm now (synchronously, at the user's stop) so it
         // can't linger; the async finalize below reads this captured copy.
         let commandMode = commandArmed
+        // Before `take()`, which forgets it: the only app a draft may type into.
+        let keyDownApp = selectionCapture.frontApp
         let selectionRead = selectionCapture.take()
         setCommandArmed(false)
         commandChordOwnsSession = false
@@ -459,7 +461,8 @@ final class DictationViewModel {
                     assistantHandled = await routeAgentCapture(cleaned, spoken: spoken)
                 } else if commandMode, !cleaned.isEmpty {
                     assistantHandled = await routeCommandCapture(
-                        cleaned, spoken: spoken, selectionRead: selectionRead)
+                        cleaned, spoken: spoken, selectionRead: selectionRead,
+                        keyDownApp: keyDownApp)
                 }
                 // The frontmost app is the one about to receive the paste — or, for
                 // an assistant capture, the one the user was speaking from. We don't
@@ -818,16 +821,108 @@ final class DictationViewModel {
     /// hear itself. The one case worth a second line is the command that changed
     /// nothing, which would otherwise look like it was never heard.
     private func presentMediaConfirmation(_ command: MediaCommand, acted: Bool, question: String) {
+        presentQuickConfirmation(command.confirmation, detail: acted ? "" : "It was already.",
+                                 question: question)
+    }
+
+    /// One line for an instruction carried out with no model ("Paused", "Opened
+    /// Figma"). Short and not spoken: the result is already audible or on screen.
+    private func presentQuickConfirmation(_ headline: String, detail: String, question: String) {
         state.activeDaySummary = DaySummary(
-            headline: command.confirmation,
-            detail: acted ? "" : "It was already.",
+            headline: headline,
+            detail: detail,
             events: [],
             gaps: [],
             scopedTo: nil)
         state.daySummaryAt = Date()
         state.daySummaryWasSpoken = false
-        state.appendAnswer(question: question, answer: command.confirmation)
+        state.appendAnswer(question: question, answer: headline)
         Feedback.delivered(soundEnabled: state.soundEnabled)
+    }
+
+    // MARK: - Drafts
+
+    private func presentDraft(_ draft: AgentDraft) {
+        state.agentDraft = draft
+        state.agentDraftAt = Date()
+        Feedback.delivered(soundEnabled: state.soundEnabled)
+    }
+
+    private func clearDraft() {
+        state.agentDraft = nil
+        state.agentDraftAt = nil
+    }
+
+    /// The draft band's buttons. Replace (or Insert) types the draft into the app it
+    /// was written for, and only once the checks at the tap pass; otherwise the text
+    /// is copied and the band says why.
+    func handleDraftAction(_ action: NotchDraftBanner.Action) {
+        guard let draft = state.agentDraft else { return }
+        switch action {
+        case .dismiss:
+            clearDraft()
+        case .copy:
+            copyToClipboard(draft.text)
+            state.statusMessage = "Draft copied."
+        case .apply:
+            Task { await applyDraft(draft) }
+        }
+    }
+
+    private func applyDraft(_ draft: AgentDraft) async {
+        if let reason = await draftBlocker(draft) { return copyInstead(draft, reason) }
+        guard state.agentDraft == draft else { return }
+        // Again, with nothing between this and the paste: the selection read above
+        // can take half a second, long enough to switch apps.
+        if let reason = focusBlocker(draft) { return copyInstead(draft, reason) }
+        clearDraft()
+        // A real ⌘V with the clipboard put back after, never a Return: the draft is
+        // typed, and sending it is still the user's own keystroke.
+        await pasteViaClipboard(draft.text)
+        state.statusMessage = draft.kind == .replaceSelection
+            ? "Replaced the selection in \(draft.app.name)."
+            : "Typed the draft into \(draft.app.name)."
+    }
+
+    private func copyInstead(_ draft: AgentDraft, _ reason: String) {
+        copyToClipboard(draft.text)
+        // Only this draft: a newer one may have landed while the check ran.
+        if state.agentDraft == draft { state.agentDraft = draft.copyOnly(reason) }
+        state.statusMessage = "\(reason) It is on the clipboard."
+    }
+
+    /// The two checks that can change in a moment, so they run at the tap and again
+    /// right before the paste.
+    private func focusBlocker(_ draft: AgentDraft) -> String? {
+        // The WindowServer drops a synthesized ⌘V then, and the paste would restore
+        // the old clipboard over the draft.
+        guard !TerminalApps.secureKeyboardEntryEnabled() else {
+            return "Secure Keyboard Entry is on, so this is copy only."
+        }
+        guard SelectionReader.FrontApp.current()?.pid == draft.app.pid else {
+            return AgentDraft.focusMoved
+        }
+        return nil
+    }
+
+    /// Why a tap must copy rather than type. Checked at the tap, not trusted from
+    /// when the draft was staged: the user may have moved since.
+    private func draftBlocker(_ draft: AgentDraft) async -> String? {
+        if let reason = draft.copyOnlyReason { return reason }
+        guard permissionsManager.accessibilityGranted() else {
+            return "Typing needs Accessibility, so this is copy only."
+        }
+        if let reason = focusBlocker(draft) { return reason }
+        if draft.kind == .replaceSelection {
+            // The same off-main read the chord makes, so a hung app costs the wait.
+            let capture = SelectionCapture()
+            capture.begin(draft.app)
+            let current = await SelectionCapture.settle(capture.take())
+            guard current?.text == draft.selection else {
+                return "The selection changed, so this is copy only."
+            }
+        }
+        return nil
     }
 
     // MARK: - Reading answers aloud
@@ -1236,7 +1331,8 @@ final class DictationViewModel {
     /// tier is what guarantees the words land somewhere even when the model is no
     /// help.
     private func routeCommandCapture(_ text: String, spoken: SpokenCapture,
-                                     selectionRead: Task<SelectionContext?, Never>?) async -> Bool {
+                                     selectionRead: Task<SelectionContext?, Never>?,
+                                     keyDownApp: SelectionReader.FrontApp?) async -> Bool {
         // Where Notes & Reminders is closed this whole path stays off. Routing
         // would swallow the transcript — suppressing the paste and filing it into
         // a store with no openable surface — so "remind me to call mom" would
@@ -1255,6 +1351,8 @@ final class DictationViewModel {
         assistantModelManager.prepareForFirstUse()
         let startedAt = Date()
         var trace = spoken.trace(at: startedAt)
+        // A new command replaces a draft still waiting on the band.
+        clearDraft()
 
         // Transport commands come first, ahead of the calendar prompt and the model.
         // "Pause the music" is an instruction about the machine the user is holding,
@@ -1283,9 +1381,19 @@ final class DictationViewModel {
             return true
         }
 
+        // "Open Figma" and "go to github.com", ahead of the model for the same reason:
+        // exact, about this Mac, and not worth a model load. Only a whole capture in a
+        // closed form matches (`AgentIntentMatcher`); anything else goes on below.
+        if let intent = AgentIntentMatcher.match(text) {
+            await perform(intent, question: text, trace: &trace)
+            finish(trace, since: startedAt)
+            return true
+        }
+
         await requestCalendarAccessIfNeeded()
 
-        let attempt = await runCommandAgent(text, selectionRead: selectionRead, followUp: followUp)
+        let attempt = await runCommandAgent(text, selectionRead: selectionRead, followUp: followUp,
+                                            keyDownApp: keyDownApp)
         trace.decisions += attempt.priorDecisions + [attempt.decision]
         trace.connectorsAllowed = attempt.connectorsAllowed
         trace.toolsOffered = attempt.toolsOffered
@@ -1391,6 +1499,50 @@ final class DictationViewModel {
         var endpoint: EndpointSendTrace?
     }
 
+    /// Carry out a fast-path intent. An app opens at once: the user's own words name
+    /// an app this Mac has, the same consent "pause the music" carries. A link goes
+    /// through the device route, so it raises the card like every link.
+    private func perform(_ intent: AgentIntent, question: String,
+                         trace: inout AssistantTrace) async {
+        switch intent {
+        case .openApp(let app):
+            let opened = DeviceToolRunner.Environment.live.openApp(app.url)
+            let line = opened ? "Opened \(app.name)" : "Couldn't open \(app.name)"
+            presentQuickConfirmation(line, detail: DeviceToolCatalog.thisMacLabel, question: question)
+            trace.decisions.append(TraceDecision(
+                title: line,
+                detail: "The words name an app on this Mac, so it was opened straight away "
+                    + "— no model, no card.",
+                taken: true))
+            trace.answer = line
+            trace.provenance = DeviceToolCatalog.thisMacLabel
+            trace.createdSomething = opened
+
+        case .openURL(let url):
+            // Through the router, so the call is journalled like one the model made.
+            let router = CommandToolRouter(
+                local: LocalToolRunner(notes: state.notesStore),
+                connectors: nil,
+                device: DeviceToolRunner(
+                    store: state.connectorStore,
+                    requestApproval: { [approvals = state.approvals] in await approvals.request($0) }))
+            let result = await router.run(ToolCall(tool: DeviceToolCatalog.openURL.name,
+                                                   arguments: ["url": url.absoluteString]))
+            let host = url.host() ?? url.absoluteString
+            let line = result.ok ? "Opened \(host)" : "Didn't open \(host)"
+            presentQuickConfirmation(line, detail: result.ok ? "In your browser" : "", question: question)
+            trace.calls = router.journal
+            trace.decisions.append(TraceDecision(
+                title: line,
+                detail: "The words name a site, so it went to the approval card with no model, "
+                    + "the way every link does.",
+                taken: true))
+            trace.answer = line
+            trace.provenance = result.ok ? "In your browser" : ""
+            trace.createdSomething = result.ok
+        }
+    }
+
     /// The endpoint tier first when the user set one, then the on-device tier.
     ///
     /// **Text only leaves the Mac, never audio**, and only after the consent sheet
@@ -1401,7 +1553,8 @@ final class DictationViewModel {
     /// stopped it.
     private func runCommandAgent(_ text: String,
                                  selectionRead: Task<SelectionContext?, Never>?,
-                                 followUp: FollowUpWindow.Digest?) async -> AgentAttempt {
+                                 followUp: FollowUpWindow.Digest?,
+                                 keyDownApp: SelectionReader.FrontApp?) async -> AgentAttempt {
         let endpoint = state.agentEndpoint
         let atPress = commandPressStaysLocal
         commandPressStaysLocal = false
@@ -1414,7 +1567,8 @@ final class DictationViewModel {
             followUpKeptLocal: followUp?.keptLocal ?? false)
         guard FeatureFlags.agentEndpointAvailable, endpoint.isActive, !keptLocal else {
             var local = await runOnDeviceAgent(text, selectionRead: selectionRead,
-                                               followUp: followUp, keptLocal: keptLocal)
+                                               followUp: followUp, keptLocal: keptLocal,
+                                               keyDownApp: keyDownApp)
             if keptLocal, FeatureFlags.agentEndpointAvailable, endpoint.isActive {
                 local.priorDecisions.insert(TraceDecision(
                     title: "Your endpoint",
@@ -1429,16 +1583,18 @@ final class DictationViewModel {
         guard let generator = CloudToolGenerator(endpoint: endpoint, apiKey: AgentEndpoint.apiKey(),
                                                  sent: sent) else {
             return await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp,
-                                          keptLocal: false)
+                                          keptLocal: false, keyDownApp: keyDownApp)
         }
         var remote = await runAgent(text, selection: selection, followUp: followUp,
-                                    tier: .endpoint, generateNative: generator.generate)
+                                    tier: .endpoint, generateNative: generator.generate,
+                                    keyDownApp: keyDownApp)
         remote.endpoint = sent.snapshot
         guard Self.onDeviceMayFollowEndpoint(handled: remote.handled, cancelled: remote.cancelled,
                                              createdSomething: remote.createdSomething,
                                              calls: remote.calls),
               CleanupModel.General.isInstalled else { return remote }
-        var local = await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice)
+        var local = await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice,
+                             keyDownApp: keyDownApp)
         local.priorDecisions = [TraceDecision(
             title: "Your endpoint",
             detail: remote.decision.detail + " The on-device assistant took it next.",
@@ -1463,7 +1619,8 @@ final class DictationViewModel {
     private func runOnDeviceAgent(_ text: String,
                                   selectionRead: Task<SelectionContext?, Never>?,
                                   followUp: FollowUpWindow.Digest?,
-                                  keptLocal: Bool) async -> AgentAttempt {
+                                  keptLocal: Bool,
+                                  keyDownApp: SelectionReader.FrontApp?) async -> AgentAttempt {
         // **The assistant's own model, not the cleanup slot.** This gate read
         // `MlxCleanupService.shared.isReady` — S1-mini, the dictation text normalizer
         // — which is a different model with a different download, and it was wrong in
@@ -1488,7 +1645,7 @@ final class DictationViewModel {
         // Usually done long before the words are; a hung app costs at most the wait.
         let selection = await SelectionCapture.settle(selectionRead)
         return await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice,
-                              keptLocal: keptLocal)
+                              keptLocal: keptLocal, keyDownApp: keyDownApp)
     }
 
     /// One tier's run of the agent, and everything the trace needs from it.
@@ -1498,7 +1655,8 @@ final class DictationViewModel {
                           followUp: FollowUpWindow.Digest?,
                           tier: AgentTier,
                           generateNative: AgentLoop.GenerateNative? = nil,
-                          keptLocal: Bool = false) async -> AgentAttempt {
+                          keptLocal: Bool = false,
+                          keyDownApp: SelectionReader.FrontApp?) async -> AgentAttempt {
         let agent = CommandAgentService(
             store: state.connectorStore,
             notes: state.notesStore,
@@ -1508,7 +1666,8 @@ final class DictationViewModel {
             soundName: state.reminderDefaultSound,
             takeNoteAudio: { [weak self] id in self?.takeNoteAudio(for: id) },
             selection: selection,
-            followUp: followUp)
+            followUp: followUp,
+            frontApp: keyDownApp)
         // The orb shows the thinking figure while the loop runs — the paste is
         // suppressed, so without it the notch sits silent through a multi-second
         // tool call and reads as having dropped the command. `isPolishing` is what
@@ -1571,6 +1730,11 @@ final class DictationViewModel {
                 : " Your connectors weren't offered to it — \u{201C}Let it use your "
                     + "connectors\u{201D} is off in Settings → General."
             return attempt(handled: false, detail: run.declineReason + connectorNote)
+        }
+        // A draft is the result: the band shows it and waits for the tap that types it.
+        if let draft = run.draft {
+            presentDraft(draft)
+            return attempt(handled: true, detail: Self.agentDetail(run: run, acted: true))
         }
         // The two outcomes get different surfaces, because they're different things.
         // A creation is a checkmark to glance at — it's already durable in Notes &
@@ -1942,8 +2106,9 @@ final class DictationViewModel {
 
     /// Escape, observed by the app's existing Escape monitor. A waiting approval card
     /// is denied and a running assistant loop is stopped (the loop then ends like a
-    /// spent budget, so its words are filed rather than lost); with neither, a long
-    /// answer's band closes, as its foot says. With none of the three pending it
+    /// spent budget, so its words are filed rather than lost); with neither, a draft
+    /// waiting on the band is dropped (nothing was typed), or else a long answer's
+    /// band closes, as its foot says. With none of the three pending it
     /// touches nothing. Returns whether it did any of that, so the caller leaves the
     /// coding-agent bands alone.
     @discardableResult
@@ -1955,6 +2120,12 @@ final class DictationViewModel {
         }
         if let commandAgentTask {
             commandAgentTask.cancel()
+            handled = true
+        }
+        // Not gated on the two above: Escape always drops a staged draft, even when it
+        // also denied a card, so nothing is left waiting to be typed.
+        if state.agentDraft != nil {
+            clearDraft()
             handled = true
         }
         if !handled, state.shouldShowExpandedAnswer {
@@ -1975,6 +2146,7 @@ final class DictationViewModel {
         if state.approvals.pending != nil { state.approvals.resolve(.denied) }
         commandAgentTask?.cancel()
         followUps.clear()
+        clearDraft()
     }
 
     func pasteLastTranscript() {

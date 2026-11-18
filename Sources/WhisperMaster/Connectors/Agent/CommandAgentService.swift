@@ -64,6 +64,11 @@ struct CommandAgentService {
     /// sends it as an earlier turn of the conversation (`AgentLoop.earlier`) and, when
     /// that run was tainted, this one is tainted from the start.
     var followUp: FollowUpWindow.Digest?
+    /// The app in front when the chord went down. Set, the run offers the draft
+    /// tools, which may only ever type into this app.
+    var frontApp: SelectionReader.FrontApp?
+    /// What the device tools touch. Injected so a test opens and reads nothing real.
+    var device: DeviceToolRunner.Environment = .live
 
     /// A run of the agent, result **and** the record of how it got there.
     ///
@@ -99,6 +104,8 @@ struct CommandAgentService {
         var tainted = false
         /// Which brain ran it.
         var tier: AgentTier = .onDevice
+        /// Text the model wrote for the front app, for the band. Never stored.
+        var draft: AgentDraft?
     }
 
     /// - Parameter onStep: called as the loop moves, so the band can name the
@@ -128,14 +135,17 @@ struct CommandAgentService {
         let tools = ToolPackRouter.pack(
             LocalToolCatalog.all
                 + (selection == nil ? [] : [LocalToolCatalog.readSelection])
+                + DeviceToolCatalog.offered(selection: selection != nil, frontApp: frontApp != nil)
                 + connectorTools,
             spoken: spoken)
 
         // One flag for the whole run: a connector read and a selection read both gate
         // a later write, whichever runner served them. A follow-up starts with the
-        // flag of the run it follows, whose answer is in its prompt.
+        // flag of the run it follows, whose answer is in its prompt. Its source is not
+        // kept, so it counts as outside the selection: the conservative reading.
         let taint = Taint()
         taint.isSet = followUp?.tainted ?? false
+        taint.outsideSelection = taint.isSet
         let connectorRouter = connectorTools.isEmpty
             ? nil
             : ToolRouter(store: store,
@@ -150,6 +160,14 @@ struct CommandAgentService {
                 selection: selection,
                 taint: taint),
             connectors: connectorRouter,
+            device: DeviceToolRunner(
+                store: store,
+                requestApproval: { [approvals] approval in await approvals.request(approval) },
+                environment: device,
+                taint: taint,
+                frontApp: frontApp,
+                selection: selection,
+                now: now),
             now: now)
 
         var loop = AgentLoop(tools: tools, router: router, generate: generate)
@@ -180,16 +198,23 @@ struct CommandAgentService {
         /// impossible.
         func run(_ result: CommandAgentResult?, _ declineReason: String = "") -> Run {
             let answer = result?.answer ?? ""
+            var storable = router.selectionRead?.storable(answer) ?? answer
+            // A model that repeats its draft in the answer must not store it there.
+            if let draft = router.draft {
+                storable = DeviceToolCatalog.strip(draft.text, from: storable)
+            }
             return Run(result: result,
                        toolsOffered: tools.map(\.name),
                        connectorsAllowed: connectorsAllowed,
                        calls: router.journal,
-                       turns: Self.traceTurns(outcome.turns, selection: router.selectionRead),
+                       turns: Self.traceTurns(outcome.turns, selection: router.selectionRead,
+                                              draft: router.draft),
                        declineReason: result == nil ? declineReason : "",
                        budgetSpent: outcome.exhausted,
-                       storableAnswer: router.selectionRead?.storable(answer) ?? answer,
+                       storableAnswer: storable,
                        tainted: taint.isSet,
-                       tier: tier)
+                       tier: tier,
+                       draft: router.draft)
         }
 
         // Escape stopped the loop. Something a tool already created stands, and is
@@ -256,11 +281,16 @@ struct CommandAgentService {
     /// After a `read_selection`, a turn that repeats the selection is kept as a
     /// placeholder, because traces persist.
     private static func traceTurns(_ turns: [AgentTurn],
-                                   selection: SelectionContext?) -> [TraceTurn] {
+                                   selection: SelectionContext?,
+                                   draft: AgentDraft?) -> [TraceTurn] {
         turns
             .filter { $0.role != .tool }
             .map { turn in
-                let text = selection?.storable(turn.text) ?? turn.text
+                // A model turn that calls a draft tool keeps the call, not the text,
+                // and any later turn that repeats the staged draft keeps its length.
+                var shown = turn.role == .model ? DeviceToolCatalog.storableTurn(turn.text) : turn.text
+                if let draft { shown = DeviceToolCatalog.strip(draft.text, from: shown) }
+                let text = selection?.storable(shown) ?? shown
                 return TraceTurn(role: turn.role.rawValue, text: TraceText.clamp(text))
             }
     }
@@ -305,6 +335,9 @@ struct CommandAgentService {
                 return "Saved to Notes & Reminders"
             case .connectorWrite(let tool, let written) where !written.isEmpty:
                 return writeDestination(tool: tool, written: written)
+            case .device(.openedApp): return "On \(DeviceToolCatalog.thisMacLabel)"
+            case .device(.openedURL): return "In your browser"
+            case .device(.draftStaged(let draft)): return "Draft for \(draft.app.name)"
             case .local(.read), .connectorWrite:
                 continue
             }
@@ -323,6 +356,9 @@ struct CommandAgentService {
             case .local(.noteCreated): return "note.text"
             case .local(.read): continue
             case .connectorWrite(let tool, _): return Self.writeIcon(tool: tool)
+            case .device(.openedApp): return "macwindow"
+            case .device(.openedURL): return "safari"
+            case .device(.draftStaged): return "text.cursor"
             }
         }
         return "sparkles"
