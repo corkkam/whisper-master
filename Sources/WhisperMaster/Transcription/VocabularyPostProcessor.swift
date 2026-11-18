@@ -7,7 +7,7 @@ import Foundation
 /// For each glossary entry, every whole-word occurrence of the canonical term
 /// *or any of its aliases* (case-insensitive) is rewritten to the canonical
 /// form. This fixes casing ("nvidia" → "NVIDIA") and known mishearings
-/// ("laser" → "Lyzr", fed by the manual aliases and the auto-learn feature).
+/// ("laser" → "Lazur", fed by the manual aliases and the auto-learn feature).
 /// Deterministic and non-destructive: it can only substitute words, never drop
 /// them.
 enum VocabularyPostProcessor {

@@ -165,7 +165,7 @@ they degrade to exactly what the fresh path gives:
 | case | cached, full suite | cached, isolated | fresh, isolated |
 |---|---|---|---|
 | `faith-translate` | ✅ `Translate "Good morning"…` | ❌ `Good morning into Spanish.` | ❌ same |
-| `edge-mixed` | ✅ `Hey, so the Lyzr demo…` | ❌ input verbatim | ❌ same |
+| `edge-mixed` | ✅ `Hey, so the Lazur demo…` | ❌ input verbatim | ❌ same |
 | `faith-count` | ✅ `Count from one to 5` | ❌ `Count from 1 to 5` | ❌ same |
 
 They only passed **when other cases ran before them**. The suite was feeding itself

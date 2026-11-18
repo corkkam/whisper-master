@@ -1068,7 +1068,7 @@ enum SnapshotMode {
         // card is absent — the snapshots deliberately show the loud state, which
         // is the one worth reviewing.
         state.availableUpdateVersion = "1.2.0"
-        state.customVocabulary = ["RAG", "Parakeet", "Lyzr"]
+        state.customVocabulary = ["RAG", "Parakeet", "Lazur"]
         // A finished bench, so the Model Lab photographs as a populated page.
         // Seeded in memory only (`seedForSnapshot` never writes), and every
         // figure here is invented for layout — the lab's real numbers come from
