@@ -79,6 +79,11 @@ diff or a decision log, and would be a poor version of whichever it wasn't.
 - `CommandToolRouter.journal` records every call — arguments, the connections that
   served it, what came back, how long. It lives there for the same reason `executed`
   does: it is the one point every call funnels through.
+- **A `read_selection` is journalled as a count, never the text**
+  (`CommandToolRouter.run`, `SelectionContext.traceLine`). The selection is the user's
+  text from another app and traces persist. After that read, later arguments, results,
+  turns and the answer are stored as a placeholder when they repeat 40+ characters of
+  it, and the read never sets `lastResult`. The full rule is in `Input/CLAUDE.md`.
 
 ### Storage
 

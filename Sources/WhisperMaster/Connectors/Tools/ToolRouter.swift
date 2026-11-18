@@ -45,9 +45,10 @@ struct ToolRouter {
     var now: () -> Date = Date.init
     /// Set once a connector read has come back ok, and never cleared: see
     /// `WriteAuthorizer.authorize(tainted:)`. A box because `run` is non-mutating.
-    /// `CommandAgentService.run` builds one router per run, so the flag cannot leak
-    /// into the next command.
-    private let taint = Taint()
+    /// `CommandAgentService.run` builds one per run and hands the same box to the
+    /// `LocalToolRunner`, so a `read_selection` taints the run too, and the flag
+    /// cannot leak into the next command.
+    var taint = Taint()
 
     func run(_ call: ToolCall) async -> ToolResult {
         guard let descriptor = ToolCatalog.descriptor(named: call.tool) else {
@@ -375,9 +376,9 @@ struct ToolRouter {
     }()
 }
 
-/// `ToolRouter`'s taint flag. Copies of the router share it, which is right: a copy
-/// still serves the same run.
+/// A run's taint flag. Copies of the router share it, which is right: a copy still
+/// serves the same run. Shared with `LocalToolRunner` for the same reason.
 @MainActor
-private final class Taint {
+final class Taint {
     var isSet = false
 }
