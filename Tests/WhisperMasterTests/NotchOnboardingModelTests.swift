@@ -2,19 +2,22 @@ import XCTest
 
 @testable import WhisperMaster
 
+private let full = OnboardingMotionPolicy.resolve(reduceMotion: false, lowPower: false, thermal: .nominal, voiceOver: false)
+
 @MainActor
-private final class FakePermissions: PermissionsProviding {
+final class FakePermissions: PermissionsProviding {
     var mic: PermissionsManager.MicStatus = .notDetermined
+    var trusted = false
 
     func microphoneStatus() -> PermissionsManager.MicStatus { mic }
     func requestMicrophone() async -> Bool { false }
-    func accessibilityGranted() -> Bool { false }
+    func accessibilityGranted() -> Bool { trusted }
     func promptAccessibility() {}
     func openAccessibilitySettings() {}
     func openMicrophoneSettings() {}
 }
 
-private final class FakeCapture: MicCheckCapturing {
+final class FakeCapture: MicCheckCapturing {
     private(set) var starts = 0
     private(set) var stops = 0
 
@@ -110,10 +113,18 @@ final class NotchOnboardingModelTests: XCTestCase {
         XCTAssertEqual(retries, 1)
     }
 
+    /// The band is live from `begin` to `teardown`; a closed window reads nothing.
+    private func makeLiveModel() -> NotchOnboardingModel {
+        let model = makeModel()
+        model.begin(.reveal, policy: full)
+        model.introDidEnd()
+        return model
+    }
+
     /// The Ready beat's microphone state follows the permission on each refresh,
     /// and no mic check starts while the microphone is off.
     func testRefreshReadsTheMicrophoneStatus() {
-        let model = makeModel()
+        let model = makeLiveModel()
         model.refresh()
         XCTAssertEqual(model.readyMicStatus, .notAsked)
         permissions.mic = .denied
@@ -128,12 +139,212 @@ final class NotchOnboardingModelTests: XCTestCase {
     func testTheMicCheckStartsOnceAndStopsOnFinish() {
         permissions.mic = .granted
         let model = makeModel()
-        model.refresh()
+        model.begin(.reveal, policy: full)
+        // Nothing listens until input opens.
+        XCTAssertEqual(capture.starts, 0)
+        model.introDidEnd()
         model.refresh()
         XCTAssertEqual(model.readyMicStatus, .on)
         XCTAssertEqual(capture.starts, 1)
         XCTAssertEqual(capture.stops, 0)
         model.finish(.handBack)
         XCTAssertEqual(capture.stops, 1)
+    }
+
+    // MARK: Lifecycle and motion
+
+    /// Waits on the real clock, for the model's delayed tasks.
+    private func wait(_ seconds: TimeInterval) async {
+        try? await Task.sleep(for: .seconds(seconds))
+    }
+
+    /// A closed window does nothing: refresh reads no permission and starts no check.
+    func testAModelThatIsNotLiveReadsNothing() {
+        permissions.mic = .granted
+        let model = makeModel()
+        model.refresh()
+        XCTAssertEqual(model.readyMicStatus, .notAsked)
+        let live = makeLiveModel()
+        live.teardown()
+        live.refresh()
+        XCTAssertEqual(capture.starts, 1)
+        XCTAssertEqual(capture.stops, 1)
+    }
+
+    /// Done folds the band first, then completes once. A second tap in the outro
+    /// is ignored.
+    func testDoneCompletesOnceAfterTheOutro() async {
+        let model = makeLiveModel()
+        model.finish(.handBack)
+        model.finish(.handBack)
+        XCTAssertEqual(finishes, [])
+        XCTAssertNotNil(model.outroStartedAt)
+        await wait(Outro.end + 0.3)
+        XCTAssertEqual(finishes, [.handBack])
+    }
+
+    /// The capture key's hand-off is a cut, even with the band on screen.
+    func testHandOffIsACutWhileTheBandIsUp() {
+        let model = makeLiveModel()
+        model.handOff()
+        XCTAssertEqual(finishes, [.handBack])
+        XCTAssertNil(model.outroStartedAt)
+    }
+
+    /// After teardown, the reveal's delayed tasks stand down: input never opens.
+    func testStaleTasksDoNothing() async {
+        permissions.mic = .granted
+        let model = makeModel()
+        model.begin(.reveal, policy: full)
+        model.teardown()
+        await wait(BandReveal.duration(policy: full) + 0.3)
+        XCTAssertTrue(model.introPlaying)
+        XCTAssertNotNil(model.revealStartedAt)
+        XCTAssertEqual(capture.starts, 0)
+    }
+
+    /// A replay reveals at once and gathers the orb; input opens 540 ms in.
+    func testAReplayRevealsAtOnce() async {
+        let model = makeModel()
+        var cues: [OnboardingStageCue] = []
+        model.onStageCue = { cues.append($0) }
+        model.begin(.reveal, policy: full)
+        XCTAssertNotNil(model.revealStartedAt)
+        XCTAssertTrue(model.revealGathers)
+        XCTAssertNil(model.dip)
+        XCTAssertTrue(model.introPlaying)
+        await wait(BandReveal.opensAt + 0.3)
+        XCTAssertFalse(model.introPlaying)
+        XCTAssertEqual(cues, [])
+    }
+
+    /// A click on the stage primes the band, swaps after the 250 ms blend, and
+    /// the stage leaves. The band orb starts on the stage figure and dips to the
+    /// beat-1 figure; nothing listens until input opens.
+    func testASkipSwapsToTheBandAfterTheBlend() async {
+        let model = makeModel()
+        var cues: [OnboardingStageCue] = []
+        model.onStageCue = { cues.append($0) }
+        model.begin(.stage, policy: full)
+        XCTAssertNil(model.revealStartedAt)
+        model.skipOpening()
+        model.skipOpening()
+        XCTAssertEqual(cues, [.primeBand])
+        await wait(OpeningTimeline.skipBlend + 0.25)
+        XCTAssertEqual(cues, [.primeBand, .swap, .end])
+        XCTAssertFalse(model.revealGathers)
+        XCTAssertEqual(model.dip?.from, OrbFigure.stage)
+        XCTAssertTrue(model.introPlaying)
+        await wait(BandReveal.opensAt)
+        XCTAssertFalse(model.introPlaying)
+    }
+
+    /// Under VoiceOver there is no stage, even on the launch path.
+    func testVoiceOverSkipsTheStage() {
+        let model = makeModel()
+        let voiceOver = OnboardingMotionPolicy.resolve(
+            reduceMotion: false, lowPower: false, thermal: .nominal, voiceOver: true)
+        model.begin(.stage, policy: voiceOver)
+        XCTAssertNil(model.openingStartedAt)
+        XCTAssertNotNil(model.revealStartedAt)
+        XCTAssertFalse(model.revealGathers)
+    }
+
+    /// A step change is a beat transition; a live grant inside a beat is a
+    /// flourish with a held bloom, which falls at the next beat change.
+    func testAGrantRaisesAHeldBloomThatFallsAtTheBeatChange() {
+        let model = makeLiveModel()
+        model.advance()
+        XCTAssertEqual(model.beatChange?.previous, .micAsk)
+        XCTAssertEqual(model.bandState, .typingAsk)
+        permissions.trusted = true
+        model.refresh()
+        XCTAssertEqual(model.rowChange?.previous, .typingAsk)
+        XCTAssertEqual(model.rowChange?.grant, true)
+        XCTAssertEqual(model.heldBloom, .machine)
+        // Thinking to listening: the orb dips.
+        XCTAssertEqual(model.dip?.from, .thinking)
+        model.advance()
+        XCTAssertNil(model.heldBloom)
+        XCTAssertEqual(model.beatChange?.heldBloom, .machine)
+    }
+
+    /// The still version raises no bloom.
+    func testNoBloomUnderTheStillVersion() {
+        let still = OnboardingMotionPolicy.resolve(
+            reduceMotion: true, lowPower: false, thermal: .nominal, voiceOver: false)
+        let model = makeModel()
+        model.begin(.reveal, policy: still)
+        model.introDidEnd()
+        model.advance()
+        permissions.trusted = true
+        model.refresh()
+        XCTAssertEqual(model.rowChange?.grant, true)
+        XCTAssertNil(model.heldBloom)
+    }
+
+    /// A window closed after its stage swapped (a sign-out) and shown again on
+    /// the launch path plays a fresh opening, and the band swaps in again.
+    func testASecondBeginAfterTeardownSwapsTheBandIn() async {
+        let model = makeModel()
+        var cues: [OnboardingStageCue] = []
+        model.onStageCue = { cues.append($0) }
+        model.begin(.stage, policy: full)
+        model.skipOpening()
+        await wait(OpeningTimeline.skipBlend + 0.25)
+        XCTAssertEqual(cues, [.primeBand, .swap, .end])
+        model.teardown()
+
+        cues = []
+        model.begin(.stage, policy: full)
+        XCTAssertTrue(model.introPlaying)
+        XCTAssertNil(model.revealStartedAt)
+        XCTAssertNil(model.openingSkip)
+        model.skipOpening()
+        await wait(OpeningTimeline.skipBlend + 0.25)
+        XCTAssertEqual(cues, [.primeBand, .swap, .end])
+        await wait(BandReveal.opensAt)
+        XCTAssertFalse(model.introPlaying)
+    }
+
+    /// The same window reopened from the menu or About passes `.reveal`: no
+    /// stage, and the band reveals at once.
+    func testAReopenAsAReplayHasNoStage() {
+        let model = makeModel()
+        var cues: [OnboardingStageCue] = []
+        model.onStageCue = { cues.append($0) }
+        model.begin(.stage, policy: full)
+        model.teardown()
+        model.begin(.reveal, policy: full)
+        XCTAssertNil(model.openingStartedAt)
+        XCTAssertNotNil(model.revealStartedAt)
+        XCTAssertTrue(model.revealGathers)
+        XCTAssertEqual(cues, [])
+    }
+
+    /// Try Again on the microphone beat starts the mic check over through the
+    /// capture seam. It never reaches the login-item call.
+    func testTryAgainOnTheMicrophoneBeatRetriesTheMicCheck() {
+        permissions.mic = .granted
+        let model = makeLiveModel()
+        XCTAssertEqual(capture.starts, 1)
+        model.perform(.tryAgain)
+        XCTAssertEqual(capture.stops, 1)
+        XCTAssertEqual(capture.starts, 2)
+        XCTAssertEqual(model.step, .microphone)
+    }
+
+    /// Try Again on Ready runs the engine retry, and only that.
+    func testTryAgainOnReadyRetriesTheEngine() {
+        let model = makeLiveModel()
+        for _ in 0..<3 { model.advance() }
+        XCTAssertEqual(model.step, .ready)
+        model.perform(.tryAgain)
+        XCTAssertEqual(retries, 1)
+    }
+
+    /// With every timestamp cleared, nothing runs: the band draws its rest frame.
+    func testWithNoTimestampsTheTimelineRests() {
+        XCTAssertEqual(makeModel().activeUntil, -.infinity)
     }
 }

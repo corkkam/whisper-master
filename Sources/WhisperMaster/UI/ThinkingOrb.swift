@@ -60,12 +60,17 @@ struct ThinkingOrb: View {
     var time: Double? = nil
     /// Force the one static frame. Wins over `time`.
     var staticFrame: Bool = false
+    /// How far the dots have spread out of the centre, 0 to 1 (see
+    /// `OrbEngine.paint`). Onboarding's opening and outro run it; 1 is the orb.
+    var gather: Double = 1
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isSnapshot) private var isSnapshot
 
     private var resolved: OrbEngine.Resolved {
-        OrbEngine.resolvePreset(state: state, preset: preset, extra: extraOpts)
+        var extra = extraOpts
+        if gather < 1 { extra["gather"] = gather }
+        return OrbEngine.resolvePreset(state: state, preset: preset, extra: extra)
     }
 
     var body: some View {
@@ -186,15 +191,28 @@ enum OrbEngine {
 
     /// Painter: z-sort far→near, matte grayscale dots. On dark substrates the
     /// ink value is mirrored so near dots read bright.
-    static func paint(_ ctx: GraphicsContext, _ dots: [Dot], _ dark: Bool, _ rMin: Double) {
+    ///
+    /// Not in the upstream engine: a `gather` option below 1 (onboarding's
+    /// opening) draws every dot that fraction of the way out from the centre, at
+    /// that fraction of its opacity, so the sphere spreads out of a point. The
+    /// default 1 takes the untouched path, so every other orb draws as before.
+    static func paint(_ ctx: GraphicsContext, _ dots: [Dot], _ dark: Bool, _ size: Double, _ o: ModeOpts, _ rMin: Double) {
+        let gather = min(1, max(0, o.d("gather", 1)))
+        let c = size / 2
         let sorted = dots.sorted { $0.z < $1.z }
         for d in sorted {
-            let alpha = d.a
+            var alpha = d.a
+            var x = d.x, y = d.y
+            if gather < 1 {
+                alpha *= gather
+                x = c + (x - c) * gather
+                y = c + (y - c) * gather
+            }
             if alpha < 0.02 { continue }
             let w = min(1, max(0, d.white))
             let g = dark ? 1 - w : w
             let r = max(rMin, d.r)
-            let rect = CGRect(x: d.x - r, y: d.y - r, width: r * 2, height: r * 2)
+            let rect = CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)
             ctx.fill(Path(ellipseIn: rect), with: .color(Color(white: g, opacity: alpha)))
         }
     }
@@ -373,7 +391,7 @@ enum OrbEngine {
                                 white: 0.3 - 0.22 * depth))
             }
         }
-        paint(ctx, dots, dark, o.d("rMin", 0.3))
+        paint(ctx, dots, dark, size, o, o.d("rMin",0.3))
     }
 
     // MARK: Globe — searching (lattice.ts)
@@ -407,7 +425,7 @@ enum OrbEngine {
                                 a: dimBase + (1 - dimBase) * min(1, boost)))
             }
         }
-        paint(ctx, dots, dark, o.d("rMin", 0.3))
+        paint(ctx, dots, dark, size, o, o.d("rMin",0.3))
     }
 
     // MARK: Rubik — solving (lattice.ts)
@@ -505,7 +523,7 @@ enum OrbEngine {
                                 white: o.d("inkFar", 0.62) - o.d("inkSpan", 0.54) * depth - (inActive ? 0.14 : 0)))
             }
         }
-        paint(ctx, dots, dark, o.d("rMin", 0.3))
+        paint(ctx, dots, dark, size, o, o.d("rMin",0.3))
     }
 
     // MARK: Wave — listening (lattice.ts) + a `gain` knob for mic reactivity
@@ -539,7 +557,7 @@ enum OrbEngine {
                                 white: 0.66 - 0.56 * depth - 0.1 * crest))
             }
         }
-        paint(ctx, dots, dark, o.d("rMin", 0.3))
+        paint(ctx, dots, dark, size, o, o.d("rMin",0.3))
     }
 
     // MARK: Ribbon — composing (ribbon.ts)
@@ -590,7 +608,7 @@ enum OrbEngine {
                                 a: 0.4 + 0.6 * depth))
             }
         }
-        paint(ctx, dots, dark, o.d("rMin", 0.3))
+        paint(ctx, dots, dark, size, o, o.d("rMin",0.3))
     }
 
     // MARK: Morph — shaping (morph.ts)
@@ -676,6 +694,6 @@ enum OrbEngine {
             dots.append(Dot(x: c2 + x * size, y: c2 + y * size, z: 0,
                             r: max(0.35, re * size), white: 0.1))
         }
-        paint(ctx, dots, dark, o.d("rMin", 0.25))
+        paint(ctx, dots, dark, size, o, o.d("rMin",0.25))
     }
 }

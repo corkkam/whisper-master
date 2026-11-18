@@ -339,6 +339,17 @@ final class OnboardingCopyTests: XCTestCase {
         XCTAssertEqual(screen.row, .buttons([.tryAgain, .done]))
     }
 
+    /// With no engine retry wired, Failed offers Done alone and never names Try Again.
+    func testFailedWithoutARetryOffersDoneAlone() {
+        let screen = OnboardingCopy(canRetryEngine: false).screen(.ready(.failed))
+        XCTAssertEqual(screen.row, .buttons([.done]))
+        for text in [screen.body, screen.fallbackBody ?? ""] {
+            XCTAssertFalse(text.contains("Try Again"))
+            XCTAssertFalse(text.contains("Settings"))
+        }
+        XCTAssertTrue(screen.body.contains("Press Done"))
+    }
+
     func testTheReadyVariantsStartWithWhereToClick() {
         for copy in cases.copies {
             for variant: ReadyVariant in [.ready(assistantLine: true), .ready(assistantLine: false)] {

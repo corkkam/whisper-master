@@ -23,10 +23,15 @@ enum OnboardingCopyCases {
         return fixed + done + readyVariants.map { .ready($0) }
     }()
 
-    /// Every key, both forms, and the still orb (which changes one body).
+    /// Every key, both forms, the still orb (which changes one body), and Ready
+    /// with and without an engine retry (which changes Failed).
     static let copies: [OnboardingCopy] = HotkeyManager.HotkeyOption.allCases.flatMap { key in
         [true, false].flatMap { hold in
-            [false, true].map { still in OnboardingCopy(key: key, holdToTalk: hold, orbIsStatic: still) }
+            [false, true].flatMap { still in
+                [true, false].map { retry in
+                    OnboardingCopy(key: key, holdToTalk: hold, orbIsStatic: still, canRetryEngine: retry)
+                }
+            }
         }
     }
 

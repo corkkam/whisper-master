@@ -255,15 +255,26 @@ final class OrbTimeTests: XCTestCase {
         return try XCTUnwrap(image.dataProvider?.data) as Data
     }
 
+    /// Bytes that differ between two renders. `ImageRenderer` drifts by a few
+    /// antialiasing bytes from one render to the next whatever it draws (17 of
+    /// 16,384 measured), so "the same frame" means fewer than `sameFrame`.
+    private func differingBytes(_ a: Data, _ b: Data) -> Int {
+        guard a.count == b.count else { return max(a.count, b.count) }
+        return zip(a, b).reduce(0) { $0 + ($1.0 == $1.1 ? 0 : 1) }
+    }
+
+    private let sameFrame = 160
+
     /// `ThinkingOrb` itself, not only the resolver: inside the snapshot renderer
     /// a given time draws that instant, and `staticFrame` still wins over it.
     @MainActor
     func testThinkingOrbDrawsAGivenTimeInTheSnapshotRenderer() throws {
         let still = try pixels(ThinkingOrb(state: .working, renderSize: 64))
         let atFive = try pixels(ThinkingOrb(state: .working, renderSize: 64, time: 5))
-        XCTAssertNotEqual(atFive, still)
-        XCTAssertEqual(atFive, try pixels(ThinkingOrb(state: .working, renderSize: 64, time: 5)))
-        XCTAssertEqual(still, try pixels(ThinkingOrb(state: .working, renderSize: 64, time: 5, staticFrame: true)))
+        XCTAssertGreaterThan(differingBytes(atFive, still), 10 * sameFrame)
+        XCTAssertLessThan(differingBytes(atFive, try pixels(ThinkingOrb(state: .working, renderSize: 64, time: 5))), sameFrame)
+        let pinned = try pixels(ThinkingOrb(state: .working, renderSize: 64, time: 5, staticFrame: true))
+        XCTAssertLessThan(differingBytes(still, pinned), sameFrame)
     }
 
     func testSnapshotTimeIsSixTenthsPlusElapsedTimesEffectiveSpeed() {
@@ -272,5 +283,208 @@ final class OrbTimeTests: XCTestCase {
         XCTAssertEqual(
             OrbTime.resolve(staticFrame: false, time: 0.6 + elapsed, environmentStill: true, wall: 0, speed: speed),
             (0.6 + elapsed) * speed, accuracy: 1e-12)
+    }
+}
+
+/// The opening, reveal, beat change, flourish and outro as pure functions of
+/// time, against the §2 timeline.
+final class OnboardingTimelineTests: XCTestCase {
+    private let layout = NotchOnboardingLayout()
+    private let notch = NotchGeometry(notchWidth: 208, notchHeight: 37.5, screenWidth: 1710)
+    private var g: OpeningTimeline.Geometry { OpeningTimeline.Geometry(notch, layout: layout) }
+
+    private func assertFrame(
+        _ a: OpeningTimeline.Frame, _ b: OpeningTimeline.Frame, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        XCTAssertEqual(a.width, b.width, accuracy: 1e-6, "width", file: file, line: line)
+        XCTAssertEqual(a.depth, b.depth, accuracy: 1e-6, "depth", file: file, line: line)
+        XCTAssertEqual(a.bottomRadius, b.bottomRadius, accuracy: 1e-6, "radius", file: file, line: line)
+        XCTAssertEqual(a.orbDiameter, b.orbDiameter, accuracy: 1e-6, "orb diameter", file: file, line: line)
+        XCTAssertEqual(a.orbCenterY, b.orbCenterY, accuracy: 1e-6, "orb centre", file: file, line: line)
+        XCTAssertEqual(a.orbGather, b.orbGather, accuracy: 1e-6, "gather", file: file, line: line)
+        XCTAssertEqual(a.wordmark.opacity, b.wordmark.opacity, accuracy: 1e-6, "wordmark", file: file, line: line)
+        XCTAssertEqual(a.tagline.opacity, b.tagline.opacity, accuracy: 1e-6, "tagline", file: file, line: line)
+        XCTAssertEqual(a.opacity, b.opacity, accuracy: 1e-6, "opacity", file: file, line: line)
+    }
+
+    func testTheOpeningStartsAsTheNotch() {
+        let start = OpeningTimeline.frame(at: 0, g, layout: layout, policy: full)
+        XCTAssertEqual(start.width, 208)
+        XCTAssertEqual(start.depth, 0)
+        XCTAssertEqual(start.orbGather, 0)
+        XCTAssertEqual(start.wordmark.opacity, 0)
+    }
+
+    /// The stage at the swap is the band at rest, so nothing moves when the
+    /// panels change places: width, depth, radius 24, flare 14, the orb's centre
+    /// and size, and its figure, gain, gather, opacity and scale.
+    func testTheSwapFrameIsTheBandAtRest() {
+        let swap = OpeningTimeline.frame(at: OpeningTimeline.swapAt, g, layout: layout, policy: full)
+        XCTAssertEqual(swap.width, layout.surfaceWidth(for: notch), accuracy: 1e-6)
+        XCTAssertEqual(swap.depth, layout.thickness, accuracy: 1e-6)
+        XCTAssertEqual(swap.bottomRadius, 24, accuracy: 1e-6)
+        XCTAssertEqual(layout.topConcaveRadius, 14)
+        XCTAssertEqual(swap.orbCenterY, layout.orbCenterY, accuracy: 1e-6)
+        XCTAssertEqual(swap.orbDiameter, 62, accuracy: 1e-6)
+        assertFrame(swap, OpeningTimeline.swapFrame(g, layout: layout))
+        // The band orb at the swap: the stage figure, no gain, no dip yet.
+        XCTAssertEqual(OrbFigure.stage, .listening)
+        XCTAssertEqual(OnboardingOrbGain.resolve(micCheckRunning: false, heardAt: nil, now: 3.56, level: 0), 0)
+        let dip = OrbDip.frame(at: -BandReveal.dipAt, policy: full)
+        XCTAssertEqual(dip.opacity, 1)
+        XCTAssertEqual(dip.scale, 1)
+        XCTAssertFalse(dip.figureIsNew)
+        XCTAssertEqual(BandReveal.frame(at: 0, gathers: false, policy: full).orbGather, 1)
+    }
+
+    func testTheOpeningTimesMatchTheTimeline() {
+        XCTAssertEqual(OpeningTimeline.swapAt + BandReveal.dipAt, OpeningTimeline.dipAt, accuracy: 1e-9)
+        XCTAssertEqual(OpeningTimeline.swapAt + BandReveal.opensAt, OpeningTimeline.end, accuracy: 1e-9)
+        XCTAssertEqual(OpeningTimeline.foldAt + OpeningTimeline.foldDuration, OpeningTimeline.swapAt, accuracy: 1e-9)
+        XCTAssertEqual(OpeningTimeline.swapAt + OpeningTimeline.stageOutDelay, 3.6, accuracy: 1e-9)
+        XCTAssertEqual(OpeningTimeline.watchdog, 5)
+        XCTAssertEqual(OpeningTimeline.stillSwapAt, 2.2)
+        XCTAssertEqual(BeatTransition.duration(policy: full), 0.7, accuracy: 1e-9)
+        XCTAssertEqual(Outro.end, 0.4)
+        XCTAssertEqual(Flourish.duration, 0.56, accuracy: 1e-9)
+    }
+
+    /// The words hold long enough to read, then leave before the fold.
+    func testTheWordsHoldThenLeave() {
+        let hold = OpeningTimeline.frame(at: 2.0, g, layout: layout, policy: full)
+        XCTAssertEqual(hold.wordmark.opacity, 1, accuracy: 1e-9)
+        XCTAssertEqual(hold.tagline.opacity, 1, accuracy: 1e-9)
+        XCTAssertEqual(hold.orbDiameter, 150)
+        XCTAssertEqual(hold.width, 640)
+        XCTAssertEqual(hold.depth, 420)
+        let gone = OpeningTimeline.frame(at: 2.95, g, layout: layout, policy: full)
+        XCTAssertEqual(gone.wordmark.opacity, 0, accuracy: 1e-9)
+        XCTAssertEqual(gone.tagline.opacity, 0, accuracy: 1e-9)
+    }
+
+    /// A skip blends to the swap frame in 250 ms; the band's dip then ends by
+    /// skip + 710 ms.
+    func testASkipReachesTheSwapFrameAt250ms() {
+        let from = OpeningTimeline.frame(at: 1.24, g, layout: layout, policy: full)
+        assertFrame(OpeningTimeline.skipFrame(at: 0, from: from, g, layout: layout), from)
+        assertFrame(
+            OpeningTimeline.skipFrame(at: OpeningTimeline.skipBlend, from: from, g, layout: layout),
+            OpeningTimeline.swapFrame(g, layout: layout))
+        let dipEnds = OpeningTimeline.skipBlend + BandReveal.dipAt + OrbDip.duration
+        XCTAssertEqual(dipEnds, 0.71, accuracy: 1e-9)
+        XCTAssertEqual(OpeningTimeline.skipBlend + BandReveal.opensAt, 0.79, accuracy: 1e-9)
+    }
+
+    /// The still version holds one frame, swaps at 2,200 ms and never dips.
+    func testTheStillOpeningIsOneFrame() {
+        let hold = OpeningTimeline.frame(at: 1, g, layout: layout, policy: still)
+        for t in stride(from: 0.2, through: 2.2, by: 0.1) {
+            assertFrame(OpeningTimeline.frame(at: t, g, layout: layout, policy: still), hold)
+        }
+        XCTAssertEqual(OpeningTimeline.frame(at: 0, g, layout: layout, policy: still).opacity, 0)
+        XCTAssertEqual(OpeningTimeline.frame(at: 2.4, g, layout: layout, policy: still).opacity, 0, accuracy: 1e-9)
+        XCTAssertEqual(OrbDip.frame(at: 0.14, policy: still), OrbDip.rest)
+    }
+
+    /// A replay gathers the orb from 0 to 1 over 540 ms; the reveal ends at rest.
+    func testTheReplayGathersOver540ms() {
+        XCTAssertEqual(BandReveal.frame(at: 0, gathers: true, policy: full).orbGather, 0)
+        XCTAssertEqual(BandReveal.frame(at: 0.54, gathers: true, policy: full).orbGather, 1)
+        XCTAssertEqual(BandReveal.frame(at: 0, gathers: true, policy: full).rowCap, 0.5)
+        XCTAssertEqual(BandReveal.frame(at: 0.8, gathers: true, policy: full), .rest)
+        XCTAssertEqual(BandReveal.frame(at: 0.5, gathers: true, policy: still), .rest)
+    }
+
+    /// The row draws at half opacity until input opens: 540 ms into a reveal,
+    /// 500 ms after a step change, 300 ms after a row change.
+    func testTheRowIsCappedUntilInputOpens() {
+        XCTAssertEqual(BandReveal.frame(at: 0.53, gathers: false, policy: full).rowCap, 0.5)
+        XCTAssertEqual(BeatTransition.frame(at: 0.49, policy: full).rowCap, 0.5)
+        XCTAssertEqual(Flourish.frame(at: 0.29, policy: full).rowCap, 0.5)
+        XCTAssertEqual(BeatTransition.frame(at: 0.75, policy: full).rowCap, 1)
+        XCTAssertEqual(Flourish.frame(at: 0.55, policy: full).rowCap, 1)
+        XCTAssertEqual(BeatTransition.frame(at: 0.29, policy: still).rowCap, 0.5)
+        XCTAssertEqual(BeatTransition.frame(at: 0.55, policy: still).rowCap, 1)
+    }
+
+    func testABeatChangeEndsAtRestAndBackMirrorsForward() {
+        let end = BeatTransition.frame(at: 0.7, policy: full)
+        XCTAssertEqual(end.outgoing.opacity, 0)
+        XCTAssertEqual(end.headline, .rest)
+        XCTAssertEqual(end.body, .rest)
+        XCTAssertEqual(end.actions, .rest)
+        XCTAssertEqual(end.bead, 1)
+        for ms in stride(from: 0, through: 700, by: 10) {
+            let t = Double(ms) / 1000
+            let forward = BeatTransition.frame(at: t, policy: full)
+            let back = BeatTransition.frame(at: t, backward: true, policy: full)
+            XCTAssertEqual(back.outgoing.x, -forward.outgoing.x, accuracy: 1e-9)
+            XCTAssertEqual(back.headline.x, -forward.headline.x, accuracy: 1e-9)
+            XCTAssertEqual(back.headline.opacity, forward.headline.opacity, accuracy: 1e-9)
+        }
+        XCTAssertEqual(BeatTransition.frame(at: 0, policy: full).outgoing.opacity, 1)
+        XCTAssertEqual(BeatTransition.frame(at: 0.12, policy: full).headline.opacity, 0)
+        XCTAssertEqual(BeatTransition.frame(at: 0.2, policy: full).outgoing.opacity, 0)
+    }
+
+    /// A grant draws its ring over 360 ms and its glyph from 200 ms; the still
+    /// version shows the badge whole.
+    func testAGrantDrawsItsRingThenItsGlyph() {
+        XCTAssertEqual(Flourish.frame(at: 0, policy: full).ring, 0)
+        XCTAssertEqual(Flourish.frame(at: 0.2, policy: full).glyph, 0)
+        XCTAssertEqual(Flourish.frame(at: 0.36, policy: full).ring, 1)
+        XCTAssertEqual(Flourish.frame(at: 0.45, policy: full).glyph, 1)
+        XCTAssertEqual(Flourish.frame(at: 0.12, policy: full).newRow, 1)
+        XCTAssertEqual(Flourish.frame(at: 0.2, policy: full).oldCopy, 0)
+        let whole = Flourish.frame(at: 0, policy: still)
+        XCTAssertEqual(whole.ring, 1)
+        XCTAssertEqual(whole.glyph, 1)
+        XCTAssertEqual(whole.newCopy, 1)
+    }
+
+    /// The outro fades the content by 150 ms and folds by 400 ms while the orb
+    /// gathers in. The orb is resized, never scaled; the still version is a cut.
+    func testTheOutroFoldsIntoTheNotch() {
+        let start = Outro.frame(at: 0)
+        XCTAssertEqual(start.content, 1)
+        XCTAssertEqual(start.fold, 0)
+        XCTAssertEqual(start.orbGather, 1)
+        XCTAssertEqual(Outro.frame(at: 0.15).content, 0)
+        XCTAssertEqual(Outro.frame(at: 0.1).fold, 0)
+        let end = Outro.frame(at: Outro.end)
+        XCTAssertEqual(end.fold, 1)
+        XCTAssertEqual(end.orbGather, 0)
+        XCTAssertEqual(Outro.duration(policy: still), 0)
+        XCTAssertEqual(Outro.duration(policy: full), 0.4)
+    }
+
+    /// Every channel stays finite and inside its range, over and past each cue.
+    func testEveryFrameIsClampedAndFinite() {
+        for ms in stride(from: -200, through: 5_500, by: 20) {
+            let t = Double(ms) / 1000
+            for policy in [full, still] {
+                let o = OpeningTimeline.frame(at: t, g, layout: layout, policy: policy)
+                for v in [o.width, o.depth, o.bottomRadius, o.orbDiameter, o.orbCenterY] {
+                    XCTAssertTrue(v.isFinite && v >= 0, "opening at \(ms) ms")
+                }
+                XCTAssertTrue((0...1).contains(o.orbGather) && (0...1).contains(o.opacity), "opening at \(ms) ms")
+                let r = BandReveal.frame(at: t, gathers: true, policy: policy)
+                XCTAssertTrue((0.5...1).contains(r.rowCap) && (0...1).contains(r.orbGather), "reveal at \(ms) ms")
+                let b = BeatTransition.frame(at: t, policy: policy)
+                XCTAssertTrue((0...1).contains(b.bead) && (0...1).contains(b.outgoing.opacity), "beat at \(ms) ms")
+                let f = Flourish.frame(at: t, policy: policy)
+                XCTAssertTrue([f.oldCopy, f.newCopy, f.oldRow, f.newRow, f.ring, f.glyph].allSatisfy { (0...1).contains($0) })
+            }
+            let out = Outro.frame(at: t)
+            XCTAssertTrue([out.content, out.fold, out.orbGather].allSatisfy { (0...1).contains($0) }, "outro at \(ms) ms")
+        }
+    }
+
+    /// The stage keeps a 28 pt margin on a narrow display, and is 640 wide otherwise.
+    func testTheStagePanelSize() {
+        XCTAssertEqual(layout.stagePanelSize(for: notch), CGSize(width: 640, height: 37.5 + 420))
+        let narrow = NotchGeometry(notchWidth: 0, notchHeight: 0, screenWidth: 600)
+        XCTAssertEqual(layout.stagePanelSize(for: narrow).width, 544)
+        XCTAssertEqual(OpeningTimeline.Geometry(narrow, layout: layout).startWidth, layout.fallbackBodyWidth)
     }
 }

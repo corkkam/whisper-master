@@ -118,6 +118,7 @@ enum SnapshotMode {
 
         // Onboarding, in the notch — one render per beat, plus the two states
         // inside the microphone beat that the orb is doing the work in.
+        let engine: @MainActor () -> EngineStatus = { EngineStatus(state) }
         renderOnboarding(dir, name: "onboarding-1-microphone", state: state) {
             .snapshot(step: .microphone)
         }
@@ -147,7 +148,8 @@ enum SnapshotMode {
                 step: .ready,
                 micGranted: true,
                 accessibilityGranted: true,
-                launchAtLoginEnabled: true)
+                launchAtLoginEnabled: true,
+                engineStatus: engine)
         }
         // The finished form of the last beat: engine ready, so the sub-line hands
         // off to the assistant chord instead of reporting download progress.
@@ -158,9 +160,11 @@ enum SnapshotMode {
                 step: .ready,
                 micGranted: true,
                 accessibilityGranted: true,
-                launchAtLoginEnabled: true)
+                launchAtLoginEnabled: true,
+                engineStatus: engine)
         }
         state.preparedEngine = engineBefore
+        renderOnboardingCues(dir, state: state)
 
         // The hover quick-actions band: what the notch holds when the pointer rests
         // on it. Both states, since the empty one is what a fresh account sees.
@@ -705,24 +709,185 @@ enum SnapshotMode {
         exit(0)
     }
 
-    /// Render the notch onboarding band in a single pinned beat, on the same
-    /// neutral backdrop the pill snapshots use so the black surface reads.
+    /// Render the notch onboarding band in a single pinned beat, on the notched
+    /// stand-in and the neutral backdrop the pill snapshots use.
     private static func renderOnboarding(
         _ dir: URL,
         name: String,
         state: AppState,
+        orbTime: Double? = nil,
         model: () -> NotchOnboardingModel
     ) {
         let layout = NotchOnboardingLayout()
+        let geometry = snapshotNotch
         // Size the stand-in panel exactly as the real one, so a layout change
         // can't silently clip the snapshot.
-        let panel = layout.panelSize(for: .none)
+        let panel = layout.panelSize(for: geometry)
         let view = ZStack(alignment: .top) {
             Color(white: 0.28)
-            NotchOnboardingView(model: model(), state: state, layout: layout)
+            NotchOnboardingView(model: model(), state: state, geometry: geometry, layout: layout, orbTime: orbTime)
                 .frame(width: panel.width, height: panel.height, alignment: .top)
         }
         .frame(width: panel.width + 92, height: panel.height + 60)
+        render(view, to: dir.appendingPathComponent("\(name).png"))
+    }
+
+    /// Every cue frame and settled state onboarding can draw without the key
+    /// panel. Each cue is pinned on a fixed clock; the orb draws `0.6 + elapsed`.
+    private static func renderOnboardingCues(_ dir: URL, state: AppState) {
+        let clock = OnboardingClock.fixed(1_000)
+        func ms(_ seconds: TimeInterval) -> String { String(format: "t%04d", Int((seconds * 1000).rounded())) }
+
+        // The first-launch opening, from T0. 3,160 and 3,340 are extra looks at
+        // the fold on its way into the swap.
+        for t in [0, 0.26, 0.7, 1.24, 2.0, 2.4, 2.9, 3.16, 3.2, 3.34, 3.56, 3.6, 3.74, 4.02, 4.1] {
+            renderOpening(dir, name: "onboarding-0-opening-\(ms(t))", state: state, t: t)
+        }
+        // A click 1,240 ms in, when the orb has gathered; frames from the click.
+        let skipAt = 1.24
+        for t in [0, 0.125, 0.25, 0.29, 0.43, 0.71] {
+            renderOpening(dir, name: "onboarding-0-skipped-\(ms(t))", state: state, t: skipAt + t, skipAt: skipAt)
+        }
+        // The still version: the hold frame, then the band at rest after the fade.
+        let still = OnboardingMotionPolicy.resolve(reduceMotion: true, lowPower: false, thermal: .nominal, voiceOver: false)
+        renderOpening(dir, name: "onboarding-0-still-t1000", state: state, t: 1, policy: still)
+        renderOpening(dir, name: "onboarding-0-still-t2600", state: state, t: 2.6, policy: still)
+        // Under VoiceOver there is no stage: the band at rest at once.
+        renderOnboarding(dir, name: "onboarding-0-voiceover", state: state) {
+            .snapshot(step: .microphone, clock: clock)
+        }
+
+        // A replay with the microphone on: the band and its orb gather in, no dip.
+        for t in [0, 0.27, 0.54] {
+            renderOnboarding(dir, name: "onboarding-1-replay-\(ms(t))", state: state, orbTime: 0.6 + t) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .microphone, micGranted: true, micGrantedOnEntry: true, clock: clock)
+                model.pinReveal(at: t)
+                return model
+            }
+        }
+
+        // Microphone to Typing, after a heard voice: the bloom leaves with the old copy.
+        for t in [0, 0.07, 0.14, 0.25, 0.5, 0.7] {
+            renderOnboarding(dir, name: "onboarding-2-from-mic-\(ms(t))", state: state, orbTime: 0.6 + t) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .accessibility, micGranted: true, heardVoice: true, clock: clock)
+                model.pinChange(from: .micHeard(.movingOn), previousFigure: .listening, at: t)
+                return model
+            }
+        }
+        // Start with your Mac to Ready: the figure stays listening, so no dip.
+        for t in [0, 0.25, 0.5] {
+            renderOnboarding(dir, name: "onboarding-4-from-login-\(ms(t))", state: state, orbTime: 0.6 + t) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .ready, micGranted: true, accessibilityGranted: true, launchAtLoginEnabled: true,
+                    clock: clock)
+                model.pinChange(from: .loginOn(.movingOn), previousFigure: .listening, at: t)
+                return model
+            }
+        }
+        // A grant: signal for Typing (the figure changes, so it dips), ember for Heard.
+        for t in [0, 0.14, 0.36, 0.56] {
+            renderOnboarding(dir, name: "onboarding-2-grant-\(ms(t))", state: state, orbTime: 0.6 + t) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .accessibility, micGranted: true, accessibilityGranted: true, clock: clock)
+                model.pinChange(from: .typingAsk, previousFigure: .thinking, at: t)
+                return model
+            }
+        }
+        for t in [0.14, 0.56] {
+            renderOnboarding(dir, name: "onboarding-1-heard-\(ms(t))", state: state, orbTime: 0.6 + t) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .microphone, micGranted: true, heardVoice: true, clock: clock)
+                model.pinChange(from: .micWaiting, previousFigure: .listening, at: t)
+                return model
+            }
+        }
+        // Done: the content fades, then the band folds into the notch.
+        for t in [0, 0.1, 0.2, 0.4] {
+            renderOnboarding(dir, name: "onboarding-4-outro-\(ms(t))", state: state, orbTime: 0.6 + t) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .ready, micGranted: true, accessibilityGranted: true, launchAtLoginEnabled: true,
+                    clock: clock)
+                model.pinOutro(at: t)
+                return model
+            }
+        }
+
+        // Settled states inside the beats, and every Ready cell.
+        renderOnboarding(dir, name: "onboarding-1-prompt-up", state: state) {
+            .snapshot(step: .microphone, requestingMic: true)
+        }
+        renderOnboarding(dir, name: "onboarding-1-mic-on", state: state) {
+            .snapshot(step: .microphone, micGranted: true, micGrantedOnEntry: true)
+        }
+        renderOnboarding(dir, name: "onboarding-1-mic-denied", state: state) {
+            .snapshot(step: .microphone, micDenied: true)
+        }
+        renderOnboarding(dir, name: "onboarding-1-waiting-still", state: state) {
+            let model = NotchOnboardingModel.snapshot(step: .microphone, micGranted: true)
+            model.pinPolicy(still)
+            return model
+        }
+        renderOnboarding(dir, name: "onboarding-2-typing-granted", state: state) {
+            .snapshot(step: .accessibility, micGranted: true, accessibilityGranted: true)
+        }
+        renderOnboarding(dir, name: "onboarding-3-login-on", state: state) {
+            .snapshot(step: .openAtLogin, micGranted: true, accessibilityGranted: true, launchAtLoginEnabled: true)
+        }
+        let cells: [(String, EngineStatus, PermissionsManager.MicStatus, Bool, Bool)] = [
+            ("ready", .ready, .granted, true, false),
+            ("ready-assistant", .ready, .granted, true, true),
+            ("typing-off", .ready, .granted, false, false),
+            ("mic-not-asked", .ready, .notDetermined, true, false),
+            ("mic-denied", .ready, .denied, true, false),
+            ("downloading", .downloading(percent: 42), .granted, true, false),
+            ("preparing", .preparing, .granted, true, false),
+            ("loading-typing-off", .preparing, .granted, false, false),
+            ("loading-mic-not-asked", .downloading(percent: 42), .notDetermined, true, false),
+            ("loading-mic-denied", .preparing, .denied, true, false),
+            ("failed", .failed, .granted, true, false),
+        ]
+        for (name, engine, mic, typing, assistant) in cells {
+            renderOnboarding(dir, name: "onboarding-4-ready-\(name)", state: state) {
+                .snapshot(
+                    step: .ready, micGranted: mic == .granted, micDenied: mic == .denied,
+                    accessibilityGranted: typing, launchAtLoginEnabled: true, showsAssistantLine: assistant,
+                    engineStatus: { engine })
+            }
+        }
+    }
+
+    /// The opening `t` seconds after T0 as the screen shows it: the stage panel,
+    /// and from the swap the band panel over it. Both are top-centred, as the
+    /// two real panels are on the display.
+    private static func renderOpening(
+        _ dir: URL, name: String, state: AppState, t: TimeInterval, skipAt: TimeInterval? = nil,
+        policy: OnboardingMotionPolicy = .resolve(reduceMotion: false, lowPower: false, thermal: .nominal, voiceOver: false)
+    ) {
+        let layout = NotchOnboardingLayout()
+        let geometry = snapshotNotch
+        let model = NotchOnboardingModel.snapshot(step: .microphone, clock: .fixed(1_000))
+        model.pinPolicy(policy)
+        model.pinOpening(at: t, skipAt: skipAt)
+        let full = policy.layers == .full
+        let swap = skipAt.map { $0 + (full ? OpeningTimeline.skipBlend : 0) }
+            ?? (full ? OpeningTimeline.swapAt : OpeningTimeline.stillSwapAt)
+        let stageOut = swap + (full ? OpeningTimeline.stageOutDelay : OpeningTimeline.stillFade)
+        let stage = layout.stagePanelSize(for: geometry)
+        let band = layout.panelSize(for: geometry)
+        let view = ZStack(alignment: .top) {
+            Color(white: 0.28)
+            if t < stageOut {
+                OnboardingStageView(model: model, geometry: geometry, layout: layout, orbTime: 0.6 + t)
+                    .frame(width: stage.width, height: stage.height, alignment: .top)
+            }
+            if t >= swap {
+                NotchOnboardingView(model: model, state: state, geometry: geometry, layout: layout, orbTime: 0.6 + t)
+                    .frame(width: band.width, height: band.height, alignment: .top)
+            }
+        }
+        .frame(width: stage.width + 92, height: stage.height + 60)
         render(view, to: dir.appendingPathComponent("\(name).png"))
     }
 

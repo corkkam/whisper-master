@@ -387,7 +387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (progress lives in Settings / the notch, not a done step).
         let pending = userID.map { OnboardingProgress.pendingSteps(userID: $0) } ?? OnboardingStep.allCases
         if !pending.isEmpty {
-            showOnboarding(userID: userID)
+            showOnboarding(userID: userID, opening: .stage)
         } else {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
             if !viewModel.state.selectedEngine.isInstalled {
@@ -440,7 +440,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !appSurfacesHidden else { return }
         appSurfacesHidden = true
         window?.orderOut(nil)
+        // Released, not kept: the next sign-in makes a new window at beat 1.
         onboardingWindow?.close()
+        onboardingWindow = nil
         pillWindow?.hide()
         // Nothing of the account's data may be reachable behind the gate, and the
         // band is made of exactly that.
@@ -1450,9 +1452,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The dictation pill is hidden while it's up: both panels anchor to the notch
     /// and the engine download that starts at launch would otherwise draw its
     /// progress band straight through the onboarding one.
-    private func showOnboarding(userID: String? = nil) {
+    ///
+    /// `opening` is `.stage` on the launch path only; the menu and About replays
+    /// start at the band.
+    private func showOnboarding(userID: String? = nil, opening: OnboardingOpening = .reveal) {
         if let onboardingWindow {
-            onboardingWindow.show()
+            onboardingWindow.show(opening: opening)
             return
         }
 
@@ -1498,7 +1503,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.showWindow()
             }
         )
-        onboardingWindow?.show()
+        onboardingWindow?.show(opening: opening)
     }
 
     /// Tear the onboarding band down and give the notch back to the dictation
