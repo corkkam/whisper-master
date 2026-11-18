@@ -12,8 +12,8 @@ import Foundation
 ///
 /// Kept small. The tool list is prompt text the on-device model has to hold in its
 /// head alongside the connector tools. "Three" was a convention, not a measured limit:
-/// the Phase 0 sweep kept first-turn accuracy from 11 to 24 tools, so that range is
-/// the limit now.
+/// the limit is now the whole prompt's tool count, `ToolPackRouter.limit`, from the
+/// Phase 0 sweep, and these tools are never the ones it leaves out.
 ///
 /// `all` is what every run offers. `readSelection` is offered only when the chord
 /// captured a selection, so it is outside `all` and inside `names`, which is what

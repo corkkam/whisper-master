@@ -1049,6 +1049,31 @@ final class AppState {
             && !shouldShowDueReminderBanner
     }
 
+    /// The answer band opens into the expanded reply, with Copy, because the assistant's
+    /// answer is too long for one line. Only an assistant answer (it carries its
+    /// question): the day summary and the media line are written to fit.
+    var shouldShowExpandedAnswer: Bool {
+        guard shouldShowDaySummary, let summary = activeDaySummary, summary.question != nil
+        else { return false }
+        return Self.answerIsLong(summary.headline)
+    }
+
+    /// More than about one band line: over 220 characters, or over two sentences
+    /// (counted the way the expanded reply splits its verdict, so "0.6b" and "e.g."
+    /// end nothing).
+    static func answerIsLong(_ answer: String) -> Bool {
+        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count <= 220 else { return true }
+        var sentences = 0
+        var rest: String? = text
+        while let remaining = rest, !remaining.isEmpty {
+            sentences += 1
+            if sentences > 2 { return true }
+            rest = AgentReplyDocument.firstSentence(remaining).rest
+        }
+        return false
+    }
+
     /// Show the Bluetooth-mic hint in the notch only when idle (never mid-
     /// recording) and the user hasn't dismissed it.
     var shouldShowBluetoothBanner: Bool {

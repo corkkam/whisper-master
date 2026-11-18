@@ -18,6 +18,9 @@ struct DictationPillContent: View {
     /// button on the undelivered hint. Injected so the view stays AppKit-free;
     /// the owner reads the current (possibly polished) text itself.
     var onCopyUndelivered: () -> Void = {}
+    /// Puts a long assistant answer on the clipboard — the Copy on its expanded band.
+    /// Injected for the same reason as `onCopyUndelivered`.
+    var onCopyAnswer: () -> Void = {}
     /// Ticks the due reminder off — or puts it back, if it's already ticked. The
     /// owner holds the pre-tick snapshot needed to undo, so the view just asks.
     var onToggleDueReminder: () -> Void = {}
@@ -121,6 +124,24 @@ struct DictationPillContent: View {
             } ?? false)
     }
 
+    /// A long assistant answer, parsed for the same expanded reply the coding agent's
+    /// turn uses, Copy included. Nil when the answer fits the one-line band.
+    private var answerDocument: AgentReplyDocument? {
+        guard showDaySummary, state.shouldShowExpandedAnswer,
+              let answer = state.activeDaySummary?.headline
+        else { return nil }
+        return AgentReplyDocument.parse(answer)
+    }
+
+    private var expandedAnswerWidth: CGFloat {
+        layout.expandedReplySurfaceWidth(
+            for: geometry,
+            console: answerDocument.map {
+                NotchAgentReplyExpanded.Layout.wantsConsole(
+                    document: $0, toolCount: 0, changedCount: 0)
+            } ?? false)
+    }
+
     /// The one ambient thing worth the bezel, or nil for a dark leading slot.
     ///
     /// **The lowest rung there is.** It is drawn only in the *row* form, so any
@@ -218,6 +239,12 @@ struct DictationPillContent: View {
         if showAmbientOnly { return layout.bottomThickness }
         if showDueReminder { return layout.dueReminderThickness }
         if showCommandConfirmation { return layout.commandConfirmationThickness }
+        if let answerDocument {
+            return NotchAgentReplyExpanded.thickness(
+                for: answerDocument, prompt: state.activeDaySummary?.question,
+                toolCount: 0, changedCount: 0,
+                surfaceWidth: expandedAnswerWidth, geometry: geometry)
+        }
         if showDaySummary { return layout.daySummaryThickness }
         if showUndelivered { return layout.undeliveredThickness }
         if showAgentNudge { return layout.commandConfirmationThickness }
@@ -390,6 +417,7 @@ struct DictationPillContent: View {
         // The expanded reply is the "big notch": it takes the widest surface the
         // panel was sized for, the same cap the assistant's longest captions reach.
         if showAgentReply, state.agents.replyExpanded { return expandedReplyWidth }
+        if answerDocument != nil { return expandedAnswerWidth }
         return layout.surfaceWidth(
             for: geometry, surfaceKind, stateLabel: stateLabel, extraWing: extraWing)
     }
@@ -556,7 +584,7 @@ struct DictationPillContent: View {
         // button, the tappable command confirmation, and the undelivered hint's
         // Copy button); the dictation indicator stays click-through (the panel
         // toggles ignoresMouseEvents to match).
-        .allowsHitTesting(showApproval || showAgentAsk || showAgentGlance || showAgentReply || showAgentWorking || showAgentNudge || showMeeting || showBanner || showCommandConfirmation || showUndelivered || showDueReminder || ambientHasControl)
+        .allowsHitTesting(showApproval || showAgentAsk || showAgentGlance || showAgentReply || showAgentWorking || showAgentNudge || showMeeting || showBanner || showCommandConfirmation || showUndelivered || showDueReminder || answerDocument != nil || ambientHasControl)
         // Appear *instantly* (no animation when expanding), animate only the
         // retract. A spring on the way in read as "the notch appears late" even
         // though the state flips synchronously on key-press. Banners (below) keep
@@ -669,7 +697,19 @@ struct DictationPillContent: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onOpenNotes)
         } else if showDaySummary, let summary = state.activeDaySummary {
-            NotchDaySummaryBanner(summary: summary, isSpeaking: state.isSpeakingAnswer)
+            if let answerDocument {
+                // The provenance takes the slot the coding agent's repo uses.
+                NotchAgentReplyExpanded(
+                    document: answerDocument,
+                    prompt: summary.question,
+                    repo: summary.detail,
+                    surfaceWidth: expandedAnswerWidth,
+                    geometry: geometry,
+                    onCopy: onCopyAnswer,
+                    accessibilityTitle: "Assistant answer")
+            } else {
+                NotchDaySummaryBanner(summary: summary, isSpeaking: state.isSpeakingAnswer)
+            }
         } else if showAgentNudge, let event = state.agents.nudge {
             NotchAgentNudgeBanner(event: event)
                 .contentShape(Rectangle())
