@@ -180,4 +180,53 @@ final class ApprovalCopyTests: XCTestCase {
                                 calendar: calendar, now: date(8, 7)),
             "Approve this action?")
     }
+
+    // MARK: - The warning after a read
+
+    private func card(grantOffered: Bool) -> PendingApproval {
+        PendingApproval(tool: "send_message", instanceID: UUID(), instanceLabel: "Work",
+                        target: "#general",
+                        arguments: ["channel": "#general", "text": "I quit."],
+                        grantOffered: grantOffered)
+    }
+
+    /// The warning rides on the same signal that hides Always, so a card can never
+    /// offer a grant and warn, or warn on a run that read nothing.
+    func testTheWarningShowsExactlyWhenNoGrantIsOffered() {
+        XCTAssertEqual(card(grantOffered: false).readWarning, ApprovalCopy.readWarning)
+        XCTAssertNil(card(grantOffered: true).readWarning)
+        // The default is the untainted card.
+        XCTAssertNil(PendingApproval(tool: "send_message", instanceID: UUID(),
+                                     instanceLabel: "Work", target: "#general",
+                                     arguments: [:]).readWarning)
+    }
+
+    /// The warning adds a line; the payload stays whole beside it.
+    func testTheWarningDoesNotShortenThePayload() {
+        XCTAssertEqual(card(grantOffered: false).detail, card(grantOffered: true).detail)
+    }
+
+    /// A screen-reader user hears the warning on exactly the cards that show it.
+    @MainActor
+    func testVoiceOverReadsTheWarningOnlyWhenItIsShown() {
+        let warned = NotchApprovalBanner(approval: card(grantOffered: false)) { _ in }
+        let plain = NotchApprovalBanner(approval: card(grantOffered: true)) { _ in }
+        XCTAssertTrue(warned.accessibilityText.contains(ApprovalCopy.readWarning))
+        XCTAssertTrue(warned.accessibilityText.contains("I quit."))
+        XCTAssertFalse(plain.accessibilityText.contains(ApprovalCopy.readWarning))
+    }
+
+    /// The band's height is decided before the card lays out, so the warned card
+    /// must get the extra line up front, and the panel (sized once, at window
+    /// creation) must fit it, or the card is clipped by its own window.
+    func testTheWarnedCardGetsATallerBandThatThePanelFits() {
+        let layout = NotchSurfaceLayout()
+        let banner = layout.bannerThickness
+        XCTAssertEqual(NotchApprovalBanner.thickness(for: card(grantOffered: true), banner: banner),
+                       banner)
+        let warned = NotchApprovalBanner.thickness(for: card(grantOffered: false), banner: banner)
+        XCTAssertEqual(warned, banner + NotchApprovalBanner.warningLineHeight)
+        let geometry = NotchGeometry(notchWidth: 200, notchHeight: 37.5, screenWidth: 1512)
+        XCTAssertLessThanOrEqual(warned, layout.panelSize(for: geometry).height - geometry.notchHeight)
+    }
 }

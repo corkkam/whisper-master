@@ -20,6 +20,12 @@ import Foundation
 /// Pure and clock-injected, so `ApprovalCopyTests` can pin "Today" without waiting
 /// for a particular date.
 enum ApprovalCopy {
+    /// The card's extra line in a run that read connector or selection text. The
+    /// model still proposes writes built from what it read (an injected "I quit"
+    /// message), and the card is then the only gate, so it asks for a real look
+    /// rather than a habitual Once.
+    static let readWarning = "I wrote this after reading text from your accounts. Check it first."
+
     /// Human verb for a tool name, so the card reads as a sentence rather than an
     /// identifier.
     static func verb(for tool: String) -> String {

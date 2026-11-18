@@ -280,7 +280,9 @@ struct NotchSurfaceLayout {
             max(
                 max(bottomThickness, reminderThickness),
                 max(
-                    max(undeliveredThickness, bannerThickness),
+                    // The approval card after a connector read carries a warning line
+                    // on top of the banner's two.
+                    max(undeliveredThickness, bannerThickness + NotchApprovalBanner.warningLineHeight),
                     transcriptThickness(lines: NotchTranscriptModel.visibleLines)
                 )
             ),
