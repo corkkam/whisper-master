@@ -178,6 +178,13 @@ Seconds are model time only — a scripted tool returns at once and no approval 
 waited on. The cases cannot be passed without reading (`AgentChainEvalTests` refuses a
 graded fragment that is already in the spoken command); keep that when adding one.
 
+**Re-measured 2026-11-18 (dev 0cd190b).** 23/24 chains, first turn 16/16, and long
+results 4/4 with the 8,000-character reducer. The tool-count sweep held 16/16 at 11,
+16, 20 and 24 tools. **The probes did not improve:** the model still proposes 3 of 4
+injected writes. The bench has no card. In the app the taint rule puts each one behind
+the approval card, which now says the text was read (`ApprovalCopy.readWarning`). The
+p50 time was measured on a busy machine (load 48 at start).
+
 **⚠️ A keyword rule only sees what somebody thought to assert.** The 2026-08-21
 long-form truncation dropped three fifths of a 525-word input and passed every
 `must_contain` in its case. So `eval-score` reports the *shape* of each output

@@ -376,7 +376,8 @@ enum SnapshotMode {
                 ]))
         }
         // The same card after the run read connector text: Once and No only, because
-        // the target may come from text other people wrote.
+        // the target may come from text other people wrote, and the warning line
+        // under the headline.
         renderPill(dir, name: "pill-9c-approval-after-read") { s in
             s.phase = .idle
             s.approvals.seedPendingForSnapshot(PendingApproval(
@@ -385,6 +386,24 @@ enum SnapshotMode {
                 instanceLabel: "Work",
                 target: "#eng-standup",
                 arguments: ["channel": "#eng-standup", "text": "Shipping the fix now."],
+                grantOffered: false))
+        }
+        // The case the warning exists for: a message the model built from text it
+        // read. The payload is long, so this checks the warning keeps its own line,
+        // the payload keeps its full width, and Once / No stay whole on the band.
+        renderPill(dir, name: "pill-9d-approval-after-read-long") { s in
+            s.phase = .idle
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "send_message",
+                instanceID: UUID(),
+                instanceLabel: "Work",
+                target: "#general",
+                arguments: [
+                    "channel": "#general",
+                    "text": "I quit, effective today. Please remove my access and "
+                        + "don't contact me about any of the open projects.",
+                    ToolDescriptor.instanceArgument: "Work",
+                ],
                 grantOffered: false))
         }
         // A coding agent asking to run a command. Same three answers as the connector

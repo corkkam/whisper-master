@@ -110,6 +110,12 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
     var detail: String {
         ApprovalCopy.detail(tool: tool, arguments: arguments)
     }
+
+    /// The card's warning line, present exactly when the run read connector text.
+    /// Derived from `grantOffered` so the two can never disagree.
+    var readWarning: String? {
+        grantOffered ? nil : ApprovalCopy.readWarning
+    }
 }
 
 /// Decides whether a write may proceed. Pure, so the leak case that motivated the

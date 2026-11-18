@@ -10,7 +10,11 @@ import SwiftUI
 ///
 /// A run that has read connector text gets two choices, Once and No
 /// (`PendingApproval.grantOffered`). The target may come from text other people
-/// wrote, so the card does not offer a grant that would outlast it.
+/// wrote, so the card does not offer a grant that would outlast it. That card also
+/// carries one more line under the headline (`PendingApproval.readWarning`): the
+/// model still proposes writes built from what it read, and with the card the only
+/// gate, approving by habit is the risk. The extra line is why the band's height
+/// is `thickness(for:banner:)` and not a constant.
 ///
 /// Interactive, so it's in `DictationPillContent.allowsHitTesting` and the
 /// `setInteractive` call in the AppDelegate refresh loop, alongside the Bluetooth and
@@ -29,7 +33,15 @@ struct NotchApprovalBanner: View {
             // than pushing them off the band — an approval card whose answers are
             // off-screen can only be answered by walking away from it.
             textGivesWayToTrailing: true,
-            subtitle: { Text(approval.detail) },
+            subtitle: {
+                // Stacked, so the warning never takes width from the payload.
+                VStack(alignment: .leading, spacing: 1) {
+                    if let warning = approval.readWarning {
+                        Text(warning).foregroundStyle(Theme.Notch.warning)
+                    }
+                    Text(approval.detail)
+                }
+            },
             trailing: {
                 HStack(spacing: 6) {
                     choice("Once", .allowedOnce)
@@ -39,11 +51,24 @@ struct NotchApprovalBanner: View {
             })
     }
 
+    /// Height the warning line adds: one `notchCaption` line (10.5pt, ~12.5pt tall)
+    /// plus the 1pt stack gap, rounded up. The band's height is decided before the
+    /// card lays out, so this is pinned rather than measured.
+    static let warningLineHeight: CGFloat = 14
+
+    /// How tall the band must be for this card. `DictationPillContent.bandThickness`
+    /// reads it, and `NotchSurfaceLayout.maxBandThickness` adds `warningLineHeight`
+    /// to the banner: a band taller than its panel is clipped by its own window.
+    static func thickness(for approval: PendingApproval, banner: CGFloat) -> CGFloat {
+        approval.readWarning == nil ? banner : banner + warningLineHeight
+    }
+
     /// VoiceOver gets the full payload untruncated — a screen-reader user must not be
     /// asked to consent to something the visual layout abbreviated away.
-    private var accessibilityText: String {
+    var accessibilityText: String {
         let choices = approval.grantOffered ? "once, always, or no" : "once or no"
-        return "\(approval.headline). \(approval.detail). Choose \(choices)."
+        let warning = approval.readWarning.map { " \($0)" } ?? ""
+        return "\(approval.headline).\(warning) \(approval.detail). Choose \(choices)."
     }
 
     private func choice(_ title: String,

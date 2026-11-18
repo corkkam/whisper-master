@@ -217,7 +217,9 @@ struct DictationPillContent: View {
     private var showReminder: Bool { !showAgentNudge && !showApproval && !showAgentAsk && !showAgentGlance && !showAgentWorking && !showAgentReply && !showDueReminder && !showCommandConfirmation && !showDaySummary && !showUndelivered && !showLearned && !showCleanupReady && !showMeeting && !showBanner && state.shouldShowReminder }
 
     private var bandThickness: CGFloat {
-        if showApproval { return layout.bannerThickness }
+        if showApproval, let approval = state.approvals.pending {
+            return NotchApprovalBanner.thickness(for: approval, banner: layout.bannerThickness)
+        }
         if showAgentAsk, let ask = state.agents.activeAsk {
             return NotchAgentPanel.thickness(
                 for: ask, otherSessions: otherAgentSessions.count,
