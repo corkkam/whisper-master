@@ -212,6 +212,9 @@ struct OnboardingCopy {
     /// System Reduce Motion stills the orb, so the waiting body cannot say the
     /// dots move.
     var orbIsStatic = false
+    /// Whether Ready's Try Again has an engine retry behind it. Without one,
+    /// Failed offers Done alone and does not name Try Again.
+    var canRetryEngine = true
 
     // MARK: Fixed lines
 
@@ -429,6 +432,12 @@ struct OnboardingCopy {
         case .failed:
             // No mention of Settings: it has no engine Try Again. Done starts one
             // more background attempt.
+            guard canRetryEngine else {
+                return OnboardingScreen(
+                    headline: "I couldn't finish getting ready.",
+                    body: "Check your internet. Press Done, and I'll try once more in the background.",
+                    row: .buttons([.done]))
+            }
             return OnboardingScreen(
                 headline: "I couldn't finish getting ready.",
                 body: "Check your internet, then press Try Again. Or press Done, and I'll try once more in the background.",

@@ -46,6 +46,8 @@ struct OrbView: View {
     /// Onboarding passes `OnboardingOrbGain` here, which is 0 until a voice is
     /// heard. `nil` keeps the dictation band's own mapping.
     var gain: Double? = nil
+    /// How far the dots have spread out of the centre (see `ThinkingOrb.gather`).
+    var gather: Double = 1
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -80,7 +82,8 @@ struct OrbView: View {
             speed: 1,
             extraOpts: mode == .listening ? ["gain": gain ?? Self.waveGain(level: level)] : [:],
             time: time,
-            staticFrame: staticFrame
+            staticFrame: staticFrame,
+            gather: gather
         )
         .scaleEffect(!entrance || reduceMotion || appeared ? 1 : 0.86)
         .opacity(!entrance || reduceMotion || appeared ? 1 : 0)

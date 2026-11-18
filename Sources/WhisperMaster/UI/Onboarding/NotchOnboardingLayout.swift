@@ -21,6 +21,11 @@ struct NotchOnboardingLayout {
     var thickness: CGFloat = 264
     /// Centre of the 62 pt band orb below the notch: 12 + 24 + 5 + 8 + 31.
     var orbCenterY: CGFloat = 80
+    /// The band's hero orb. Big enough for the `large` preset's dot field to read
+    /// as a sphere rather than a speckle.
+    var orbDiameter: CGFloat = 62
+    /// The soft glow a grant raises behind the band orb.
+    var bloomSize = CGSize(width: 260, height: 120)
     /// Radius of the concave flare where the top meets the bezel. The opening
     /// stage uses the same flare, so the swap from stage to band matches.
     var topConcaveRadius: CGFloat = 14
@@ -41,6 +46,22 @@ struct NotchOnboardingLayout {
     var stageOrbCenterY: CGFloat = 172
     var stageWordmarkY: CGFloat = 300
     var stageTaglineY: CGFloat = 340
+    /// The stage keeps this far from each edge of a narrow display.
+    var stageScreenInset: CGFloat = 28
+
+    /// The measure a body is fitted to: the band's text width less 5%, the same
+    /// width the copy fit tests use, so the band and the tests pick the same line.
+    var bodyFitWidth: CGFloat {
+        (contentWidth - 2 * Theme.Space.xl - 2 * Theme.Space.lg) * 0.95
+    }
+
+    /// The opening stage's panel: fixed for the stage's life.
+    func stagePanelSize(for geometry: NotchGeometry) -> CGSize {
+        let width = geometry.screenWidth > 0
+            ? min(stageWidth, geometry.screenWidth - 2 * stageScreenInset)
+            : stageWidth
+        return CGSize(width: width, height: geometry.notchHeight + stageDepth)
+    }
 
     /// Full width of the black surface — the notch body plus its wings, or the
     /// content width when that's wider (which it is on every real display).
