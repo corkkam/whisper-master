@@ -114,4 +114,17 @@ enum FeatureFlags {
     static func agentEndpointAvailable(on channel: ReleaseChannel) -> Bool {
         channel == .dev
     }
+
+    /// True when the connected tool (`ConnectedTool`) may be Codex as well as Claude
+    /// Code. **False on every channel**: in its read-only sandbox Codex still ran a shell
+    /// command, so it could read a file on this Mac and send it to OpenAI. It turns on
+    /// only in a commit that adds a setting the shell canary (`CodexShellCanaryTests`)
+    /// proved, with the canary's output pasted in.
+    static var connectedCodexAvailable: Bool {
+        connectedCodexAvailable(on: ReleaseChannel.current)
+    }
+
+    static func connectedCodexAvailable(on channel: ReleaseChannel) -> Bool {
+        false
+    }
 }
