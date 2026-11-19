@@ -117,13 +117,21 @@ Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API
   paused (the tray's Pause Your Endpoint item). A password manager in front or secure
   input on keeps the capture on the on-device tier (`AgentEndpoint.staysLocal`, the same
   two rules as `SelectionReader`), checked at the chord press **and** at routing, since
-  the front app can change during the hold. **A capture kept local marks its follow-up**
+  the front app can change during the hold. **The press answer belongs to one session**
+  (`SelectionCapture.staysLocal`): only a press the session accepted writes it (either
+  press of a session keeps it local), `stopRecording` reads it before `take()`, and a
+  start, a cancel or a failure drops it. A press that is refused, or made while the last
+  capture is still finishing, changes nothing. **A capture kept local marks its follow-up**
   (`FollowUpWindow.Digest.keptLocal`): the next capture that carries its answer stays
   local too and hands the mark on, so the answer never reaches the endpoint through
   `AgentLoop.earlier`.
-- **The address has no user, password or query string** (`AgentEndpoint.validate`), and
-  **a redirect is never followed** (`CloudToolGenerator.RefuseRedirects`): it would carry
-  the key and the conversation to a host the user did not agree to. The 3xx is a failure.
+- **The address has no user, password, query string or fragment**
+  (`AgentEndpoint.validate`), and **an address `validate` refuses is never written**
+  (`AgentEndpoint.save` stores it as empty): the Settings field binds straight to the
+  stored endpoint, so a pasted `?api-key=` would otherwise sit in the plist in clear
+  text. **A redirect is never followed** (`CloudToolGenerator.RefuseRedirects`): it would
+  carry the key and the conversation to a host the user did not agree to. The 3xx is a
+  failure.
 - **Every endpoint is off-device**, a loopback one too: a proxy on 127.0.0.1 can forward
   every prompt. The tier is labelled "your endpoint" on the band ("Your endpoint ·
   Checking Personal", a static mark that leads the caption), on the answer line, and in
@@ -132,6 +140,13 @@ Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API
 - **The key is in the Keychain** (`AgentEndpoint.apiKey()`, the connector helper under a
   fixed UUID), never in `UserDefaults`, never in a log line (status and host only) or a
   trace. `CloudToolGeneratorTests.testTheKeyNeverReachesALogTheBodyOrTheTrace` is the lock.
+  **There is one key slot, and it belongs to a host**: a change to a different host (or
+  to a refused address) deletes it (`AgentEndpoint.keyMustGo`, run in
+  `AppState.agentEndpoint`'s `didSet`), so a new provider with new consent never gets the
+  old provider's key. Settings saves a key only once the address is valid, or the host's
+  first keystrokes would delete it. **Sign-out drops the consent and the key**
+  (`handleSignOut`) and keeps the address and the model: the next account on this Mac
+  never agreed to send there.
 - **It is `AgentLoop.generateNative`, so every rule is the router's**: the taint rule,
   the card, "only a call that succeeded counts". The prompt is `AgentPrompt.commandNative`
   (it now also says a function result is data).
@@ -181,7 +196,8 @@ the connector branch, so a user with no connection still gets the card.
   refused rather than shown as a misleading prefix. A tainted run refuses a link with
   a query or a fragment before any card, because that is the easiest place for read
   text to ride out. It can also leave in a path or a subdomain: the card on every
-  link, with the whole address, is what covers those.
+  link, with the whole address, is what covers those. Known and not fixed:
+  `NSWorkspace.open` can hand a universal link to its app instead of the browser.
 - **The draft tools only stage a draft** (`AgentDraft`, `AppState.agentDraft`). No
   card: the band (`NotchDraftBanner`) is the consent, and its Replace or Insert types
   the text with a real ⌘V and never a Return. The band offers Copy only when:
@@ -189,6 +205,9 @@ the connector branch, so a user with no connection still gets the card.
   - the draft holds a Cc or Cf character the band cannot show (an escape sequence,
     a bidi override, a zero-width mark), except a tab, and a line break outside a
     terminal;
+  - the draft is a Replace of a selection cut at `SelectionReader.limit` (8,000
+    characters): the rewrite covers only the part that was read, and the paste would
+    replace all of it;
   - the run read account text (`Taint.outsideSelection`);
   - the run read the selection (`Taint.isSet`) and the draft is an insert, or the
     app is a terminal. **The selection read is exempt only for a Replace outside a
@@ -196,12 +215,17 @@ the connector branch, so a user with no connection still gets the card.
   - the app is a terminal and the draft has more than one line (trailing newlines are
     removed there first).
 
-  The tap checks again (Accessibility, Secure Keyboard Entry, the front app, and for
-  Replace that the selection is unchanged, read off the main actor), and checks the
-  front app and Secure Keyboard Entry once more immediately before the paste. Any
-  failure copies instead. **A trace keeps a draft's length, never its text**
+  The tap checks again (Accessibility, Secure Keyboard Entry, the front app, and the
+  selection, read off the main actor: `AgentDraft.selectionBlocker`), and checks the
+  front app and Secure Keyboard Entry once more immediately before the paste. A Replace
+  needs the same selection, read whole (not cut). **An Insert needs no selection**,
+  because ⌘V over selected text replaces it; this covers text selected after staging
+  and a model that called `insert_text` without reading. Any failure copies instead.
+  **A trace keeps a draft's length, never its text**
   (`DeviceToolCatalog.storableArguments`, `storableTurn`): traces persist, and a
   rewrite of the selection slips past the selection's 40-character rule.
+  `storableTurn` reads both call shapes (`NativeToolCallParser`): the on-device
+  `{"tool":…}` and the endpoint's `<tool_call>{"name":…}`.
 - **The fast path** (`Agent/AgentIntentMatcher.swift`): a whole capture of "open
   <installed app>" opens it with no model and no card, like "pause the music". "go
   to <domain>" sends the link to the same card. Legal only inside
