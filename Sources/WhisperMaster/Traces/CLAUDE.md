@@ -68,7 +68,14 @@ diff or a decision log, and would be a poor version of whichever it wasn't.
   many characters of each kind (your words, tool results, model replies, instructions,
   tool list). **Counts, never the content, and the host, never the URL** (a URL can carry
   a key). When the endpoint failed and the on-device tier ran after it, the decisions list
-  both rungs and the calls of both runs are kept. See `Connectors/CLAUDE.md`.
+  both rungs and the calls of both runs are kept. See `Connectors/CLAUDE.md`. The
+  connected tool uses the same record with `tool` set, and the badge reads the tool's
+  name instead of "Your endpoint". **A failed remote run says why**
+  (`EndpointSendTrace.failure`, a fixed phrase such as "did not answer within 20
+  seconds", never the server's or the tool's own output): the rung's detail leads with it,
+  because a nil reply ends the loop with no call and the loop would otherwise blame the
+  model for answering without a tool. A run stopped before its first request (a tool on a
+  new version) keeps no send record.
 - **The approval wait is not the connector's latency** (`ToolCallTrace.approvalMilliseconds`).
   `milliseconds` is measured with the wait taken out, because a write that sat a minute
   on the consent card otherwise reads as a minute of provider latency and sends the
@@ -110,7 +117,8 @@ non-optional property; the default is used by the memberwise init and nowhere el
 `var approvalMilliseconds: Int = 0` added to `ToolCallTrace` throws
 `keyNotFound` on every trace already written, and the `try?` load turns that into a
 page that is silently empty until it refills. `ToolCallTrace.approvalMilliseconds`,
-`ToolCallTrace.authorization`, `AssistantTrace.turns` and `AssistantTrace.endpoint` are optional for exactly this
+`ToolCallTrace.authorization`, `AssistantTrace.turns`, `AssistantTrace.endpoint`, `EndpointSendTrace.tool` and
+`EndpointSendTrace.failure` are optional for exactly this
 reason, and `TraceTests.testATraceWrittenBeforeTheNewFieldsExistedStillDecodes` is the
 lock — it decodes the old shape by hand. Device-wide, not per-account: a trace describes *this machine's*
 pipeline, and it has to be readable while signed out, since "it stopped working" gets

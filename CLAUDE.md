@@ -339,6 +339,16 @@ in front or secure input keeps a capture local, the tray can pause it, and every
 endpoint counts as off-device, loopback included. The key is in the Keychain. Rules and
 history rebuild: the endpoint section of `Connectors/CLAUDE.md`.
 
+**It can also use the user's own Claude Code**, ahead of the endpoint, behind the same
+flag (`Connectors/Agent/ConnectedTool.swift`, Settings card "Connected tool"). The app
+starts the CLI by its absolute path as a text generator, with the lean flags (no tools, no
+MCP servers, no settings, never `--bare`), the prompt on stdin, an empty temp folder and
+an allowlisted environment, and **never reads its sign-in**. The Settings Test proves the
+lean flags on the installed version, and a new version sends nothing until the Test
+passes again. Codex is built but off on every channel (`connectedCodexAvailable`): its
+sandbox still runs shell commands. Rules: the connected tool section of
+`Connectors/CLAUDE.md`.
+
 The assistant can also act on this Mac (`Connectors/Tools/DeviceTools.swift`): open an
 installed app, open a link, and put text it wrote into the app the user was in. Opening
 goes through the same approval card, scoped to "This Mac"; a link is carded every time

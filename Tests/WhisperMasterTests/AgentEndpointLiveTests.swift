@@ -47,4 +47,40 @@ final class AgentEndpointLiveTests: XCTestCase {
             + "first-turn tool choices, \(sent.snapshot.failures) failed requests")
         XCTAssertEqual(sent.snapshot.failures, 0, "the server failed requests; the score is not a model score")
     }
+
+    /// The connected tool arm: the same 16 cases through the user's own CLI, on their
+    /// plan. It runs the Settings Test first, so a tool that loads anything of its own
+    /// fails before a case is sent.
+    ///
+    /// ```bash
+    /// WM_CONNECTED_TOOL=claudeCode swift test --filter AgentEndpointLiveTests
+    /// ```
+    func testFirstTurnToolChoiceOnTheConnectedTool() async throws {
+        guard let raw = ProcessInfo.processInfo.environment["WM_CONNECTED_TOOL"],
+              let kind = ConnectedTool.Kind(rawValue: raw) else {
+            throw XCTSkip("Set WM_CONNECTED_TOOL=claudeCode to run the connected tool bench.")
+        }
+        guard let path = ConnectedTool.locate(kind) else {
+            throw XCTSkip("\(kind.binary) is not in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin.")
+        }
+        let test = await ConnectedTool.test(kind, at: path)
+        guard case .passed(let version) = test else { return XCTFail("The Test did not pass: \(test)") }
+        let sent = EndpointSendLog(host: kind.name, tool: kind.name)
+        let generator = ConnectedToolGenerator(kind: kind, executable: path, testedVersion: version, sent: sent)
+
+        let setup = LabToolBench.setup()
+        var passed = 0
+        for (spoken, expected) in LabSuiteLoader.toolCases {
+            let started = Date()
+            let reply = await generator.reply(LabToolBench.messages(for: spoken, setup: setup),
+                                              tools: setup.schemas)
+            let called = reply.flatMap { LabToolBench.calledTool(in: $0, setup: setup) }
+            if called == expected { passed += 1 }
+            print(String(format: "[tool-bench] %@ %5.1fs  %@ -> %@", called == expected ? "PASS" : "FAIL",
+                         Date().timeIntervalSince(started), spoken, called ?? "no call"))
+        }
+        print("[tool-bench] \(kind.name) \(version) \(kind.model): \(passed)/\(LabSuiteLoader.toolCases.count) "
+            + "first-turn tool choices, \(sent.snapshot.failures) failed runs")
+        XCTAssertEqual(sent.snapshot.failures, 0, "the tool failed runs; the score is not a model score")
+    }
 }
