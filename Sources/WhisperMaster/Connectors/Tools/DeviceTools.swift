@@ -340,9 +340,11 @@ struct AgentDraft: Equatable, Sendable {
 
     /// Whether the tap reads the selection before it types. Not for an Insert in a
     /// terminal: ⌘V there types at the prompt and replaces nothing, so highlighted
-    /// text is no reason to copy.
+    /// text is no reason to copy. Warp is the exception: its prompt is an editor, where
+    /// ⌘V replaces a selection (`TerminalApps.editorInputBundleIDs`).
     var readsSelectionAtTap: Bool {
         kind == .replaceSelection || !TerminalApps.isTerminal(bundleID: app.bundleID)
+            || TerminalApps.editorInputBundleIDs.contains(app.bundleID ?? "")
     }
 
     /// Why a tap must copy, from the selection read again at the tap. A Replace types

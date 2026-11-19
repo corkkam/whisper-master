@@ -548,6 +548,13 @@ final class DeviceToolRunnerTests: XCTestCase {
             .run(call("replace_selection", ["text": "ls -lah"]))
         guard case .draftStaged(let replaceInTerminal)? = replace else { return XCTFail("no draft") }
         XCTAssertTrue(replaceInTerminal.readsSelectionAtTap, "a Replace always checks its selection")
+
+        // Warp's prompt is an editor: ⌘V there replaces a selection, so it is checked.
+        let warp = SelectionReader.FrontApp(bundleID: "dev.warp.Warp-Stable", name: "Warp", pid: 403)
+        let (_, warpInsert) = await runner(recorder: Recorder(), keyDown: warp)
+            .run(call("insert_text", ["text": "git status"]))
+        guard case .draftStaged(let inWarp)? = warpInsert else { return XCTFail("no draft") }
+        XCTAssertTrue(inWarp.readsSelectionAtTap)
     }
 
     /// The endpoint writes `<tool_call>{"name":…}`, not `{"tool":…}`. The trace keeps

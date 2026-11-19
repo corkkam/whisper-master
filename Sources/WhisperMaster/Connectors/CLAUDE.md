@@ -305,6 +305,8 @@ the connector branch, so a user with no connection still gets the card.
   remove Insert from Slack and VS Code, and the status line says "Pasted. If text was
   selected, Cmd-Z restores it." (`AgentDraft.typedLine`). An Insert in a terminal skips
   the read (`readsSelectionAtTap`): ⌘V there types at the prompt and replaces nothing.
+  Warp is the exception (`TerminalApps.editorInputBundleIDs`): its prompt is an editor,
+  where ⌘V replaces a selection, so the read runs.
   Any failure copies instead.
   **A trace keeps a draft's length, never its text**
   (`DeviceToolCatalog.storableArguments`, `storableTurn`): traces persist, and a

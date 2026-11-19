@@ -32,6 +32,13 @@ enum TerminalApps {
         "com.raphamorim.rio",          // Rio
     ]
 
+    /// Terminals whose prompt is an editor: ⌘V there replaces a selection, as it does
+    /// in a text field. Warp's input box is one.
+    static let editorInputBundleIDs: Set<String> = [
+        "dev.warp.Warp-Stable",
+        "dev.warp.Warp-Preview",
+    ]
+
     /// Whether a bundle id names a known terminal emulator. Pure — unit-tested.
     static func isTerminal(bundleID: String?) -> Bool {
         guard let bundleID else { return false }
