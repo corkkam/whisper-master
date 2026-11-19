@@ -125,7 +125,9 @@ Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API
   capture is still finishing, changes nothing. **The endpoint is checked again after the
   selection wait** (`DictationViewModel.endpointMayStillSend`): a sign-out, a revoke or a
   pause in that half second sends the capture to the on-device tier, and from the run's
-  start `handleSignOut` cancels it. **A capture kept local marks its follow-up**
+  start `handleSignOut` cancels it. **Every request asks the live state first**
+  (`CloudToolGenerator.mayContinue`): a Pause or a Revoke in the middle of a run stops the
+  next request. **A capture kept local marks its follow-up**
   (`FollowUpWindow.Digest.keptLocal`): the next capture that carries its answer stays
   local too and hands the mark on, so the answer never reaches the endpoint through
   `AgentLoop.earlier`.
@@ -188,69 +190,80 @@ taint rule, the cards and "only an executed tool counts" are the app's, as for t
 endpoint. **Text only leaves the Mac, never audio.**
 
 - **Gates, all of them:** `FeatureFlags.agentEndpointAvailable` (the endpoint's flag), the
-  tool found, a passed **Test** on the version this Mac has, the consent sheet for that
-  tool (`ConnectedTool.consentedTo`), and not paused (the tray's Pause Connected Tool).
-  Detection alone sends nothing. `staysLocal`, the follow-up mark and the re-check after
-  the selection wait (`DictationViewModel.connectedToolMayStillSend`) are the endpoint's.
-  **Sign-out drops the consent** and keeps the Test.
-- **One remote tier per capture** (`DictationViewModel.remoteTier`): the tool if it is on,
-  else the endpoint. The endpoint never follows a failed tool: two destinations off this
-  Mac are hard to predict, and the waits add up. The on-device tier follows under
-  `onDeviceMayFollowEndpoint`, unchanged.
+  tool found, a passed **Test on the file this Mac has** (`ConnectedTool.isUsable`), the
+  consent sheet for that tool, and not paused (the tray's Pause Connected Tool). Detection
+  is file checks only and sends nothing. `staysLocal`, the follow-up mark and the re-check
+  after the selection wait (`settleThenCheck`, `connectedToolMayStillSend`) are the
+  endpoint's. **Sign-out drops the consent** and keeps the Test.
+- **One remote tier per capture** (`DictationViewModel.remotePlan`, pure): the tool if it
+  is usable now, else the endpoint. A tool that is gone or changed is skipped **before
+  anything starts**, with its own rung, so the endpoint may still run. The endpoint never
+  follows a tool that ran and failed: two destinations off this Mac are hard to predict,
+  and the waits add up. `remoteOutcome` (pure) leads the rung with the failure and keeps
+  no send record when nothing was sent.
+- **Before every turn, both generators ask the live state** (`mayContinue`): a Pause, a
+  Revoke or a sign-out in the middle of a run stops the next request ("was paused or
+  turned off during the run").
 - **The app is a client only**, the kunai and Shed rule: it never ships, installs or
   updates the tool. `locate` looks in `~/.local/bin`, `/opt/homebrew/bin` and
   `/usr/local/bin` (a Finder-launched app has none of them on PATH; a shell would read the
-  dotfiles), at each chord, never stored, and refuses a target anyone can write to. **It
-  never reads the tool's sign-in** and never touches the tool's own folders;
-  `ConnectedToolTests.testTheTierNeverTouchesASignIn` scans the three source files.
+  dotfiles), at each chord, and refuses a target anyone can write to. **It never reads the
+  tool's sign-in**; `ConnectedToolTests.testTheTierNeverTouchesASignIn` scans the three
+  source files. Settings and the consent sheet show the file that runs (the link's target).
 - **The command line is the lean one** (`ConnectedTool.arguments`): `-p --model sonnet
   --tools "" --no-session-persistence --setting-sources "" --strict-mcp-config
-  --system-prompt <text only> --output-format json`. **Never `--bare`** (it skips the
-  user's sign-in). Without the two lean flags each call loads the user's hooks, MCP servers
-  and skills (about 150k tokens, 10 s) and the hooks write files; `--tools ""` alone keeps
-  every MCP tool. `--model` is always passed: the lean flags skip the user's settings, and
-  the default becomes the largest model. Each `""` is followed by a flag, because `--tools`
-  takes a list.
-- **The Test proves the lean flags, and binds to a version.** On a tap only (each run uses
-  the user's plan): `--version`, then the chord's line with `stream-json --verbose
-  --include-hook-events` and a fixed prompt. It passes only with zero tools, zero MCP
-  servers and no hook event in the start-up record, and the same version there as
-  `--version` printed. `ConnectedTool.tested` keeps that version. **Before every request
-  the generator runs `--version` again** (about 10 ms) and sends nothing on another
-  version, so a CLI update that breaks the lean flags never runs the user's hooks on the
-  chord's text. A failed Test clears `tested`.
+  --system-prompt <text only> --output-format stream-json --verbose --include-hook-events`.
+  **Never `--bare`** (it skips the user's sign-in). Without the two lean flags each call
+  loads the user's hooks, MCP servers and skills (about 150k tokens, 10 s) and the hooks
+  write files; `--tools ""` alone keeps every MCP tool. `--model` is always passed: the lean
+  flags skip the user's settings. Each `""` is followed by a flag (`--tools` takes a list).
+- **Every run checks its own start-up record** (`ConnectedTool.StreamCheck`, a
+  `CLIProcess.LineCheck`). The first line must be `init` with no tools, no MCP servers and
+  the tested version; later lines must be events the app knows, and a model turn may hold
+  text and thinking only. A hook event, an unknown event, a line that is not JSON or another
+  version **stops the run at that line**, discards it, records the reason and clears the
+  Test (`onUntrusted`). Fail closed: a new event type in a CLI update fails the chord until
+  the code knows it.
+- **The Test pins the file** (`ConnectedTool.Tested`: the version its start-up record gave,
+  and the real path, size, change time and inode). On a tap only (each run uses the user's
+  plan), the same line and check with a fixed prompt. A changed file reads as untested at
+  the chord, by `stat` calls only; no `--version` is spawned. A failed Test clears `tested`.
+- **The prompt** goes on stdin, argv holds constants only. **Each conversation turn is one
+  JSON object on one line**, its content a JSON string, so "[user]" or a line break with a
+  fake role inside a mail or a selection stays inside its own string.
+- **The reply** (`ConnectedToolGenerator.normalized`, here only, so the endpoint's parser
+  keeps its meaning): a call written without its tags, bare or in a code fence, becomes a
+  tagged call; two calls are cut to the first, so the stored turn shows the call that ran;
+  a reply shaped like a call that cannot be read fails the run and is never spoken. The
+  no-tool guard (`ConnectedTool.reply`): more than one turn, a permission denial, `<invoke`
+  or `<function_calls` is a failure. Accept only `is_error: false` and `terminal_reason:
+  "completed"`; `subtype` says "success" on a run that is not signed in.
 - **`CLIProcess` is the only code that spawns, kills and reaps.** `posix_spawn`, the child
   leads its own process group, in an empty `mkdtemp` folder (0700, removed after), with an
-  allowlisted environment (`HOME`, `USER`, `LOGNAME`, `TMPDIR`, a fixed `PATH`; an API key
-  in a terminal-started dev build would otherwise bill instead of the user's plan), no app
-  descriptor (`CLOEXEC_DEFAULT`), stderr to /dev/null. **The prompt goes on stdin, argv
-  holds constants only** (every process can read argv). `F_SETNOSIGPIPE` on the write end,
-  or a child that exits unread ends the app. A timeout (20 s), a 1 MiB stdout cap and the
-  task's cancel (Escape, sign-out, the loop's budget) send SIGTERM then SIGKILL to the
-  group. It waits with `WNOWAIT` and kills the rest of the group **before** it reaps, so a
-  kill never reaches a reused group id. Known limits: a grandchild that calls `setsid`
-  leaves the group, and a run still going when the app quits is not killed.
-- **The no-tool guard is the app's** (`ConnectedTool.reply`): a reply with more than one
-  turn, a permission denial, `<invoke` or `<function_calls` is a failure, never an answer.
-  Accept only `is_error: false` and `terminal_reason: "completed"`; `subtype` says
-  "success" on a run that is not signed in.
-- **Every failure is nil, with a fixed reason** (`ConnectedTool.failure`): "did not answer
-  within 20 seconds", "is not signed in", "changed version since its Test passed". The
-  decision rung and "What was sent" lead with it. The send is recorded before the launch
-  (counts only); a version check that stops the first request records no send.
+  allowlisted environment (`HOME`, `USER`, `LOGNAME`, `TMPDIR`, a fixed `PATH`, no Node.js
+  folder: an npm install that needs `node` fails with that reason), no app descriptor,
+  stderr to /dev/null. `F_SETNOSIGPIPE` on the write end. A timeout (20 s), a 1 MiB cap, a
+  refused line and the task's cancel send SIGTERM then SIGKILL to the group. It waits with
+  `WNOWAIT` and kills the rest of the group **before** it reaps, so a kill never reaches a
+  reused group id. **An exit wins over a late timeout**: once reaped, the reader gets a
+  second to drain. Known limits: a grandchild that calls `setsid` leaves the group, and a
+  run still going when the app quits is not killed.
+- **Every failure is nil, with a fixed reason** (`ConnectedTool.failure`), never the
+  tool's own words. The send is recorded before the launch (counts only).
 - **Codex is built and never reachable** (`FeatureFlags.connectedCodexAvailable`, false on
-  every channel). In its read-only sandbox it still ran `ls`, so text in a mail could make
-  it read a file and send it to OpenAI; its guard acts only after the command ran. It turns
-  on only in a commit that adds a setting the shell canary proved (`CodexShellCanaryTests`,
-  `WM_CODEX_CANARY=1`) and pastes its output. Never guess a config key into the line: a key
-  Codex ignores still parses.
+  every channel). `load` drops a stored Codex, Settings shows only an offered kind,
+  `detect` and `test` refuse it, and the bench skips it. In its read-only sandbox Codex
+  still ran `ls`, so text in a mail could make it read a file and send it to OpenAI. Its
+  Test cannot pass. It turns on only in a commit that adds a setting the shell canary
+  proved (`CodexShellCanaryTests`, `WM_CODEX_CANARY=1`) and pastes its output. Never guess
+  a config key into the line: a key Codex ignores still parses.
 - **Naming:** the card is "Connected tool". The tool's own name appears only in sentences
   about it ("Runs Claude Code on this Mac", "Answered by Claude Code"), never as a feature
   name.
-- **Not checked live:** the lean flags, the Test's stream and the keychain or privacy
-  prompts when the app (not a shell) is the parent. `AgentEndpointLiveTests` has an arm,
-  `WM_CONNECTED_TOOL=claudeCode`, that runs the 16 first-turn cases through the real tool
-  and skips by default.
+- **Not checked live:** the real stream under the lean flags, the event types a thinking
+  run prints, and the keychain or privacy prompts when the app (not a shell) is the parent.
+  `AgentEndpointLiveTests` has an arm, `WM_CONNECTED_TOOL=claudeCode`, that runs the 16
+  first-turn cases through the real tool and skips by default.
 
 ## Device tools: acting on this Mac (`Tools/DeviceTools.swift`)
 

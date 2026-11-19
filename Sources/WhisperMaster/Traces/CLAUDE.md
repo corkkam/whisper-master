@@ -74,8 +74,10 @@ diff or a decision log, and would be a poor version of whichever it wasn't.
   (`EndpointSendTrace.failure`, a fixed phrase such as "did not answer within 20
   seconds", never the server's or the tool's own output): the rung's detail leads with it,
   because a nil reply ends the loop with no call and the loop would otherwise blame the
-  model for answering without a tool. A run stopped before its first request (a tool on a
-  new version) keeps no send record.
+  model for answering without a tool. A run stopped before its first request (a tool whose
+  file changed) keeps no send record (`DictationViewModel.remoteOutcome`). A tool skipped
+  before it started (gone, or changed since its Test) gets its own rung, and the endpoint
+  rung may follow it (`remotePlan`).
 - **The approval wait is not the connector's latency** (`ToolCallTrace.approvalMilliseconds`).
   `milliseconds` is measured with the wait taken out, because a write that sat a minute
   on the consent card otherwise reads as a minute of provider latency and sends the

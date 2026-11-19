@@ -344,9 +344,11 @@ flag (`Connectors/Agent/ConnectedTool.swift`, Settings card "Connected tool"). T
 starts the CLI by its absolute path as a text generator, with the lean flags (no tools, no
 MCP servers, no settings, never `--bare`), the prompt on stdin, an empty temp folder and
 an allowlisted environment, and **never reads its sign-in**. The Settings Test proves the
-lean flags on the installed version, and a new version sends nothing until the Test
-passes again. Codex is built but off on every channel (`connectedCodexAvailable`): its
-sandbox still runs shell commands. Rules: the connected tool section of
+lean flags and pins the file it ran; a changed file sends nothing until the Test passes
+again, and every run is stopped at a start-up record that shows a tool, an MCP server, a
+hook or another version. A Pause or a Revoke stops the next turn of a run in flight.
+Codex is built but off on every channel (`connectedCodexAvailable`), and a stored Codex
+is dropped on load: its sandbox still runs shell commands. Rules: the connected tool section of
 `Connectors/CLAUDE.md`.
 
 The assistant can also act on this Mac (`Connectors/Tools/DeviceTools.swift`): open an
