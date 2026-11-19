@@ -307,8 +307,8 @@ final class CloudToolGeneratorTests: XCTestCase {
         }, "consent for another address is not consent for this send")
     }
 
-    /// One key slot: a new host, with its own consent, must not inherit the last
-    /// provider's key. A new path or model on the same host keeps it.
+    /// One key slot: a new host or port, with its own consent, must not inherit the
+    /// last provider's key. A new path or model on the same host and port keeps it.
     func testANewHostDeletesTheStoredKey() {
         let anthropic = AgentEndpoint(api: .anthropic, url: "https://api.anthropic.com/v1/messages",
                                       model: "m")
@@ -324,11 +324,19 @@ final class CloudToolGeneratorTests: XCTestCase {
         XCTAssertTrue(AgentEndpoint.keyMustGo(from: anthropic, to: refused), "a refused address has no host")
         XCTAssertFalse(AgentEndpoint.keyMustGo(from: AgentEndpoint(), to: anthropic),
                        "setting the first address deletes nothing")
+        let local = AgentEndpoint(api: .openAICompatible,
+                                  url: "http://127.0.0.1:8443/v1/chat/completions", model: "m")
+        var otherPort = local
+        otherPort.url = "http://127.0.0.1:11434/v1/chat/completions"
+        XCTAssertTrue(AgentEndpoint.keyMustGo(from: local, to: otherPort), "another port is another server")
 
         withMemoryKeychain {
-            let state = AppState()
-            state.agentEndpoint = anthropic
+            // Launch: `AppState` loads the saved endpoint over an empty one.
+            anthropic.save()
             AgentEndpoint.setAPIKey("sk-ant-old")
+            let state = AppState()
+            XCTAssertEqual(state.agentEndpoint.url, anthropic.url)
+            XCTAssertEqual(AgentEndpoint.apiKey(), "sk-ant-old", "launch deletes nothing")
             state.agentEndpoint = samePlace
             XCTAssertEqual(AgentEndpoint.apiKey(), "sk-ant-old")
             state.agentEndpoint = elsewhere
