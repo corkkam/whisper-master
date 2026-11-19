@@ -37,7 +37,8 @@ struct ConnectedToolGenerator: Sendable {
     var outputCap = 1 << 20
     var runner: CLIProcess.Runner = CLIProcess.live
     var environment = ConnectedTool.environment()
-    /// Asked before every turn: still on, not paused, still allowed for this tool.
+    /// Asked before every turn and again when its reply returns: still on, not paused,
+    /// still allowed for this tool.
     var mayContinue: @Sendable () async -> Bool = { true }
     /// The run showed the tool is not what its Test passed on. The view model clears the
     /// Test, so nothing more is sent until it passes again.
@@ -76,20 +77,24 @@ struct ConnectedToolGenerator: Sendable {
             stdin, timeout, outputCap, lineCheck)
 
         if outcome == .cancelled { return nil }
-        // A Pause, a Revoke or a sign-out while it ran: the reply is dropped before the
-        // loop reads it or a tool runs.
-        guard await mayContinue() else { return fail("was paused or turned off during the run") }
+        // What the run showed about the tool comes first: a Pause must not hide it, or
+        // the Test would stay on a tool that just proved it is not what it passed as.
         if outcome == .refused {
             return await distrust(check?.problem ?? "printed something the app does not allow")
         }
+        if case .exited(0, _) = outcome, let check, check.version == nil {
+            return await distrust("printed no start-up record")
+        }
+        // A Pause, a Revoke or a sign-out while it ran: the reply is dropped before the
+        // loop reads it or a tool runs.
+        guard await mayContinue() else { return fail("was paused or turned off during the run") }
         guard case .exited(0, let stdout) = outcome else {
             return fail(ConnectedTool.failure(outcome, kind: kind, timeout: timeout))
         }
-        if let check, check.version == nil { return await distrust("printed no start-up record") }
         guard let raw = ConnectedTool.reply(from: stdout, kind: kind) else {
             return fail(ConnectedTool.failure(outcome, kind: kind, timeout: timeout))
         }
-        guard let reply = Self.normalized(raw) else { return fail("wrote a function call the app could not read") }
+        guard let reply = Self.normalized(raw) else { return fail("wrote a function call the app does not accept") }
         return reply
     }
 
@@ -109,41 +114,62 @@ struct ConnectedToolGenerator: Sendable {
 
     // MARK: - The reply
 
-    /// The reply as the loop should read it, or nil when it shows a call that cannot be
-    /// read: that run fails, and the reply is never spoken or counted as an answer. Here
-    /// only: the endpoint's parser keeps its meaning. One rule, in this order:
+    /// The reply as the loop should read it, or nil when it shows a call that is not one
+    /// the app accepts: that run fails, and the reply is never spoken, counted as an
+    /// answer or run. Here only: the endpoint's parser keeps its meaning.
     ///
-    /// 1. The first call anywhere in the reply, prose before it dropped: a `<tool_call>`
-    ///    block (its close tag may be missing), else the first code fence that holds an
-    ///    object, else the first bare object with `name` and `arguments`.
-    /// 2. If its JSON reads as a call, exactly one `<tool_call>{…}</tool_call>`. Only the
-    ///    first: the loop runs one call per turn, and the stored turn must show that call.
-    /// 3. If the reply shows a call (`<tool_call`, a `"name"` key beside `"arguments"`, a
-    ///    fence that holds an object, or nothing but an object) and step 2 failed, nil.
-    /// 4. Otherwise a plain answer. The `{"tool": …}` and `{"answer": …}` shapes, as the
-    ///    whole reply, also pass through: the shared parser reads them.
+    /// 1. **A tagged call is read wherever it sits** (the tag in any case), as the native
+    ///    parser does for the endpoint. Only the first: the loop runs one call per turn,
+    ///    and the stored turn must show that call.
+    /// 2. **An untagged call is read only as the whole reply**: a bare object, or one code
+    ///    fence with nothing outside it. Quoted inside prose it is data, never a call: a
+    ///    mail that holds `{"name": "create_reminder", …}` must not file a reminder because
+    ///    the answer repeats it. The `{"tool": …}` and `{"answer": …}` shapes, as the whole
+    ///    reply, read as the shared parser reads them.
+    /// 3. **Any other reply that shows a call fails**: a tag-like marker, a `"name"` key
+    ///    beside `"arguments"`, an object with a `name`, a fence that holds an object, or
+    ///    nothing but an object.
+    /// 4. Everything else is a plain answer.
     static func normalized(_ reply: String) -> String? {
         let whole = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let envelope = object(whole), envelope["tool"] != nil || envelope["answer"] != nil { return reply }
-        let fence = fencedBody(reply)
-        let candidate: (json: String, tagged: Bool)?
-        if let open = reply.range(of: "<tool_call>") {
-            let rest = reply[open.upperBound...]
-            candidate = (String(rest.range(of: "</tool_call>").map { rest[..<$0.lowerBound] } ?? rest), true)
-        } else if let fence, fence.hasPrefix("{") {
-            candidate = (fence, false)
-        } else {
-            candidate = ToolCallParser.extractJSONObject(from: reply).map { ($0, false) }
+        if let open = whole.range(of: "<tool_call>", options: .caseInsensitive) {
+            let rest = whole[open.upperBound...]
+            let inner = rest.range(of: "</tool_call>", options: .caseInsensitive).map { rest[..<$0.lowerBound] } ?? rest
+            return call(String(inner), tagged: true).map { "<tool_call>\($0)</tool_call>" }
         }
-        if let candidate, let json = call(candidate.json, tagged: candidate.tagged) {
-            return "<tool_call>\(json)</tool_call>"
-        }
-        // A reply that is nothing but an object is never an answer to speak either.
-        let showsACall = reply.contains("<tool_call")
+        let body = wholeFence(whole) ?? whole
+        if let envelope = object(body), envelope["tool"] != nil || envelope["answer"] != nil { return body }
+        if let json = call(body, tagged: false) { return "<tool_call>\(json)</tool_call>" }
+        return showsACall(whole) ? nil : reply
+    }
+
+    /// A sign that the reply holds a call, read or not.
+    private static func showsACall(_ reply: String) -> Bool {
+        if ["<tool_call", "tool_call>"].contains(where: { reply.range(of: $0, options: .caseInsensitive) != nil })
             || (reply.contains("\"name\"") && reply.contains("\"arguments\""))
-            || fence?.hasPrefix("{") == true
-            || (whole.hasPrefix("{") && whole.hasSuffix("}"))
-        return showsACall ? nil : reply
+            || (reply.hasPrefix("{") && reply.hasSuffix("}"))
+            || fencedBody(reply)?.hasPrefix("{") == true { return true }
+        // Any object in it, at any depth, that carries a name.
+        var rest = reply[...]
+        while let brace = rest.firstIndex(of: "{") {
+            if let json = ToolCallParser.extractJSONObject(from: String(rest[brace...])),
+               object(json)?["name"] != nil { return true }
+            rest = rest[rest.index(after: brace)...]
+        }
+        return false
+    }
+
+    /// The body of a reply that is one code fence and nothing else, its language line
+    /// dropped. nil when there is text outside it or a second fence.
+    private static func wholeFence(_ whole: String) -> String? {
+        guard whole.count >= 6, whole.hasPrefix("```"), whole.hasSuffix("```") else { return nil }
+        var inside = whole.dropFirst(3).dropLast(3)
+        if let newline = inside.firstIndex(of: "\n"),
+           inside[..<newline].allSatisfy({ $0.isLetter || $0.isNumber }) {
+            inside = inside[inside.index(after: newline)...]
+        }
+        guard !inside.contains("```") else { return nil }
+        return inside.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// The JSON, trimmed, when it reads as one call: a non-empty `name`, and `arguments`

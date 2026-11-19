@@ -223,7 +223,8 @@ endpoint. **Text only leaves the Mac, never audio.**
   the tested version; later lines must be events the app knows, and a model turn may hold
   text and thinking only. A hook event, an unknown event, a line that is not JSON or another
   version **stops the run at that line**, discards it, records the reason and clears the
-  Test (`onUntrusted`). Fail closed: a new event type in a CLI update fails the chord until
+  Test (`onUntrusted`), even when a Pause came during that run: what the run showed is
+  acted on before the Pause check. Fail closed: a new event type in a CLI update fails the chord until
   the code knows it.
 - **The Test pins the file** (`ConnectedTool.Tested`: the version its start-up record gave,
   and the link's real target with its device, inode, size, modification time and
@@ -237,12 +238,14 @@ endpoint. **Text only leaves the Mac, never audio.**
   JSON object on one line**, its content a JSON string, so "[user]" or a line break with a
   fake role inside a mail or a selection stays inside its own string.
 - **The reply** (`ConnectedToolGenerator.normalized`, here only, so the endpoint's parser
-  keeps its meaning), one rule: the first call anywhere (a `<tool_call>` block, else a
-  fenced object, else a bare object with `name` and `arguments`, prose before it dropped)
-  becomes exactly one tagged call when its JSON reads. A reply that shows a call
-  (`<tool_call`, `"name"` beside `"arguments"`, a fenced object, or nothing but an object)
-  whose JSON does not read fails the run: it is never spoken and never counts as an answer.
-  Anything else is a plain answer. The no-tool guard (`ConnectedTool.reply`): more than one turn, a permission denial, `<invoke`
+  keeps its meaning): a `<tool_call>` block is read wherever it sits, the tag in any case,
+  first block only. **An untagged call (a bare object or one fence) is read only as the
+  whole reply**: quoted in prose it is data, because a mail that holds a call must not file
+  a reminder when the answer repeats it. Any other reply that shows a call (a tag-like
+  marker, `"name"` beside `"arguments"`, an object with a `name`, a fence that holds an
+  object) fails the run and is never spoken or run. A whole-reply `{"answer": …}` or
+  `{"tool": …}`, bare or fenced, reads as before. Anything else is a plain answer.
+  The no-tool guard (`ConnectedTool.reply`): more than one turn, a permission denial, `<invoke`
   or `<function_calls` is a failure. Accept only `is_error: false` and `terminal_reason:
   "completed"`; `subtype` says "success" on a run that is not signed in.
 - **`CLIProcess` is the only code that spawns, kills and reaps.** `posix_spawn`, the child
