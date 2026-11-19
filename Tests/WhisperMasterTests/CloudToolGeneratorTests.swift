@@ -280,7 +280,31 @@ final class CloudToolGeneratorTests: XCTestCase {
             XCTAssertFalse(viewModel.state.agentEndpoint.isActive)
             XCTAssertNil(AgentEndpoint.apiKey())
             XCTAssertEqual(viewModel.state.agentEndpoint.url, endpoint.url, "the address and model stay")
+            XCTAssertFalse(DictationViewModel.endpointMayStillSend(
+                copied: endpoint, current: viewModel.state.agentEndpoint),
+                "a run that copied the endpoint before sign-out must not send")
         }
+    }
+
+    /// `runCommandAgent` copies the endpoint, then waits up to half a second for the
+    /// selection. It checks again after that wait, before the generator is built.
+    func testTheEndpointIsCheckedAgainAfterTheSelectionWait() {
+        var copied = AgentEndpoint(api: .anthropic, url: "https://api.anthropic.com/v1/messages",
+                                   model: "m")
+        copied.consentedTo = copied.consentKey
+        func may(_ change: (inout AgentEndpoint) -> Void) -> Bool {
+            var current = copied
+            change(&current)
+            return DictationViewModel.endpointMayStillSend(copied: copied, current: current)
+        }
+        XCTAssertTrue(may { _ in })
+        XCTAssertTrue(may { $0.model = "other" }, "a new model sends to the same place")
+        XCTAssertFalse(may { $0.consentedTo = nil }, "signed out or revoked")
+        XCTAssertFalse(may { $0.paused = true })
+        XCTAssertFalse(may {
+            $0.url = "https://proxy.example.com/v1/messages"
+            $0.consentedTo = $0.consentKey
+        }, "consent for another address is not consent for this send")
     }
 
     /// One key slot: a new host, with its own consent, must not inherit the last

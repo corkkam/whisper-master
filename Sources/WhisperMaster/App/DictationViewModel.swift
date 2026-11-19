@@ -1576,6 +1576,19 @@ final class DictationViewModel {
             return local
         }
         let selection = await SelectionCapture.settle(selectionRead)
+        // Again after that wait (up to half a second): a sign-out, a revoke or a pause
+        // in it keeps the words on this Mac. No await between here and the run's task,
+        // which `handleSignOut` cancels from then on.
+        guard Self.endpointMayStillSend(copied: endpoint, current: state.agentEndpoint) else {
+            var local = await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp,
+                                               keptLocal: false, keyDownApp: keyDownApp)
+            local.priorDecisions.insert(TraceDecision(
+                title: "Your endpoint",
+                detail: "Skipped — it was turned off, or you signed out, while the selection "
+                    + "was read, so nothing left this Mac.",
+                taken: false), at: 0)
+            return local
+        }
         let sent = EndpointSendLog(host: endpoint.host)
         guard let generator = CloudToolGenerator(endpoint: endpoint, apiKey: AgentEndpoint.apiKey(),
                                                  sent: sent) else {
@@ -1611,6 +1624,12 @@ final class DictationViewModel {
                                           createdSomething: Bool, calls: [ToolCallTrace]) -> Bool {
         !handled && !cancelled && !createdSomething
             && !calls.contains { $0.authorization?.isRefusal == true }
+    }
+
+    /// Whether the endpoint copied before the selection wait may still take the
+    /// capture: still on, and still agreed to for the same address and API.
+    static func endpointMayStillSend(copied: AgentEndpoint, current: AgentEndpoint) -> Bool {
+        current.isActive && current.consentKey == copied.consentKey
     }
 
     private func runOnDeviceAgent(_ text: String,
