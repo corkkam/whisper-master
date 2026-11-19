@@ -230,8 +230,26 @@ final class CloudToolGeneratorTests: XCTestCase {
         XCTAssertNil(AgentEndpoint.validate("https://me:pw@api.example.com/v1/chat/completions"))
         XCTAssertNil(AgentEndpoint.validate("https://me@api.example.com/v1/chat/completions"))
         XCTAssertNil(AgentEndpoint.validate("https://api.example.com/v1/chat/completions?key=abc"))
+        XCTAssertNil(AgentEndpoint.validate("https://api.example.com/v1/chat/completions#key=abc"))
         XCTAssertNil(AgentEndpoint.validate("http://user:pw@127.0.0.1:11434/v1/chat/completions"))
         XCTAssertNotNil(AgentEndpoint.validate("https://api.example.com/v1/chat/completions"))
+    }
+
+    /// The address field binds straight to the stored endpoint. A refused address is
+    /// written as empty, so a pasted key never reaches the plist.
+    func testARefusedAddressIsNeverStored() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "endpoint-\(UUID().uuidString)"))
+        for raw in ["https://api.example.com/v1/chat/completions?api-key=\(Self.canary)",
+                    "https://me:\(Self.canary)@api.example.com/v1/chat/completions",
+                    "https://api.example.com/v1/chat/completions#\(Self.canary)"] {
+            AgentEndpoint(api: .openAICompatible, url: raw, model: "m").save(to: defaults)
+            let stored = try XCTUnwrap(defaults.data(forKey: AgentEndpoint.defaultsKey))
+            XCTAssertFalse(String(decoding: stored, as: UTF8.self).contains(Self.canary), raw)
+            XCTAssertEqual(AgentEndpoint.load(from: defaults).url, "", raw)
+        }
+        let good = "https://api.example.com/v1/chat/completions"
+        AgentEndpoint(api: .openAICompatible, url: good, model: "m").save(to: defaults)
+        XCTAssertEqual(AgentEndpoint.load(from: defaults).url, good)
     }
 
     /// A redirect would carry the key and the conversation to a host nobody agreed to.

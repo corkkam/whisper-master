@@ -72,13 +72,13 @@ struct AgentEndpoint: Codable, Equatable, Sendable {
     /// Ready to take a capture: set, agreed to, and not paused.
     var isActive: Bool { isConfigured && hasConsent && !paused }
 
-    /// No user, password or query string either: each is a place a secret hides, and
-    /// the address is shown in Settings and its host goes into traces.
+    /// No user, password, query string or fragment either: each is a place a secret
+    /// hides, and the address is shown in Settings and its host goes into traces.
     static func validate(_ raw: String) -> URL? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), let host = url.host, !host.isEmpty,
               let scheme = url.scheme?.lowercased(),
-              url.user == nil, url.password == nil, url.query == nil
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil
         else { return nil }
         if scheme == "https" { return url }
         return scheme == "http" && isLoopback(host) ? url : nil
@@ -115,8 +115,12 @@ struct AgentEndpoint: Codable, Equatable, Sendable {
             .flatMap { try? JSONDecoder().decode(AgentEndpoint.self, from: $0) } ?? AgentEndpoint()
     }
 
+    /// An address `validate` refuses is written as empty: the field binds straight to
+    /// this, and a pasted `?api-key=` or `user:pass@` must not reach the plist.
     func save(to defaults: UserDefaults = .standard) {
-        defaults.set(try? JSONEncoder().encode(self), forKey: Self.defaultsKey)
+        var stored = self
+        if Self.validate(url) == nil { stored.url = "" }
+        defaults.set(try? JSONEncoder().encode(stored), forKey: Self.defaultsKey)
     }
 
     // MARK: - The key, in the Keychain
