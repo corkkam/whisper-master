@@ -222,6 +222,30 @@ final class SelectionContextTests: XCTestCase {
         XCTAssertFalse(viewModel.state.commandCaptureArmed)
     }
 
+    // MARK: - What the draft tap reads
+
+    /// ⌘V over a selection replaces it, so the tap needs "nothing selected" apart
+    /// from "could not tell".
+    func testTheReaderTellsNothingSelectedFromUnknown() {
+        XCTAssertEqual(reader { _ in "" }.state(app), .empty)
+        XCTAssertEqual(reader { _ in "  \n" }.state(app), .empty)
+        XCTAssertEqual(reader { _ in nil }.state(app), .unknown, "Chrome and Electron answer nothing")
+        XCTAssertEqual(reader(secure: true) { _ in "x" }.state(app), .unknown)
+        XCTAssertEqual(reader { _ in "x" }.state(vault), .unknown, "a private app is never read")
+        XCTAssertEqual(reader { _ in "Hi" }.state(app), .selected(selection("Hi")))
+    }
+
+    func testATapReadThatRunsPastTheWaitIsUnknown() async {
+        let gate = DispatchSemaphore(value: 0)
+        defer { gate.signal() }
+        let slow = reader { _ in
+            _ = gate.wait(timeout: .now() + 5)
+            return "late"
+        }
+        let state = await SelectionCapture.state(in: app, reader: slow, within: 0.1)
+        XCTAssertEqual(state, .unknown)
+    }
+
     func testAFinishedReadSettlesWithItsValue() async {
         let capture = SelectionCapture(reader: reader { _ in "ready" })
         capture.begin(app)

@@ -338,19 +338,47 @@ struct AgentDraft: Equatable, Sendable {
         }
     }
 
-    /// Why a tap must copy, from the selection read again at the tap (nil: nothing
-    /// selected, or not readable). A Replace types only over the exact text it was
-    /// written for, read whole. An Insert types only where nothing is selected, since
-    /// ⌘V over a selection replaces it.
-    func selectionBlocker(current: SelectionContext?) -> String? {
-        switch kind {
-        case .replaceSelection:
-            if current?.wasCut == true { return Self.selectionCut }
-            return current?.text == selection ? nil : Self.selectionChanged
-        case .insertText:
-            return current == nil ? nil : Self.textSelected
+    /// Whether the tap reads the selection before it types. Not for an Insert in a
+    /// terminal: ⌘V there types at the prompt and replaces nothing, so highlighted
+    /// text is no reason to copy.
+    var readsSelectionAtTap: Bool {
+        kind == .replaceSelection || !TerminalApps.isTerminal(bundleID: app.bundleID)
+    }
+
+    /// Why a tap must copy, from the selection read again at the tap. A Replace types
+    /// only over the exact text it was written for, read whole. An Insert copies over
+    /// a selection it can see, since ⌘V replaces it. Over one it cannot see (Chrome,
+    /// Electron, a read past the wait) it still types, and `typedLine` says so.
+    func selectionBlocker(current: SelectionReader.SelectionState) -> String? {
+        switch (kind, current) {
+        case (.replaceSelection, .selected(let now)):
+            if now.wasCut { return Self.selectionCut }
+            return now.text == selection ? nil : Self.selectionChanged
+        case (.replaceSelection, .empty), (.replaceSelection, .unknown):
+            return Self.selectionChanged
+        case (.insertText, .selected):
+            return Self.textSelected
+        case (.insertText, .empty), (.insertText, .unknown):
+            return nil
         }
     }
+
+    /// The status line once the tap has typed. `read` is what the tap read, or nil
+    /// when it read nothing (`readsSelectionAtTap`). When the app could not say what
+    /// was selected, ⌘V may have replaced text, so the line says how to undo it.
+    func typedLine(after read: SelectionReader.SelectionState?) -> String {
+        switch kind {
+        case .replaceSelection:
+            return "Replaced the selection in \(app.name)."
+        case .insertText where read == .unknown:
+            return Self.typedOverUnknownSelection
+        case .insertText:
+            return "Typed the draft into \(app.name)."
+        }
+    }
+
+    /// No app name, so it stays inside the status line's 60 characters.
+    static let typedOverUnknownSelection = "Pasted. If text was selected, Cmd-Z restores it."
 
     /// The same draft, made copy only because a check at the tap failed.
     func copyOnly(_ reason: String) -> AgentDraft {

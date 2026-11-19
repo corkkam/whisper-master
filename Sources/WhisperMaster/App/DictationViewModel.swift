@@ -870,7 +870,14 @@ final class DictationViewModel {
     }
 
     private func applyDraft(_ draft: AgentDraft) async {
-        if let reason = await draftBlocker(draft) { return copyInstead(draft, reason) }
+        if let reason = draftBlocker(draft) { return copyInstead(draft, reason) }
+        // The same off-main read the chord makes, so a hung app costs the wait and
+        // reads as unknown. None for an Insert in a terminal (`readsSelectionAtTap`).
+        var selection: SelectionReader.SelectionState?
+        if draft.readsSelectionAtTap { selection = await SelectionCapture.state(in: draft.app) }
+        if let selection, let reason = draft.selectionBlocker(current: selection) {
+            return copyInstead(draft, reason)
+        }
         guard state.agentDraft == draft else { return }
         // Again, with nothing between this and the paste: the selection read above
         // can take half a second, long enough to switch apps.
@@ -879,9 +886,7 @@ final class DictationViewModel {
         // A real ⌘V with the clipboard put back after, never a Return: the draft is
         // typed, and sending it is still the user's own keystroke.
         await pasteViaClipboard(draft.text)
-        state.statusMessage = draft.kind == .replaceSelection
-            ? "Replaced the selection in \(draft.app.name)."
-            : "Typed the draft into \(draft.app.name)."
+        state.statusMessage = draft.typedLine(after: selection)
     }
 
     private func copyInstead(_ draft: AgentDraft, _ reason: String) {
@@ -906,19 +911,14 @@ final class DictationViewModel {
     }
 
     /// Why a tap must copy rather than type. Checked at the tap, not trusted from
-    /// when the draft was staged: the user may have moved since.
-    private func draftBlocker(_ draft: AgentDraft) async -> String? {
+    /// when the draft was staged: the user may have moved since. The selection is
+    /// checked after this, in `applyDraft`.
+    private func draftBlocker(_ draft: AgentDraft) -> String? {
         if let reason = draft.copyOnlyReason { return reason }
         guard permissionsManager.accessibilityGranted() else {
             return "Typing needs Accessibility, so this is copy only."
         }
-        if let reason = focusBlocker(draft) { return reason }
-        // Both kinds: ⌘V over a selection replaces it, so an Insert checks too. The
-        // same off-main read the chord makes, so a hung app costs the wait.
-        let capture = SelectionCapture()
-        capture.begin(draft.app)
-        let current = await SelectionCapture.settle(capture.take())
-        return draft.selectionBlocker(current: current)
+        return focusBlocker(draft)
     }
 
     // MARK: - Reading answers aloud

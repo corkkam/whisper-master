@@ -141,25 +141,41 @@ struct SelectionReader: Sendable {
     var windowTitle: @Sendable (pid_t) -> String?
     var selectedText: @Sendable (pid_t) -> String?
 
+    /// What a read found. The draft tap needs `empty` apart from `unknown`: ⌘V over a
+    /// selection replaces it, and only an app that answered can say nothing is selected.
+    enum SelectionState: Equatable, Sendable {
+        case selected(SelectionContext)
+        /// The app answered: nothing selected, or only whitespace.
+        case empty
+        /// No answer: no app, a private app, secure input, an app that hides its tree
+        /// (Chrome, Electron), or a read that ran past the wait.
+        case unknown
+    }
+
     /// The selection in `app`, or nil: no app, a private app, secure input on, our
     /// own process, or nothing selected. Blocking; never call it on the main actor.
     func read(_ app: FrontApp?) -> SelectionContext? {
-        guard let app, app.pid != ProcessInfo.processInfo.processIdentifier else { return nil }
-        if let id = app.bundleID, Self.privateApps.contains(id.lowercased()) { return nil }
+        if case .selected(let context) = state(app) { return context }
+        return nil
+    }
+
+    /// `read`, with "nothing selected" kept apart from "could not tell". Blocking.
+    func state(_ app: FrontApp?) -> SelectionState {
+        guard let app, app.pid != ProcessInfo.processInfo.processIdentifier else { return .unknown }
+        if let id = app.bundleID, Self.privateApps.contains(id.lowercased()) { return .unknown }
         // Secure input is on while a password field anywhere has focus.
-        guard !secureInputEnabled() else { return nil }
+        guard !secureInputEnabled() else { return .unknown }
         let started = Date()
-        guard let raw = selectedText(app.pid),
-              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { return nil }
+        guard let raw = selectedText(app.pid) else { return .unknown }
+        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .empty }
         let length = raw.count
         let answeredAtOnce = Date().timeIntervalSince(started) < TimeInterval(Self.titleTimeout)
-        return SelectionContext(
+        return .selected(SelectionContext(
             appName: app.name,
             windowTitle: answeredAtOnce ? windowTitle(app.pid) : nil,
             text: length > Self.limit ? String(raw.prefix(Self.limit)) : raw,
             wasCut: length > Self.limit,
-            originalLength: length)
+            originalLength: length))
     }
 
     static let live = SelectionReader(
@@ -262,11 +278,27 @@ final class SelectionCapture {
         return pending
     }
 
+    /// What is selected in `app` now, for the draft tap: read off the main actor like
+    /// `begin`, and `.unknown` once `seconds` pass without an answer.
+    static func state(in app: SelectionReader.FrontApp,
+                      reader: SelectionReader = .live,
+                      within seconds: TimeInterval = wait) async -> SelectionReader.SelectionState {
+        let read = Task {
+            await withCheckedContinuation {
+                (continuation: CheckedContinuation<SelectionReader.SelectionState?, Never>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    continuation.resume(returning: reader.state(app))
+                }
+            }
+        }
+        return await settle(read, within: seconds) ?? .unknown
+    }
+
     /// The read's result, or nil once `seconds` have passed without one.
-    static func settle(_ read: Task<SelectionContext?, Never>?,
-                       within seconds: TimeInterval = wait) async -> SelectionContext? {
+    static func settle<Value: Sendable>(_ read: Task<Value?, Never>?,
+                                        within seconds: TimeInterval = wait) async -> Value? {
         guard let read else { return nil }
-        return await withCheckedContinuation { (continuation: CheckedContinuation<SelectionContext?, Never>) in
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Value?, Never>) in
             let race = FirstPastThePost()
             let timeout = Task {
                 try? await Task.sleep(nanoseconds: UInt64(max(seconds, 0) * 1_000_000_000))

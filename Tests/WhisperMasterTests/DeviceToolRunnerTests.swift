@@ -487,10 +487,14 @@ final class DeviceToolRunnerTests: XCTestCase {
         XCTAssertNil(staged.copyOnlyReason)
         let grown = SelectionContext(appName: "Mail", windowTitle: nil, text: selection().text,
                                      wasCut: true, originalLength: SelectionReader.limit + 1)
-        XCTAssertEqual(staged.selectionBlocker(current: grown), AgentDraft.selectionCut)
-        XCTAssertNil(staged.selectionBlocker(current: selection()), "the same whole selection may be replaced")
-        XCTAssertEqual(staged.selectionBlocker(current: selection("Other text.")), AgentDraft.selectionChanged)
-        XCTAssertEqual(staged.selectionBlocker(current: nil), AgentDraft.selectionChanged)
+        XCTAssertEqual(staged.selectionBlocker(current: .selected(grown)), AgentDraft.selectionCut)
+        XCTAssertNil(staged.selectionBlocker(current: .selected(selection())),
+                     "the same whole selection may be replaced")
+        XCTAssertEqual(staged.selectionBlocker(current: .selected(selection("Other text."))),
+                       AgentDraft.selectionChanged)
+        XCTAssertEqual(staged.selectionBlocker(current: .empty), AgentDraft.selectionChanged)
+        XCTAssertEqual(staged.selectionBlocker(current: .unknown), AgentDraft.selectionChanged,
+                       "a Replace needs the exact text it was written for")
     }
 
     /// ⌘V over a selection replaces it, so an Insert re-reads the selection at the tap.
@@ -501,11 +505,49 @@ final class DeviceToolRunnerTests: XCTestCase {
         guard case .draftStaged(let draft)? = effect else { return XCTFail("no draft") }
         XCTAssertNil(draft.copyOnlyReason, "staged before the tap's own read")
 
-        XCTAssertEqual(draft.selectionBlocker(current: selection()), AgentDraft.textSelected)
-        XCTAssertEqual(draft.selectionBlocker(current: selection()),
+        XCTAssertEqual(draft.selectionBlocker(current: .selected(selection())), AgentDraft.textSelected)
+        XCTAssertEqual(draft.selectionBlocker(current: .selected(selection())),
                        "Text is selected, so inserting would replace it. This is copy only.")
-        XCTAssertNil(draft.selectionBlocker(current: nil), "with nothing selected the tap types")
+        XCTAssertNil(draft.selectionBlocker(current: .empty), "with nothing selected the tap types")
+        XCTAssertEqual(draft.typedLine(after: .empty), "Typed the draft into Mail.")
         XCTAssertEqual(draft.copyOnly(AgentDraft.textSelected).actionTitle, "Copy")
+    }
+
+    /// Chrome and Electron (Slack, VS Code) hide their selection, and a hung app runs
+    /// out the wait. Insert still types there, the most common place it is used, and
+    /// the status line says that a selection may have been replaced.
+    func testAnInsertOverAnUnknownSelectionTypesAndSaysHowToUndo() async {
+        let slack = SelectionReader.FrontApp(bundleID: "com.tinyspeck.slackmacgap", name: "Slack", pid: 403)
+        let (_, effect) = await runner(recorder: Recorder(), keyDown: slack)
+            .run(call("insert_text", ["text": "On my way."]))
+        guard case .draftStaged(let draft)? = effect else { return XCTFail("no draft") }
+
+        XCTAssertNil(draft.selectionBlocker(current: .unknown), "unknown is not a reason to copy")
+        let line = draft.typedLine(after: .unknown)
+        XCTAssertEqual(line, AgentDraft.typedOverUnknownSelection)
+        XCTAssertTrue(line.contains("Cmd-Z"))
+        XCTAssertLessThanOrEqual(line.count, 60)
+        XCTAssertNotEqual(line, draft.typedLine(after: .empty), "a known-empty selection keeps the old line")
+    }
+
+    /// ⌘V in a terminal types at the prompt and replaces nothing, so an Insert there
+    /// skips the selection check: highlighted text must not make it copy only.
+    func testAnInsertInATerminalSkipsTheSelectionCheck() async {
+        let (_, insert) = await runner(recorder: Recorder(), keyDown: terminal)
+            .run(call("insert_text", ["text": "git status"]))
+        guard case .draftStaged(let inTerminal)? = insert else { return XCTFail("no draft") }
+        XCTAssertFalse(inTerminal.readsSelectionAtTap)
+        XCTAssertEqual(inTerminal.typedLine(after: nil), "Typed the draft into Terminal.")
+
+        let (_, mailInsert) = await runner(recorder: Recorder(), keyDown: mail)
+            .run(call("insert_text", ["text": "On my way."]))
+        guard case .draftStaged(let inMail)? = mailInsert else { return XCTFail("no draft") }
+        XCTAssertTrue(inMail.readsSelectionAtTap)
+
+        let (_, replace) = await runner(recorder: Recorder(), keyDown: terminal, selection: selection("ls -la"))
+            .run(call("replace_selection", ["text": "ls -lah"]))
+        guard case .draftStaged(let replaceInTerminal)? = replace else { return XCTFail("no draft") }
+        XCTAssertTrue(replaceInTerminal.readsSelectionAtTap, "a Replace always checks its selection")
     }
 
     /// The endpoint writes `<tool_call>{"name":…}`, not `{"tool":…}`. The trace keeps
