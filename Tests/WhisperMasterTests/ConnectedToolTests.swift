@@ -559,6 +559,35 @@ final class ConnectedToolGeneratorTests: XCTestCase {
         XCTAssertEqual(ConnectedToolGenerator.normalized("Sure.\n\(first)\n\(second)"), first)
     }
 
+    /// A tagged call whose JSON does not close: before, the tags passed through, the
+    /// parser found no object, and the tags were spoken as the answer.
+    func testATaggedCallThatDoesNotReadFails() {
+        XCTAssertNil(ConnectedToolGenerator.normalized(
+            #"<tool_call>{"name":"send_message","arguments":{"text":"hi"</tool_call>"#))
+        XCTAssertNil(ConnectedToolGenerator.normalized(#"<tool_call>{"name": "create_note", "arguments": {"body": "x""#),
+                     "cut off before its close tag")
+        XCTAssertNil(ConnectedToolGenerator.normalized("Done.\n<tool_call>not json</tool_call>"))
+    }
+
+    /// Prose first, then the call: the prose is dropped and the call is tagged.
+    func testACallAfterProseIsFoundWhereverItIs() {
+        let call = #"{"name": "create_note", "arguments": {"body": "buy milk"}}"#
+        let tagged = "<tool_call>\(call)</tool_call>"
+        XCTAssertEqual(ConnectedToolGenerator.normalized("I'll save that.\n```json\n\(call)\n```"), tagged)
+        XCTAssertEqual(ConnectedToolGenerator.normalized("I'll save that. \(call)"), tagged)
+        XCTAssertEqual(ConnectedToolGenerator.normalized("Saving it now:\n\(tagged)\nDone."), tagged)
+        XCTAssertNil(ConnectedToolGenerator.normalized("I'll save that.\n```json\n{\"name\": \"create_note\"\n```"),
+                     "a fenced call that does not read")
+    }
+
+    /// Talk about calls is not a call.
+    func testProseAboutCallsStaysAnAnswer() {
+        let prose = "I can't make a tool call for that, but your next meeting is at 3, with the name list attached."
+        XCTAssertEqual(ConnectedToolGenerator.normalized(prose), prose)
+        let code = "Run this:\n```\nls -la\n```"
+        XCTAssertEqual(ConnectedToolGenerator.normalized(code), code, "a fence with no object")
+    }
+
     func testAnUnreadableCallFailsTheRun() async {
         let generator = generator(ScriptedTool([Self.answer(#"{"name": "create_note", "arguments": "#)]))
         let answer = await generator.reply(history, tools: [])

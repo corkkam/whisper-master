@@ -97,34 +97,66 @@ struct ConnectedToolGenerator: Sendable {
 
     // MARK: - The reply
 
-    /// The reply as the loop should read it, or nil when it is shaped like a call that
-    /// cannot be read (it must never be spoken as an answer).
+    /// The reply as the loop should read it, or nil when it shows a call that cannot be
+    /// read: that run fails, and the reply is never spoken or counted as an answer. Here
+    /// only: the endpoint's parser keeps its meaning. One rule, in this order:
     ///
-    /// - Two calls: only the first complete `<tool_call>` block, because the loop runs
-    ///   one call per turn and the stored turn must show only the call that ran.
-    /// - A call without its tags, bare or in a code fence: `{"name": …, "arguments": …}`
-    ///   becomes a tagged call. Here only: the endpoint's parser keeps its meaning.
-    /// - The `{"tool": …}` and `{"answer": …}` shapes pass through: the shared parser
-    ///   reads them.
+    /// 1. The first call anywhere in the reply, prose before it dropped: a `<tool_call>`
+    ///    block (its close tag may be missing), else the first code fence that holds an
+    ///    object, else the first bare object with `name` and `arguments`.
+    /// 2. If its JSON reads as a call, exactly one `<tool_call>{…}</tool_call>`. Only the
+    ///    first: the loop runs one call per turn, and the stored turn must show that call.
+    /// 3. If the reply shows a call (`<tool_call`, a `"name"` key beside `"arguments"`, a
+    ///    fence that holds an object, or nothing but an object) and step 2 failed, nil.
+    /// 4. Otherwise a plain answer. The `{"tool": …}` and `{"answer": …}` shapes, as the
+    ///    whole reply, also pass through: the shared parser reads them.
     static func normalized(_ reply: String) -> String? {
-        if let open = reply.range(of: "<tool_call>"),
-           let close = reply.range(of: "</tool_call>", range: open.upperBound..<reply.endIndex) {
-            return String(reply[open.lowerBound..<close.upperBound])
+        let whole = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let envelope = object(whole), envelope["tool"] != nil || envelope["answer"] != nil { return reply }
+        let fence = fencedBody(reply)
+        let candidate: (json: String, tagged: Bool)?
+        if let open = reply.range(of: "<tool_call>") {
+            let rest = reply[open.upperBound...]
+            candidate = (String(rest.range(of: "</tool_call>").map { rest[..<$0.lowerBound] } ?? rest), true)
+        } else if let fence, fence.hasPrefix("{") {
+            candidate = (fence, false)
+        } else {
+            candidate = ToolCallParser.extractJSONObject(from: reply).map { ($0, false) }
         }
-        var body = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        if body.hasPrefix("```"), body.hasSuffix("```"), body.count >= 6 {
-            body = String(body.dropFirst(3).dropLast(3).drop { $0 != "\n" })
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let candidate, let json = call(candidate.json, tagged: candidate.tagged) {
+            return "<tool_call>\(json)</tool_call>"
         }
-        guard body.hasPrefix("{") else { return reply }
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
+        // A reply that is nothing but an object is never an answer to speak either.
+        let showsACall = reply.contains("<tool_call")
+            || (reply.contains("\"name\"") && reply.contains("\"arguments\""))
+            || fence?.hasPrefix("{") == true
+            || (whole.hasPrefix("{") && whole.hasSuffix("}"))
+        return showsACall ? nil : reply
+    }
+
+    /// The JSON, trimmed, when it reads as one call: a non-empty `name`, and `arguments`
+    /// as an object. A tagged call may leave `arguments` out (a tool with none).
+    private static func call(_ json: String, tagged: Bool) -> String? {
+        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let call = object(trimmed), let name = call["name"] as? String, !name.isEmpty,
+              Set(call.keys).isSubset(of: ["name", "arguments"]),
+              call["arguments"] is [String: Any] || (tagged && call["arguments"] == nil)
         else { return nil }
-        if object["tool"] != nil || object["answer"] != nil { return reply }
-        guard let name = object["name"] as? String, !name.isEmpty,
-              Set(object.keys).isSubset(of: ["name", "arguments"]),
-              object["arguments"] == nil || object["arguments"] is [String: Any]
-        else { return nil }
-        return "<tool_call>\(body)</tool_call>"
+        return trimmed
+    }
+
+    private static func object(_ json: String) -> [String: Any]? {
+        (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]
+    }
+
+    /// The trimmed body of the first code fence, its language line dropped. A fence with
+    /// no closing one runs to the end, as a cut-off reply would.
+    private static func fencedBody(_ reply: String) -> String? {
+        guard let open = reply.range(of: "```") else { return nil }
+        let afterOpen = reply[open.upperBound...]
+        let body = afterOpen.firstIndex(of: "\n").map { afterOpen[afterOpen.index(after: $0)...] } ?? afterOpen[...]
+        let inside = body.range(of: "```").map { body[..<$0.lowerBound] } ?? body
+        return inside.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - The prompt
