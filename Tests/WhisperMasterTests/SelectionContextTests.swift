@@ -114,7 +114,7 @@ final class SelectionContextTests: XCTestCase {
         })
 
         XCTAssertEqual(events, ["recording started", "front app taken"])
-        let settled = await SelectionCapture.settle(capture.take())
+        let settled = await SelectionCapture.settle(capture.take().read)
         XCTAssertEqual(settled?.text, "picked", "the start's own take must not drop the read")
     }
 
@@ -133,7 +133,7 @@ final class SelectionContextTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(pressed), 0.1, "begin must not wait on the reader")
 
         let waited = Date()
-        let settled = await SelectionCapture.settle(capture.take(), within: 0.2)
+        let settled = await SelectionCapture.settle(capture.take().read, within: 0.2)
         XCTAssertNil(settled, "the command goes on without a selection")
         XCTAssertLessThan(Date().timeIntervalSince(waited), 1.0)
     }
@@ -147,7 +147,7 @@ final class SelectionContextTests: XCTestCase {
         capture.begin(after: { _ = capture.take() },
                       app: { SelectionReader.FrontApp(bundleID: nil, name: "New", pid: 2) })
 
-        let settled = await SelectionCapture.settle(capture.take())
+        let settled = await SelectionCapture.settle(capture.take().read)
         XCTAssertEqual(settled?.text, "from 2")
     }
 
@@ -162,24 +162,128 @@ final class SelectionContextTests: XCTestCase {
         capture.begin(SelectionReader.FrontApp(bundleID: nil, name: "Hung", pid: 1))
 
         let dropped = Date()
-        let taken = capture.take()  // what cancel and failure do
+        let taken = capture.take().read  // what cancel and failure do
         XCTAssertNotNil(taken)
         XCTAssertLessThan(Date().timeIntervalSince(dropped), 0.1, "the take must not wait on the reader")
         gate.signal()
         _ = await taken?.value
-        XCTAssertNil(capture.take(), "the next stop finds no read")
+        XCTAssertNil(capture.take().read, "the next stop finds no read")
 
         capture.begin(SelectionReader.FrontApp(bundleID: nil, name: "Next", pid: 2))
-        let next = await SelectionCapture.settle(capture.take())
+        let next = await SelectionCapture.settle(capture.take().read)
         XCTAssertEqual(next?.text, "from 2", "the next session reads afresh")
+    }
+
+    // MARK: - Staying on this Mac
+
+    private let vault = SelectionReader.FrontApp(bundleID: "com.1password.1password", name: "1Password", pid: 77)
+
+    /// A view model whose chord presses use `front` and a reader with no
+    /// Accessibility behind it, in a session the push-to-talk key already opened.
+    private func recordingViewModel(front: SelectionReader.FrontApp) -> DictationViewModel {
+        let viewModel = DictationViewModel()
+        viewModel.selectionCapture = SelectionCapture(reader: reader { _ in nil })
+        viewModel.frontAppAtPress = { front }
+        viewModel.state.phase = .recording
+        return viewModel
+    }
+
+    /// The real press handler. Capture 1 is re-labelled in a password manager, then a
+    /// Safari press arrives while it finishes. That press is refused, so capture 1
+    /// keeps its answer and no later session gets anything from it. The old code wrote
+    /// the answer before the canStart guard and read it after the stop, so this press
+    /// flipped capture 1 to the endpoint.
+    func testAPasswordManagerCaptureStaysLocalWhateverIsPressedWhileItFinishes() {
+        let viewModel = recordingViewModel(front: vault)
+        viewModel.handleCommandChordEngaged()  // accepted: re-labels the session
+        let stopped = viewModel.selectionCapture.take()  // the one hand-over `stopRecording` makes
+
+        viewModel.state.phase = .stopping
+        viewModel.frontAppAtPress = { self.app }
+        viewModel.handleCommandChordEngaged()  // refused while capture 1 finishes
+
+        XCTAssertTrue(stopped.staysLocal, "capture 1 spoke in a password manager")
+        XCTAssertEqual(stopped.frontApp, vault)
+        let next = viewModel.selectionCapture.take()
+        XCTAssertNil(next.frontApp, "the refused Safari press began no session")
+        XCTAssertFalse(next.staysLocal)
+    }
+
+    /// The other direction. Capture 1 is re-labelled in Safari, then a press in a
+    /// password manager arrives while it finishes. That press is refused and writes
+    /// nothing: not into capture 1 (the old code made it local) and not into the next
+    /// session.
+    func testARefusedPressInAPasswordManagerWritesNothing() {
+        let viewModel = recordingViewModel(front: app)
+        viewModel.handleCommandChordEngaged()
+        let stopped = viewModel.selectionCapture.take()
+
+        viewModel.state.phase = .stopping
+        viewModel.frontAppAtPress = { self.vault }
+        viewModel.handleCommandChordEngaged()  // refused
+
+        XCTAssertFalse(stopped.staysLocal, "capture 1 spoke in Safari")
+        let next = viewModel.selectionCapture.take()
+        XCTAssertFalse(next.staysLocal, "a refused press must not make a later capture local")
+        XCTAssertNil(next.frontApp)
+    }
+
+    func testSecureInputAtThePressKeepsTheCaptureLocal() {
+        let capture = SelectionCapture(reader: reader(secure: true) { _ in nil })
+        capture.begin(app)
+        XCTAssertTrue(capture.take().staysLocal)
+    }
+
+    /// Either accepted press of one session keeps it local.
+    func testASecondPressCannotUndoAPasswordManagerPress() {
+        let capture = SelectionCapture(reader: reader { _ in nil })
+        capture.begin(vault)
+        capture.begin(app)
+        let taken = capture.take()
+        XCTAssertTrue(taken.staysLocal)
+        XCTAssertEqual(taken.frontApp, vault, "the first press keeps its read")
+    }
+
+    /// Cancel, failure and the next start all take the session, so a cancelled
+    /// password-manager capture does not make the next capture local by mistake.
+    func testACancelledSessionDoesNotLeakItsAnswer() {
+        let capture = SelectionCapture(reader: reader { _ in nil })
+        capture.begin(vault)
+        _ = capture.take()  // what cancel and failure do
+        capture.begin(after: { _ = capture.take() }, app: { self.app })
+        XCTAssertFalse(capture.take().staysLocal)
+    }
+
+    // MARK: - What the draft tap reads
+
+    /// ⌘V over a selection replaces it, so the tap needs "nothing selected" apart
+    /// from "could not tell".
+    func testTheReaderTellsNothingSelectedFromUnknown() {
+        XCTAssertEqual(reader { _ in "" }.state(app), .empty)
+        XCTAssertEqual(reader { _ in "  \n" }.state(app), .empty)
+        XCTAssertEqual(reader { _ in nil }.state(app), .unknown, "Chrome and Electron answer nothing")
+        XCTAssertEqual(reader(secure: true) { _ in "x" }.state(app), .unknown)
+        XCTAssertEqual(reader { _ in "x" }.state(vault), .unknown, "a private app is never read")
+        XCTAssertEqual(reader { _ in "Hi" }.state(app), .selected(selection("Hi")))
+    }
+
+    func testATapReadThatRunsPastTheWaitIsUnknown() async {
+        let gate = DispatchSemaphore(value: 0)
+        defer { gate.signal() }
+        let slow = reader { _ in
+            _ = gate.wait(timeout: .now() + 5)
+            return "late"
+        }
+        let state = await SelectionCapture.state(in: app, reader: slow, within: 0.1)
+        XCTAssertEqual(state, .unknown)
     }
 
     func testAFinishedReadSettlesWithItsValue() async {
         let capture = SelectionCapture(reader: reader { _ in "ready" })
         capture.begin(app)
-        let settled = await SelectionCapture.settle(capture.take())
+        let settled = await SelectionCapture.settle(capture.take().read)
         XCTAssertEqual(settled?.text, "ready")
-        XCTAssertNil(capture.take(), "a read is handed over once")
+        XCTAssertNil(capture.take().read, "a read is handed over once")
     }
 
     // MARK: - The tool

@@ -90,7 +90,10 @@ struct ToolRouter {
                                     from: targets,
                                     scopedTo: scoped?.displayLabel,
                                     call: call)
-            if result.ok { taint.isSet = true }
+            if result.ok {
+                taint.isSet = true
+                taint.outsideSelection = true
+            }
             return result
 
         case .write:
@@ -409,4 +412,9 @@ struct ToolRouter {
 @MainActor
 final class Taint {
     var isSet = false
+    /// Set by every untrusted source except this run's own `read_selection`: a
+    /// connector read, or the taint a follow-up inherits. A draft that would type
+    /// such text into the user's app is copy only (`AgentDraft.stage`); a rewrite of
+    /// the selection typed back over it is not.
+    var outsideSelection = false
 }

@@ -102,4 +102,16 @@ enum FeatureFlags {
     static func meetingNotesAvailable(on channel: ReleaseChannel) -> Bool {
         channel == .dev
     }
+
+    /// True when the assistant may use a model behind an endpoint the user sets
+    /// (`AgentEndpoint`). Dev only: it sends text off the Mac, and it ships after the
+    /// endpoint bench has run on real servers. It is also off until the user sets an
+    /// endpoint and agrees to the consent sheet.
+    static var agentEndpointAvailable: Bool {
+        agentEndpointAvailable(on: ReleaseChannel.current)
+    }
+
+    static func agentEndpointAvailable(on channel: ReleaseChannel) -> Bool {
+        channel == .dev
+    }
 }

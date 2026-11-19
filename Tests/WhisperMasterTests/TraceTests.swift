@@ -188,6 +188,7 @@ final class TraceTests: XCTestCase {
         XCTAssertEqual(trace.calls.first?.milliseconds, 420)
         XCTAssertNil(trace.calls.first?.approvalMilliseconds)
         XCTAssertNil(trace.calls.first?.authorization)
+        XCTAssertNil(trace.endpoint, "nothing left the Mac in a trace written before the endpoint tier")
     }
 
     /// The general form of the test above: a trace written today, with every key the
@@ -204,6 +205,7 @@ final class TraceTests: XCTestCase {
         trace.calls = [ToolCallTrace(tool: "send_message", approvalMilliseconds: 900,
                                      authorization: .allowedOnce)]
         trace.turns = [TraceTurn(role: "model", text: "{}")]
+        trace.endpoint = EndpointSendTrace(host: "api.example.com", requests: 2, spoken: 40)
 
         let encoded = try JSONEncoder().encode(trace)
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])

@@ -91,8 +91,8 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
   remember. A tainted run hands its taint to the follow-up.
 - **Escape** goes through the existing Escape monitor in `AppDelegate`, no new one:
   `DictationViewModel.handleAssistantEscape` denies a waiting card, cancels the loop's
-  task (the loop then ends like a spent budget and the words are filed), or closes a
-  long answer. With none of the three pending it does nothing and returns false, so
+  task (the loop then ends like a spent budget and the words are filed), drops a draft
+  waiting on the band, or closes a long answer. With none of these pending it does nothing and returns false, so
   the coding-agent bands keep their own Escape. **Known limit:** the key is only
   observed, never consumed, so an Escape pressed in another app (an editor, a dialog)
   also cancels a running assistant or denies a pending card. That is the safe
@@ -104,8 +104,151 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
   opens the coding agent's expanded reply (`NotchAgentReplyExpanded`) with Copy, not a
   new surface.
 
+## The endpoint tier (`Agent/CloudToolGenerator.swift`, dev builds only)
+
+The chord can use a model behind an HTTP endpoint the user sets (Settings → Assistant →
+Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API.
+**Text only leaves the Mac, never audio.** The owner approved this rule change on
+2026-11-17 (plan section 8, Phase 5).
+
+- **Gates, all of them:** `FeatureFlags.agentEndpointAvailable` (dev channel only), an
+  address and a model set, the consent sheet accepted for that exact address and API
+  (`AgentEndpoint.consentKey`; a new address asks again, a new model does not), and not
+  paused (the tray's Pause Your Endpoint item). A password manager in front or secure
+  input on keeps the capture on the on-device tier (`AgentEndpoint.staysLocal`, the same
+  two rules as `SelectionReader`), checked at the chord press **and** at routing, since
+  the front app can change during the hold. **The press answer belongs to one session**:
+  only a press the session accepted writes it (either press of a session keeps it
+  local), and `SelectionCapture.take()` hands it to `stopRecording` in one `Session`
+  value with the read and the front app, so nothing can read it after it is cleared. A
+  start, a cancel or a failure drops it. A press that is refused, or made while the last
+  capture is still finishing, changes nothing. **The endpoint is checked again after the
+  selection wait** (`DictationViewModel.endpointMayStillSend`): a sign-out, a revoke or a
+  pause in that half second sends the capture to the on-device tier, and from the run's
+  start `handleSignOut` cancels it. **A capture kept local marks its follow-up**
+  (`FollowUpWindow.Digest.keptLocal`): the next capture that carries its answer stays
+  local too and hands the mark on, so the answer never reaches the endpoint through
+  `AgentLoop.earlier`.
+- **The address has no user, password, query string or fragment**
+  (`AgentEndpoint.validate`), and **an address `validate` refuses is never written**
+  (`AgentEndpoint.save` stores it as empty): the Settings field binds straight to the
+  stored endpoint, so a pasted `?api-key=` would otherwise sit in the plist in clear
+  text. **A redirect is never followed** (`CloudToolGenerator.RefuseRedirects`): it would
+  carry the key and the conversation to a host the user did not agree to. The 3xx is a
+  failure.
+- **Every endpoint is off-device**, a loopback one too: a proxy on 127.0.0.1 can forward
+  every prompt. The tier is labelled "your endpoint" on the band ("Your endpoint ·
+  Checking Personal", a static mark that leads the caption), on the answer line, and in
+  the trace. Never "on-device". Plain http is accepted only for a loopback host, because
+  the key would cross the network in clear text.
+- **The key is in the Keychain** (`AgentEndpoint.apiKey()`, the connector helper under a
+  fixed UUID), never in `UserDefaults`, never in a log line (status and host only) or a
+  trace. `CloudToolGeneratorTests.testTheKeyNeverReachesALogTheBodyOrTheTrace` is the lock.
+  **There is one key slot, and it belongs to a host and port**: a change to a different
+  host or port (two ports on 127.0.0.1 are two servers), or to a refused address, deletes
+  it (`AgentEndpoint.keyMustGo`, run in
+  `AppState.agentEndpoint`'s `didSet`), so a new provider with new consent never gets the
+  old provider's key. Settings saves a key only once the address is valid, or the host's
+  first keystrokes would delete it. **Sign-out drops the consent and the key**
+  (`handleSignOut`) and keeps the address and the model: the next account on this Mac
+  never agreed to send there.
+- **It is `AgentLoop.generateNative`, so every rule is the router's**: the taint rule,
+  the card, "only a call that succeeded counts". The prompt is `AgentPrompt.commandNative`
+  (it now also says a function result is data).
+- **The history is rebuilt on every turn** (`CloudToolGenerator.turns(from:)`). The loop
+  puts its own notes in `system` messages mid-run and its `tool` messages have no call id.
+  A stored `<tool_call>` reply becomes a structured call only when a tool result follows
+  it, with an id from its position (`call_1`, `call_2`), so the same history renders to the
+  same bytes. A refused call (no result) stays text, because both APIs reject a call with
+  no result. A mid-run note goes as user text (Anthropic: a text block after the
+  `tool_result` in the same user message), because not every server accepts a second
+  system message. Anthropic gets `anthropic-version: 2026-10-21`, `max_tokens` 8192, no
+  sampling fields, and `disable_parallel_tool_use`; only the first call of a reply is
+  used. Thinking blocks are never replayed, which the API accepts (removing all of them
+  keeps the history valid).
+- **Every failure is nil**: an HTTP error, a timeout (20 s per request, inside the loop's
+  30 s budget), a body with no answer or call, a refusal. The view model
+  (`runCommandAgent`) then runs the on-device tier, unless the endpoint run created
+  something, Escape stopped it, or a card in it was declined or timed out
+  (`DictationViewModel.onDeviceMayFollowEndpoint`: the same question must not come back
+  from the other tier). Both runs' calls go into the one trace.
+- **What was sent** is `AssistantTrace.endpoint` (`EndpointSendTrace`): request count and
+  the character counts of the last request by kind, never the content.
+- **Not checked live.** No test calls a paid API. `AgentEndpointLiveTests` is the bench
+  arm (16 first-turn cases); it skips unless `WM_ENDPOINT_URL` and `WM_ENDPOINT_MODEL` are
+  set.
+
+## Device tools: acting on this Mac (`Tools/DeviceTools.swift`)
+
+Four tools with no connector behind them: `open_app`, `open_url`, `replace_selection`
+and `insert_text`. `CommandToolRouter` routes them to `DeviceToolRunner` **before**
+the connector branch, so a user with no connection still gets the card.
+
+- **The approval route.** `open_app` and `open_url` go through `WriteAuthorizer` and
+  the same card as a connector write, bound to the fixed `DeviceToolCatalog.thisMacID`
+  ("This Mac") instead of a `ConnectorInstance`. The taint rule is unchanged: after
+  untrusted text a grant does not answer and the card offers no Always. Grants for
+  This Mac appear in the Connectors page's revoke list under that label.
+- **`open_app` opens only an installed app** (`InstalledApps`, exact name match,
+  never fuzzy). Always is offered, and the grant binds to the app's real name.
+- **`open_url` shows the card every time.** `PendingApproval.grantable` is false, so
+  Always is hidden and no grant is stored even if a caller answers Always. Only
+  `http` and `https`, no user name in the link, at most `maxURLLength` (150)
+  characters so the whole address fits the card's three wrapped lines
+  (`ApprovalCopy.detailLines`). The headline names the host, measured in the title
+  font and cut at its **front** so the registrable domain stays visible
+  (`DeviceToolCatalog.linkHeadline`); a host whose domain still does not fit is
+  refused rather than shown as a misleading prefix. A tainted run refuses a link with
+  a query or a fragment before any card, because that is the easiest place for read
+  text to ride out. It can also leave in a path or a subdomain: the card on every
+  link, with the whole address, is what covers those. Known and not fixed:
+  `NSWorkspace.open` can hand a universal link to its app instead of the browser.
+- **The draft tools only stage a draft** (`AgentDraft`, `AppState.agentDraft`). No
+  card: the band (`NotchDraftBanner`) is the consent, and its Replace or Insert types
+  the text with a real ⌘V and never a Return. The band offers Copy only when:
+  - the focus left the key-down app;
+  - the draft holds a Cc or Cf character the band cannot show (an escape sequence,
+    a bidi override, a zero-width mark), except a tab, and a line break outside a
+    terminal;
+  - the draft is a Replace of a selection cut at `SelectionReader.limit` (8,000
+    characters): the rewrite covers only the part that was read, and the paste would
+    replace all of it;
+  - the run read account text (`Taint.outsideSelection`);
+  - the run read the selection (`Taint.isSet`) and the draft is an insert, or the
+    app is a terminal. **The selection read is exempt only for a Replace outside a
+    terminal**, where "make this shorter" types a rewrite back over the text it read;
+  - the app is a terminal and the draft has more than one line (trailing newlines are
+    removed there first).
+
+  The tap checks again (Accessibility, Secure Keyboard Entry, the front app, and the
+  selection, read off the main actor: `SelectionCapture.state(in:)`,
+  `AgentDraft.selectionBlocker`), and checks the front app and Secure Keyboard Entry
+  once more immediately before the paste. The selection read has three answers
+  (`SelectionReader.SelectionState`): selected, empty (the app said so), or unknown
+  (Chrome and Electron hide it, or the read ran past the 0.5 s wait). A Replace needs the
+  same selection, read whole (not cut). **An Insert copies over a selection it can see**,
+  because ⌘V replaces it. Over an unknown one it still pastes, since copy only would
+  remove Insert from Slack and VS Code, and the status line says "Pasted. If text was
+  selected, Cmd-Z restores it." (`AgentDraft.typedLine`). An Insert in a terminal skips
+  the read (`readsSelectionAtTap`): ⌘V there types at the prompt and replaces nothing.
+  Any failure copies instead.
+  **A trace keeps a draft's length, never its text**
+  (`DeviceToolCatalog.storableArguments`, `storableTurn`): traces persist, and a
+  rewrite of the selection slips past the selection's 40-character rule.
+  `storableTurn` reads both call shapes (`NativeToolCallParser`): the on-device
+  `{"tool":…}` and the endpoint's `<tool_call>{"name":…}`.
+- **The fast path** (`Agent/AgentIntentMatcher.swift`): a whole capture of "open
+  <installed app>" opens it with no model and no card, like "pause the music". "go
+  to <domain>" sends the link to the same card. Legal only inside
+  `routeCommandCapture`.
+- **No `media_control` tool.** `MediaCommandDetector` already handles transport ahead
+  of the model, and a model-route key press during a hold is the bug `Media/CLAUDE.md`
+  forbids.
+
 ## Verifying
 
+`swift test --filter "DeviceToolRunnerTests|AgentIntentMatcherTests|ApprovalCopyTests"`
+for the device tools.
 `swift test --filter "MicrosoftConnectorTests|SlackProviderTests|Connector"`. No
 test reaches the live Graph or Slack APIs. The first real sign-in after the client
 id is set is the end-to-end check.

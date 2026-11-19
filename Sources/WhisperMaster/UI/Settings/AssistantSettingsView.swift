@@ -21,6 +21,9 @@ struct AssistantSettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel("Assistant")
             assistantSection
+            if FeatureFlags.agentEndpointAvailable {
+                AgentEndpointSettingsSection(endpoint: $state.agentEndpoint)
+            }
             speechSection
         }
     }
@@ -38,7 +41,9 @@ struct AssistantSettingsView: View {
             SettingsCard {
                 SettingsRow(
                     "Let it use your connectors",
-                    subtitle: "The assistant can read anything you have connected. Runs on-device, on a larger model than Smart cleanup uses; writes still ask you first."
+                    subtitle: FeatureFlags.agentEndpointAvailable && state.agentEndpoint.isActive
+                        ? "The assistant can read anything you have connected. It runs on your endpoint below, so what it reads goes there too; writes still ask you first."
+                        : "The assistant can read anything you have connected. Runs on-device, on a larger model than Smart cleanup uses; writes still ask you first."
                 ) {
                     ThemeToggle(isOn: $state.connectorAgentEnabled, label: "Connector assistant")
                         .disabled(isSnapshot)

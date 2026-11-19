@@ -247,8 +247,14 @@ struct ToolCallTrace: Identifiable, Codable, Hashable, Sendable {
     /// How the write was permitted, or nil for a read.
     var authorization: ToolAuthorization?
 
-    var isWrite: Bool { ToolCatalog.descriptor(named: tool)?.access == .write }
+    /// A device tool acts (it opens something or stages text to type), so it is badged
+    /// as a write, never shown as a read.
+    var isWrite: Bool {
+        ToolCatalog.descriptor(named: tool)?.access == .write || isDevice
+    }
     var isLocal: Bool { LocalToolCatalog.names.contains(tool) }
+    /// Served by this Mac, not by a connector.
+    var isDevice: Bool { DeviceToolCatalog.names.contains(tool) }
 
     /// `list_mail connector=corkkam` — the call as it was actually made.
     var signature: String {
@@ -327,6 +333,9 @@ struct AssistantTrace: Identifiable, Codable, Hashable, Sendable {
     var provenance: String = ""
     var createdSomething: Bool = false
     var milliseconds: Int = 0
+    /// What went to the user's endpoint, or nil when nothing left the Mac. Optional
+    /// for the reason on `ToolCallTrace.approvalMilliseconds`.
+    var endpoint: EndpointSendTrace?
 
     /// The rung that handled it, for the row's badge.
     var takenDecision: TraceDecision? { decisions.first { $0.taken } }
@@ -335,10 +344,49 @@ struct AssistantTrace: Identifiable, Codable, Hashable, Sendable {
     /// never called is its own story.
     var touchedConnectors: [String] {
         var seen: [String] = []
-        for call in calls where !call.isLocal {
+        for call in calls where !call.isLocal && !call.isDevice {
             for label in call.connectors where !seen.contains(label) { seen.append(label) }
         }
         return seen
+    }
+}
+
+/// What one capture sent to the user's endpoint: how many requests, and how many
+/// characters of each kind the last one held. **Counts, never the content**, because
+/// traces persist and the content is the user's mail and messages.
+///
+/// The loop resends the whole conversation each turn, so the last request holds
+/// everything the earlier ones did. Its counts are what left the Mac.
+struct EndpointSendTrace: Codable, Hashable, Sendable {
+    /// The host only. A URL can carry a key in its query string.
+    var host: String
+    var requests: Int = 0
+    /// The assistant's instructions and the loop's notes to the model.
+    var instructions: Int = 0
+    /// The user's words, and an earlier question in a follow-up.
+    var spoken: Int = 0
+    /// The model's own earlier replies.
+    var modelReplies: Int = 0
+    /// What the tools returned: calendar, mail, messages, the selection, and the results
+    /// of acting on this Mac.
+    var toolResults: Int = 0
+    /// The tool descriptions.
+    var toolList: Int = 0
+    /// Requests that came back with no usable reply: an HTTP error, a timeout, a body
+    /// that could not be read.
+    var failures: Int = 0
+
+    /// One line for the Traces page.
+    var summary: String {
+        let parts = [("your words", spoken), ("tool results", toolResults),
+                     ("model replies", modelReplies), ("instructions", instructions),
+                     ("tool list", toolList)]
+            .filter { $0.1 > 0 }
+            .map { "\($0.0) \($0.1.formatted())" }
+        let failed = failures > 0 ? " \(failures) failed." : ""
+        return "\(requests) request\(requests == 1 ? "" : "s") to \(host): "
+            + parts.joined(separator: ", ") + " characters." + failed
+            + " Text only; audio never leaves this Mac."
     }
 }
 

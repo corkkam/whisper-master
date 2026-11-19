@@ -35,10 +35,15 @@ final class CommandToolRouter: AgentToolRunning {
         /// A `.write` tool that reached a connector and came back ok, with the
         /// connections that served it.
         case connectorWrite(tool: String, instanceLabels: [String])
+        /// A device tool that came back ok: an app or a link opened, or a draft put
+        /// on the band.
+        case device(DeviceToolRunner.Effect)
     }
 
     private let local: LocalToolRunner
     private let connectors: (any AgentToolRunning)?
+    /// The route for tools with no connector. Nil where a caller offers none.
+    private let device: DeviceToolRunner?
     /// Injected so a call's duration is fixed under test rather than measured against
     /// the wall clock.
     private let now: () -> Date
@@ -78,9 +83,11 @@ final class CommandToolRouter: AgentToolRunning {
     ///   stand in for it — no provider can complete a real write under `swift test`.
     init(local: LocalToolRunner,
          connectors: (any AgentToolRunning)?,
+         device: DeviceToolRunner? = nil,
          now: @escaping () -> Date = Date.init) {
         self.local = local
         self.connectors = connectors
+        self.device = device
         self.now = now
     }
 
@@ -91,6 +98,16 @@ final class CommandToolRouter: AgentToolRunning {
             let (local, effect) = await local.run(call)
             if let effect { effects.append(.local(effect)) }
             result = local
+        } else if DeviceToolCatalog.names.contains(call.tool) {
+            // Before the connector branch: these need no connection, so a user with
+            // none still gets the card rather than "no connector is set up".
+            if let device {
+                let (outcome, effect) = await device.run(call)
+                if let effect { effects.append(.device(effect)) }
+                result = outcome
+            } else {
+                result = .failure("That can't be done on this Mac right now.")
+            }
         } else if let connectors {
             result = await connectors.run(call)
             // Only a write that came back ok is an effect: a denied approval or a
@@ -113,7 +130,8 @@ final class CommandToolRouter: AgentToolRunning {
         let storable = { (text: String) in self.selectionRead?.storable(text) ?? text }
         journal.append(ToolCallTrace(
             tool: call.tool,
-            arguments: call.arguments.mapValues(storable),
+            // A draft keeps only its length: it is the user's text, rewritten.
+            arguments: DeviceToolCatalog.storableArguments(call).mapValues(storable),
             connectors: result.instanceLabels,
             ok: result.ok,
             result: readTheSelection
@@ -133,14 +151,21 @@ final class CommandToolRouter: AgentToolRunning {
     }
 
     /// Whether anything the user would call an action happened — a note or a
-    /// reminder created, or a connector write that went through. A read doesn't
+    /// reminder created, a connector write that went through, or an app, a link or
+    /// a draft that a device tool opened or staged. A read doesn't
     /// count: the answer is the whole of its result.
     var didCreateSomething: Bool {
         effects.contains { effect in
             switch effect {
-            case .local(.noteCreated), .local(.reminderCreated), .connectorWrite: return true
+            case .local(.noteCreated), .local(.reminderCreated), .connectorWrite, .device: return true
             case .local(.read): return false
             }
         }
+    }
+
+    /// The last draft a call put on the band, if any. The newest wins, as on the band.
+    var draft: AgentDraft? {
+        for case .device(.draftStaged(let draft)) in effects.reversed() { return draft }
+        return nil
     }
 }

@@ -229,4 +229,54 @@ final class ApprovalCopyTests: XCTestCase {
         let geometry = NotchGeometry(notchWidth: 200, notchHeight: 37.5, screenWidth: 1512)
         XCTAssertLessThanOrEqual(warned, layout.panelSize(for: geometry).height - geometry.notchHeight)
     }
+
+    // MARK: - This Mac (device tools)
+
+    private func linkCard(_ url: String, tainted: Bool = false) -> PendingApproval {
+        PendingApproval(tool: "open_url", instanceID: DeviceToolCatalog.thisMacID,
+                        instanceLabel: DeviceToolCatalog.thisMacLabel, target: url,
+                        arguments: ["url": url], grantOffered: !tainted, grantable: false)
+    }
+
+    func testAnAppCardNamesTheAppOnThisMac() {
+        XCTAssertEqual(ApprovalCopy.verb(for: "open_app"), "Open")
+        XCTAssertEqual(
+            ApprovalCopy.headline(tool: "open_app", target: "Figma", instanceLabel: "This Mac"),
+            "Open Figma on This Mac")
+        XCTAssertEqual(ApprovalCopy.detail(tool: "open_app", arguments: ["app": "Figma"]),
+                       ApprovalCopy.openAppDetail)
+    }
+
+    /// The host leads, because it is the part that decides; the whole link follows,
+    /// because a card that hides part of the payload is not consent to it.
+    func testALinkCardNamesTheHostAndCarriesTheWholeLink() {
+        let url = "https://github.com/settings/tokens?scope=repo"
+        XCTAssertEqual(ApprovalCopy.headline(tool: "open_url", target: url, instanceLabel: "This Mac"),
+                       "Open github.com in your browser")
+        XCTAssertEqual(ApprovalCopy.detail(tool: "open_url", arguments: ["url": url]), url)
+    }
+
+    /// "No Always" is a property of the tool, not of the run, so it must not bring
+    /// the after-reading warning with it.
+    func testALinkNeverOffersAlwaysAndWarnsOnlyWhenTainted() {
+        XCTAssertFalse(linkCard("https://github.com").offersAlways)
+        XCTAssertNil(linkCard("https://github.com").readWarning)
+        XCTAssertNotNil(linkCard("https://github.com", tainted: true).readWarning)
+        XCTAssertTrue(card(grantOffered: true).offersAlways, "a connector card is unchanged")
+    }
+
+    /// A long link wraps rather than truncates, so its card is taller — and still
+    /// inside the panel, which is sized once.
+    func testALongLinkGetsTheLinesItNeedsInsideThePanel() {
+        let layout = NotchSurfaceLayout()
+        let banner = layout.bannerThickness
+        XCTAssertEqual(NotchApprovalBanner.thickness(for: linkCard("https://github.com"), banner: banner),
+                       banner)
+        let longest = "https://example.com/" + String(
+            repeating: "a", count: DeviceToolCatalog.maxURLLength - "https://example.com/".count)
+        let tall = NotchApprovalBanner.thickness(for: linkCard(longest, tainted: true), banner: banner)
+        XCTAssertGreaterThan(tall, banner + NotchApprovalBanner.warningLineHeight)
+        let geometry = NotchGeometry(notchWidth: 200, notchHeight: 37.5, screenWidth: 1512)
+        XCTAssertLessThanOrEqual(tall, layout.panelSize(for: geometry).height - geometry.notchHeight)
+    }
 }

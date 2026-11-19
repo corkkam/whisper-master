@@ -330,6 +330,22 @@ capabilities and auth**. Outlook and Teams sign in through Microsoft, which is d
 until `MicrosoftOAuthClientID` is set. Details and the Entra setup:
 **`Sources/WhisperMaster/Connectors/CLAUDE.md`**.
 
+**The chord can use a model behind an endpoint the user sets** (dev builds only,
+`FeatureFlags.agentEndpointAvailable`; `Connectors/Agent/CloudToolGenerator.swift`).
+**Text only leaves the Mac, never audio**: the transcript, what the assistant reads
+(mail, calendar, messages, the selection), the results of acting on this Mac (which app or link opened), the text it writes for the app in front, and the tool list go to that address, after a
+per-address consent sheet. The on-device model stays the fallback, a password manager
+in front or secure input keeps a capture local, the tray can pause it, and every
+endpoint counts as off-device, loopback included. The key is in the Keychain. Rules and
+history rebuild: the endpoint section of `Connectors/CLAUDE.md`.
+
+The assistant can also act on this Mac (`Connectors/Tools/DeviceTools.swift`): open an
+installed app, open a link, and put text it wrote into the app the user was in. Opening
+goes through the same approval card, scoped to "This Mac"; a link is carded every time
+with no Always. **Text the model wrote is typed into another app only after a tap on
+the draft band, and never followed by Return** (owner decision, 2026-11-17). The
+capture itself is still never pasted.
+
 ### Reading answers aloud (`Speech/`)
 
 An assistant answer is spoken as well as shown; a dictation is never read back.
@@ -809,7 +825,9 @@ transcript — were removed for exactly this reason and are not coming back.
 the chord, where the paste has already been ruled out. **`MediaCommandDetector`
 ("pause the music") is under the same restriction** and matches the whole capture
 rather than a word inside it — run over an ordinary dictation it would eat the
-sentence and type nothing.
+sentence and type nothing. **`AgentIntentMatcher` ("open Figma", "go to github.com")
+is under it too**, for the same reason, and its slots are closed: an installed app or
+a bare domain.
 
 **⚠️ "Answered without any tool having executed" counts as not acting.** With the
 paste suppressed, a model that talks instead of acting has thrown the user's words

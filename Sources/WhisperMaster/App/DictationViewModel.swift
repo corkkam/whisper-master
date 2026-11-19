@@ -54,9 +54,14 @@ final class DictationViewModel {
     /// the chord merely re-labelled a session the push-to-talk key owns — there,
     /// letting go of control must not cut the recording short.
     private var commandChordOwnsSession = false
-    /// The front app's selection, read off the main actor from the chord press.
-    /// Taken at stop with the arm, so a read cannot reach the next session.
-    private let selectionCapture = SelectionCapture()
+    /// The front app's selection, read off the main actor from the chord press, and
+    /// whether that press must keep the capture off the endpoint. Taken at stop with
+    /// the arm, so neither can reach the next session. Settable so a test can give it
+    /// a reader with no Accessibility behind it.
+    var selectionCapture = SelectionCapture()
+    /// The app in front at a chord press. Settable so a test can press in a password
+    /// manager without one installed.
+    var frontAppAtPress: @MainActor () -> SelectionReader.FrontApp? = SelectionReader.FrontApp.current
     /// True when the agent key armed the current session — its finished transcript
     /// goes to a coding agent instead of being typed. Consumed (and reset) at stop,
     /// and mirrored into `state.agentCaptureArmed` for the notch.
@@ -322,7 +327,12 @@ final class DictationViewModel {
         // Consume the command arm now (synchronously, at the user's stop) so it
         // can't linger; the async finalize below reads this captured copy.
         let commandMode = commandArmed
-        let selectionRead = selectionCapture.take()
+        // One hand-over, so a press after this stop cannot change any of it: the read,
+        // the only app a draft may type into, and whether the capture stays local.
+        let pressSession = selectionCapture.take()
+        let keyDownApp = pressSession.frontApp
+        let pressStaysLocal = pressSession.staysLocal
+        let selectionRead = pressSession.read
         setCommandArmed(false)
         commandChordOwnsSession = false
         // Same consume-at-stop rule as the assistant arm above: read it here, at the
@@ -456,7 +466,8 @@ final class DictationViewModel {
                     assistantHandled = await routeAgentCapture(cleaned, spoken: spoken)
                 } else if commandMode, !cleaned.isEmpty {
                     assistantHandled = await routeCommandCapture(
-                        cleaned, spoken: spoken, selectionRead: selectionRead)
+                        cleaned, spoken: spoken, selectionRead: selectionRead,
+                        keyDownApp: keyDownApp, pressStaysLocal: pressStaysLocal)
                 }
                 // The frontmost app is the one about to receive the paste — or, for
                 // an assistant capture, the one the user was speaking from. We don't
@@ -815,16 +826,104 @@ final class DictationViewModel {
     /// hear itself. The one case worth a second line is the command that changed
     /// nothing, which would otherwise look like it was never heard.
     private func presentMediaConfirmation(_ command: MediaCommand, acted: Bool, question: String) {
+        presentQuickConfirmation(command.confirmation, detail: acted ? "" : "It was already.",
+                                 question: question)
+    }
+
+    /// One line for an instruction carried out with no model ("Paused", "Opened
+    /// Figma"). Short and not spoken: the result is already audible or on screen.
+    private func presentQuickConfirmation(_ headline: String, detail: String, question: String) {
         state.activeDaySummary = DaySummary(
-            headline: command.confirmation,
-            detail: acted ? "" : "It was already.",
+            headline: headline,
+            detail: detail,
             events: [],
             gaps: [],
             scopedTo: nil)
         state.daySummaryAt = Date()
         state.daySummaryWasSpoken = false
-        state.appendAnswer(question: question, answer: command.confirmation)
+        state.appendAnswer(question: question, answer: headline)
         Feedback.delivered(soundEnabled: state.soundEnabled)
+    }
+
+    // MARK: - Drafts
+
+    private func presentDraft(_ draft: AgentDraft) {
+        state.agentDraft = draft
+        state.agentDraftAt = Date()
+        Feedback.delivered(soundEnabled: state.soundEnabled)
+    }
+
+    private func clearDraft() {
+        state.agentDraft = nil
+        state.agentDraftAt = nil
+    }
+
+    /// The draft band's buttons. Replace (or Insert) types the draft into the app it
+    /// was written for, and only once the checks at the tap pass; otherwise the text
+    /// is copied and the band says why.
+    func handleDraftAction(_ action: NotchDraftBanner.Action) {
+        guard let draft = state.agentDraft else { return }
+        switch action {
+        case .dismiss:
+            clearDraft()
+        case .copy:
+            copyToClipboard(draft.text)
+            state.statusMessage = "Draft copied."
+        case .apply:
+            Task { await applyDraft(draft) }
+        }
+    }
+
+    private func applyDraft(_ draft: AgentDraft) async {
+        if let reason = draftBlocker(draft) { return copyInstead(draft, reason) }
+        // The same off-main read the chord makes, so a hung app costs the wait and
+        // reads as unknown. None for an Insert in a terminal (`readsSelectionAtTap`).
+        var selection: SelectionReader.SelectionState?
+        if draft.readsSelectionAtTap { selection = await SelectionCapture.state(in: draft.app) }
+        if let selection, let reason = draft.selectionBlocker(current: selection) {
+            return copyInstead(draft, reason)
+        }
+        guard state.agentDraft == draft else { return }
+        // Again, with nothing between this and the paste: the selection read above
+        // can take half a second, long enough to switch apps.
+        if let reason = focusBlocker(draft) { return copyInstead(draft, reason) }
+        clearDraft()
+        // A real ⌘V with the clipboard put back after, never a Return: the draft is
+        // typed, and sending it is still the user's own keystroke.
+        await pasteViaClipboard(draft.text)
+        state.statusMessage = draft.typedLine(after: selection)
+    }
+
+    private func copyInstead(_ draft: AgentDraft, _ reason: String) {
+        copyToClipboard(draft.text)
+        // Only this draft: a newer one may have landed while the check ran.
+        if state.agentDraft == draft { state.agentDraft = draft.copyOnly(reason) }
+        state.statusMessage = "\(reason) It is on the clipboard."
+    }
+
+    /// The two checks that can change in a moment, so they run at the tap and again
+    /// right before the paste.
+    private func focusBlocker(_ draft: AgentDraft) -> String? {
+        // The WindowServer drops a synthesized ⌘V then, and the paste would restore
+        // the old clipboard over the draft.
+        guard !TerminalApps.secureKeyboardEntryEnabled() else {
+            return "Secure Keyboard Entry is on, so this is copy only."
+        }
+        guard SelectionReader.FrontApp.current()?.pid == draft.app.pid else {
+            return AgentDraft.focusMoved
+        }
+        return nil
+    }
+
+    /// Why a tap must copy rather than type. Checked at the tap, not trusted from
+    /// when the draft was staged: the user may have moved since. The selection is
+    /// checked after this, in `applyDraft`.
+    private func draftBlocker(_ draft: AgentDraft) -> String? {
+        if let reason = draft.copyOnlyReason { return reason }
+        guard permissionsManager.accessibilityGranted() else {
+            return "Typing needs Accessibility, so this is copy only."
+        }
+        return focusBlocker(draft)
     }
 
     // MARK: - Reading answers aloud
@@ -1010,10 +1109,13 @@ final class DictationViewModel {
         // session we'd have to un-arm at the end would put "Note or reminder" in
         // the notch and then paste the words anyway.
         guard FeatureFlags.connectorsAndNotesAvailable else { return }
+        // Only the two accepted paths below call `selectionCapture.begin`, which also
+        // records whether this press keeps the capture local. A refused press records
+        // nothing, so it cannot change a capture that is still finishing.
         if state.canStop || state.phase == .preparingModels {
             setCommandArmed(true)
             state.statusMessage = "Listening for the assistant..."
-            selectionCapture.begin(.current())
+            selectionCapture.begin(frontAppAtPress())
             return
         }
         if state.preparingEngine != nil {
@@ -1022,7 +1124,7 @@ final class DictationViewModel {
         }
         guard state.canStart else { return }
         commandChordOwnsSession = true
-        selectionCapture.begin(after: { startRecording(command: true) })
+        selectionCapture.begin(after: { startRecording(command: true) }, app: frontAppAtPress)
     }
 
     /// The chord broke (either key came up). Only stops the session when the chord
@@ -1034,6 +1136,12 @@ final class DictationViewModel {
         if state.canStop {
             stopRecording()
         }
+    }
+
+    /// The tray's pause item for the user's endpoint. Paused, every capture stays on
+    /// this Mac; the address, the consent and the key are kept.
+    func setAgentEndpointPaused(_ paused: Bool) {
+        state.agentEndpoint.paused = paused
     }
 
     /// Mirror the private arm into `AppState` so the notch can say which of the two
@@ -1223,7 +1331,9 @@ final class DictationViewModel {
     /// tier is what guarantees the words land somewhere even when the model is no
     /// help.
     private func routeCommandCapture(_ text: String, spoken: SpokenCapture,
-                                     selectionRead: Task<SelectionContext?, Never>?) async -> Bool {
+                                     selectionRead: Task<SelectionContext?, Never>?,
+                                     keyDownApp: SelectionReader.FrontApp?,
+                                     pressStaysLocal: Bool) async -> Bool {
         // Where Notes & Reminders is closed this whole path stays off. Routing
         // would swallow the transcript — suppressing the paste and filing it into
         // a store with no openable surface — so "remind me to call mom" would
@@ -1242,6 +1352,8 @@ final class DictationViewModel {
         assistantModelManager.prepareForFirstUse()
         let startedAt = Date()
         var trace = spoken.trace(at: startedAt)
+        // A new command replaces a draft still waiting on the band.
+        clearDraft()
 
         // Transport commands come first, ahead of the calendar prompt and the model.
         // "Pause the music" is an instruction about the machine the user is holding,
@@ -1270,14 +1382,25 @@ final class DictationViewModel {
             return true
         }
 
+        // "Open Figma" and "go to github.com", ahead of the model for the same reason:
+        // exact, about this Mac, and not worth a model load. Only a whole capture in a
+        // closed form matches (`AgentIntentMatcher`); anything else goes on below.
+        if let intent = AgentIntentMatcher.match(text) {
+            await perform(intent, question: text, trace: &trace)
+            finish(trace, since: startedAt)
+            return true
+        }
+
         await requestCalendarAccessIfNeeded()
 
-        let attempt = await runCommandAgent(text, selectionRead: selectionRead, followUp: followUp)
-        trace.decisions.append(attempt.decision)
+        let attempt = await runCommandAgent(text, selectionRead: selectionRead, followUp: followUp,
+                                            keyDownApp: keyDownApp, pressStaysLocal: pressStaysLocal)
+        trace.decisions += attempt.priorDecisions + [attempt.decision]
         trace.connectorsAllowed = attempt.connectorsAllowed
         trace.toolsOffered = attempt.toolsOffered
         trace.calls = attempt.calls
         trace.turns = attempt.turns
+        trace.endpoint = attempt.endpoint
         if attempt.handled {
             trace.answer = attempt.answer
             trace.provenance = attempt.provenance
@@ -1369,11 +1492,157 @@ final class DictationViewModel {
         var createdSomething = false
         /// The loop ran out of time or steps (`CommandAgentService.Run.budgetSpent`).
         var budgetSpent = false
+        /// Escape stopped the run. No other tier may take the words after that.
+        var cancelled = false
+        /// Rungs decided before this one, such as the endpoint tier that declined.
+        var priorDecisions: [TraceDecision] = []
+        /// What went to the user's endpoint, or nil when nothing left the Mac.
+        var endpoint: EndpointSendTrace?
     }
 
+    /// Carry out a fast-path intent. An app opens at once: the user's own words name
+    /// an app this Mac has, the same consent "pause the music" carries. A link goes
+    /// through the device route, so it raises the card like every link.
+    private func perform(_ intent: AgentIntent, question: String,
+                         trace: inout AssistantTrace) async {
+        switch intent {
+        case .openApp(let app):
+            let opened = DeviceToolRunner.Environment.live.openApp(app.url)
+            let line = opened ? "Opened \(app.name)" : "Couldn't open \(app.name)"
+            presentQuickConfirmation(line, detail: DeviceToolCatalog.thisMacLabel, question: question)
+            trace.decisions.append(TraceDecision(
+                title: line,
+                detail: "The words name an app on this Mac, so it was opened straight away "
+                    + "— no model, no card.",
+                taken: true))
+            trace.answer = line
+            trace.provenance = DeviceToolCatalog.thisMacLabel
+            trace.createdSomething = opened
+
+        case .openURL(let url):
+            // Through the router, so the call is journalled like one the model made.
+            let router = CommandToolRouter(
+                local: LocalToolRunner(notes: state.notesStore),
+                connectors: nil,
+                device: DeviceToolRunner(
+                    store: state.connectorStore,
+                    requestApproval: { [approvals = state.approvals] in await approvals.request($0) }))
+            let result = await router.run(ToolCall(tool: DeviceToolCatalog.openURL.name,
+                                                   arguments: ["url": url.absoluteString]))
+            let host = url.host() ?? url.absoluteString
+            let line = result.ok ? "Opened \(host)" : "Didn't open \(host)"
+            presentQuickConfirmation(line, detail: result.ok ? "In your browser" : "", question: question)
+            trace.calls = router.journal
+            trace.decisions.append(TraceDecision(
+                title: line,
+                detail: "The words name a site, so it went to the approval card with no model, "
+                    + "the way every link does.",
+                taken: true))
+            trace.answer = line
+            trace.provenance = result.ok ? "In your browser" : ""
+            trace.createdSomething = result.ok
+        }
+    }
+
+    /// The endpoint tier first when the user set one, then the on-device tier.
+    ///
+    /// **Text only leaves the Mac, never audio**, and only after the consent sheet
+    /// for that endpoint. A password manager in front or secure input on keeps the
+    /// capture on this Mac. An endpoint that fails (HTTP error, timeout, bad body) or
+    /// acts on nothing hands the words to the on-device tier, unless it already
+    /// created something (filing them again would be a second copy) or Escape
+    /// stopped it.
+    /// - Parameter pressStaysLocal: a chord press of this capture's own session saw a
+    ///   password manager or secure input (`SelectionCapture.Session.staysLocal`), taken
+    ///   at stop.
     private func runCommandAgent(_ text: String,
                                  selectionRead: Task<SelectionContext?, Never>?,
-                                 followUp: FollowUpWindow.Digest?) async -> AgentAttempt {
+                                 followUp: FollowUpWindow.Digest?,
+                                 keyDownApp: SelectionReader.FrontApp?,
+                                 pressStaysLocal: Bool) async -> AgentAttempt {
+        let endpoint = state.agentEndpoint
+        // Decided whether or not an endpoint is on, so a capture that stayed local
+        // marks its follow-up even while the endpoint is paused.
+        let keptLocal = AgentEndpoint.staysLocal(
+            frontBundleID: SelectionReader.FrontApp.current()?.bundleID,
+            secureInput: TerminalApps.secureKeyboardEntryEnabled(),
+            atPress: pressStaysLocal,
+            followUpKeptLocal: followUp?.keptLocal ?? false)
+        guard FeatureFlags.agentEndpointAvailable, endpoint.isActive, !keptLocal else {
+            var local = await runOnDeviceAgent(text, selectionRead: selectionRead,
+                                               followUp: followUp, keptLocal: keptLocal,
+                                               keyDownApp: keyDownApp)
+            if keptLocal, FeatureFlags.agentEndpointAvailable, endpoint.isActive {
+                local.priorDecisions.insert(TraceDecision(
+                    title: "Your endpoint",
+                    detail: "Skipped — a password manager was in front or secure input was on, "
+                        + "now or in the capture this follows, so nothing left this Mac.",
+                    taken: false), at: 0)
+            }
+            return local
+        }
+        let selection = await SelectionCapture.settle(selectionRead)
+        // Again after that wait (up to half a second): a sign-out, a revoke or a pause
+        // in it keeps the words on this Mac. No await between here and the run's task,
+        // which `handleSignOut` cancels from then on.
+        guard Self.endpointMayStillSend(copied: endpoint, current: state.agentEndpoint) else {
+            var local = await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp,
+                                               keptLocal: false, keyDownApp: keyDownApp)
+            local.priorDecisions.insert(TraceDecision(
+                title: "Your endpoint",
+                detail: "Skipped — it was turned off, or you signed out, while the selection "
+                    + "was read, so nothing left this Mac.",
+                taken: false), at: 0)
+            return local
+        }
+        let sent = EndpointSendLog(host: endpoint.host)
+        guard let generator = CloudToolGenerator(endpoint: endpoint, apiKey: AgentEndpoint.apiKey(),
+                                                 sent: sent) else {
+            return await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp,
+                                          keptLocal: false, keyDownApp: keyDownApp)
+        }
+        var remote = await runAgent(text, selection: selection, followUp: followUp,
+                                    tier: .endpoint, generateNative: generator.generate,
+                                    keyDownApp: keyDownApp)
+        remote.endpoint = sent.snapshot
+        guard Self.onDeviceMayFollowEndpoint(handled: remote.handled, cancelled: remote.cancelled,
+                                             createdSomething: remote.createdSomething,
+                                             calls: remote.calls),
+              CleanupModel.General.isInstalled else { return remote }
+        var local = await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice,
+                              keyDownApp: keyDownApp)
+        local.priorDecisions = [TraceDecision(
+            title: "Your endpoint",
+            detail: remote.decision.detail + " The on-device assistant took it next.",
+            taken: false)]
+        // Both runs happened: what the endpoint read is part of the story too.
+        local.calls = remote.calls + local.calls
+        local.turns = remote.turns + local.turns
+        local.endpoint = remote.endpoint
+        return local
+    }
+
+    /// Whether the on-device tier may take the words after the endpoint tier gave them
+    /// back. Not after an answer, an Escape or a creation (a second copy), and not after
+    /// a card the user declined or left to time out: the same question must not come
+    /// back from the other tier.
+    static func onDeviceMayFollowEndpoint(handled: Bool, cancelled: Bool,
+                                          createdSomething: Bool, calls: [ToolCallTrace]) -> Bool {
+        !handled && !cancelled && !createdSomething
+            && !calls.contains { $0.authorization?.isRefusal == true }
+    }
+
+    /// Whether the endpoint copied before the selection wait may still take the
+    /// capture: still on, and still agreed to for the same address and API.
+    static func endpointMayStillSend(copied: AgentEndpoint, current: AgentEndpoint) -> Bool {
+        current.isActive && current.consentKey == copied.consentKey
+    }
+
+    private func runOnDeviceAgent(_ text: String,
+                                  selectionRead: Task<SelectionContext?, Never>?,
+                                  followUp: FollowUpWindow.Digest?,
+                                  keptLocal: Bool,
+                                  keyDownApp: SelectionReader.FrontApp?) async -> AgentAttempt {
         // **The assistant's own model, not the cleanup slot.** This gate read
         // `MlxCleanupService.shared.isReady` — S1-mini, the dictation text normalizer
         // — which is a different model with a different download, and it was wrong in
@@ -1397,6 +1666,19 @@ final class DictationViewModel {
         }
         // Usually done long before the words are; a hung app costs at most the wait.
         let selection = await SelectionCapture.settle(selectionRead)
+        return await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice,
+                              keptLocal: keptLocal, keyDownApp: keyDownApp)
+    }
+
+    /// One tier's run of the agent, and everything the trace needs from it.
+    /// - Parameter keptLocal: this capture had to stay on this Mac; its follow-up does too.
+    private func runAgent(_ text: String,
+                          selection: SelectionContext?,
+                          followUp: FollowUpWindow.Digest?,
+                          tier: AgentTier,
+                          generateNative: AgentLoop.GenerateNative? = nil,
+                          keptLocal: Bool = false,
+                          keyDownApp: SelectionReader.FrontApp?) async -> AgentAttempt {
         let agent = CommandAgentService(
             store: state.connectorStore,
             notes: state.notesStore,
@@ -1406,7 +1688,8 @@ final class DictationViewModel {
             soundName: state.reminderDefaultSound,
             takeNoteAudio: { [weak self] id in self?.takeNoteAudio(for: id) },
             selection: selection,
-            followUp: followUp)
+            followUp: followUp,
+            frontApp: keyDownApp)
         // The orb shows the thinking figure while the loop runs — the paste is
         // suppressed, so without it the notch sits silent through a multi-second
         // tool call and reads as having dropped the command. `isPolishing` is what
@@ -1415,6 +1698,7 @@ final class DictationViewModel {
         state.isPolishing = true
         state.commandAgentRunning = true
         state.agentActivity = .thinking
+        state.commandAgentTier = tier
         // Its own task so Escape can cancel the loop without cancelling the session.
         // The generation is read before it starts: a sign-out during the run must keep
         // its answer away from the next account.
@@ -1423,18 +1707,22 @@ final class DictationViewModel {
             await agent.run(
                 text,
                 generate: AgentLoop.liveGenerator(),
+                generateNative: generateNative,
+                tier: tier,
                 // The loop reports; the view model is what writes `AppState`, so the
                 // "one writer" rule survives the callback.
                 onStep: { step in self?.state.agentActivity = step })
         }
         commandAgentTask = task
         let run = await task.value
+        let cancelled = task.isCancelled
         // Only its own handle: a second capture's run keeps the one it set.
         if commandAgentTask == task { commandAgentTask = nil }
-        followUps.remember(run, question: text, generation: generation)
+        followUps.remember(run, question: text, generation: generation, keptLocal: keptLocal)
         state.isPolishing = false
         state.commandAgentRunning = false
         state.agentActivity = nil
+        state.commandAgentTier = .onDevice
 
         /// Everything the run knows, whatever it decided — so a decline carries the
         /// tool list and the calls that were made, which is exactly what makes it
@@ -1442,7 +1730,8 @@ final class DictationViewModel {
         func attempt(handled: Bool, detail: String) -> AgentAttempt {
             AgentAttempt(
                 handled: handled,
-                decision: TraceDecision(title: "Agent", detail: detail, taken: handled),
+                decision: TraceDecision(title: tier == .endpoint ? "Your endpoint" : "Agent",
+                                        detail: detail, taken: handled),
                 toolsOffered: run.toolsOffered,
                 connectorsAllowed: run.connectorsAllowed,
                 calls: run.calls,
@@ -1450,7 +1739,8 @@ final class DictationViewModel {
                 answer: run.storableAnswer,
                 provenance: run.result?.detail ?? "",
                 createdSomething: run.result?.createdSomething ?? false,
-                budgetSpent: run.budgetSpent)
+                budgetSpent: run.budgetSpent,
+                cancelled: cancelled)
         }
 
         guard let result = run.result else {
@@ -1462,6 +1752,11 @@ final class DictationViewModel {
                 : " Your connectors weren't offered to it — \u{201C}Let it use your "
                     + "connectors\u{201D} is off in Settings → General."
             return attempt(handled: false, detail: run.declineReason + connectorNote)
+        }
+        // A draft is the result: the band shows it and waits for the tap that types it.
+        if let draft = run.draft {
+            presentDraft(draft)
+            return attempt(handled: true, detail: Self.agentDetail(run: run, acted: true))
         }
         // The two outcomes get different surfaces, because they're different things.
         // A creation is a checkmark to glance at — it's already durable in Notes &
@@ -1833,8 +2128,9 @@ final class DictationViewModel {
 
     /// Escape, observed by the app's existing Escape monitor. A waiting approval card
     /// is denied and a running assistant loop is stopped (the loop then ends like a
-    /// spent budget, so its words are filed rather than lost); with neither, a long
-    /// answer's band closes, as its foot says. With none of the three pending it
+    /// spent budget, so its words are filed rather than lost); with neither, a draft
+    /// waiting on the band is dropped (nothing was typed), or else a long answer's
+    /// band closes, as its foot says. With none of the three pending it
     /// touches nothing. Returns whether it did any of that, so the caller leaves the
     /// coding-agent bands alone.
     @discardableResult
@@ -1846,6 +2142,12 @@ final class DictationViewModel {
         }
         if let commandAgentTask {
             commandAgentTask.cancel()
+            handled = true
+        }
+        // Not gated on the two above: Escape always drops a staged draft, even when it
+        // also denied a card, so nothing is left waiting to be typed.
+        if state.agentDraft != nil {
+            clearDraft()
             handled = true
         }
         if !handled, state.shouldShowExpandedAnswer {
@@ -1861,11 +2163,15 @@ final class DictationViewModel {
     /// Sign-out: nothing the assistant holds for the account that left may reach the
     /// next one. A waiting card is denied, a running loop is stopped, and the follow-up
     /// is forgotten — the window's generation moves too, so a run that finishes after
-    /// this cannot leave its answer behind.
+    /// this cannot leave its answer behind. The endpoint keeps its address and model
+    /// but loses its consent and its key: the next account never agreed to send there.
     func handleSignOut() {
         if state.approvals.pending != nil { state.approvals.resolve(.denied) }
         commandAgentTask?.cancel()
         followUps.clear()
+        clearDraft()
+        state.agentEndpoint.consentedTo = nil
+        AgentEndpoint.setAPIKey(nil)
     }
 
     func pasteLastTranscript() {

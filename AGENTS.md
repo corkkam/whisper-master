@@ -25,7 +25,9 @@ evaluation harness and public accuracy dashboard.
 | Release machinery | `Scripts/`, `.github/workflows/release.yml` | bash, notarization, Sparkle, Cloudflare R2 |
 
 Speech recognition is NVIDIA Parakeet through FluidAudio; the optional deeper
-cleanup is qwen2.5-3B through MLX. Both run on the user's own machine. Audio is
+cleanup is qwen2.5-3B through MLX. Both run on the user's own machine. With an
+endpoint the user sets and agrees to (dev builds only), the assistant's text, never
+audio, can leave the Mac (`Connectors/CLAUDE.md`). Audio is
 captured to memory, transcribed, and discarded — it is never written to a socket
 and never written to disk on the normal dictation path. **Meeting notes are the
 one deliberate exception** (`Meetings/`, dev builds only): after the user taps

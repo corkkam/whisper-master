@@ -23,14 +23,19 @@ final class FollowUpWindow {
         let question: String
         let answer: String
         let tainted: Bool
+        /// The run stayed on this Mac because a password manager was in front or secure
+        /// input was on. Its answer must not reach the user's endpoint through the next
+        /// capture, so that capture stays on this Mac too, and hands the flag on.
+        let keptLocal: Bool
 
         /// The question gets a third at most, so a long question cannot push the
         /// answer out.
-        init(question: String, answer: String, tainted: Bool) {
+        init(question: String, answer: String, tainted: Bool, keptLocal: Bool = false) {
             let asked = Self.oneLine(question, limit: FollowUpWindow.limit / 3)
             self.question = asked
             self.answer = Self.oneLine(answer, limit: FollowUpWindow.limit - asked.count)
             self.tainted = tainted
+            self.keptLocal = keptLocal
         }
 
         private static func oneLine(_ text: String, limit: Int) -> String {
@@ -54,13 +59,14 @@ final class FollowUpWindow {
     /// answer, and is not offered. A run that began before the last `clear` changes
     /// nothing.
     func remember(_ run: CommandAgentService.Run, question: String, generation: Int,
-                  at now: Date = Date()) {
+                  keptLocal: Bool = false, at now: Date = Date()) {
         guard generation == self.generation else { return }
         guard let result = run.result, !result.createdSomething else {
             held = nil
             return
         }
-        held = (Digest(question: question, answer: run.storableAnswer, tainted: run.tainted), now)
+        held = (Digest(question: question, answer: run.storableAnswer, tainted: run.tainted,
+                       keptLocal: keptLocal), now)
     }
 
     /// The digest while the window is open, handed over once.
