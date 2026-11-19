@@ -164,20 +164,23 @@ final class CloudToolGeneratorTests: XCTestCase {
     }
 
     func testEveryFailureIsNil() async {
-        let cases: [(AgentEndpoint.API, FakeEndpoint.Reply)] = [
-            (.openAICompatible, .status(500, Data("{}".utf8))),
-            (.anthropic, .status(401, Data(#"{"type":"error"}"#.utf8))),
-            (.openAICompatible, .failure(URLError(.timedOut))),
-            (.anthropic, .failure(URLError(.cannotConnectToHost))),
-            (.openAICompatible, .ok(Data("not json".utf8))),
-            (.openAICompatible, .ok(FakeEndpoint.openAIText("  "))),
-            (.anthropic, .ok(Data(#"{"content":[],"stop_reason":"refusal"}"#.utf8))),
+        let unreadable = "gave no answer the app could read"
+        let cases: [(AgentEndpoint.API, FakeEndpoint.Reply, String)] = [
+            (.openAICompatible, .status(500, Data("{}".utf8)), "answered HTTP 500"),
+            (.anthropic, .status(401, Data(#"{"type":"error"}"#.utf8)), "answered HTTP 401"),
+            (.openAICompatible, .failure(URLError(.timedOut)), "did not answer within 20 seconds"),
+            (.anthropic, .failure(URLError(.cannotConnectToHost)), "could not be reached"),
+            (.openAICompatible, .ok(Data("not json".utf8)), unreadable),
+            (.openAICompatible, .ok(FakeEndpoint.openAIText("  ")), unreadable),
+            (.anthropic, .ok(Data(#"{"content":[],"stop_reason":"refusal"}"#.utf8)), unreadable),
         ]
-        for (api, reply) in cases {
+        for (api, reply, reason) in cases {
             let generator = generator(api, FakeEndpoint([reply]))
             let raw = await generator.reply(loopHistory, tools: [])
             XCTAssertNil(raw, "\(api) \(reply) must hand the capture to the on-device tier")
             XCTAssertEqual(generator.sent.snapshot.failures, 1)
+            // The trace says why, in a fixed phrase: never the server's own body.
+            XCTAssertEqual(generator.sent.snapshot.failure, reason, "\(api) \(reply)")
         }
     }
 

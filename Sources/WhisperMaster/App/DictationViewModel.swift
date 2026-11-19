@@ -1482,7 +1482,7 @@ final class DictationViewModel {
     /// indistinguishable to the user.
     private struct AgentAttempt {
         let handled: Bool
-        let decision: TraceDecision
+        var decision: TraceDecision
         var toolsOffered: [String] = []
         var connectorsAllowed = false
         var calls: [ToolCallTrace] = []
@@ -1605,6 +1605,13 @@ final class DictationViewModel {
                                     tier: .endpoint, generateNative: generator.generate,
                                     keyDownApp: keyDownApp)
         remote.endpoint = sent.snapshot
+        // A failed reply ends the loop with nothing called, which the loop words as "the
+        // model answered without calling a tool". The failure is the real reason.
+        if let failure = sent.snapshot.failure, !remote.handled {
+            remote.decision = TraceDecision(title: remote.decision.title,
+                                            detail: "\(remote.decision.title) \(failure), so nothing was acted on.",
+                                            taken: false)
+        }
         guard Self.onDeviceMayFollowEndpoint(handled: remote.handled, cancelled: remote.cancelled,
                                              createdSomething: remote.createdSomething,
                                              calls: remote.calls),

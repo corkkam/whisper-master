@@ -177,8 +177,9 @@ final class EndpointSendLog: @unchecked Sendable {
     private let lock = NSLock()
     private var trace: EndpointSendTrace
 
-    init(host: String) {
-        trace = EndpointSendTrace(host: host)
+    /// - Parameter tool: the connected tool's name, when one runs instead of an endpoint.
+    init(host: String, tool: String? = nil) {
+        trace = EndpointSendTrace(host: host, tool: tool)
     }
 
     /// The loop resends the whole conversation each turn, so the latest request holds
@@ -197,10 +198,13 @@ final class EndpointSendLog: @unchecked Sendable {
         trace.toolList = tools.reduce(0) { $0 + $1.count }
     }
 
-    func recordFailure() {
+    /// - Parameter reason: a fixed phrase that ends "<the brain> …", such as "did not
+    ///   answer within 20 seconds". Never the server's or the tool's own output.
+    func recordFailure(_ reason: String? = nil) {
         lock.lock()
         defer { lock.unlock() }
         trace.failures += 1
+        if let reason { trace.failure = reason }
     }
 
     var snapshot: EndpointSendTrace {
@@ -287,19 +291,22 @@ struct CloudToolGenerator: Sendable {
             let (data, response) = try await transport(request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(status) else {
-                sent.recordFailure()
+                sent.recordFailure("answered HTTP \(status)")
                 log("Agent endpoint \(host) answered HTTP \(status).")
                 return nil
             }
             guard let reply = parse(data) else {
-                sent.recordFailure()
+                sent.recordFailure("gave no answer the app could read")
                 log("Agent endpoint \(host) sent a reply with no answer or tool call.")
                 return nil
             }
             return reply
         } catch {
-            sent.recordFailure()
-            log("Agent endpoint \(host) failed: \((error as? URLError)?.code.rawValue ?? -1).")
+            let code = (error as? URLError)?.code
+            sent.recordFailure(code == .timedOut
+                ? "did not answer within \(Int(timeout)) seconds"
+                : "could not be reached")
+            log("Agent endpoint \(host) failed: \(code?.rawValue ?? -1).")
             return nil
         }
     }
