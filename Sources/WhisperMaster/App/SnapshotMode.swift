@@ -117,6 +117,7 @@ enum SnapshotMode {
         }
 
         renderAgentEndpoint(dir)
+        renderConnectedTool(dir)
 
         // Onboarding, in the notch — one render per beat, plus the two states
         // inside the microphone beat that the orb is doing the work in.
@@ -344,6 +345,14 @@ enum SnapshotMode {
             s.isPolishing = true
             s.commandAgentRunning = true
             s.commandAgentTier = .endpoint
+            s.agentActivity = .running(tool: "list_calendar_events", target: "Personal")
+        }
+        // The same mark while the connected tool answers.
+        renderPill(dir, name: "pill-7g-agent-claude-code") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.commandAgentRunning = true
+            s.commandAgentTier = .claudeCode
             s.agentActivity = .running(tool: "list_calendar_events", target: "Personal")
         }
         // The consent card for a connector write — the one banner that carries three
@@ -1287,6 +1296,33 @@ enum SnapshotMode {
             to: dir.appendingPathComponent("sheet-agent-endpoint-consent.png"))
     }
 
+    /// The connected tool card: found and tested but not allowed, on, and not found, and
+    /// its consent sheet. Drawn from a constant binding and an injected detection, so
+    /// nothing is started and nothing is written into this process's defaults.
+    private static func renderConnectedTool(_ dir: URL) {
+        let found = ConnectedTool.Detection(
+            path: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/claude"),
+            version: "2.1.328")
+        var tool = ConnectedTool(kind: .claudeCode, tested: .init(kind: .claudeCode, version: "2.1.328"))
+        func section(_ value: ConnectedTool, _ detection: ConnectedTool.Detection) -> some View {
+            ConnectedToolSettingsSection(tool: .constant(value), detection: detection)
+                .frame(width: 680, alignment: .leading)
+                .padding(.horizontal, 44)
+                .padding(.vertical, 40)
+                .background(WarmBackground())
+        }
+        render(section(tool, found), to: dir.appendingPathComponent("panel-connected-tool.png"))
+        tool.consentedTo = .claudeCode
+        render(section(tool, found), to: dir.appendingPathComponent("panel-connected-tool-on.png"))
+        render(section(ConnectedTool(), ConnectedTool.Detection()),
+               to: dir.appendingPathComponent("panel-connected-tool-missing.png"))
+        render(
+            ConnectedToolSettingsSection.consentSheet(kind: .claudeCode, onAllow: {}, onCancel: {})
+                .padding(20)
+                .background(Color(white: 0.9)),
+            to: dir.appendingPathComponent("sheet-connected-tool-consent.png"))
+    }
+
     private static func renderPill(_ dir: URL, name: String, configure: (AppState) -> Void) {
         let state = AppState()
         state.hidePillWhenIdle = false
@@ -1697,7 +1733,29 @@ enum SnapshotMode {
             provenance: "Saved to Notes & Reminders",
             createdSomething: true,
             milliseconds: 180)
-        store.seed(dictation: [polished, rejected], assistant: [answered, posted, filed])
+        // The connected tool timed out and the on-device assistant took the words: the
+        // decision leads with the failure, and "What was sent" says it may have left.
+        let toolTimedOut = AssistantTrace(
+            askedAt: Date(timeIntervalSinceNow: -12_000),
+            heard: "what's on my calendar tomorrow",
+            asked: "What's on my calendar tomorrow?",
+            decisions: [
+                TraceDecision(
+                    title: "Claude Code",
+                    detail: "Claude Code did not answer within 20 seconds, so nothing was acted on. "
+                        + "The on-device assistant took it next.",
+                    taken: false),
+                TraceDecision(title: "Agent", detail: "Answered from list_calendar_events.", taken: true),
+            ],
+            connectorsAllowed: true,
+            toolsOffered: ["create_note", "create_reminder", "list_reminders", "list_calendar_events"],
+            answer: "Two meetings tomorrow: design review at 10 and the team sync at 3.",
+            provenance: "From Personal",
+            milliseconds: 26_400,
+            endpoint: EndpointSendTrace(host: "Claude Code", requests: 1, instructions: 1_180, spoken: 31,
+                                        toolList: 3_400, failures: 1, tool: "Claude Code",
+                                        failure: "did not answer within 20 seconds"))
+        store.seed(dictation: [polished, rejected], assistant: [answered, posted, filed, toolTimedOut])
     }
 
     private static func seedNotes(_ store: NotesStore) {

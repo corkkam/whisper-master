@@ -32,12 +32,8 @@ struct ConnectedTool: Codable, Equatable, Sendable {
 
         var binary: String { self == .claudeCode ? "claude" : "codex" }
 
-        /// Where the text goes next, for the consent sheet.
-        var vendor: String {
-            self == .claudeCode
-                ? "Anthropic, under your Claude account"
-                : "OpenAI, under your ChatGPT account"
-        }
+        /// The company the tool sends the text to, for the consent sheet.
+        var vendor: String { self == .claudeCode ? "Anthropic" : "OpenAI" }
 
         /// Always passed. The lean flags skip the user's own settings, so without it
         /// Claude falls back to its largest model. `sonnet` is an alias and survives a
