@@ -117,11 +117,15 @@ Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API
   paused (the tray's Pause Your Endpoint item). A password manager in front or secure
   input on keeps the capture on the on-device tier (`AgentEndpoint.staysLocal`, the same
   two rules as `SelectionReader`), checked at the chord press **and** at routing, since
-  the front app can change during the hold. **The press answer belongs to one session**
-  (`SelectionCapture.staysLocal`): only a press the session accepted writes it (either
-  press of a session keeps it local), `stopRecording` reads it before `take()`, and a
+  the front app can change during the hold. **The press answer belongs to one session**:
+  only a press the session accepted writes it (either press of a session keeps it
+  local), and `SelectionCapture.take()` hands it to `stopRecording` in one `Session`
+  value with the read and the front app, so nothing can read it after it is cleared. A
   start, a cancel or a failure drops it. A press that is refused, or made while the last
-  capture is still finishing, changes nothing. **A capture kept local marks its follow-up**
+  capture is still finishing, changes nothing. **The endpoint is checked again after the
+  selection wait** (`DictationViewModel.endpointMayStillSend`): a sign-out, a revoke or a
+  pause in that half second sends the capture to the on-device tier, and from the run's
+  start `handleSignOut` cancels it. **A capture kept local marks its follow-up**
   (`FollowUpWindow.Digest.keptLocal`): the next capture that carries its answer stays
   local too and hands the mark on, so the answer never reaches the endpoint through
   `AgentLoop.earlier`.
@@ -140,8 +144,9 @@ Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API
 - **The key is in the Keychain** (`AgentEndpoint.apiKey()`, the connector helper under a
   fixed UUID), never in `UserDefaults`, never in a log line (status and host only) or a
   trace. `CloudToolGeneratorTests.testTheKeyNeverReachesALogTheBodyOrTheTrace` is the lock.
-  **There is one key slot, and it belongs to a host**: a change to a different host (or
-  to a refused address) deletes it (`AgentEndpoint.keyMustGo`, run in
+  **There is one key slot, and it belongs to a host and port**: a change to a different
+  host or port (two ports on 127.0.0.1 are two servers), or to a refused address, deletes
+  it (`AgentEndpoint.keyMustGo`, run in
   `AppState.agentEndpoint`'s `didSet`), so a new provider with new consent never gets the
   old provider's key. Settings saves a key only once the address is valid, or the host's
   first keystrokes would delete it. **Sign-out drops the consent and the key**
@@ -216,11 +221,17 @@ the connector branch, so a user with no connection still gets the card.
     removed there first).
 
   The tap checks again (Accessibility, Secure Keyboard Entry, the front app, and the
-  selection, read off the main actor: `AgentDraft.selectionBlocker`), and checks the
-  front app and Secure Keyboard Entry once more immediately before the paste. A Replace
-  needs the same selection, read whole (not cut). **An Insert needs no selection**,
-  because ⌘V over selected text replaces it; this covers text selected after staging
-  and a model that called `insert_text` without reading. Any failure copies instead.
+  selection, read off the main actor: `SelectionCapture.state(in:)`,
+  `AgentDraft.selectionBlocker`), and checks the front app and Secure Keyboard Entry
+  once more immediately before the paste. The selection read has three answers
+  (`SelectionReader.SelectionState`): selected, empty (the app said so), or unknown
+  (Chrome and Electron hide it, or the read ran past the 0.5 s wait). A Replace needs the
+  same selection, read whole (not cut). **An Insert copies over a selection it can see**,
+  because ⌘V replaces it. Over an unknown one it still pastes, since copy only would
+  remove Insert from Slack and VS Code, and the status line says "Pasted. If text was
+  selected, Cmd-Z restores it." (`AgentDraft.typedLine`). An Insert in a terminal skips
+  the read (`readsSelectionAtTap`): ⌘V there types at the prompt and replaces nothing.
+  Any failure copies instead.
   **A trace keeps a draft's length, never its text**
   (`DeviceToolCatalog.storableArguments`, `storableTurn`): traces persist, and a
   rewrite of the selection slips past the selection's 40-character rule.
