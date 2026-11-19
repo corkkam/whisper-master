@@ -913,16 +913,12 @@ final class DictationViewModel {
             return "Typing needs Accessibility, so this is copy only."
         }
         if let reason = focusBlocker(draft) { return reason }
-        if draft.kind == .replaceSelection {
-            // The same off-main read the chord makes, so a hung app costs the wait.
-            let capture = SelectionCapture()
-            capture.begin(draft.app)
-            let current = await SelectionCapture.settle(capture.take())
-            guard current?.text == draft.selection else {
-                return "The selection changed, so this is copy only."
-            }
-        }
-        return nil
+        // Both kinds: ⌘V over a selection replaces it, so an Insert checks too. The
+        // same off-main read the chord makes, so a hung app costs the wait.
+        let capture = SelectionCapture()
+        capture.begin(draft.app)
+        let current = await SelectionCapture.settle(capture.take())
+        return draft.selectionBlocker(current: current)
     }
 
     // MARK: - Reading answers aloud
@@ -1547,12 +1543,12 @@ final class DictationViewModel {
     ///
     /// **Text only leaves the Mac, never audio**, and only after the consent sheet
     /// for that endpoint. A password manager in front or secure input on keeps the
-    /// - Parameter pressStaysLocal: a chord press of this capture's own session saw a
-    ///   password manager or secure input (`SelectionCapture.staysLocal`), read at stop.
     /// capture on this Mac. An endpoint that fails (HTTP error, timeout, bad body) or
     /// acts on nothing hands the words to the on-device tier, unless it already
     /// created something (filing them again would be a second copy) or Escape
     /// stopped it.
+    /// - Parameter pressStaysLocal: a chord press of this capture's own session saw a
+    ///   password manager or secure input (`SelectionCapture.staysLocal`), read at stop.
     private func runCommandAgent(_ text: String,
                                  selectionRead: Task<SelectionContext?, Never>?,
                                  followUp: FollowUpWindow.Digest?,

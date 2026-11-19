@@ -430,8 +430,8 @@ final class DeviceToolRunnerTests: XCTestCase {
     func testEscapeDropsAStagedDraft() {
         let viewModel = DictationViewModel()
         viewModel.state.agentDraft = AgentDraft.stage(
-            .insertText, text: "On my way.", app: mail, selection: nil, frontNow: mail,
-            tainted: false, readOutsideSelection: false)
+            .insertText, text: "On my way.", app: mail, selection: nil, selectionWasCut: false,
+            frontNow: mail, tainted: false, readOutsideSelection: false)
         viewModel.state.agentDraftAt = Date()
         viewModel.state.approvals.seedPendingForSnapshot(PendingApproval(
             tool: "open_app", instanceID: DeviceToolCatalog.thisMacID,
@@ -462,6 +462,50 @@ final class DeviceToolRunnerTests: XCTestCase {
         XCTAssertEqual(NotchDraftBanner.bodyHeight(for: long, width: 500),
                        NotchTextMetrics.blockHeight(lines: NotchDraftBanner.Metrics.maxBodyLines),
                        "past the cap the text scrolls instead of growing the band")
+    }
+
+    // MARK: - Phase 2.5 review fixes
+
+    /// A selection over `SelectionReader.limit` is cut, so a rewrite covers only its
+    /// head while the paste would replace all of it: copy only when staged, and at the tap.
+    func testARewriteOfACutSelectionIsCopyOnly() async {
+        let long = String(repeating: "a", count: SelectionReader.limit)
+        let cut = SelectionContext(appName: "Mail", windowTitle: nil, text: long,
+                                   wasCut: true, originalLength: SelectionReader.limit + 500)
+        let (_, effect) = await runner(recorder: Recorder(), keyDown: mail, selection: cut)
+            .run(call("replace_selection", ["text": "Shorter."]))
+        guard case .draftStaged(let draft)? = effect else { return XCTFail("no draft") }
+        XCTAssertEqual(draft.copyOnlyReason, AgentDraft.selectionCut)
+        XCTAssertEqual(draft.copyOnlyReason,
+                       "The selection was too long to rewrite safely, so this is copy only.")
+        XCTAssertEqual(draft.actionTitle, "Copy")
+
+        // A draft staged from a whole selection, which has grown past the limit by the tap.
+        let (_, whole) = await runner(recorder: Recorder(), keyDown: mail, selection: selection())
+            .run(call("replace_selection", ["text": "Shorter."]))
+        guard case .draftStaged(let staged)? = whole else { return XCTFail("no draft") }
+        XCTAssertNil(staged.copyOnlyReason)
+        let grown = SelectionContext(appName: "Mail", windowTitle: nil, text: selection().text,
+                                     wasCut: true, originalLength: SelectionReader.limit + 1)
+        XCTAssertEqual(staged.selectionBlocker(current: grown), AgentDraft.selectionCut)
+        XCTAssertNil(staged.selectionBlocker(current: selection()), "the same whole selection may be replaced")
+        XCTAssertEqual(staged.selectionBlocker(current: selection("Other text.")), AgentDraft.selectionChanged)
+        XCTAssertEqual(staged.selectionBlocker(current: nil), AgentDraft.selectionChanged)
+    }
+
+    /// ⌘V over a selection replaces it, so an Insert re-reads the selection at the tap.
+    /// Text selected after staging, or never read by the model, makes it copy only.
+    func testAnInsertOverASelectionIsCopyOnlyAtTheTap() async {
+        let (_, effect) = await runner(recorder: Recorder(), keyDown: mail, selection: selection())
+            .run(call("insert_text", ["text": "On my way."]))
+        guard case .draftStaged(let draft)? = effect else { return XCTFail("no draft") }
+        XCTAssertNil(draft.copyOnlyReason, "staged before the tap's own read")
+
+        XCTAssertEqual(draft.selectionBlocker(current: selection()), AgentDraft.textSelected)
+        XCTAssertEqual(draft.selectionBlocker(current: selection()),
+                       "Text is selected, so inserting would replace it. This is copy only.")
+        XCTAssertNil(draft.selectionBlocker(current: nil), "with nothing selected the tap types")
+        XCTAssertEqual(draft.copyOnly(AgentDraft.textSelected).actionTitle, "Copy")
     }
 
     func testReplaceSelectionIsOfferedOnlyWithASelection() {

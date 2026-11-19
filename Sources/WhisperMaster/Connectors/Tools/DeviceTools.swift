@@ -271,6 +271,9 @@ struct AgentDraft: Equatable, Sendable {
     static let afterReadingSelection = "I wrote this after reading your selection, so this is copy only."
     static let multiLineInTerminal = "A terminal runs each line, so a multi-line draft is copy only."
     static let hiddenCharacters = "The draft has characters the band can't show, so this is copy only."
+    static let selectionCut = "The selection was too long to rewrite safely, so this is copy only."
+    static let selectionChanged = "The selection changed, so this is copy only."
+    static let textSelected = "Text is selected, so inserting would replace it. This is copy only."
 
     /// The insert rules, in one place, or nil for a draft with nothing in it.
     ///
@@ -280,6 +283,8 @@ struct AgentDraft: Equatable, Sendable {
     ///   bidi override, a zero-width mark) makes it copy only: the tap must type
     ///   exactly what the user read. A tab is allowed, and so is a line break outside
     ///   a terminal.
+    /// - A Replace of a selection cut at `SelectionReader.limit` is copy only: the
+    ///   rewrite covers the part that was read, and the paste replaces all of it.
     /// - Text from an account (mail, chat) read in this run makes it copy only.
     /// - The run's own selection read is exempt in one case only: a Replace outside a
     ///   terminal, where "make this shorter" types a rewrite back over the text it
@@ -290,6 +295,7 @@ struct AgentDraft: Equatable, Sendable {
                       text: String,
                       app: SelectionReader.FrontApp,
                       selection: String?,
+                      selectionWasCut: Bool,
                       frontNow: SelectionReader.FrontApp?,
                       tainted: Bool,
                       readOutsideSelection: Bool) -> AgentDraft? {
@@ -304,6 +310,8 @@ struct AgentDraft: Equatable, Sendable {
             reason = focusMoved
         } else if hasHiddenCharacters(text) {
             reason = hiddenCharacters
+        } else if kind == .replaceSelection, selectionWasCut {
+            reason = selectionCut
         } else if readOutsideSelection {
             reason = afterReading
         } else if tainted, kind == .insertText || terminal {
@@ -326,6 +334,20 @@ struct AgentDraft: Equatable, Sendable {
             case .control, .format: return true
             default: return false
             }
+        }
+    }
+
+    /// Why a tap must copy, from the selection read again at the tap (nil: nothing
+    /// selected, or not readable). A Replace types only over the exact text it was
+    /// written for, read whole. An Insert types only where nothing is selected, since
+    /// ⌘V over a selection replaces it.
+    func selectionBlocker(current: SelectionContext?) -> String? {
+        switch kind {
+        case .replaceSelection:
+            if current?.wasCut == true { return Self.selectionCut }
+            return current?.text == selection ? nil : Self.selectionChanged
+        case .insertText:
+            return current == nil ? nil : Self.textSelected
         }
     }
 
@@ -512,6 +534,7 @@ struct DeviceToolRunner {
             text: call.arguments["text"] ?? "",
             app: app,
             selection: kind == .replaceSelection ? selection?.text : nil,
+            selectionWasCut: selection?.wasCut == true,
             frontNow: environment.frontApp(),
             tainted: taint.isSet,
             readOutsideSelection: taint.outsideSelection)
