@@ -43,7 +43,7 @@ struct AgentEndpointSettingsSection: View {
                 RowDivider()
                 SettingsRow(
                     "API key",
-                    subtitle: "Kept in your Keychain for this host only. A new host removes it. "
+                    subtitle: "Kept in your Keychain for this server only. Another host, port or scheme removes it. "
                         + "Leave it empty for a local server that needs none."
                 ) {
                     keyControl
@@ -52,7 +52,7 @@ struct AgentEndpointSettingsSection: View {
                 consentRow
             }
         }
-        // `AppState` deletes the key on a new host, and sign-out deletes it too.
+        // `AppState` deletes the key on a new host, port or scheme, and sign-out deletes it too.
         .onChange(of: endpoint) { _, _ in keySaved = AgentEndpoint.hasAPIKey }
         .sheet(isPresented: $showingConsent) {
             AgentEndpointConsentSheet(
@@ -150,8 +150,9 @@ struct AgentEndpointSettingsSection: View {
                     keySaved = AgentEndpoint.hasAPIKey
                 }
                 .secondaryButton()
-                // The key belongs to a host, so it waits for one: saved first, the
-                // host's first keystrokes would read as a new host and delete it.
+                // The key belongs to a server (host, port and scheme), so it waits for a
+                // valid address: saved first, the address's first keystrokes would read as
+                // a new server and delete it.
                 .disabled(keyDraft.trimmingCharacters(in: .whitespaces).isEmpty || endpoint.validURL == nil)
             }
         }
@@ -202,14 +203,22 @@ struct AgentEndpointSettingsSection: View {
 
 /// The per-endpoint consent sheet: every kind of data that goes to the address, and
 /// what never does. Agreeing records the address and API (`AgentEndpoint.consentKey`),
-/// so a changed address shows this sheet again.
+/// so a changed address shows this sheet again. The connected tool asks with the same
+/// sheet and its own words (`ConnectedToolSettingsSection.consentSheet`).
 struct AgentEndpointConsentSheet: View {
     let host: String
+    var intro = "When you hold fn + control, the assistant's conversation goes to this "
+        + "address instead of the model on this Mac. A local address counts too: "
+        + "a proxy there can forward it. The provider's own retention rules apply."
+    var sentItems = AgentEndpointConsentSheet.sent
+    var neverSentItems = AgentEndpointConsentSheet.neverSent
+    var footer = "You can pause it from the menu bar, and the on-device assistant answers "
+        + "whenever this address can't."
     let onAllow: () -> Void
     let onCancel: () -> Void
 
-    /// Each kind of data the endpoint receives, in the order a run sends it.
-    static let sent = [
+    /// Each kind of data a remote brain receives, in the order a run sends it.
+    static let conversation = [
         "What you say with the chord, as text.",
         "For two minutes after an answer: your last question and that answer.",
         "The name of the app in front and how much text you selected. The selected "
@@ -218,8 +227,10 @@ struct AgentEndpointConsentSheet: View {
         "What happens when it acts on this Mac: which app or link it opened, or that no such app is installed.",
         "Text the assistant writes for the app you are in, and whether you used it.",
         "The assistant's instructions and the list of tools it can use.",
-        "Your API key, to this address only.",
     ]
+
+    /// What the endpoint receives: the conversation, and the key.
+    static let sent = conversation + ["Your API key, to this address only."]
 
     static let neverSent = [
         "Audio. Your voice is transcribed on this Mac, and the recording never leaves it.",
@@ -237,16 +248,13 @@ struct AgentEndpointConsentSheet: View {
                 .padding(.vertical, 16)
             Divider().overlay(Theme.stroke)
             VStack(alignment: .leading, spacing: 16) {
-                Text("When you hold fn + control, the assistant's conversation goes to this "
-                    + "address instead of the model on this Mac. A local address counts too: "
-                    + "a proxy there can forward it. The provider's own retention rules apply.")
+                Text(intro)
                     .font(Typography.subheadline)
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                list("What is sent", Self.sent, symbol: "arrow.up.right", tint: Theme.warning)
-                list("Never sent", Self.neverSent, symbol: "lock.fill", tint: Theme.success)
-                Text("You can pause it from the menu bar, and the on-device assistant answers "
-                    + "whenever this address can't.")
+                list("What is sent", sentItems, symbol: "arrow.up.right", tint: Theme.warning)
+                list("Never sent", neverSentItems, symbol: "lock.fill", tint: Theme.success)
+                Text(footer)
                     .font(Typography.caption)
                     .foregroundStyle(Theme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

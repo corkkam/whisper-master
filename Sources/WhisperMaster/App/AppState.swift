@@ -576,8 +576,9 @@ final class AppState {
     /// whole run. Nil outside a run, and while the loop is between steps the last
     /// one stands — see `AgentLoop.onStep`.
     var agentActivity: AgentActivity?
-    /// Which tier that loop runs on. `.endpoint` puts the static "Your endpoint" mark
-    /// on the band, because the words are leaving the Mac while it shows.
+    /// Which tier that loop runs on. A remote tier puts its static mark
+    /// (`AgentTier.remoteName`) on the band, because the words are leaving the Mac
+    /// while it shows.
     var commandAgentTier: AgentTier = .onDevice
     /// The model behind an endpoint the user set (dev builds only). The key is in the
     /// Keychain, not here (`AgentEndpoint.apiKey()`).
@@ -586,6 +587,14 @@ final class AppState {
             guard agentEndpoint != oldValue else { return }
             if AgentEndpoint.keyMustGo(from: oldValue, to: agentEndpoint) { AgentEndpoint.setAPIKey(nil) }
             agentEndpoint.save()
+        }
+    }
+    /// The user's own coding tool as the chord's brain (dev builds only). The app only
+    /// starts it and never reads its sign-in; nothing here is secret.
+    var connectedTool = ConnectedTool() {
+        didSet {
+            guard connectedTool != oldValue else { return }
+            connectedTool.save()
         }
     }
     /// Default alert style new reminders inherit (per-reminder overridable).
@@ -919,6 +928,7 @@ final class AppState {
         // Opt-out: a connected connector is used unless the user turns this off.
         connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? true
         agentEndpoint = AgentEndpoint.load()
+        connectedTool = ConnectedTool.load()
         // Opt-out: you asked out loud, so an answer you can hear is the default.
         speakAnswersEnabled = UserDefaults.standard.object(forKey: Self.speakAnswersDefaultsKey) as? Bool ?? true
         answerVoiceEngine = (UserDefaults.standard.string(forKey: Self.answerVoiceEngineDefaultsKey))

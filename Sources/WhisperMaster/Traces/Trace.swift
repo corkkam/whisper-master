@@ -375,6 +375,13 @@ struct EndpointSendTrace: Codable, Hashable, Sendable {
     /// Requests that came back with no usable reply: an HTTP error, a timeout, a body
     /// that could not be read.
     var failures: Int = 0
+    /// The connected tool's name when one ran (`ConnectedTool`), nil for the endpoint.
+    /// Optional, like `failure`, so a trace written before it still decodes.
+    var tool: String?
+    /// Why the last failed request failed, as the rest of a sentence about the remote
+    /// brain ("did not answer within 20 seconds"). A fixed phrase from this app, never
+    /// text that came back from the server or the tool.
+    var failure: String?
 
     /// One line for the Traces page.
     var summary: String {
@@ -383,7 +390,7 @@ struct EndpointSendTrace: Codable, Hashable, Sendable {
                      ("tool list", toolList)]
             .filter { $0.1 > 0 }
             .map { "\($0.0) \($0.1.formatted())" }
-        let failed = failures > 0 ? " \(failures) failed." : ""
+        let failed = failures > 0 ? " \(failures) failed" + (failure.map { ": it \($0)." } ?? ".") : ""
         return "\(requests) request\(requests == 1 ? "" : "s") to \(host): "
             + parts.joined(separator: ", ") + " characters." + failed
             + " Text only; audio never leaves this Mac."

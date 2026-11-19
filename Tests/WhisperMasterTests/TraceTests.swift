@@ -189,6 +189,22 @@ final class TraceTests: XCTestCase {
         XCTAssertNil(trace.calls.first?.approvalMilliseconds)
         XCTAssertNil(trace.calls.first?.authorization)
         XCTAssertNil(trace.endpoint, "nothing left the Mac in a trace written before the endpoint tier")
+
+        // A send record written before `tool` and `failure` existed.
+        let oldSend = #"{"host":"api.example.com","requests":1,"instructions":10,"spoken":5,"#
+            + #""modelReplies":0,"toolResults":0,"toolList":20,"failures":1}"#
+        let send = try JSONDecoder().decode(EndpointSendTrace.self, from: Data(oldSend.utf8))
+        XCTAssertNil(send.tool)
+        XCTAssertNil(send.failure)
+        XCTAssertEqual(send.summary, "1 request to api.example.com: your words 5, instructions 10, "
+            + "tool list 20 characters. 1 failed. Text only; audio never leaves this Mac.")
+    }
+
+    func testTheSendSummarySaysWhyTheRemoteBrainFailed() {
+        let send = EndpointSendTrace(host: "Claude Code", requests: 1, spoken: 42, failures: 1,
+                                     tool: "Claude Code", failure: "did not answer within 20 seconds")
+        XCTAssertEqual(send.summary, "1 request to Claude Code: your words 42 characters. 1 failed: "
+            + "it did not answer within 20 seconds. Text only; audio never leaves this Mac.")
     }
 
     /// The general form of the test above: a trace written today, with every key the

@@ -304,16 +304,16 @@ struct CommandAgentService {
     /// day. The wording is the deterministic day summary's own tail, so the two
     /// surfaces report a gap identically.
     /// Pure, so the gap rule is testable without a provider that can fail on demand.
-    /// An endpoint run says so on this line too, never "On-device assistant".
+    /// A remote run says so on this line too, never "On-device assistant".
     static func detailLine(effects: [CommandToolRouter.Effect],
                            served: [String],
                            unreadable: [String],
                            tier: AgentTier = .onDevice) -> String {
         var line = destination(effects: effects, served: served)
-        if tier == .endpoint {
+        if let label = tier.answerLabel {
             line = line == onDeviceLine
-                ? "Answered by \(AgentTier.endpointLabel)"
-                : line + "  \u{00B7}  via \(AgentTier.endpointLabel)"
+                ? "Answered by \(label)"
+                : line + "  \u{00B7}  via \(label)"
         }
         guard !unreadable.isEmpty else { return line }
         return line + "  ·  couldn't read \(unreadable.joined(separator: ", "))"

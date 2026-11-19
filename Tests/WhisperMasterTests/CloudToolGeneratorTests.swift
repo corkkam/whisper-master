@@ -164,21 +164,41 @@ final class CloudToolGeneratorTests: XCTestCase {
     }
 
     func testEveryFailureIsNil() async {
-        let cases: [(AgentEndpoint.API, FakeEndpoint.Reply)] = [
-            (.openAICompatible, .status(500, Data("{}".utf8))),
-            (.anthropic, .status(401, Data(#"{"type":"error"}"#.utf8))),
-            (.openAICompatible, .failure(URLError(.timedOut))),
-            (.anthropic, .failure(URLError(.cannotConnectToHost))),
-            (.openAICompatible, .ok(Data("not json".utf8))),
-            (.openAICompatible, .ok(FakeEndpoint.openAIText("  "))),
-            (.anthropic, .ok(Data(#"{"content":[],"stop_reason":"refusal"}"#.utf8))),
+        let unreadable = "gave no answer the app could read"
+        let cases: [(AgentEndpoint.API, FakeEndpoint.Reply, String)] = [
+            (.openAICompatible, .status(500, Data("{}".utf8)), "answered HTTP 500"),
+            (.anthropic, .status(401, Data(#"{"type":"error"}"#.utf8)), "answered HTTP 401"),
+            (.openAICompatible, .failure(URLError(.timedOut)), "did not answer within 20 seconds"),
+            (.anthropic, .failure(URLError(.cannotConnectToHost)), "could not be reached"),
+            (.openAICompatible, .ok(Data("not json".utf8)), unreadable),
+            (.openAICompatible, .ok(FakeEndpoint.openAIText("  ")), unreadable),
+            (.anthropic, .ok(Data(#"{"content":[],"stop_reason":"refusal"}"#.utf8)), unreadable),
         ]
-        for (api, reply) in cases {
+        for (api, reply, reason) in cases {
             let generator = generator(api, FakeEndpoint([reply]))
             let raw = await generator.reply(loopHistory, tools: [])
             XCTAssertNil(raw, "\(api) \(reply) must hand the capture to the on-device tier")
             XCTAssertEqual(generator.sent.snapshot.failures, 1)
+            // The trace says why, in a fixed phrase: never the server's own body.
+            XCTAssertEqual(generator.sent.snapshot.failure, reason, "\(api) \(reply)")
         }
+    }
+
+    /// A Pause, a Revoke or a sign-out between two requests: the second is not sent.
+    func testAnEndpointTurnedOffMidRunSendsNoMore() async {
+        let on = Switch(true)
+        let server = FakeEndpoint([.ok(FakeEndpoint.openAIText("one")), .ok(FakeEndpoint.openAIText("two"))])
+        var generator = generator(.openAICompatible, server)
+        generator.mayContinue = { on.isOn }
+
+        let first = await generator.reply(loopHistory, tools: [])
+        on.isOn = false
+        let second = await generator.reply(loopHistory, tools: [])
+
+        XCTAssertNotNil(first)
+        XCTAssertNil(second)
+        XCTAssertEqual(server.requests.count, 1)
+        XCTAssertEqual(generator.sent.snapshot.failure, "was paused or turned off during the run")
     }
 
     /// The key goes in one header, and nowhere else: not the body, not a log line, not
@@ -307,6 +327,20 @@ final class CloudToolGeneratorTests: XCTestCase {
         }, "consent for another address is not consent for this send")
     }
 
+    /// The order, not only the predicate: the read below revokes consent when it ends,
+    /// as a sign-out during the wait would. A check made before the wait would still
+    /// see consent, and this would fail.
+    func testTheReCheckRunsAfterTheSelectionWaitNotBefore() async {
+        final class Consent { var given = true }
+        let consent = Consent()
+        let read = Task { @MainActor () -> SelectionContext? in
+            consent.given = false
+            return nil
+        }
+        let (_, stillOn) = await DictationViewModel.settleThenCheck(read) { consent.given }
+        XCTAssertFalse(stillOn)
+    }
+
     /// One key slot: a new host or port, with its own consent, must not inherit the
     /// last provider's key. A new path or model on the same host and port keeps it.
     func testANewHostDeletesTheStoredKey() {
@@ -329,6 +363,11 @@ final class CloudToolGeneratorTests: XCTestCase {
         var otherPort = local
         otherPort.url = "http://127.0.0.1:11434/v1/chat/completions"
         XCTAssertTrue(AgentEndpoint.keyMustGo(from: local, to: otherPort), "another port is another server")
+        // Both read as port nil, so only the scheme tells them apart.
+        let secure = AgentEndpoint(api: .openAICompatible, url: "https://localhost/v1/chat/completions", model: "m")
+        var plain = secure
+        plain.url = "http://localhost/v1/chat/completions"
+        XCTAssertTrue(AgentEndpoint.keyMustGo(from: secure, to: plain), "a key for TLS must not go out in clear text")
 
         withMemoryKeychain {
             // Launch: `AppState` loads the saved endpoint over an empty one.
@@ -436,13 +475,23 @@ final class CloudToolGeneratorTests: XCTestCase {
         XCTAssertEqual(CommandAgentService.detailLine(effects: [], served: ["Work"], unreadable: [],
                                                       tier: .endpoint),
                        "From Work  \u{00B7}  via your endpoint")
+        XCTAssertEqual(CommandAgentService.detailLine(effects: [], served: [], unreadable: [],
+                                                      tier: .claudeCode),
+                       "Answered by Claude Code")
+        XCTAssertNil(AgentTier.onDevice.remoteName)
+        XCTAssertNil(AgentTier.onDevice.answerLabel)
     }
 
     func testTheBandCarriesTheMarkOnlyWhileTheEndpointAnswers() {
         let step = AgentActivity.running(tool: "list_calendar_events", target: "Personal")
         XCTAssertEqual(NotchActivity.polishing.label(holdToTalk: true, commandCapture: true,
-                                                     agentActivity: step, viaEndpoint: true),
+                                                     agentActivity: step,
+                                                     remoteMark: AgentTier.endpoint.remoteName),
                        "Your endpoint \u{00B7} Checking Personal")
+        XCTAssertEqual(NotchActivity.polishing.label(holdToTalk: true, commandCapture: true,
+                                                     agentActivity: step,
+                                                     remoteMark: AgentTier.claudeCode.remoteName),
+                       "Claude Code \u{00B7} Checking Personal")
         XCTAssertEqual(NotchActivity.polishing.label(holdToTalk: true, commandCapture: true,
                                                      agentActivity: step),
                        "Checking Personal")

@@ -8,9 +8,25 @@ import Foundation
 enum AgentTier: String, Codable, Sendable {
     case onDevice
     case endpoint
+    /// The user's own command-line tool, run as a text generator (`ConnectedTool`).
+    case claudeCode
+    case codex
 
-    /// What the band, the answer line and the trace call the endpoint tier.
-    static let endpointLabel = "your endpoint"
+    /// What the band and the trace's decision rung call a remote tier. nil on this
+    /// Mac, so nothing marks the on-device tier as remote.
+    var remoteName: String? {
+        switch self {
+        case .onDevice: return nil
+        case .endpoint: return "Your endpoint"
+        case .claudeCode: return "Claude Code"
+        case .codex: return "Codex"
+        }
+    }
+
+    /// What the answer line calls it: "Answered by your endpoint".
+    var answerLabel: String? {
+        self == .endpoint ? "your endpoint" : remoteName
+    }
 }
 
 /// The model behind an HTTP endpoint that the user set (Settings → Assistant, dev
@@ -136,12 +152,14 @@ struct AgentEndpoint: Codable, Equatable, Sendable {
 
     static var hasAPIKey: Bool { ConnectorCredentials.exists(for: keychainID) }
 
-    /// The one key slot was filled for `old`'s server, so a different host or port (or
-    /// none) must not inherit it: a new provider with new consent would receive the old
-    /// provider's key, and two ports on 127.0.0.1 are two servers. A new path, model or
-    /// API on the same host and port keeps it.
+    /// The one key slot was filled for `old`'s server, so a different host, port or scheme
+    /// (or none) must not inherit it: a new provider with new consent would receive the
+    /// old provider's key, and two ports on 127.0.0.1 are two servers. A new path, model or
+    /// API on the same host, port and scheme keeps it. The scheme counts on its own:
+    /// `https://localhost` and `http://localhost` both read as port nil.
     static func keyMustGo(from old: AgentEndpoint, to new: AgentEndpoint) -> Bool {
-        !old.host.isEmpty && (new.host != old.host || new.validURL?.port != old.validURL?.port)
+        !old.host.isEmpty && (new.host != old.host || new.validURL?.port != old.validURL?.port
+            || new.validURL?.scheme?.lowercased() != old.validURL?.scheme?.lowercased())
     }
 
     /// Saves the key, or removes it when `key` is blank.
@@ -161,8 +179,9 @@ final class EndpointSendLog: @unchecked Sendable {
     private let lock = NSLock()
     private var trace: EndpointSendTrace
 
-    init(host: String) {
-        trace = EndpointSendTrace(host: host)
+    /// - Parameter tool: the connected tool's name, when one runs instead of an endpoint.
+    init(host: String, tool: String? = nil) {
+        trace = EndpointSendTrace(host: host, tool: tool)
     }
 
     /// The loop resends the whole conversation each turn, so the latest request holds
@@ -181,10 +200,13 @@ final class EndpointSendLog: @unchecked Sendable {
         trace.toolList = tools.reduce(0) { $0 + $1.count }
     }
 
-    func recordFailure() {
+    /// - Parameter reason: a fixed phrase that ends "<the brain> …", such as "did not
+    ///   answer within 20 seconds". Never the server's or the tool's own output.
+    func recordFailure(_ reason: String? = nil) {
         lock.lock()
         defer { lock.unlock() }
         trace.failures += 1
+        if let reason { trace.failure = reason }
     }
 
     var snapshot: EndpointSendTrace {
@@ -221,6 +243,10 @@ struct CloudToolGenerator: Sendable {
     /// on-device tier to run.
     var timeout: TimeInterval = 20
     var transport: Transport = CloudToolGenerator.transport(session: .shared)
+    /// Asked before every request and again when its reply arrives: still on, not paused,
+    /// still allowed for this address. A Pause, a Revoke or a sign-out in the middle of a
+    /// run stops the next request and drops the reply of the one in flight.
+    var mayContinue: @Sendable () async -> Bool = { true }
     /// Status and host only. Never the key, never a body.
     var log: @Sendable (String) -> Void = { Log.connectors.notice("\($0, privacy: .public)") }
 
@@ -264,26 +290,40 @@ struct CloudToolGenerator: Sendable {
     }
 
     func reply(_ messages: [[String: String]], tools: [String]) async -> String? {
+        let host = url.host ?? "the endpoint"
+        guard await mayContinue() else {
+            sent.recordFailure("was paused or turned off during the run")
+            log("Agent endpoint \(host) was turned off during the run.")
+            return nil
+        }
         guard let request = request(messages, tools: tools) else { return nil }
         sent.record(messages, tools: tools)
-        let host = url.host ?? "the endpoint"
         do {
             let (data, response) = try await transport(request)
+            // A Pause or a Revoke while the request was out: the reply is dropped before
+            // the loop reads it or a tool runs.
+            guard await mayContinue() else {
+                sent.recordFailure("was paused or turned off during the run")
+                return nil
+            }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(status) else {
-                sent.recordFailure()
+                sent.recordFailure("answered HTTP \(status)")
                 log("Agent endpoint \(host) answered HTTP \(status).")
                 return nil
             }
             guard let reply = parse(data) else {
-                sent.recordFailure()
+                sent.recordFailure("gave no answer the app could read")
                 log("Agent endpoint \(host) sent a reply with no answer or tool call.")
                 return nil
             }
             return reply
         } catch {
-            sent.recordFailure()
-            log("Agent endpoint \(host) failed: \((error as? URLError)?.code.rawValue ?? -1).")
+            let code = (error as? URLError)?.code
+            sent.recordFailure(code == .timedOut
+                ? "did not answer within \(Int(timeout)) seconds"
+                : "could not be reached")
+            log("Agent endpoint \(host) failed: \(code?.rawValue ?? -1).")
             return nil
         }
     }

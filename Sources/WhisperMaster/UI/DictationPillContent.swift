@@ -489,7 +489,7 @@ struct DictationPillContent: View {
             agentActivity: state.agentActivity,
             agentTarget: state.agentCaptureArmed
                 ? (state.agents.promptTarget?.repo ?? "the agent") : nil,
-            viaEndpoint: state.commandAgentTier == .endpoint)
+            remoteMark: state.commandAgentTier.remoteName)
     }
 
     /// The ambient row's text, for **measurement only**.

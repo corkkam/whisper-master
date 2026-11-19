@@ -154,14 +154,14 @@ enum NotchActivity: Equatable {
     ///   or nil when this is not one. It **names the destination** rather than saying
     ///   "Dictating", because the whole risk of a key that redirects your words is not
     ///   knowing where they went until after you let go.
-    /// - Parameter viaEndpoint: the assistant's words are going to the user's endpoint.
-    ///   The mark leads the caption, so a caption cut at the wing's cap loses the
-    ///   connector name and never the mark.
+    /// - Parameter remoteMark: the remote tier the assistant's words are going to
+    ///   (`AgentTier.remoteName`), or nil on this Mac. The mark leads the caption, so a
+    ///   caption cut at the wing's cap loses the connector name and never the mark.
     func label(holdToTalk: Bool,
                commandCapture: Bool = false,
                agentActivity: AgentActivity? = nil,
                agentTarget: String? = nil,
-               viaEndpoint: Bool = false) -> String {
+               remoteMark: String? = nil) -> String {
         switch self {
         case .listening where agentTarget != nil: "Dictating to \(agentTarget ?? "")"
         // Not "Taking a command": the chord asks as well as instructs, and a user
@@ -170,7 +170,7 @@ enum NotchActivity: Equatable {
         case .listening: holdToTalk ? "Dictating" : "Dictating (hands-free)"
         case .polishing where agentTarget != nil: "Sending to \(agentTarget ?? "")"
         case .polishing where commandCapture:
-            (viaEndpoint ? "Your endpoint \u{00B7} " : "") + (agentActivity?.caption ?? AgentActivity.generic)
+            (remoteMark.map { "\($0) \u{00B7} " } ?? "") + (agentActivity?.caption ?? AgentActivity.generic)
         case .polishing: "Polishing"
         case .polished: "Polished"
         case .preparing: "Getting ready"

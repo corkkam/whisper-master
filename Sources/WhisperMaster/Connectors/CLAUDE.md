@@ -125,7 +125,9 @@ Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API
   capture is still finishing, changes nothing. **The endpoint is checked again after the
   selection wait** (`DictationViewModel.endpointMayStillSend`): a sign-out, a revoke or a
   pause in that half second sends the capture to the on-device tier, and from the run's
-  start `handleSignOut` cancels it. **A capture kept local marks its follow-up**
+  start `handleSignOut` cancels it. **Every request asks the live state first**
+  (`CloudToolGenerator.mayContinue`): a Pause or a Revoke in the middle of a run stops the
+  next request. **A capture kept local marks its follow-up**
   (`FollowUpWindow.Digest.keptLocal`): the next capture that carries its answer stays
   local too and hands the mark on, so the answer never reaches the endpoint through
   `AgentLoop.earlier`.
@@ -144,8 +146,9 @@ Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API
 - **The key is in the Keychain** (`AgentEndpoint.apiKey()`, the connector helper under a
   fixed UUID), never in `UserDefaults`, never in a log line (status and host only) or a
   trace. `CloudToolGeneratorTests.testTheKeyNeverReachesALogTheBodyOrTheTrace` is the lock.
-  **There is one key slot, and it belongs to a host and port**: a change to a different
-  host or port (two ports on 127.0.0.1 are two servers), or to a refused address, deletes
+  **There is one key slot, and it belongs to a host, port and scheme**: a change to a
+  different one (two ports on 127.0.0.1 are two servers; `https://localhost` to
+  `http://localhost` changes only the scheme), or to a refused address, deletes
   it (`AgentEndpoint.keyMustGo`, run in
   `AppState.agentEndpoint`'s `didSet`), so a new provider with new consent never gets the
   old provider's key. Settings saves a key only once the address is valid, or the host's
@@ -177,6 +180,100 @@ Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API
 - **Not checked live.** No test calls a paid API. `AgentEndpointLiveTests` is the bench
   arm (16 first-turn cases); it skips unless `WM_ENDPOINT_URL` and `WM_ENDPOINT_MODEL` are
   set.
+
+## The connected tool tier (`Agent/ConnectedTool.swift`, dev builds only)
+
+The chord can use the user's own Claude Code (Settings → Assistant → Connected tool) as
+its brain, ahead of the endpoint (owner decision 2026-11-19). The tool runs as a **text
+generator only**: `ConnectedToolGenerator` is `AgentLoop.generateNative`, so the loop, the
+taint rule, the cards and "only an executed tool counts" are the app's, as for the
+endpoint. **Text only leaves the Mac, never audio.**
+
+- **Gates, all of them:** `FeatureFlags.agentEndpointAvailable` (the endpoint's flag), the
+  tool found, a passed **Test on the file this Mac has** (`ConnectedTool.isUsable`), the
+  consent sheet for that tool, and not paused (the tray's Pause Connected Tool). Detection
+  is file checks only and sends nothing. `staysLocal`, the follow-up mark and the re-check
+  after the selection wait (`settleThenCheck`, `connectedToolMayStillSend`) are the
+  endpoint's. **Sign-out drops the consent** and keeps the Test.
+- **One remote tier per capture** (`DictationViewModel.remotePlan`, pure): the tool if it
+  is usable now, else the endpoint. A tool that is gone or changed is skipped **before
+  anything starts**, with its own rung, so the endpoint may still run. The endpoint never
+  follows a tool that ran and failed: two destinations off this Mac are hard to predict,
+  and the waits add up. `remoteOutcome` (pure) leads the rung with the failure and keeps
+  no send record when nothing was sent.
+- **Before every turn, and again when its reply returns, both generators ask the live
+  state** (`mayContinue`): a Pause, a Revoke or a sign-out in the middle of a run stops the
+  next request and drops the reply of the one in flight before a tool runs ("was paused or
+  turned off during the run").
+- **The app is a client only**, the kunai and Shed rule: it never ships, installs or
+  updates the tool. `locate` looks in `~/.local/bin`, `/opt/homebrew/bin` and
+  `/usr/local/bin` (a Finder-launched app has none of them on PATH; a shell would read the
+  dotfiles), at each chord, and refuses a target anyone can write to. **It never reads the
+  tool's sign-in**; `ConnectedToolTests.testTheTierNeverTouchesASignIn` scans the three
+  source files. Settings and the consent sheet show the file that runs (the link's target).
+- **The command line is the lean one** (`ConnectedTool.arguments`): `-p --model sonnet
+  --tools "" --no-session-persistence --setting-sources "" --strict-mcp-config
+  --system-prompt <text only> --output-format stream-json --verbose --include-hook-events`.
+  **Never `--bare`** (it skips the user's sign-in). Without the two lean flags each call
+  loads the user's hooks, MCP servers and skills (about 150k tokens, 10 s) and the hooks
+  write files; `--tools ""` alone keeps every MCP tool. `--model` is always passed: the lean
+  flags skip the user's settings. Each `""` is followed by a flag (`--tools` takes a list).
+- **Every run checks its own start-up record** (`ConnectedTool.StreamCheck`, a
+  `CLIProcess.LineCheck`). The first line must be `init` with no tools, no MCP servers and
+  the tested version; later lines must be events the app knows, and a model turn may hold
+  text and thinking only. A hook event, an unknown event, a line that is not JSON or another
+  version **stops the run at that line**, discards it, records the reason and clears the
+  Test (`onUntrusted`), even when a Pause came during that run: what the run showed is
+  acted on before the Pause check. Fail closed: a new event type in a CLI update fails the chord until
+  the code knows it.
+- **The Test pins the file** (`ConnectedTool.Tested`: the version its start-up record gave,
+  and the link's real target with its device, inode, size, modification time and
+  status-change time). On a tap only (each run uses the user's plan), the same line and
+  check with a fixed prompt. A changed file reads as untested at the chord, by one `stat`;
+  no `--version` is spawned. **Every turn stats the file once, right before the spawn, and
+  runs that real path, never the link.** A failed Test clears `tested`. This does not stop
+  a process of the same user from swapping the file between the `stat` and the exec, and
+  nothing hashes the file.
+- **The prompt** goes on stdin, argv holds constants only. **Each conversation turn is one
+  JSON object on one line**, its content a JSON string, so "[user]" or a line break with a
+  fake role inside a mail or a selection stays inside its own string.
+- **The reply** (`ConnectedToolGenerator.normalized`, here only, so the endpoint's parser
+  keeps its meaning): a `<tool_call>` block is read wherever it sits, the tag in any case,
+  first block only. **An untagged call (a bare object or one fence) is read only as the
+  whole reply**: quoted in prose it is data, because a mail that holds a call must not file
+  a reminder when the answer repeats it. Any other reply that shows a call (a tag-like
+  marker, `"name"` beside `"arguments"`, an object with a `name`, a fence that holds an
+  object) fails the run and is never spoken or run. A whole-reply `{"answer": …}` or
+  `{"tool": …}`, bare or fenced, reads as before. Anything else is a plain answer.
+  The no-tool guard (`ConnectedTool.reply`): more than one turn, a permission denial, `<invoke`
+  or `<function_calls` is a failure. Accept only `is_error: false` and `terminal_reason:
+  "completed"`; `subtype` says "success" on a run that is not signed in.
+- **`CLIProcess` is the only code that spawns, kills and reaps.** `posix_spawn`, the child
+  leads its own process group, in an empty `mkdtemp` folder (0700, removed after), with an
+  allowlisted environment (`HOME`, `USER`, `LOGNAME`, `TMPDIR`, a fixed `PATH`, no Node.js
+  folder: an npm install that needs `node` fails with that reason), no app descriptor,
+  stderr to /dev/null. `F_SETNOSIGPIPE` on the write end. A timeout (20 s), a 1 MiB cap, a
+  refused line and the task's cancel send SIGTERM then SIGKILL to the group. It waits with
+  `WNOWAIT` and kills the rest of the group **before** it reaps, so a kill never reaches a
+  reused group id. **An exit wins over a late timeout**: once reaped, the reader gets a
+  second to drain. Known limits: a grandchild that calls `setsid` leaves the group, and a
+  run still going when the app quits is not killed.
+- **Every failure is nil, with a fixed reason** (`ConnectedTool.failure`), never the
+  tool's own words. The send is recorded before the launch (counts only).
+- **Codex is built and never reachable** (`FeatureFlags.connectedCodexAvailable`, false on
+  every channel). `load` drops a stored Codex, Settings shows only an offered kind,
+  `detect`, `test` and the generator refuse it, and the bench skips it. In its read-only sandbox Codex
+  still ran `ls`, so text in a mail could make it read a file and send it to OpenAI. Its
+  Test cannot pass. It turns on only in a commit that adds a setting the shell canary
+  proved (`CodexShellCanaryTests`, `WM_CODEX_CANARY=1`) and pastes its output. Never guess
+  a config key into the line: a key Codex ignores still parses.
+- **Naming:** the card is "Connected tool". The tool's own name appears only in sentences
+  about it ("Runs Claude Code on this Mac", "Answered by Claude Code"), never as a feature
+  name.
+- **Not checked live:** the real stream under the lean flags, the event types a thinking
+  run prints, and the keychain or privacy prompts when the app (not a shell) is the parent.
+  `AgentEndpointLiveTests` has an arm, `WM_CONNECTED_TOOL=claudeCode`, that runs the 16
+  first-turn cases through the real tool and skips by default.
 
 ## Device tools: acting on this Mac (`Tools/DeviceTools.swift`)
 
@@ -231,6 +328,8 @@ the connector branch, so a user with no connection still gets the card.
   remove Insert from Slack and VS Code, and the status line says "Pasted. If text was
   selected, Cmd-Z restores it." (`AgentDraft.typedLine`). An Insert in a terminal skips
   the read (`readsSelectionAtTap`): ⌘V there types at the prompt and replaces nothing.
+  Warp is the exception (`TerminalApps.editorInputBundleIDs`): its prompt is an editor,
+  where ⌘V replaces a selection, so the read runs.
   Any failure copies instead.
   **A trace keeps a draft's length, never its text**
   (`DeviceToolCatalog.storableArguments`, `storableTurn`): traces persist, and a

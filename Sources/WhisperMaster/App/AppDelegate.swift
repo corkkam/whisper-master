@@ -94,6 +94,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var endpointItem: NSMenuItem?
     /// nil while hidden, so the first tick that shows it writes the title.
     private var appliedEndpointItemTitle: String?
+    /// Pause or resume the connected tool. Hidden until one is allowed.
+    private var connectedToolItem: NSMenuItem?
+    private var appliedConnectedToolItemTitle: String?
     private var pasteLastItem: NSMenuItem?
     private var historyMenu: NSMenu?
     private var historyMenuItem: NSMenuItem?
@@ -776,6 +779,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(endpoint)
         endpointItem = endpoint
 
+        let connectedTool = NSMenuItem(
+            title: "Pause Connected Tool",
+            action: #selector(toggleConnectedToolPause),
+            keyEquivalent: ""
+        )
+        connectedTool.isHidden = true
+        menu.addItem(connectedTool)
+        connectedToolItem = connectedTool
+
         let cancel = NSMenuItem(
             title: "Cancel Voice Engine Setup",
             action: #selector(cancelVoiceEngineSetup),
@@ -895,6 +907,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appliedEndpointItemTitle = endpointTitle
             endpointItem?.isHidden = endpointTitle == nil
             if let endpointTitle { endpointItem?.title = endpointTitle }
+        }
+        let connectedToolTitle: String? = FeatureFlags.agentEndpointAvailable
+            && state.connectedTool.hasConsent
+            ? (state.connectedTool.paused ? "Resume Connected Tool" : "Pause Connected Tool")
+            : nil
+        if appliedConnectedToolItemTitle != connectedToolTitle {
+            appliedConnectedToolItemTitle = connectedToolTitle
+            connectedToolItem?.isHidden = connectedToolTitle == nil
+            if let connectedToolTitle { connectedToolItem?.title = connectedToolTitle }
         }
 
         // The notch panel is click-through except while an interactive banner is
@@ -1705,6 +1726,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func toggleEndpointPause() {
         viewModel.setAgentEndpointPaused(!viewModel.state.agentEndpoint.paused)
+    }
+
+    @objc
+    private func toggleConnectedToolPause() {
+        viewModel.setConnectedToolPaused(!viewModel.state.connectedTool.paused)
     }
 
     @objc

@@ -22,6 +22,7 @@ struct AssistantSettingsView: View {
             SectionLabel("Assistant")
             assistantSection
             if FeatureFlags.agentEndpointAvailable {
+                ConnectedToolSettingsSection(tool: $state.connectedTool)
                 AgentEndpointSettingsSection(endpoint: $state.agentEndpoint)
             }
             speechSection
@@ -41,9 +42,9 @@ struct AssistantSettingsView: View {
             SettingsCard {
                 SettingsRow(
                     "Let it use your connectors",
-                    subtitle: FeatureFlags.agentEndpointAvailable && state.agentEndpoint.isActive
-                        ? "The assistant can read anything you have connected. It runs on your endpoint below, so what it reads goes there too; writes still ask you first."
-                        : "The assistant can read anything you have connected. Runs on-device, on a larger model than Smart cleanup uses; writes still ask you first."
+                    subtitle: remoteLabel.map {
+                        "The assistant can read anything you have connected. It runs on \($0) below, so what it reads goes there too; writes still ask you first."
+                    } ?? "The assistant can read anything you have connected. Runs on-device, on a larger model than Smart cleanup uses; writes still ask you first."
                 ) {
                     ThemeToggle(isOn: $state.connectorAgentEnabled, label: "Connector assistant")
                         .disabled(isSnapshot)
@@ -64,6 +65,15 @@ struct AssistantSettingsView: View {
                     .padding(.vertical, 12)
                 }
             }
+    }
+
+    /// The remote tier a capture would use now, as the answer line names it.
+    private var remoteLabel: String? {
+        DictationViewModel.remotePlan(tool: state.connectedTool,
+                                      installed: ConnectedTool.installed(state.connectedTool)?.binary,
+                                      endpoint: state.agentEndpoint,
+                                      available: FeatureFlags.agentEndpointAvailable,
+                                      keptLocal: false).tier?.answerLabel
     }
 
     // MARK: - The assistant's model

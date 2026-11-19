@@ -79,7 +79,7 @@ struct DictationStatusView: View {
             holdToTalk: keyIsHoldingItOpen,
             commandCapture: state.commandCaptureArmed || state.commandAgentRunning,
             agentActivity: state.agentActivity,
-            viaEndpoint: state.commandAgentTier == .endpoint)
+            remoteMark: state.commandAgentTier.remoteName)
     }
 
     /// "I'm ready." with the key the user chose, or the typing-off line.
