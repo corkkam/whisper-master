@@ -1730,7 +1730,7 @@ final class DictationViewModel {
         func attempt(handled: Bool, detail: String) -> AgentAttempt {
             AgentAttempt(
                 handled: handled,
-                decision: TraceDecision(title: tier == .endpoint ? "Your endpoint" : "Agent",
+                decision: TraceDecision(title: tier.remoteName ?? "Agent",
                                         detail: detail, taken: handled),
                 toolsOffered: run.toolsOffered,
                 connectorsAllowed: run.connectorsAllowed,

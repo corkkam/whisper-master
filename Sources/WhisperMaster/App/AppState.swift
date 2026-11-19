@@ -576,8 +576,9 @@ final class AppState {
     /// whole run. Nil outside a run, and while the loop is between steps the last
     /// one stands — see `AgentLoop.onStep`.
     var agentActivity: AgentActivity?
-    /// Which tier that loop runs on. `.endpoint` puts the static "Your endpoint" mark
-    /// on the band, because the words are leaving the Mac while it shows.
+    /// Which tier that loop runs on. A remote tier puts its static mark
+    /// (`AgentTier.remoteName`) on the band, because the words are leaving the Mac
+    /// while it shows.
     var commandAgentTier: AgentTier = .onDevice
     /// The model behind an endpoint the user set (dev builds only). The key is in the
     /// Keychain, not here (`AgentEndpoint.apiKey()`).

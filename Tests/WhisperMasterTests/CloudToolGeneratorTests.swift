@@ -436,13 +436,23 @@ final class CloudToolGeneratorTests: XCTestCase {
         XCTAssertEqual(CommandAgentService.detailLine(effects: [], served: ["Work"], unreadable: [],
                                                       tier: .endpoint),
                        "From Work  \u{00B7}  via your endpoint")
+        XCTAssertEqual(CommandAgentService.detailLine(effects: [], served: [], unreadable: [],
+                                                      tier: .claudeCode),
+                       "Answered by Claude Code")
+        XCTAssertNil(AgentTier.onDevice.remoteName)
+        XCTAssertNil(AgentTier.onDevice.answerLabel)
     }
 
     func testTheBandCarriesTheMarkOnlyWhileTheEndpointAnswers() {
         let step = AgentActivity.running(tool: "list_calendar_events", target: "Personal")
         XCTAssertEqual(NotchActivity.polishing.label(holdToTalk: true, commandCapture: true,
-                                                     agentActivity: step, viaEndpoint: true),
+                                                     agentActivity: step,
+                                                     remoteMark: AgentTier.endpoint.remoteName),
                        "Your endpoint \u{00B7} Checking Personal")
+        XCTAssertEqual(NotchActivity.polishing.label(holdToTalk: true, commandCapture: true,
+                                                     agentActivity: step,
+                                                     remoteMark: AgentTier.claudeCode.remoteName),
+                       "Claude Code \u{00B7} Checking Personal")
         XCTAssertEqual(NotchActivity.polishing.label(holdToTalk: true, commandCapture: true,
                                                      agentActivity: step),
                        "Checking Personal")

@@ -8,9 +8,25 @@ import Foundation
 enum AgentTier: String, Codable, Sendable {
     case onDevice
     case endpoint
+    /// The user's own command-line tool, run as a text generator (`ConnectedTool`).
+    case claudeCode
+    case codex
 
-    /// What the band, the answer line and the trace call the endpoint tier.
-    static let endpointLabel = "your endpoint"
+    /// What the band and the trace's decision rung call a remote tier. nil on this
+    /// Mac, so nothing marks the on-device tier as remote.
+    var remoteName: String? {
+        switch self {
+        case .onDevice: return nil
+        case .endpoint: return "Your endpoint"
+        case .claudeCode: return "Claude Code"
+        case .codex: return "Codex"
+        }
+    }
+
+    /// What the answer line calls it: "Answered by your endpoint".
+    var answerLabel: String? {
+        self == .endpoint ? "your endpoint" : remoteName
+    }
 }
 
 /// The model behind an HTTP endpoint that the user set (Settings → Assistant, dev
