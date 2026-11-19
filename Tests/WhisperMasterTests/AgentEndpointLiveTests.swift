@@ -60,13 +60,15 @@ final class AgentEndpointLiveTests: XCTestCase {
               let kind = ConnectedTool.Kind(rawValue: raw) else {
             throw XCTSkip("Set WM_CONNECTED_TOOL=claudeCode to run the connected tool bench.")
         }
+        // The app never reaches a kind this build does not offer; neither does its bench.
+        guard kind.isAvailable else { throw XCTSkip("\(kind.name) is not offered in this build.") }
         guard let path = ConnectedTool.locate(kind) else {
             throw XCTSkip("\(kind.binary) is not in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin.")
         }
         let test = await ConnectedTool.test(kind, at: path)
-        guard case .passed(let version) = test else { return XCTFail("The Test did not pass: \(test)") }
+        guard case .passed(let tested) = test else { return XCTFail("The Test did not pass: \(test)") }
         let sent = EndpointSendLog(host: kind.name, tool: kind.name)
-        let generator = ConnectedToolGenerator(kind: kind, executable: path, testedVersion: version, sent: sent)
+        let generator = ConnectedToolGenerator(kind: kind, executable: path, tested: tested, sent: sent)
 
         let setup = LabToolBench.setup()
         var passed = 0
@@ -79,7 +81,7 @@ final class AgentEndpointLiveTests: XCTestCase {
             print(String(format: "[tool-bench] %@ %5.1fs  %@ -> %@", called == expected ? "PASS" : "FAIL",
                          Date().timeIntervalSince(started), spoken, called ?? "no call"))
         }
-        print("[tool-bench] \(kind.name) \(version) \(kind.model): \(passed)/\(LabSuiteLoader.toolCases.count) "
+        print("[tool-bench] \(kind.name) \(tested.version) \(kind.model): \(passed)/\(LabSuiteLoader.toolCases.count) "
             + "first-turn tool choices, \(sent.snapshot.failures) failed runs")
         XCTAssertEqual(sent.snapshot.failures, 0, "the tool failed runs; the score is not a model score")
     }

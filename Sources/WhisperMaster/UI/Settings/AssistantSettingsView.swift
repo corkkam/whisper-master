@@ -69,8 +69,11 @@ struct AssistantSettingsView: View {
 
     /// The remote tier a capture would use now, as the answer line names it.
     private var remoteLabel: String? {
-        DictationViewModel.remoteTier(tool: state.connectedTool, endpoint: state.agentEndpoint,
-                                      available: FeatureFlags.agentEndpointAvailable)?.answerLabel
+        DictationViewModel.remotePlan(tool: state.connectedTool,
+                                      installed: ConnectedTool.installed(state.connectedTool)?.binary,
+                                      endpoint: state.agentEndpoint,
+                                      available: FeatureFlags.agentEndpointAvailable,
+                                      keptLocal: false).tier?.answerLabel
     }
 
     // MARK: - The assistant's model

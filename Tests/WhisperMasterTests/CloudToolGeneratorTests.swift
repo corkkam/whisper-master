@@ -184,6 +184,23 @@ final class CloudToolGeneratorTests: XCTestCase {
         }
     }
 
+    /// A Pause, a Revoke or a sign-out between two requests: the second is not sent.
+    func testAnEndpointTurnedOffMidRunSendsNoMore() async {
+        let on = Switch(true)
+        let server = FakeEndpoint([.ok(FakeEndpoint.openAIText("one")), .ok(FakeEndpoint.openAIText("two"))])
+        var generator = generator(.openAICompatible, server)
+        generator.mayContinue = { on.isOn }
+
+        let first = await generator.reply(loopHistory, tools: [])
+        on.isOn = false
+        let second = await generator.reply(loopHistory, tools: [])
+
+        XCTAssertNotNil(first)
+        XCTAssertNil(second)
+        XCTAssertEqual(server.requests.count, 1)
+        XCTAssertEqual(generator.sent.snapshot.failure, "was paused or turned off during the run")
+    }
+
     /// The key goes in one header, and nowhere else: not the body, not a log line, not
     /// the trace.
     func testTheKeyNeverReachesALogTheBodyOrTheTrace() async throws {

@@ -1550,14 +1550,14 @@ final class DictationViewModel {
         }
     }
 
-    /// One remote tier first when the user set one (`remoteTier`), then the on-device tier.
+    /// One remote tier first when the user set one (`remotePlan`), then the on-device tier.
     ///
     /// **Text only leaves the Mac, never audio**, and only after the consent sheet for
     /// that tool or endpoint. A password manager in front or secure input on keeps the
     /// capture on this Mac. A remote tier that fails (an error, a timeout, a reply it
-    /// cannot read, a tool that changed version) or acts on nothing hands the words to the
-    /// on-device tier, unless it already created something (filing them again would be a
-    /// second copy) or Escape stopped it.
+    /// cannot read, a tool that is no longer what its Test passed on) or acts on nothing
+    /// hands the words to the on-device tier, unless it already created something (filing
+    /// them again would be a second copy) or Escape stopped it.
     /// - Parameter pressStaysLocal: a chord press of this capture's own session saw a
     ///   password manager or secure input (`SelectionCapture.Session.staysLocal`), taken
     ///   at stop.
@@ -1575,26 +1575,24 @@ final class DictationViewModel {
             secureInput: TerminalApps.secureKeyboardEntryEnabled(),
             atPress: pressStaysLocal,
             followUpKeptLocal: followUp?.keptLocal ?? false)
-        let wanted = Self.remoteTier(tool: tool, endpoint: endpoint,
-                                     available: FeatureFlags.agentEndpointAvailable)
-        guard let tier = wanted, let name = tier.remoteName, !keptLocal else {
+        // File checks only: a tool that changed since its Test leaves the choice to the
+        // endpoint, before anything is started.
+        let installed = ConnectedTool.installed(tool)
+        let plan = Self.remotePlan(tool: tool, installed: installed?.binary, endpoint: endpoint,
+                                   available: FeatureFlags.agentEndpointAvailable, keptLocal: keptLocal)
+        guard let tier = plan.tier, let name = tier.remoteName else {
             var local = await runOnDeviceAgent(text, selectionRead: selectionRead,
                                                followUp: followUp, keptLocal: keptLocal,
                                                keyDownApp: keyDownApp)
-            if keptLocal, let name = wanted?.remoteName {
-                local.priorDecisions.insert(TraceDecision(
-                    title: name,
-                    detail: "Skipped — a password manager was in front or secure input was on, "
-                        + "now or in the capture this follows, so nothing left this Mac.",
-                    taken: false), at: 0)
-            }
+            local.priorDecisions.insert(contentsOf: plan.skipped, at: 0)
             return local
         }
-        /// The on-device tier, with the remote rung that was skipped and why.
+        /// The on-device tier, with the remote rungs that were skipped and why.
         func skipped(_ detail: String) async -> AgentAttempt {
             var local = await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp,
                                                keptLocal: false, keyDownApp: keyDownApp)
-            local.priorDecisions.insert(TraceDecision(title: name, detail: detail, taken: false), at: 0)
+            local.priorDecisions.insert(contentsOf: plan.skipped
+                + [TraceDecision(title: name, detail: detail, taken: false)], at: 0)
             return local
         }
         // Again after that wait (up to half a second): a sign-out, a revoke or a pause
@@ -1613,40 +1611,36 @@ final class DictationViewModel {
         let generate: AgentLoop.GenerateNative
         if tier == .endpoint {
             sent = EndpointSendLog(host: endpoint.host)
-            guard let generator = CloudToolGenerator(endpoint: endpoint, apiKey: AgentEndpoint.apiKey(),
+            guard var generator = CloudToolGenerator(endpoint: endpoint, apiKey: AgentEndpoint.apiKey(),
                                                      sent: sent) else {
                 return await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp,
                                               keptLocal: false, keyDownApp: keyDownApp)
             }
+            generator.mayContinue = { [weak self] in await self?.endpointStillOn(endpoint) ?? false }
             generate = generator.generate
         } else {
-            // Looked up at each chord: the tool can be moved or removed at any time.
-            guard let kind = tool.kind, let tested = tool.tested, let path = ConnectedTool.locate(kind) else {
-                return await skipped("Skipped — \(name) is no longer in ~/.local/bin, /opt/homebrew/bin "
-                    + "or /usr/local/bin, so nothing left this Mac.")
+            // `remotePlan` chose the tool only with these in hand.
+            guard let kind = tool.kind, let tested = tool.tested, let installed else {
+                return await skipped("Skipped — it could not be found, so nothing left this Mac.")
             }
             sent = EndpointSendLog(host: name, tool: name)
-            generate = ConnectedToolGenerator(kind: kind, executable: path, testedVersion: tested.version,
-                                              sent: sent).generate
+            var generator = ConnectedToolGenerator(kind: kind, executable: installed.path, tested: tested, sent: sent)
+            generator.mayContinue = { [weak self] in await self?.toolStillOn(tool) ?? false }
+            generator.onUntrusted = { [weak self] in await self?.forgetTest(tested) }
+            generate = generator.generate
         }
         var remote = await runAgent(text, selection: selection, followUp: followUp,
                                     tier: tier, generateNative: generate, keyDownApp: keyDownApp)
-        let snapshot = sent.snapshot
-        // A version check that stopped the first request sent nothing.
-        remote.endpoint = snapshot.requests > 0 ? snapshot : nil
-        // A failed reply ends the loop with nothing called, which the loop words as "the
-        // model answered without calling a tool". The failure is the real reason.
-        if let failure = snapshot.failure, !remote.handled {
-            remote.decision = TraceDecision(title: name, detail: "\(name) \(failure), so nothing was acted on.",
-                                            taken: false)
-        }
+        (remote.decision, remote.endpoint) = Self.remoteOutcome(remote.decision, handled: remote.handled,
+                                                               name: name, sent: sent.snapshot)
+        remote.priorDecisions = plan.skipped
         guard Self.onDeviceMayFollowEndpoint(handled: remote.handled, cancelled: remote.cancelled,
                                              createdSomething: remote.createdSomething,
                                              calls: remote.calls),
               CleanupModel.General.isInstalled else { return remote }
         var local = await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice,
                               keyDownApp: keyDownApp)
-        local.priorDecisions = [TraceDecision(
+        local.priorDecisions = plan.skipped + [TraceDecision(
             title: name,
             detail: remote.decision.detail + " The on-device assistant took it next.",
             taken: false)]
@@ -1657,6 +1651,21 @@ final class DictationViewModel {
         return local
     }
 
+    /// The live state, for a generator's check before each turn.
+    private func endpointStillOn(_ copied: AgentEndpoint) -> Bool {
+        Self.endpointMayStillSend(copied: copied, current: state.agentEndpoint)
+    }
+
+    private func toolStillOn(_ copied: ConnectedTool) -> Bool {
+        Self.connectedToolMayStillSend(copied: copied, current: state.connectedTool)
+    }
+
+    /// A run showed the tool is not what this Test passed on: nothing more is sent until
+    /// the Test passes again. Only that Test, so a newer one is left alone.
+    private func forgetTest(_ tested: ConnectedTool.Tested) {
+        if state.connectedTool.tested == tested { state.connectedTool.tested = nil }
+    }
+
     /// The selection, then `stillOn` asked **after** the wait. The order is the point: a
     /// sign-out, a revoke or a pause during the wait must keep the words on this Mac.
     static func settleThenCheck(_ selectionRead: Task<SelectionContext?, Never>?,
@@ -1665,15 +1674,56 @@ final class DictationViewModel {
         return (selection, stillOn())
     }
 
-    /// The one remote tier for a capture: the connected tool when it is on, else the
-    /// endpoint when it is on, else none. **The endpoint never follows a failed tool**:
-    /// two destinations off this Mac for one capture are hard to predict, and the waits
-    /// add up (the tool's run, then the endpoint's, then the on-device budget). This is
-    /// the one place to change if that order should change.
-    static func remoteTier(tool: ConnectedTool, endpoint: AgentEndpoint, available: Bool) -> AgentTier? {
-        guard available else { return nil }
-        if tool.isActive, let kind = tool.kind { return kind.tier }
-        return endpoint.isActive ? .endpoint : nil
+    /// The one remote tier for a capture, and the rungs skipped on the way: the connected
+    /// tool when it is usable now, else the endpoint when it is on, else none.
+    ///
+    /// - **A tool that is on but not usable** (gone, or a different file from the one its
+    ///   Test passed on) is skipped before anything starts, so the endpoint may still run.
+    /// - **The endpoint never follows a tool that ran and failed**: two destinations off
+    ///   this Mac for one capture are hard to predict, and the waits add up. This is the
+    ///   one place to change if that order should change.
+    /// - A capture kept local runs no remote tier and says which one it skipped.
+    static func remotePlan(tool: ConnectedTool, installed: ConnectedTool.Binary?, endpoint: AgentEndpoint,
+                           available: Bool, keptLocal: Bool) -> (tier: AgentTier?, skipped: [TraceDecision]) {
+        guard available else { return (nil, []) }
+        var skipped: [TraceDecision] = []
+        var tier: AgentTier?
+        if tool.isActive, let kind = tool.kind {
+            if tool.isUsable(installed) {
+                tier = kind.tier
+            } else {
+                skipped.append(TraceDecision(
+                    title: kind.name,
+                    detail: installed == nil
+                        ? "Skipped — \(kind.name) is no longer in ~/.local/bin, /opt/homebrew/bin or "
+                            + "/usr/local/bin, so nothing was sent to it."
+                        : "Skipped — \(kind.name) changed since its Test passed (an update or a "
+                            + "reinstall), so nothing was sent to it. Run the Test again in Settings.",
+                    taken: false))
+            }
+        }
+        if tier == nil, endpoint.isActive { tier = .endpoint }
+        if keptLocal, let wanted = tier?.remoteName {
+            skipped.append(TraceDecision(
+                title: wanted,
+                detail: "Skipped — a password manager was in front or secure input was on, "
+                    + "now or in the capture this follows, so nothing left this Mac.",
+                taken: false))
+            tier = nil
+        }
+        return (tier, skipped)
+    }
+
+    /// The remote rung after its run, and what the trace keeps of the send. A failed reply
+    /// ends the loop with nothing called, which the loop words as "the model answered
+    /// without calling a tool": the failure is the real reason, so it leads. A run stopped
+    /// before its first request sent nothing, so it keeps no send record.
+    static func remoteOutcome(_ decision: TraceDecision, handled: Bool, name: String,
+                              sent: EndpointSendTrace) -> (decision: TraceDecision, sent: EndpointSendTrace?) {
+        let record = sent.requests > 0 ? sent : nil
+        guard let failure = sent.failure, !handled else { return (decision, record) }
+        return (TraceDecision(title: name, detail: "\(name) \(failure), so nothing was acted on.", taken: false),
+                record)
     }
 
     /// Whether the on-device tier may take the words after a remote tier gave them

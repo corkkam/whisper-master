@@ -4,11 +4,12 @@ import SwiftUI
 /// `FeatureFlags.agentEndpointAvailable`): the user's own coding tool as the chord's
 /// brain, ahead of the endpoint (`ConnectedTool`).
 ///
-/// Finding the tool sends nothing. **Test** runs it once with a fixed prompt, on a tap
-/// only, because each run uses the user's plan. It also proves the tool starts with no
-/// tools, MCP servers or hooks of its own, and records the version it passed on.
-/// Nothing is sent until the Test has passed on the version this Mac has and the consent
-/// sheet is accepted. The app never offers to install the tool: it is a client only.
+/// Finding the tool is file checks only. **Test** runs it once with a fixed prompt, on a
+/// tap only, because each run uses the user's plan. It also proves the tool starts with
+/// no tools, MCP servers or hooks of its own, and pins the file it ran. Nothing is sent
+/// until the Test has passed on the file this Mac has and the consent sheet is accepted.
+/// Only a kind this build offers is ever shown, found or run. The app never offers to
+/// install the tool: it is a client only.
 ///
 /// It takes a binding and an optional detection, so the snapshot renderer draws each
 /// state without starting anything or writing the defaults of the process it runs in.
@@ -22,12 +23,13 @@ struct ConnectedToolSettingsSection: View {
     @State private var testing = false
     @State private var showingConsent = false
 
-    private var kind: ConnectedTool.Kind { tool.kind ?? .claudeCode }
+    /// A stored kind this build does not offer is never used here.
+    private var kind: ConnectedTool.Kind { tool.availableKind ?? .claudeCode }
     private var shown: ConnectedTool.Detection? { detection ?? found }
 
-    /// The Test passed on the version this Mac has now.
+    /// The Test passed on the file this Mac has now.
     private var testedHere: Bool {
-        tool.isTested && shown?.path != nil && tool.tested?.version == shown?.version
+        tool.isTested && shown?.binary != nil && tool.tested?.binary == shown?.binary
     }
 
     var body: some View {
@@ -47,7 +49,7 @@ struct ConnectedToolSettingsSection: View {
                 SettingsRow("Tool", subtitle: foundSubtitle) {
                     HStack(spacing: 12) {
                         if !isSnapshot {
-                            Button("Check again") { Task { await find() } }
+                            Button("Check again") { find() }
                                 .textButton()
                         }
                         toolPicker
@@ -63,10 +65,11 @@ struct ConnectedToolSettingsSection: View {
                 consentRow
             }
         }
-        .task(id: kind) { await find() }
+        .task(id: kind) { find() }
         .sheet(isPresented: $showingConsent) {
             Self.consentSheet(
                 kind: kind,
+                program: shown?.binary?.path,
                 onAllow: {
                     tool.kind = kind
                     tool.consentedTo = kind
@@ -80,11 +83,14 @@ struct ConnectedToolSettingsSection: View {
     /// The endpoint's sheet in the tool's words. The API key line is left out: the app
     /// holds no key for the tool. "No tools of its own" is not true for Codex today,
     /// which is one reason its flag is off.
-    static func consentSheet(kind: ConnectedTool.Kind, onAllow: @escaping () -> Void,
+    /// - Parameter program: the file that runs, after every link, so the user agrees to a
+    ///   program and not only to a name.
+    static func consentSheet(kind: ConnectedTool.Kind, program: String?, onAllow: @escaping () -> Void,
                              onCancel: @escaping () -> Void) -> AgentEndpointConsentSheet {
         AgentEndpointConsentSheet(
             host: kind.name,
-            intro: "When you hold fn + control, Whisper Master starts \(kind.name) on this Mac and "
+            intro: "When you hold fn + control, Whisper Master starts \(kind.name) on this Mac"
+                + (program.map { " (\(ConnectedTool.displayPath($0)))" } ?? "") + " and "
                 + "gives it the assistant's conversation. \(kind.name) sends it to \(kind.vendor), "
                 + "under your own account, and \(kind.vendor)'s terms and retention apply. "
                 + "\(kind.name) gets no tools of its own: every action still goes through this app "
@@ -125,7 +131,9 @@ struct ConnectedToolSettingsSection: View {
             return "Not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. Install it "
                 + "yourself, then check again."
         }
-        return ConnectedTool.displayPath(path) + (shown.version.map { " \u{00B7} \($0)" } ?? "")
+        // The link and the file it runs, so the user sees which program it is.
+        let file = shown.binary.flatMap { $0.path == path.path ? nil : $0.path }
+        return ConnectedTool.displayPath(path.path) + (file.map { " \u{2192} " + ConnectedTool.displayPath($0) } ?? "")
     }
 
     private var testSubtitle: String {
@@ -143,9 +151,9 @@ struct ConnectedToolSettingsSection: View {
         if testedHere, let version = tool.tested?.version {
             return "Passed on \(version): signed in, with no tools, MCP servers or hooks of its own."
         }
-        if tool.isTested, let version = tool.tested?.version, let now = shown?.version {
-            return "Passed on \(version), and this Mac now has \(now). Test it again before "
-                + "anything is sent."
+        if tool.isTested, let version = tool.tested?.version, shown?.binary != nil {
+            return "Passed on \(version), and the file has changed since (an update or a reinstall). "
+                + "Test it again before anything is sent."
         }
         return "Runs it once with a fixed prompt, on your plan. It checks the sign-in, and that it "
             + "starts with no tools, MCP servers or hooks of its own."
@@ -198,10 +206,10 @@ struct ConnectedToolSettingsSection: View {
 
     // MARK: - Actions
 
-    /// A file check and `--version`: nothing leaves this Mac.
-    private func find() async {
+    /// File checks only: nothing starts, nothing leaves this Mac.
+    private func find() {
         guard detection == nil, !isSnapshot else { return }
-        found = await ConnectedTool.detect(kind)
+        found = ConnectedTool.detect(kind)
     }
 
     private func runTest() {
@@ -212,10 +220,10 @@ struct ConnectedToolSettingsSection: View {
             let result = await ConnectedTool.test(kind, at: path)
             testing = false
             testResult = result
-            if case .passed(let version) = result {
+            if case .passed(let tested) = result {
                 tool.kind = kind
-                tool.tested = .init(kind: kind, version: version)
-                found?.version = version
+                tool.tested = tested
+                find()
             } else if tool.tested?.kind == kind {
                 // A tool that fails its Test sends nothing until it passes again.
                 tool.tested = nil

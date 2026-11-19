@@ -1300,10 +1300,12 @@ enum SnapshotMode {
     /// its consent sheet. Drawn from a constant binding and an injected detection, so
     /// nothing is started and nothing is written into this process's defaults.
     private static func renderConnectedTool(_ dir: URL) {
-        let found = ConnectedTool.Detection(
-            path: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/claude"),
-            version: "2.1.328")
-        var tool = ConnectedTool(kind: .claudeCode, tested: .init(kind: .claudeCode, version: "2.1.328"))
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let file = ConnectedTool.Binary(path: home.appendingPathComponent(".local/share/claude/versions/2.1.328").path,
+                                        size: 214_000_000, modified: 1_763_000_000, inode: 41_005)
+        let found = ConnectedTool.Detection(path: home.appendingPathComponent(".local/bin/claude"), binary: file)
+        var tool = ConnectedTool(kind: .claudeCode,
+                                 tested: .init(kind: .claudeCode, version: "2.1.328", binary: file))
         func section(_ value: ConnectedTool, _ detection: ConnectedTool.Detection) -> some View {
             ConnectedToolSettingsSection(tool: .constant(value), detection: detection)
                 .frame(width: 680, alignment: .leading)
@@ -1317,7 +1319,8 @@ enum SnapshotMode {
         render(section(ConnectedTool(), ConnectedTool.Detection()),
                to: dir.appendingPathComponent("panel-connected-tool-missing.png"))
         render(
-            ConnectedToolSettingsSection.consentSheet(kind: .claudeCode, onAllow: {}, onCancel: {})
+            ConnectedToolSettingsSection.consentSheet(kind: .claudeCode, program: file.path,
+                                                      onAllow: {}, onCancel: {})
                 .padding(20)
                 .background(Color(white: 0.9)),
             to: dir.appendingPathComponent("sheet-connected-tool-consent.png"))

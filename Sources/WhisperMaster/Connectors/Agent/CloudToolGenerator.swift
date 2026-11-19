@@ -243,6 +243,9 @@ struct CloudToolGenerator: Sendable {
     /// on-device tier to run.
     var timeout: TimeInterval = 20
     var transport: Transport = CloudToolGenerator.transport(session: .shared)
+    /// Asked before every request: still on, not paused, still allowed for this address.
+    /// A Pause, a Revoke or a sign-out in the middle of a run stops the next request.
+    var mayContinue: @Sendable () async -> Bool = { true }
     /// Status and host only. Never the key, never a body.
     var log: @Sendable (String) -> Void = { Log.connectors.notice("\($0, privacy: .public)") }
 
@@ -286,9 +289,14 @@ struct CloudToolGenerator: Sendable {
     }
 
     func reply(_ messages: [[String: String]], tools: [String]) async -> String? {
+        let host = url.host ?? "the endpoint"
+        guard await mayContinue() else {
+            sent.recordFailure("was paused or turned off during the run")
+            log("Agent endpoint \(host) was turned off during the run.")
+            return nil
+        }
         guard let request = request(messages, tools: tools) else { return nil }
         sent.record(messages, tools: tools)
-        let host = url.host ?? "the endpoint"
         do {
             let (data, response) = try await transport(request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
