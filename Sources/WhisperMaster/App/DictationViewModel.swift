@@ -54,12 +54,10 @@ final class DictationViewModel {
     /// the chord merely re-labelled a session the push-to-talk key owns — there,
     /// letting go of control must not cut the recording short.
     private var commandChordOwnsSession = false
-    /// A password manager was in front or secure input was on when the chord went
-    /// down. Read once by `runCommandAgent`, which keeps that capture off the endpoint.
-    private var commandPressStaysLocal = false
-    /// The front app's selection, read off the main actor from the chord press.
-    /// Taken at stop with the arm, so a read cannot reach the next session.
-    private let selectionCapture = SelectionCapture()
+    /// The front app's selection, read off the main actor from the chord press, and
+    /// whether that press must keep the capture off the endpoint. Taken at stop with
+    /// the arm, so neither can reach the next session.
+    let selectionCapture = SelectionCapture()
     /// True when the agent key armed the current session — its finished transcript
     /// goes to a coding agent instead of being typed. Consumed (and reset) at stop,
     /// and mirrored into `state.agentCaptureArmed` for the notch.
@@ -327,6 +325,8 @@ final class DictationViewModel {
         let commandMode = commandArmed
         // Before `take()`, which forgets it: the only app a draft may type into.
         let keyDownApp = selectionCapture.frontApp
+        // The same, and for the same reason: a press after this stop cannot change it.
+        let pressStaysLocal = selectionCapture.staysLocal
         let selectionRead = selectionCapture.take()
         setCommandArmed(false)
         commandChordOwnsSession = false
@@ -462,7 +462,7 @@ final class DictationViewModel {
                 } else if commandMode, !cleaned.isEmpty {
                     assistantHandled = await routeCommandCapture(
                         cleaned, spoken: spoken, selectionRead: selectionRead,
-                        keyDownApp: keyDownApp)
+                        keyDownApp: keyDownApp, pressStaysLocal: pressStaysLocal)
                 }
                 // The frontmost app is the one about to receive the paste — or, for
                 // an assistant capture, the one the user was speaking from. We don't
@@ -1108,10 +1108,9 @@ final class DictationViewModel {
         // session we'd have to un-arm at the end would put "Note or reminder" in
         // the notch and then paste the words anyway.
         guard FeatureFlags.connectorsAndNotesAvailable else { return }
-        // Read now as well as at routing: the front app can change during the hold.
-        commandPressStaysLocal = AgentEndpoint.staysLocal(
-            frontBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
-            secureInput: TerminalApps.secureKeyboardEntryEnabled())
+        // Only the two accepted paths below call `selectionCapture.begin`, which also
+        // records whether this press keeps the capture local. A refused press records
+        // nothing, so it cannot change a capture that is still finishing.
         if state.canStop || state.phase == .preparingModels {
             setCommandArmed(true)
             state.statusMessage = "Listening for the assistant..."
@@ -1332,7 +1331,8 @@ final class DictationViewModel {
     /// help.
     private func routeCommandCapture(_ text: String, spoken: SpokenCapture,
                                      selectionRead: Task<SelectionContext?, Never>?,
-                                     keyDownApp: SelectionReader.FrontApp?) async -> Bool {
+                                     keyDownApp: SelectionReader.FrontApp?,
+                                     pressStaysLocal: Bool) async -> Bool {
         // Where Notes & Reminders is closed this whole path stays off. Routing
         // would swallow the transcript — suppressing the paste and filing it into
         // a store with no openable surface — so "remind me to call mom" would
@@ -1393,7 +1393,7 @@ final class DictationViewModel {
         await requestCalendarAccessIfNeeded()
 
         let attempt = await runCommandAgent(text, selectionRead: selectionRead, followUp: followUp,
-                                            keyDownApp: keyDownApp)
+                                            keyDownApp: keyDownApp, pressStaysLocal: pressStaysLocal)
         trace.decisions += attempt.priorDecisions + [attempt.decision]
         trace.connectorsAllowed = attempt.connectorsAllowed
         trace.toolsOffered = attempt.toolsOffered
@@ -1547,6 +1547,8 @@ final class DictationViewModel {
     ///
     /// **Text only leaves the Mac, never audio**, and only after the consent sheet
     /// for that endpoint. A password manager in front or secure input on keeps the
+    /// - Parameter pressStaysLocal: a chord press of this capture's own session saw a
+    ///   password manager or secure input (`SelectionCapture.staysLocal`), read at stop.
     /// capture on this Mac. An endpoint that fails (HTTP error, timeout, bad body) or
     /// acts on nothing hands the words to the on-device tier, unless it already
     /// created something (filing them again would be a second copy) or Escape
@@ -1554,16 +1556,15 @@ final class DictationViewModel {
     private func runCommandAgent(_ text: String,
                                  selectionRead: Task<SelectionContext?, Never>?,
                                  followUp: FollowUpWindow.Digest?,
-                                 keyDownApp: SelectionReader.FrontApp?) async -> AgentAttempt {
+                                 keyDownApp: SelectionReader.FrontApp?,
+                                 pressStaysLocal: Bool) async -> AgentAttempt {
         let endpoint = state.agentEndpoint
-        let atPress = commandPressStaysLocal
-        commandPressStaysLocal = false
         // Decided whether or not an endpoint is on, so a capture that stayed local
         // marks its follow-up even while the endpoint is paused.
         let keptLocal = AgentEndpoint.staysLocal(
             frontBundleID: SelectionReader.FrontApp.current()?.bundleID,
             secureInput: TerminalApps.secureKeyboardEntryEnabled(),
-            atPress: atPress,
+            atPress: pressStaysLocal,
             followUpKeptLocal: followUp?.keptLocal ?? false)
         guard FeatureFlags.agentEndpointAvailable, endpoint.isActive, !keptLocal else {
             var local = await runOnDeviceAgent(text, selectionRead: selectionRead,

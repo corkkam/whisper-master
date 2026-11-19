@@ -216,6 +216,10 @@ final class SelectionCapture {
     /// may only type into the app the user was speaking to. Read it before `take()`,
     /// which forgets it with the read.
     private(set) var frontApp: SelectionReader.FrontApp?
+    /// A press this session accepted saw a password manager in front or secure input
+    /// on, so the capture stays off the endpoint. Read at stop with `frontApp`: a press
+    /// refused, or made while this capture is still finishing, never reaches it.
+    private(set) var staysLocal = false
 
     init(reader: SelectionReader = .live) {
         self.reader = reader
@@ -224,6 +228,9 @@ final class SelectionCapture {
     /// Start reading `app`'s selection off the main actor. A second press in the same
     /// session keeps the first read: that is when the user had just selected.
     func begin(_ app: SelectionReader.FrontApp?) {
+        // Before the guard: either press of one session keeps it local.
+        staysLocal = staysLocal || AgentEndpoint.staysLocal(
+            frontBundleID: app?.bundleID, secureInput: reader.secureInputEnabled())
         guard pending == nil else { return }
         frontApp = app
         let reader = reader
@@ -250,6 +257,7 @@ final class SelectionCapture {
         defer {
             pending = nil
             frontApp = nil
+            staysLocal = false
         }
         return pending
     }

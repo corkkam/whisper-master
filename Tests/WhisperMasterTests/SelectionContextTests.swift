@@ -174,6 +174,54 @@ final class SelectionContextTests: XCTestCase {
         XCTAssertEqual(next?.text, "from 2", "the next session reads afresh")
     }
 
+    // MARK: - Staying on this Mac
+
+    private let vault = SelectionReader.FrontApp(bundleID: "com.1password.1password", name: "1Password", pid: 77)
+
+    /// Capture 1 spoke with a password manager in front. `stopRecording` reads the
+    /// answer before `take()`, so a press in Safari after that stop (refused, or the
+    /// next session's) cannot send capture 1's words to the endpoint.
+    func testAPressInAPasswordManagerKeepsItsOwnCaptureLocal() {
+        let capture = SelectionCapture(reader: reader { _ in nil })
+        capture.begin(after: { _ = capture.take() }, app: { self.vault })
+        capture.begin(app)
+        XCTAssertTrue(capture.staysLocal, "a second press in Safari does not undo the first")
+
+        let atStop = capture.staysLocal
+        _ = capture.take()
+        capture.begin(after: { _ = capture.take() }, app: { self.app })
+
+        XCTAssertTrue(atStop, "capture 1 stays local")
+        XCTAssertFalse(capture.staysLocal, "the Safari press decides only its own session")
+    }
+
+    func testSecureInputAtThePressKeepsTheCaptureLocal() {
+        let capture = SelectionCapture(reader: reader(secure: true) { _ in nil })
+        capture.begin(app)
+        XCTAssertTrue(capture.staysLocal)
+    }
+
+    /// Cancel, failure and the next start all take the session, so a cancelled
+    /// password-manager capture does not make the next capture local by mistake.
+    func testACancelledSessionDoesNotLeakItsAnswer() {
+        let capture = SelectionCapture(reader: reader { _ in nil })
+        capture.begin(vault)
+        _ = capture.take()  // what cancel and failure do
+        capture.begin(after: { _ = capture.take() }, app: { self.app })
+        XCTAssertFalse(capture.staysLocal)
+    }
+
+    /// The wiring: a chord press while the last capture is still finishing is refused
+    /// before `begin`, so it writes nothing into any session.
+    func testARefusedChordPressWritesNothing() {
+        let viewModel = DictationViewModel()
+        viewModel.state.phase = .stopping
+        viewModel.handleCommandChordEngaged()
+        XCTAssertFalse(viewModel.selectionCapture.staysLocal)
+        XCTAssertNil(viewModel.selectionCapture.frontApp, "a refused press begins no session")
+        XCTAssertFalse(viewModel.state.commandCaptureArmed)
+    }
+
     func testAFinishedReadSettlesWithItsValue() async {
         let capture = SelectionCapture(reader: reader { _ in "ready" })
         capture.begin(app)
