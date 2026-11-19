@@ -283,6 +283,35 @@ final class CloudToolGeneratorTests: XCTestCase {
         }
     }
 
+    /// One key slot: a new host, with its own consent, must not inherit the last
+    /// provider's key. A new path or model on the same host keeps it.
+    func testANewHostDeletesTheStoredKey() {
+        let anthropic = AgentEndpoint(api: .anthropic, url: "https://api.anthropic.com/v1/messages",
+                                      model: "m")
+        var samePlace = anthropic
+        samePlace.url = "https://api.anthropic.com/v2/messages"
+        samePlace.model = "other"
+        var elsewhere = anthropic
+        elsewhere.url = "https://proxy.example.com/v1/messages"
+        var refused = anthropic
+        refused.url = "https://api.anthropic.com/v1/messages?k=1"
+        XCTAssertFalse(AgentEndpoint.keyMustGo(from: anthropic, to: samePlace))
+        XCTAssertTrue(AgentEndpoint.keyMustGo(from: anthropic, to: elsewhere))
+        XCTAssertTrue(AgentEndpoint.keyMustGo(from: anthropic, to: refused), "a refused address has no host")
+        XCTAssertFalse(AgentEndpoint.keyMustGo(from: AgentEndpoint(), to: anthropic),
+                       "setting the first address deletes nothing")
+
+        withMemoryKeychain {
+            let state = AppState()
+            state.agentEndpoint = anthropic
+            AgentEndpoint.setAPIKey("sk-ant-old")
+            state.agentEndpoint = samePlace
+            XCTAssertEqual(AgentEndpoint.apiKey(), "sk-ant-old")
+            state.agentEndpoint = elsewhere
+            XCTAssertNil(AgentEndpoint.apiKey(), "the new host never receives the old key")
+        }
+    }
+
     /// A redirect would carry the key and the conversation to a host nobody agreed to.
     /// The live transport refuses it; the 3xx is the reply, which is nil.
     func testARedirectIsNeverFollowed() async {

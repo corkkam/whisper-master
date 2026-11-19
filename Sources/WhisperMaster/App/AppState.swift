@@ -582,7 +582,11 @@ final class AppState {
     /// The model behind an endpoint the user set (dev builds only). The key is in the
     /// Keychain, not here (`AgentEndpoint.apiKey()`).
     var agentEndpoint = AgentEndpoint() {
-        didSet { if agentEndpoint != oldValue { agentEndpoint.save() } }
+        didSet {
+            guard agentEndpoint != oldValue else { return }
+            if AgentEndpoint.keyMustGo(from: oldValue, to: agentEndpoint) { AgentEndpoint.setAPIKey(nil) }
+            agentEndpoint.save()
+        }
     }
     /// Default alert style new reminders inherit (per-reminder overridable).
     /// Persisted as the enum raw value. This is the "configure in settings" knob.
