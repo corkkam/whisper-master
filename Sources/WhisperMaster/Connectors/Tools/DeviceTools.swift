@@ -167,11 +167,12 @@ enum DeviceToolCatalog {
     }
 
     /// A model turn as a trace may keep it: one that calls a draft tool keeps the
-    /// call's shape and loses the text, malformed or not.
+    /// call's shape and loses the text, malformed or not. The native parser reads both
+    /// shapes: the on-device `{"tool":…}` and the endpoint's `<tool_call>{"name":…}`.
     static func storableTurn(_ text: String) -> String {
         guard let tool = draftToolNames.sorted().first(where: { text.contains($0) }) else { return text }
         var draft = text
-        if case .success(.call(let call)) = ToolCallParser.parse(text, tools: all),
+        if case .success(.call(let call)) = NativeToolCallParser.parse(text, tools: all),
            let body = call.arguments["text"] {
             draft = body
         }

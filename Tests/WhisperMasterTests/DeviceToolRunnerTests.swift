@@ -508,6 +508,23 @@ final class DeviceToolRunnerTests: XCTestCase {
         XCTAssertEqual(draft.copyOnly(AgentDraft.textSelected).actionTitle, "Copy")
     }
 
+    /// The endpoint writes `<tool_call>{"name":…}`, not `{"tool":…}`. The trace keeps
+    /// the draft's own length in both shapes, and never its text.
+    func testATraceKeepsTheDraftLengthInEitherCallShape() throws {
+        let draft = "Board approved the merger.\nWe announce Monday."
+        let json = #"Board approved the merger.\nWe announce Monday."#
+        let handRolled = #"{"tool":"insert_text","args":{"text":"\#(json)"}}"#
+        let endpoint = try XCTUnwrap(CloudToolGenerator.toolCallText(name: "insert_text",
+                                                                     arguments: ["text": draft]))
+        XCTAssertTrue(endpoint.hasPrefix("<tool_call>"))
+        for turn in [handRolled, endpoint] {
+            let kept = DeviceToolCatalog.storableTurn(turn)
+            XCTAssertEqual(kept, #"{"tool":"insert_text","args":{"text":"[draft, \#(draft.count) characters]"}}"#,
+                           turn)
+            XCTAssertFalse(kept.contains("merger"), turn)
+        }
+    }
+
     func testReplaceSelectionIsOfferedOnlyWithASelection() {
         XCTAssertFalse(DeviceToolCatalog.offered(selection: false, frontApp: true)
             .map(\.name).contains("replace_selection"))

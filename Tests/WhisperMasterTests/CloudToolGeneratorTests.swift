@@ -422,6 +422,65 @@ final class CloudToolGeneratorTests: XCTestCase {
         XCTAssertTrue(notes.visibleNotes.isEmpty)
         XCTAssertEqual(generator.sent.snapshot.failures, 1)
     }
+
+    private func emptyStore() -> ConnectorInstanceStore {
+        let store = ConnectorInstanceStore(load: false)
+        store.persistenceEnabled = false
+        return store
+    }
+
+    /// The view model's gate, on the run a failed endpoint leaves: nothing answered and
+    /// nothing executed, so the on-device tier takes the words.
+    // shortcut: the service and the gate, not `runCommandAgent`, which needs the
+    // installed assistant model and the live MLX generator; add a generator seam there
+    // to cover the whole path.
+    func testAFailedEndpointRunLeavesTheWordsToTheOnDeviceTier() async {
+        for reply in [FakeEndpoint.Reply.status(500, Data()), .failure(URLError(.timedOut))] {
+            let run = await CommandAgentService(
+                store: emptyStore(), notes: notesStore(), approvals: ApprovalCoordinator(),
+                connectorsAllowed: false)
+                .run("note buy milk", generate: ScriptedModel([]).generate,
+                     generateNative: generator(.openAICompatible, FakeEndpoint([reply])).generate,
+                     tier: .endpoint)
+            XCTAssertTrue(DictationViewModel.onDeviceMayFollowEndpoint(
+                handled: run.result != nil, cancelled: false,
+                createdSomething: run.result?.createdSomething ?? false, calls: run.calls),
+                "\(reply)")
+        }
+    }
+
+    /// A draft is an action: the on-device tier must not stage a second one, and the
+    /// trace of the endpoint's `<tool_call>` turn keeps the draft's length, not its text.
+    func testAnEndpointDraftStopsTheRetryAndLeavesNoTextInTheTrace() async throws {
+        let secret = "Board approved the merger.\nWe announce Monday."
+        let mail = SelectionReader.FrontApp(bundleID: "com.apple.mail", name: "Mail", pid: 401)
+        let arguments = String(decoding: try JSONSerialization.data(withJSONObject: ["text": secret]),
+                               as: UTF8.self)
+        let server = FakeEndpoint([.ok(FakeEndpoint.openAICall("insert_text", arguments)),
+                                   .ok(FakeEndpoint.openAIText("It is on the band."))])
+        var service = CommandAgentService(
+            store: emptyStore(), notes: notesStore(), approvals: ApprovalCoordinator(),
+            connectorsAllowed: false)
+        service.frontApp = mail
+        service.device = DeviceToolRunner.Environment(
+            installedApp: { _ in nil }, openApp: { _ in false }, openURL: { _ in false },
+            frontApp: { mail })
+
+        let run = await service.run("write that the board approved it",
+                                    generate: ScriptedModel([]).generate,
+                                    generateNative: generator(.openAICompatible, server).generate,
+                                    tier: .endpoint)
+
+        XCTAssertEqual(run.draft?.text, secret)
+        XCTAssertFalse(DictationViewModel.onDeviceMayFollowEndpoint(
+            handled: run.result != nil, cancelled: false,
+            createdSomething: run.result?.createdSomething ?? false, calls: run.calls))
+        let stored = String(decoding: try JSONEncoder().encode(run.calls), as: UTF8.self)
+            + String(decoding: try JSONEncoder().encode(run.turns), as: UTF8.self)
+        XCTAssertFalse(stored.contains("merger"), stored)
+        XCTAssertTrue(run.turns.contains { $0.text.contains("[draft, \(secret.count) characters]") },
+                      "\(run.turns)")
+    }
 }
 
 /// A scripted HTTP server: hands back its replies in order and keeps every request.
