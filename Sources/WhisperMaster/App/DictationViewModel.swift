@@ -1144,6 +1144,12 @@ final class DictationViewModel {
         state.agentEndpoint.paused = paused
     }
 
+    /// The tray's pause item for the connected tool. Paused, the tool is skipped and the
+    /// endpoint runs if it is on; the choice, the consent and the Test are kept.
+    func setConnectedToolPaused(_ paused: Bool) {
+        state.connectedTool.paused = paused
+    }
+
     /// Mirror the private arm into `AppState` so the notch can say which of the two
     /// things the band is doing. One writer, so the two can't drift.
     private func setCommandArmed(_ armed: Bool) {
@@ -1544,14 +1550,14 @@ final class DictationViewModel {
         }
     }
 
-    /// The endpoint tier first when the user set one, then the on-device tier.
+    /// One remote tier first when the user set one (`remoteTier`), then the on-device tier.
     ///
-    /// **Text only leaves the Mac, never audio**, and only after the consent sheet
-    /// for that endpoint. A password manager in front or secure input on keeps the
-    /// capture on this Mac. An endpoint that fails (HTTP error, timeout, bad body) or
-    /// acts on nothing hands the words to the on-device tier, unless it already
-    /// created something (filing them again would be a second copy) or Escape
-    /// stopped it.
+    /// **Text only leaves the Mac, never audio**, and only after the consent sheet for
+    /// that tool or endpoint. A password manager in front or secure input on keeps the
+    /// capture on this Mac. A remote tier that fails (an error, a timeout, a reply it
+    /// cannot read, a tool that changed version) or acts on nothing hands the words to the
+    /// on-device tier, unless it already created something (filing them again would be a
+    /// second copy) or Escape stopped it.
     /// - Parameter pressStaysLocal: a chord press of this capture's own session saw a
     ///   password manager or secure input (`SelectionCapture.Session.staysLocal`), taken
     ///   at stop.
@@ -1561,55 +1567,76 @@ final class DictationViewModel {
                                  keyDownApp: SelectionReader.FrontApp?,
                                  pressStaysLocal: Bool) async -> AgentAttempt {
         let endpoint = state.agentEndpoint
-        // Decided whether or not an endpoint is on, so a capture that stayed local
-        // marks its follow-up even while the endpoint is paused.
+        let tool = state.connectedTool
+        // Decided whether or not a remote tier is on, so a capture that stayed local
+        // marks its follow-up even while the tier is paused.
         let keptLocal = AgentEndpoint.staysLocal(
             frontBundleID: SelectionReader.FrontApp.current()?.bundleID,
             secureInput: TerminalApps.secureKeyboardEntryEnabled(),
             atPress: pressStaysLocal,
             followUpKeptLocal: followUp?.keptLocal ?? false)
-        guard FeatureFlags.agentEndpointAvailable, endpoint.isActive, !keptLocal else {
+        let wanted = Self.remoteTier(tool: tool, endpoint: endpoint,
+                                     available: FeatureFlags.agentEndpointAvailable)
+        guard let tier = wanted, let name = tier.remoteName, !keptLocal else {
             var local = await runOnDeviceAgent(text, selectionRead: selectionRead,
                                                followUp: followUp, keptLocal: keptLocal,
                                                keyDownApp: keyDownApp)
-            if keptLocal, FeatureFlags.agentEndpointAvailable, endpoint.isActive {
+            if keptLocal, let name = wanted?.remoteName {
                 local.priorDecisions.insert(TraceDecision(
-                    title: "Your endpoint",
+                    title: name,
                     detail: "Skipped — a password manager was in front or secure input was on, "
                         + "now or in the capture this follows, so nothing left this Mac.",
                     taken: false), at: 0)
             }
             return local
         }
+        /// The on-device tier, with the remote rung that was skipped and why.
+        func skipped(_ detail: String) async -> AgentAttempt {
+            var local = await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp,
+                                               keptLocal: false, keyDownApp: keyDownApp)
+            local.priorDecisions.insert(TraceDecision(title: name, detail: detail, taken: false), at: 0)
+            return local
+        }
         let selection = await SelectionCapture.settle(selectionRead)
         // Again after that wait (up to half a second): a sign-out, a revoke or a pause
         // in it keeps the words on this Mac. No await between here and the run's task,
         // which `handleSignOut` cancels from then on.
-        guard Self.endpointMayStillSend(copied: endpoint, current: state.agentEndpoint) else {
-            var local = await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp,
-                                               keptLocal: false, keyDownApp: keyDownApp)
-            local.priorDecisions.insert(TraceDecision(
-                title: "Your endpoint",
-                detail: "Skipped — it was turned off, or you signed out, while the selection "
-                    + "was read, so nothing left this Mac.",
-                taken: false), at: 0)
-            return local
+        let stillOn = tier == .endpoint
+            ? Self.endpointMayStillSend(copied: endpoint, current: state.agentEndpoint)
+            : Self.connectedToolMayStillSend(copied: tool, current: state.connectedTool)
+        guard stillOn else {
+            return await skipped("Skipped — it was turned off, or you signed out, while the selection "
+                + "was read, so nothing left this Mac.")
         }
-        let sent = EndpointSendLog(host: endpoint.host)
-        guard let generator = CloudToolGenerator(endpoint: endpoint, apiKey: AgentEndpoint.apiKey(),
-                                                 sent: sent) else {
-            return await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp,
-                                          keptLocal: false, keyDownApp: keyDownApp)
+        let sent: EndpointSendLog
+        let generate: AgentLoop.GenerateNative
+        if tier == .endpoint {
+            sent = EndpointSendLog(host: endpoint.host)
+            guard let generator = CloudToolGenerator(endpoint: endpoint, apiKey: AgentEndpoint.apiKey(),
+                                                     sent: sent) else {
+                return await runOnDeviceAgent(text, selectionRead: selectionRead, followUp: followUp,
+                                              keptLocal: false, keyDownApp: keyDownApp)
+            }
+            generate = generator.generate
+        } else {
+            // Looked up at each chord: the tool can be moved or removed at any time.
+            guard let kind = tool.kind, let tested = tool.tested, let path = ConnectedTool.locate(kind) else {
+                return await skipped("Skipped — \(name) is no longer in ~/.local/bin, /opt/homebrew/bin "
+                    + "or /usr/local/bin, so nothing left this Mac.")
+            }
+            sent = EndpointSendLog(host: name, tool: name)
+            generate = ConnectedToolGenerator(kind: kind, executable: path, testedVersion: tested.version,
+                                              sent: sent).generate
         }
         var remote = await runAgent(text, selection: selection, followUp: followUp,
-                                    tier: .endpoint, generateNative: generator.generate,
-                                    keyDownApp: keyDownApp)
-        remote.endpoint = sent.snapshot
+                                    tier: tier, generateNative: generate, keyDownApp: keyDownApp)
+        let snapshot = sent.snapshot
+        // A version check that stopped the first request sent nothing.
+        remote.endpoint = snapshot.requests > 0 ? snapshot : nil
         // A failed reply ends the loop with nothing called, which the loop words as "the
         // model answered without calling a tool". The failure is the real reason.
-        if let failure = sent.snapshot.failure, !remote.handled {
-            remote.decision = TraceDecision(title: remote.decision.title,
-                                            detail: "\(remote.decision.title) \(failure), so nothing was acted on.",
+        if let failure = snapshot.failure, !remote.handled {
+            remote.decision = TraceDecision(title: name, detail: "\(name) \(failure), so nothing was acted on.",
                                             taken: false)
         }
         guard Self.onDeviceMayFollowEndpoint(handled: remote.handled, cancelled: remote.cancelled,
@@ -1619,17 +1646,28 @@ final class DictationViewModel {
         var local = await runAgent(text, selection: selection, followUp: followUp, tier: .onDevice,
                               keyDownApp: keyDownApp)
         local.priorDecisions = [TraceDecision(
-            title: "Your endpoint",
+            title: name,
             detail: remote.decision.detail + " The on-device assistant took it next.",
             taken: false)]
-        // Both runs happened: what the endpoint read is part of the story too.
+        // Both runs happened: what the remote tier read is part of the story too.
         local.calls = remote.calls + local.calls
         local.turns = remote.turns + local.turns
         local.endpoint = remote.endpoint
         return local
     }
 
-    /// Whether the on-device tier may take the words after the endpoint tier gave them
+    /// The one remote tier for a capture: the connected tool when it is on, else the
+    /// endpoint when it is on, else none. **The endpoint never follows a failed tool**:
+    /// two destinations off this Mac for one capture are hard to predict, and the waits
+    /// add up (the tool's run, then the endpoint's, then the on-device budget). This is
+    /// the one place to change if that order should change.
+    static func remoteTier(tool: ConnectedTool, endpoint: AgentEndpoint, available: Bool) -> AgentTier? {
+        guard available else { return nil }
+        if tool.isActive, let kind = tool.kind { return kind.tier }
+        return endpoint.isActive ? .endpoint : nil
+    }
+
+    /// Whether the on-device tier may take the words after a remote tier gave them
     /// back. Not after an answer, an Escape or a creation (a second copy), and not after
     /// a card the user declined or left to time out: the same question must not come
     /// back from the other tier.
@@ -1643,6 +1681,12 @@ final class DictationViewModel {
     /// capture: still on, and still agreed to for the same address and API.
     static func endpointMayStillSend(copied: AgentEndpoint, current: AgentEndpoint) -> Bool {
         current.isActive && current.consentKey == copied.consentKey
+    }
+
+    /// The same check for the connected tool: still on (a sign-out drops the consent),
+    /// still the same tool, and still the same tested version.
+    static func connectedToolMayStillSend(copied: ConnectedTool, current: ConnectedTool) -> Bool {
+        current.isActive && current.kind == copied.kind && current.tested == copied.tested
     }
 
     private func runOnDeviceAgent(_ text: String,
@@ -2172,6 +2216,7 @@ final class DictationViewModel {
     /// is forgotten — the window's generation moves too, so a run that finishes after
     /// this cannot leave its answer behind. The endpoint keeps its address and model
     /// but loses its consent and its key: the next account never agreed to send there.
+    /// The connected tool loses its consent the same way and keeps its Test.
     func handleSignOut() {
         if state.approvals.pending != nil { state.approvals.resolve(.denied) }
         commandAgentTask?.cancel()
@@ -2179,6 +2224,7 @@ final class DictationViewModel {
         clearDraft()
         state.agentEndpoint.consentedTo = nil
         AgentEndpoint.setAPIKey(nil)
+        state.connectedTool.consentedTo = nil
     }
 
     func pasteLastTranscript() {

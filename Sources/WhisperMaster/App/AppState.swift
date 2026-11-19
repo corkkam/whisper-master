@@ -589,6 +589,14 @@ final class AppState {
             agentEndpoint.save()
         }
     }
+    /// The user's own coding tool as the chord's brain (dev builds only). The app only
+    /// starts it and never reads its sign-in; nothing here is secret.
+    var connectedTool = ConnectedTool() {
+        didSet {
+            guard connectedTool != oldValue else { return }
+            connectedTool.save()
+        }
+    }
     /// Default alert style new reminders inherit (per-reminder overridable).
     /// Persisted as the enum raw value. This is the "configure in settings" knob.
     var reminderDefaultAlertStyle: ReminderAlertStyle = .notification {
@@ -920,6 +928,7 @@ final class AppState {
         // Opt-out: a connected connector is used unless the user turns this off.
         connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? true
         agentEndpoint = AgentEndpoint.load()
+        connectedTool = ConnectedTool.load()
         // Opt-out: you asked out loud, so an answer you can hear is the default.
         speakAnswersEnabled = UserDefaults.standard.object(forKey: Self.speakAnswersDefaultsKey) as? Bool ?? true
         answerVoiceEngine = (UserDefaults.standard.string(forKey: Self.answerVoiceEngineDefaultsKey))

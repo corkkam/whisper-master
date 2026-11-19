@@ -582,3 +582,73 @@ final class ConnectedToolGeneratorTests: XCTestCase {
             handled: false, cancelled: false, createdSomething: false, calls: run.calls))
     }
 }
+
+/// Which remote tier a capture gets, and the guards around it in the view model.
+@MainActor
+final class ConnectedToolRoutingTests: XCTestCase {
+    private let tool = ConnectedTool(kind: .claudeCode, consentedTo: .claudeCode,
+                                     tested: .init(kind: .claudeCode, version: "2.1.328"))
+
+    private var endpoint: AgentEndpoint {
+        var endpoint = AgentEndpoint(api: .anthropic, url: "https://api.anthropic.com/v1/messages", model: "m")
+        endpoint.consentedTo = endpoint.consentKey
+        return endpoint
+    }
+
+    func testTheToolGoesFirstAndAPausedToolFallsToTheEndpoint() {
+        XCTAssertEqual(DictationViewModel.remoteTier(tool: tool, endpoint: endpoint, available: true), .claudeCode)
+        var paused = tool
+        paused.paused = true
+        XCTAssertEqual(DictationViewModel.remoteTier(tool: paused, endpoint: endpoint, available: true), .endpoint)
+        XCTAssertNil(DictationViewModel.remoteTier(tool: paused, endpoint: AgentEndpoint(), available: true))
+        var untested = tool
+        untested.tested = nil
+        XCTAssertEqual(DictationViewModel.remoteTier(tool: untested, endpoint: endpoint, available: true), .endpoint,
+                       "a tool that never passed its Test is not on")
+    }
+
+    func testNothingRemoteRunsWhereTheFlagIsOff() {
+        XCTAssertNil(DictationViewModel.remoteTier(tool: tool, endpoint: endpoint, available: false))
+    }
+
+    /// `runCommandAgent` copies the tool, then waits up to half a second for the
+    /// selection. It checks again after that wait, before the generator is built.
+    func testTheToolIsCheckedAgainAfterTheSelectionWait() {
+        func may(_ change: (inout ConnectedTool) -> Void) -> Bool {
+            var current = tool
+            change(&current)
+            return DictationViewModel.connectedToolMayStillSend(copied: tool, current: current)
+        }
+        XCTAssertTrue(may { _ in })
+        XCTAssertFalse(may { $0.consentedTo = nil }, "signed out or revoked")
+        XCTAssertFalse(may { $0.paused = true })
+        XCTAssertFalse(may { $0.tested = .init(kind: .claudeCode, version: "2.1.329") }, "tested again since")
+    }
+
+    /// The next account on this Mac never agreed to send the chord's text to the tool.
+    func testSignOutDropsTheToolConsent() {
+        defer { UserDefaults.standard.removeObject(forKey: ConnectedTool.defaultsKey) }
+        let viewModel = DictationViewModel()
+        viewModel.state.connectedTool = tool
+        XCTAssertTrue(viewModel.state.connectedTool.isActive)
+
+        viewModel.handleSignOut()
+
+        XCTAssertNil(viewModel.state.connectedTool.consentedTo)
+        XCTAssertFalse(viewModel.state.connectedTool.isActive)
+        XCTAssertEqual(viewModel.state.connectedTool.tested, tool.tested, "the Test is about the binary, and stays")
+        XCTAssertFalse(DictationViewModel.connectedToolMayStillSend(copied: tool, current: viewModel.state.connectedTool),
+                       "a run that copied the tool before sign-out must not send")
+        XCTAssertNil(DictationViewModel.remoteTier(tool: viewModel.state.connectedTool, endpoint: AgentEndpoint(),
+                                                   available: true))
+    }
+
+    func testThePauseItemPausesTheToolOnly() {
+        defer { UserDefaults.standard.removeObject(forKey: ConnectedTool.defaultsKey) }
+        let viewModel = DictationViewModel()
+        viewModel.state.connectedTool = tool
+        viewModel.setConnectedToolPaused(true)
+        XCTAssertTrue(viewModel.state.connectedTool.paused)
+        XCTAssertTrue(viewModel.state.connectedTool.hasConsent)
+    }
+}
