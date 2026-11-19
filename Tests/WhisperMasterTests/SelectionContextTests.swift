@@ -223,6 +223,7 @@ final class SelectionContextTests: XCTestCase {
         viewModel.handleCommandChordEngaged()  // refused
 
         XCTAssertFalse(stopped.staysLocal, "capture 1 spoke in Safari")
+        XCTAssertEqual(stopped.frontApp, app, "the first press was accepted")
         let next = viewModel.selectionCapture.take()
         XCTAssertFalse(next.staysLocal, "a refused press must not make a later capture local")
         XCTAssertNil(next.frontApp)

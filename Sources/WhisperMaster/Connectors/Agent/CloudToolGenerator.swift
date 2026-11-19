@@ -152,12 +152,14 @@ struct AgentEndpoint: Codable, Equatable, Sendable {
 
     static var hasAPIKey: Bool { ConnectorCredentials.exists(for: keychainID) }
 
-    /// The one key slot was filled for `old`'s server, so a different host or port (or
-    /// none) must not inherit it: a new provider with new consent would receive the old
-    /// provider's key, and two ports on 127.0.0.1 are two servers. A new path, model or
-    /// API on the same host and port keeps it.
+    /// The one key slot was filled for `old`'s server, so a different host, port or scheme
+    /// (or none) must not inherit it: a new provider with new consent would receive the
+    /// old provider's key, and two ports on 127.0.0.1 are two servers. A new path, model or
+    /// API on the same host, port and scheme keeps it. The scheme counts on its own:
+    /// `https://localhost` and `http://localhost` both read as port nil.
     static func keyMustGo(from old: AgentEndpoint, to new: AgentEndpoint) -> Bool {
-        !old.host.isEmpty && (new.host != old.host || new.validURL?.port != old.validURL?.port)
+        !old.host.isEmpty && (new.host != old.host || new.validURL?.port != old.validURL?.port
+            || new.validURL?.scheme?.lowercased() != old.validURL?.scheme?.lowercased())
     }
 
     /// Saves the key, or removes it when `key` is blank.

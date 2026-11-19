@@ -43,7 +43,7 @@ struct AgentEndpointSettingsSection: View {
                 RowDivider()
                 SettingsRow(
                     "API key",
-                    subtitle: "Kept in your Keychain for this host only. A new host removes it. "
+                    subtitle: "Kept in your Keychain for this server only. Another host, port or scheme removes it. "
                         + "Leave it empty for a local server that needs none."
                 ) {
                     keyControl
@@ -52,7 +52,7 @@ struct AgentEndpointSettingsSection: View {
                 consentRow
             }
         }
-        // `AppState` deletes the key on a new host, and sign-out deletes it too.
+        // `AppState` deletes the key on a new host, port or scheme, and sign-out deletes it too.
         .onChange(of: endpoint) { _, _ in keySaved = AgentEndpoint.hasAPIKey }
         .sheet(isPresented: $showingConsent) {
             AgentEndpointConsentSheet(
@@ -150,8 +150,9 @@ struct AgentEndpointSettingsSection: View {
                     keySaved = AgentEndpoint.hasAPIKey
                 }
                 .secondaryButton()
-                // The key belongs to a host, so it waits for one: saved first, the
-                // host's first keystrokes would read as a new host and delete it.
+                // The key belongs to a server (host, port and scheme), so it waits for a
+                // valid address: saved first, the address's first keystrokes would read as
+                // a new server and delete it.
                 .disabled(keyDraft.trimmingCharacters(in: .whitespaces).isEmpty || endpoint.validURL == nil)
             }
         }

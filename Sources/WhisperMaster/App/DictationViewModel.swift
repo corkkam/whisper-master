@@ -1597,13 +1597,14 @@ final class DictationViewModel {
             local.priorDecisions.insert(TraceDecision(title: name, detail: detail, taken: false), at: 0)
             return local
         }
-        let selection = await SelectionCapture.settle(selectionRead)
         // Again after that wait (up to half a second): a sign-out, a revoke or a pause
         // in it keeps the words on this Mac. No await between here and the run's task,
         // which `handleSignOut` cancels from then on.
-        let stillOn = tier == .endpoint
-            ? Self.endpointMayStillSend(copied: endpoint, current: state.agentEndpoint)
-            : Self.connectedToolMayStillSend(copied: tool, current: state.connectedTool)
+        let (selection, stillOn) = await Self.settleThenCheck(selectionRead) {
+            tier == .endpoint
+                ? Self.endpointMayStillSend(copied: endpoint, current: state.agentEndpoint)
+                : Self.connectedToolMayStillSend(copied: tool, current: state.connectedTool)
+        }
         guard stillOn else {
             return await skipped("Skipped — it was turned off, or you signed out, while the selection "
                 + "was read, so nothing left this Mac.")
@@ -1654,6 +1655,14 @@ final class DictationViewModel {
         local.turns = remote.turns + local.turns
         local.endpoint = remote.endpoint
         return local
+    }
+
+    /// The selection, then `stillOn` asked **after** the wait. The order is the point: a
+    /// sign-out, a revoke or a pause during the wait must keep the words on this Mac.
+    static func settleThenCheck(_ selectionRead: Task<SelectionContext?, Never>?,
+                                stillOn: () -> Bool) async -> (selection: SelectionContext?, stillOn: Bool) {
+        let selection = await SelectionCapture.settle(selectionRead)
+        return (selection, stillOn())
     }
 
     /// The one remote tier for a capture: the connected tool when it is on, else the

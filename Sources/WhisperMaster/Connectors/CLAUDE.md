@@ -144,8 +144,9 @@ Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API
 - **The key is in the Keychain** (`AgentEndpoint.apiKey()`, the connector helper under a
   fixed UUID), never in `UserDefaults`, never in a log line (status and host only) or a
   trace. `CloudToolGeneratorTests.testTheKeyNeverReachesALogTheBodyOrTheTrace` is the lock.
-  **There is one key slot, and it belongs to a host and port**: a change to a different
-  host or port (two ports on 127.0.0.1 are two servers), or to a refused address, deletes
+  **There is one key slot, and it belongs to a host, port and scheme**: a change to a
+  different one (two ports on 127.0.0.1 are two servers; `https://localhost` to
+  `http://localhost` changes only the scheme), or to a refused address, deletes
   it (`AgentEndpoint.keyMustGo`, run in
   `AppState.agentEndpoint`'s `didSet`), so a new provider with new consent never gets the
   old provider's key. Settings saves a key only once the address is valid, or the host's

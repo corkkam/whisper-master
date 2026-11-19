@@ -310,6 +310,20 @@ final class CloudToolGeneratorTests: XCTestCase {
         }, "consent for another address is not consent for this send")
     }
 
+    /// The order, not only the predicate: the read below revokes consent when it ends,
+    /// as a sign-out during the wait would. A check made before the wait would still
+    /// see consent, and this would fail.
+    func testTheReCheckRunsAfterTheSelectionWaitNotBefore() async {
+        final class Consent { var given = true }
+        let consent = Consent()
+        let read = Task { @MainActor () -> SelectionContext? in
+            consent.given = false
+            return nil
+        }
+        let (_, stillOn) = await DictationViewModel.settleThenCheck(read) { consent.given }
+        XCTAssertFalse(stillOn)
+    }
+
     /// One key slot: a new host or port, with its own consent, must not inherit the
     /// last provider's key. A new path or model on the same host and port keeps it.
     func testANewHostDeletesTheStoredKey() {
@@ -332,6 +346,11 @@ final class CloudToolGeneratorTests: XCTestCase {
         var otherPort = local
         otherPort.url = "http://127.0.0.1:11434/v1/chat/completions"
         XCTAssertTrue(AgentEndpoint.keyMustGo(from: local, to: otherPort), "another port is another server")
+        // Both read as port nil, so only the scheme tells them apart.
+        let secure = AgentEndpoint(api: .openAICompatible, url: "https://localhost/v1/chat/completions", model: "m")
+        var plain = secure
+        plain.url = "http://localhost/v1/chat/completions"
+        XCTAssertTrue(AgentEndpoint.keyMustGo(from: secure, to: plain), "a key for TLS must not go out in clear text")
 
         withMemoryKeychain {
             // Launch: `AppState` loads the saved endpoint over an empty one.
