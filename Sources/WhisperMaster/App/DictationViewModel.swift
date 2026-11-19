@@ -56,8 +56,12 @@ final class DictationViewModel {
     private var commandChordOwnsSession = false
     /// The front app's selection, read off the main actor from the chord press, and
     /// whether that press must keep the capture off the endpoint. Taken at stop with
-    /// the arm, so neither can reach the next session.
-    let selectionCapture = SelectionCapture()
+    /// the arm, so neither can reach the next session. Settable so a test can give it
+    /// a reader with no Accessibility behind it.
+    var selectionCapture = SelectionCapture()
+    /// The app in front at a chord press. Settable so a test can press in a password
+    /// manager without one installed.
+    var frontAppAtPress: @MainActor () -> SelectionReader.FrontApp? = SelectionReader.FrontApp.current
     /// True when the agent key armed the current session — its finished transcript
     /// goes to a coding agent instead of being typed. Consumed (and reset) at stop,
     /// and mirrored into `state.agentCaptureArmed` for the notch.
@@ -323,11 +327,12 @@ final class DictationViewModel {
         // Consume the command arm now (synchronously, at the user's stop) so it
         // can't linger; the async finalize below reads this captured copy.
         let commandMode = commandArmed
-        // Before `take()`, which forgets it: the only app a draft may type into.
-        let keyDownApp = selectionCapture.frontApp
-        // The same, and for the same reason: a press after this stop cannot change it.
-        let pressStaysLocal = selectionCapture.staysLocal
-        let selectionRead = selectionCapture.take()
+        // One hand-over, so a press after this stop cannot change any of it: the read,
+        // the only app a draft may type into, and whether the capture stays local.
+        let pressSession = selectionCapture.take()
+        let keyDownApp = pressSession.frontApp
+        let pressStaysLocal = pressSession.staysLocal
+        let selectionRead = pressSession.read
         setCommandArmed(false)
         commandChordOwnsSession = false
         // Same consume-at-stop rule as the assistant arm above: read it here, at the
@@ -1110,7 +1115,7 @@ final class DictationViewModel {
         if state.canStop || state.phase == .preparingModels {
             setCommandArmed(true)
             state.statusMessage = "Listening for the assistant..."
-            selectionCapture.begin(.current())
+            selectionCapture.begin(frontAppAtPress())
             return
         }
         if state.preparingEngine != nil {
@@ -1119,7 +1124,7 @@ final class DictationViewModel {
         }
         guard state.canStart else { return }
         commandChordOwnsSession = true
-        selectionCapture.begin(after: { startRecording(command: true) })
+        selectionCapture.begin(after: { startRecording(command: true) }, app: frontAppAtPress)
     }
 
     /// The chord broke (either key came up). Only stops the session when the chord
@@ -1548,7 +1553,8 @@ final class DictationViewModel {
     /// created something (filing them again would be a second copy) or Escape
     /// stopped it.
     /// - Parameter pressStaysLocal: a chord press of this capture's own session saw a
-    ///   password manager or secure input (`SelectionCapture.staysLocal`), read at stop.
+    ///   password manager or secure input (`SelectionCapture.Session.staysLocal`), taken
+    ///   at stop.
     private func runCommandAgent(_ text: String,
                                  selectionRead: Task<SelectionContext?, Never>?,
                                  followUp: FollowUpWindow.Digest?,

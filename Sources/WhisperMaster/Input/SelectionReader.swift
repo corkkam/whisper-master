@@ -226,16 +226,24 @@ struct SelectionReader: Sendable {
 final class SelectionCapture {
     nonisolated static let wait: TimeInterval = 0.5
 
+    /// What `take()` hands over, in one value, so nothing can read a field after the
+    /// session is cleared.
+    struct Session {
+        /// The selection read begun at the press.
+        let read: Task<SelectionContext?, Never>?
+        /// The app in front at the press, kept whether or not it had a selection: a
+        /// draft may only type into the app the user was speaking to.
+        let frontApp: SelectionReader.FrontApp?
+        /// A press this session accepted saw a password manager in front or secure
+        /// input on, so the capture stays off the endpoint.
+        let staysLocal: Bool
+    }
+
     private let reader: SelectionReader
     private var pending: Task<SelectionContext?, Never>?
-    /// The app in front at the press, kept whether or not it had a selection: a draft
-    /// may only type into the app the user was speaking to. Read it before `take()`,
-    /// which forgets it with the read.
-    private(set) var frontApp: SelectionReader.FrontApp?
-    /// A press this session accepted saw a password manager in front or secure input
-    /// on, so the capture stays off the endpoint. Read at stop with `frontApp`: a press
-    /// refused, or made while this capture is still finishing, never reaches it.
-    private(set) var staysLocal = false
+    private var frontApp: SelectionReader.FrontApp?
+    /// Written only by `begin` (a press the session accepted) and cleared by `take()`.
+    private var staysLocal = false
 
     init(reader: SelectionReader = .live) {
         self.reader = reader
@@ -268,14 +276,14 @@ final class SelectionCapture {
         begin(app())
     }
 
-    /// Hand over this session's read and forget it, so it cannot reach the next one.
-    func take() -> Task<SelectionContext?, Never>? {
+    /// Hand over this session and forget it, so it cannot reach the next one.
+    func take() -> Session {
         defer {
             pending = nil
             frontApp = nil
             staysLocal = false
         }
-        return pending
+        return Session(read: pending, frontApp: frontApp, staysLocal: staysLocal)
     }
 
     /// What is selected in `app` now, for the draft tap: read off the main actor like
