@@ -2138,12 +2138,15 @@ final class DictationViewModel {
     /// Sign-out: nothing the assistant holds for the account that left may reach the
     /// next one. A waiting card is denied, a running loop is stopped, and the follow-up
     /// is forgotten — the window's generation moves too, so a run that finishes after
-    /// this cannot leave its answer behind.
+    /// this cannot leave its answer behind. The endpoint keeps its address and model
+    /// but loses its consent and its key: the next account never agreed to send there.
     func handleSignOut() {
         if state.approvals.pending != nil { state.approvals.resolve(.denied) }
         commandAgentTask?.cancel()
         followUps.clear()
         clearDraft()
+        state.agentEndpoint.consentedTo = nil
+        AgentEndpoint.setAPIKey(nil)
     }
 
     func pasteLastTranscript() {

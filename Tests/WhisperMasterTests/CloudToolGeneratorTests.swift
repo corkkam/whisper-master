@@ -252,6 +252,37 @@ final class CloudToolGeneratorTests: XCTestCase {
         XCTAssertEqual(AgentEndpoint.load(from: defaults).url, good)
     }
 
+    /// The in-memory Keychain, and no endpoint left in this process's defaults after.
+    private func withMemoryKeychain(_ body: () throws -> Void) rethrows {
+        ConnectorCredentials.persistenceEnabled = false
+        defer {
+            ConnectorCredentials.resetMemoryStore()
+            ConnectorCredentials.persistenceEnabled = true
+            UserDefaults.standard.removeObject(forKey: AgentEndpoint.defaultsKey)
+        }
+        try body()
+    }
+
+    /// The next account on this Mac never agreed to the endpoint, and the key is not theirs.
+    func testSignOutDropsTheEndpointConsentAndKey() {
+        withMemoryKeychain {
+            let viewModel = DictationViewModel()
+            var endpoint = AgentEndpoint(api: .anthropic, url: "https://api.anthropic.com/v1/messages",
+                                         model: "m")
+            endpoint.consentedTo = endpoint.consentKey
+            viewModel.state.agentEndpoint = endpoint
+            AgentEndpoint.setAPIKey("sk-ant")
+            XCTAssertTrue(viewModel.state.agentEndpoint.isActive)
+
+            viewModel.handleSignOut()
+
+            XCTAssertNil(viewModel.state.agentEndpoint.consentedTo)
+            XCTAssertFalse(viewModel.state.agentEndpoint.isActive)
+            XCTAssertNil(AgentEndpoint.apiKey())
+            XCTAssertEqual(viewModel.state.agentEndpoint.url, endpoint.url, "the address and model stay")
+        }
+    }
+
     /// A redirect would carry the key and the conversation to a host nobody agreed to.
     /// The live transport refuses it; the 3xx is the reply, which is nil.
     func testARedirectIsNeverFollowed() async {
