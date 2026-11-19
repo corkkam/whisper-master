@@ -250,6 +250,36 @@ final class ConnectedToolTests: XCTestCase {
         XCTAssertNotEqual(ConnectedTool.locate(.claudeCode, home: home), link, "a world-writable target")
     }
 
+    /// Each part of the identity counts. A `chmod` moves only the status-change time, and
+    /// a rewrite that puts the modification time back still changes the size.
+    func testAChangedStatusTimeOrSizeIsAnotherFile() throws {
+        let file = try home().appendingPathComponent(".local/bin/claude")
+        try Data("#!/bin/sh\n".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        let pinned = try XCTUnwrap(ConnectedTool.binary(at: file))
+        XCTAssertNotNil(pinned.device)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o750], ofItemAtPath: file.path)
+        let chmodded = try XCTUnwrap(ConnectedTool.binary(at: file))
+        XCTAssertEqual(chmodded.modified, pinned.modified, "a chmod leaves the modification time")
+        XCTAssertEqual(chmodded.size, pinned.size)
+        XCTAssertNotEqual(chmodded.changed, pinned.changed)
+        XCTAssertNotEqual(chmodded, pinned)
+
+        let modified = try XCTUnwrap(try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate])
+        try Data("#!/bin/sh\n# longer\n".utf8).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: file.path)
+        let resized = try XCTUnwrap(ConnectedTool.binary(at: file))
+        XCTAssertNotEqual(resized.size, chmodded.size)
+        XCTAssertNotEqual(resized, chmodded)
+
+        // A record written before the device and the status-change time were kept.
+        var older = resized
+        older.device = nil
+        older.changed = nil
+        XCTAssertNotEqual(older, resized, "an older record reads as another file")
+    }
+
     // MARK: - What is stored
 
     private func defaults() -> UserDefaults {
@@ -482,11 +512,11 @@ final class ConnectedToolGeneratorTests: XCTestCase {
     func testAStateChangeBetweenTwoTurnsStopsTheNextTurn() async {
         let on = Switch(true)
         let tool = ScriptedTool([Self.call("list_reminders", [:]), Self.answer("Done.")])
-        tool.afterRun = { on.isOn = false }
         var generator = generator(tool)
         generator.mayContinue = { on.isOn }
 
         let first = await generator.reply(history, tools: [])
+        on.isOn = false
         let second = await generator.reply(history, tools: [])
 
         XCTAssertNotNil(first)
@@ -494,6 +524,37 @@ final class ConnectedToolGeneratorTests: XCTestCase {
         XCTAssertEqual(tool.calls.all.count, 1, "the second turn started the tool")
         XCTAssertEqual(generator.sent.snapshot.requests, 1)
         XCTAssertEqual(generator.sent.snapshot.failure, "was paused or turned off during the run")
+    }
+
+    /// The same while a turn runs: its reply is dropped before the loop reads it, so the
+    /// call in it never runs.
+    func testAPauseWhileATurnRunsDropsItsReply() async {
+        let on = Switch(true)
+        let tool = ScriptedTool([Self.call("create_note", ["body": "x"])])
+        tool.afterRun = { on.isOn = false }
+        var generator = generator(tool)
+        generator.mayContinue = { on.isOn }
+
+        let answer = await generator.reply(history, tools: [])
+
+        XCTAssertNil(answer)
+        XCTAssertEqual(tool.calls.all.count, 1)
+        XCTAssertEqual(generator.sent.snapshot.failure, "was paused or turned off during the run")
+    }
+
+    /// A kind this build does not offer is refused before anything starts.
+    func testTheGeneratorRefusesAKindThisBuildDoesNotOffer() async {
+        let tool = ScriptedTool([.exited(status: 0, stdout: ConnectedToolTests.codexOK)])
+        var generator = ConnectedToolGenerator(kind: .codex, executable: binary, tested: tested,
+                                               sent: EndpointSendLog(host: "Codex", tool: "Codex"))
+        generator.runner = tool.runner
+        generator.log = { _ in }
+
+        let answer = await generator.reply(history, tools: [])
+
+        XCTAssertNil(answer)
+        XCTAssertTrue(tool.calls.all.isEmpty, "Codex was started")
+        XCTAssertEqual(generator.sent.snapshot.failure, "is not offered in this build")
     }
 
     /// The file changed after the Test (an update): nothing starts, and the Test is cleared.
@@ -716,23 +777,47 @@ final class ConnectedToolGeneratorTests: XCTestCase {
         XCTAssertTrue(run.tainted)
     }
 
-    /// A tool that fails acts on nothing, so the view model's own rule, fed the run's
-    /// own values, hands the words to the on-device tier.
+    /// A tool that fails acts on nothing, so the view model's own rule, fed the run's own
+    /// values, hands the words to the on-device tier. Nothing cancelled this run.
     func testAFailedToolRunLeavesTheWordsToTheOnDeviceTier() async {
         let notes = notesStore()
         let generator = generator(ScriptedTool([.timedOut]))
-        let service = CommandAgentService(store: store(), notes: notes, approvals: ApprovalCoordinator(),
-                                          connectorsAllowed: false)
-        let task = Task {
-            await service.run("note buy milk", generate: ScriptedModel([]).generate,
-                              generateNative: generator.generate, tier: .claudeCode)
-        }
-        let run = await task.value
+        let run = await CommandAgentService(store: store(), notes: notes, approvals: ApprovalCoordinator(),
+                                            connectorsAllowed: false)
+            .run("note buy milk", generate: ScriptedModel([]).generate,
+                 generateNative: generator.generate, tier: .claudeCode)
 
         XCTAssertNil(run.result)
         XCTAssertTrue(notes.visibleNotes.isEmpty)
         XCTAssertEqual(generator.sent.snapshot.failure, "did not answer within 20 seconds")
         XCTAssertTrue(DictationViewModel.onDeviceMayFollowEndpoint(
+            handled: run.result != nil, cancelled: false,
+            createdSomething: run.result?.createdSomething ?? false, calls: run.calls))
+    }
+
+    /// Escape cancels the run while the tool works: no tier may take the words after it.
+    func testACancelledToolRunLeavesTheWordsToNoOtherTier() async throws {
+        let started = Switch(false)
+        var generator = generator(ScriptedTool([]))
+        generator.runner = { _, _, _, _, _ in
+            started.isOn = true
+            while !Task.isCancelled { try? await Task.sleep(nanoseconds: 10_000_000) }
+            return .cancelled
+        }
+        let service = CommandAgentService(store: store(), notes: notesStore(), approvals: ApprovalCoordinator(),
+                                          connectorsAllowed: false)
+        let task = Task {
+            await service.run("note buy milk", generate: ScriptedModel([]).generate,
+                              generateNative: generator.generate, tier: .claudeCode)
+        }
+        for _ in 0..<200 where !started.isOn { try await Task.sleep(nanoseconds: 10_000_000) }
+        task.cancel()
+        let run = await task.value
+
+        XCTAssertTrue(task.isCancelled)
+        XCTAssertNil(run.result)
+        XCTAssertNil(generator.sent.snapshot.failure, "a cancel is the loop's to report")
+        XCTAssertFalse(DictationViewModel.onDeviceMayFollowEndpoint(
             handled: run.result != nil, cancelled: task.isCancelled,
             createdSomething: run.result?.createdSomething ?? false, calls: run.calls))
     }
@@ -797,6 +882,34 @@ final class ConnectedToolProcessTests: XCTestCase {
         let result = await ConnectedTool.test(.claudeCode, at: claude)
         XCTAssertEqual(result, .passed(.init(kind: .claudeCode, version: "2.1.328",
                                              binary: ConnectedTool.binary(at: claude))))
+    }
+
+    /// Reached through a link, the Test and every turn run the file that was stat'ed,
+    /// never the link: what is compared is what runs.
+    func testTheFileBehindTheLinkIsWhatRuns() async throws {
+        try serve(ConnectedToolTests.stream(result: "Saved."))
+        let link = Self.folder.appendingPathComponent("link-\(UUID())")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: claude)
+        defer { try? FileManager.default.removeItem(at: link) }
+        let spawned = Lines()
+        let runner: CLIProcess.Runner = { command, stdin, timeout, cap, check in
+            spawned.add(Data(command.executable.path.utf8))
+            return await CLIProcess.run(command, stdin: stdin, timeout: timeout, outputCap: cap, check: check)
+        }
+
+        guard case .passed(let tested) = await ConnectedTool.test(.claudeCode, at: link, runner: runner) else {
+            return XCTFail("the Test did not pass")
+        }
+        let file = try XCTUnwrap(tested.binary?.path)
+        var generator = ConnectedToolGenerator(kind: .claudeCode, executable: link, tested: tested,
+                                               sent: EndpointSendLog(host: "Claude Code", tool: "Claude Code"))
+        generator.runner = runner
+        generator.log = { _ in }
+        let answer = await generator.reply(history, tools: [])
+
+        XCTAssertEqual(answer, "Saved.")
+        XCTAssertNotEqual(file, link.path)
+        XCTAssertEqual(spawned.all, [Data(file.utf8), Data(file.utf8)], "the Test, then the turn")
     }
 
     func testTheTestRefusesWhatALeanRunNeverPrints() async throws {

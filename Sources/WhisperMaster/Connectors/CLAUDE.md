@@ -201,8 +201,9 @@ endpoint. **Text only leaves the Mac, never audio.**
   follows a tool that ran and failed: two destinations off this Mac are hard to predict,
   and the waits add up. `remoteOutcome` (pure) leads the rung with the failure and keeps
   no send record when nothing was sent.
-- **Before every turn, both generators ask the live state** (`mayContinue`): a Pause, a
-  Revoke or a sign-out in the middle of a run stops the next request ("was paused or
+- **Before every turn, and again when its reply returns, both generators ask the live
+  state** (`mayContinue`): a Pause, a Revoke or a sign-out in the middle of a run stops the
+  next request and drops the reply of the one in flight before a tool runs ("was paused or
   turned off during the run").
 - **The app is a client only**, the kunai and Shed rule: it never ships, installs or
   updates the tool. `locate` looks in `~/.local/bin`, `/opt/homebrew/bin` and
@@ -225,17 +226,23 @@ endpoint. **Text only leaves the Mac, never audio.**
   Test (`onUntrusted`). Fail closed: a new event type in a CLI update fails the chord until
   the code knows it.
 - **The Test pins the file** (`ConnectedTool.Tested`: the version its start-up record gave,
-  and the real path, size, change time and inode). On a tap only (each run uses the user's
-  plan), the same line and check with a fixed prompt. A changed file reads as untested at
-  the chord, by `stat` calls only; no `--version` is spawned. A failed Test clears `tested`.
+  and the link's real target with its device, inode, size, modification time and
+  status-change time). On a tap only (each run uses the user's plan), the same line and
+  check with a fixed prompt. A changed file reads as untested at the chord, by one `stat`;
+  no `--version` is spawned. **Every turn stats the file once, right before the spawn, and
+  runs that real path, never the link.** A failed Test clears `tested`. This does not stop
+  a process of the same user from swapping the file between the `stat` and the exec, and
+  nothing hashes the file.
 - **The prompt** goes on stdin, argv holds constants only. **Each conversation turn is one
   JSON object on one line**, its content a JSON string, so "[user]" or a line break with a
   fake role inside a mail or a selection stays inside its own string.
 - **The reply** (`ConnectedToolGenerator.normalized`, here only, so the endpoint's parser
-  keeps its meaning): a call written without its tags, bare or in a code fence, becomes a
-  tagged call; two calls are cut to the first, so the stored turn shows the call that ran;
-  a reply shaped like a call that cannot be read fails the run and is never spoken. The
-  no-tool guard (`ConnectedTool.reply`): more than one turn, a permission denial, `<invoke`
+  keeps its meaning), one rule: the first call anywhere (a `<tool_call>` block, else a
+  fenced object, else a bare object with `name` and `arguments`, prose before it dropped)
+  becomes exactly one tagged call when its JSON reads. A reply that shows a call
+  (`<tool_call`, `"name"` beside `"arguments"`, a fenced object, or nothing but an object)
+  whose JSON does not read fails the run: it is never spoken and never counts as an answer.
+  Anything else is a plain answer. The no-tool guard (`ConnectedTool.reply`): more than one turn, a permission denial, `<invoke`
   or `<function_calls` is a failure. Accept only `is_error: false` and `terminal_reason:
   "completed"`; `subtype` says "success" on a run that is not signed in.
 - **`CLIProcess` is the only code that spawns, kills and reaps.** `posix_spawn`, the child
@@ -252,7 +259,7 @@ endpoint. **Text only leaves the Mac, never audio.**
   tool's own words. The send is recorded before the launch (counts only).
 - **Codex is built and never reachable** (`FeatureFlags.connectedCodexAvailable`, false on
   every channel). `load` drops a stored Codex, Settings shows only an offered kind,
-  `detect` and `test` refuse it, and the bench skips it. In its read-only sandbox Codex
+  `detect`, `test` and the generator refuse it, and the bench skips it. In its read-only sandbox Codex
   still ran `ls`, so text in a mail could make it read a file and send it to OpenAI. Its
   Test cannot pass. It turns on only in a commit that adds a setting the shell canary
   proved (`CodexShellCanaryTests`, `WM_CODEX_CANARY=1`) and pastes its output. Never guess

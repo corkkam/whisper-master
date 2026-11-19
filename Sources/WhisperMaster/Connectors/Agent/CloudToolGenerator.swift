@@ -243,8 +243,9 @@ struct CloudToolGenerator: Sendable {
     /// on-device tier to run.
     var timeout: TimeInterval = 20
     var transport: Transport = CloudToolGenerator.transport(session: .shared)
-    /// Asked before every request: still on, not paused, still allowed for this address.
-    /// A Pause, a Revoke or a sign-out in the middle of a run stops the next request.
+    /// Asked before every request and again when its reply arrives: still on, not paused,
+    /// still allowed for this address. A Pause, a Revoke or a sign-out in the middle of a
+    /// run stops the next request and drops the reply of the one in flight.
     var mayContinue: @Sendable () async -> Bool = { true }
     /// Status and host only. Never the key, never a body.
     var log: @Sendable (String) -> Void = { Log.connectors.notice("\($0, privacy: .public)") }
@@ -299,6 +300,12 @@ struct CloudToolGenerator: Sendable {
         sent.record(messages, tools: tools)
         do {
             let (data, response) = try await transport(request)
+            // A Pause or a Revoke while the request was out: the reply is dropped before
+            // the loop reads it or a tool runs.
+            guard await mayContinue() else {
+                sent.recordFailure("was paused or turned off during the run")
+                return nil
+            }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(status) else {
                 sent.recordFailure("answered HTTP \(status)")

@@ -9,9 +9,12 @@ import Foundation
 /// counts" stay in this app, exactly as for the endpoint.
 ///
 /// Before every turn it checks, and refuses the turn when one fails:
+/// - **The kind** is one this build offers (Codex is not).
 /// - **The live state** (`mayContinue`): a Pause, a Revoke or a sign-out in the middle
-///   of a run stops the next turn.
-/// - **The file** at `executable` is still the one the Test passed on.
+///   of a run stops the next turn. It is asked again when the run returns, so the reply
+///   of a turn already running is dropped too.
+/// - **The file** behind `executable` is still the one the Test passed on, and the spawn
+///   runs that file by its real path.
 ///
 /// During every run, **the start-up record of that same run** (`ConnectedTool.StreamCheck`):
 /// a tool, an MCP server, a hook, an unknown event or another version stops the run at
@@ -23,6 +26,7 @@ import Foundation
 /// endpoint's rule, and the view model hands the words to the on-device tier.
 struct ConnectedToolGenerator: Sendable {
     let kind: ConnectedTool.Kind
+    /// The link `locate` found. Each turn resolves it once and runs the file behind it.
     let executable: URL
     /// The version every start-up record must show, and the file that must still run.
     let tested: ConnectedTool.Tested
@@ -53,20 +57,28 @@ struct ConnectedToolGenerator: Sendable {
     }
 
     func reply(_ messages: [[String: String]], tools: [String]) async -> String? {
+        guard kind.isAvailable else { return fail("is not offered in this build") }
         guard await mayContinue() else { return fail("was paused or turned off during the run") }
-        guard let installed = ConnectedTool.binary(at: executable), installed == tested.binary else {
-            return await distrust("changed since its Test passed")
-        }
+        let stdin = Data(Self.prompt(messages, tools: tools, kind: kind).utf8)
         let check = kind == .claudeCode ? ConnectedTool.StreamCheck(expecting: tested.version) : nil
         var lineCheck: CLIProcess.LineCheck?
         if let check { lineCheck = { check.accept($0) } }
 
+        // One `stat` of the file behind the link, as late as possible, and the spawn runs
+        // that file by its real path: what is compared is what runs.
+        guard let installed = ConnectedTool.binary(at: executable), installed == tested.binary else {
+            return await distrust("changed since its Test passed")
+        }
         sent.record(Self.framed(messages), tools: tools)
         let outcome = await runner(
-            CLIProcess.Command(executable: executable, arguments: ConnectedTool.arguments(kind),
-                               environment: environment),
-            Data(Self.prompt(messages, tools: tools, kind: kind).utf8), timeout, outputCap, lineCheck)
+            CLIProcess.Command(executable: URL(fileURLWithPath: installed.path),
+                               arguments: ConnectedTool.arguments(kind), environment: environment),
+            stdin, timeout, outputCap, lineCheck)
 
+        if outcome == .cancelled { return nil }
+        // A Pause, a Revoke or a sign-out while it ran: the reply is dropped before the
+        // loop reads it or a tool runs.
+        guard await mayContinue() else { return fail("was paused or turned off during the run") }
         if outcome == .refused {
             return await distrust(check?.problem ?? "printed something the app does not allow")
         }

@@ -12,7 +12,8 @@ import Foundation
 /// user's own account, as it does in a terminal. Finding it sends nothing. The Test
 /// sends one fixed prompt, and only on a tap. Only a passed Test and the consent sheet
 /// turn the tier on, and **the Test pins the file it ran** (`Binary`): an update, a
-/// reinstall or a swap reads as untested until the Test passes again.
+/// reinstall or a swap reads as untested until the Test passes again. Every run starts
+/// that file by its real path, never the link.
 ///
 /// Persisted in `UserDefaults` as `{kind, consentedTo, paused, tested}`: no sign-in
 /// state, nothing secret. A payload that does not decode reads as nothing connected,
@@ -45,13 +46,19 @@ struct ConnectedTool: Codable, Equatable, Sendable {
         var isAvailable: Bool { self == .claudeCode || FeatureFlags.connectedCodexAvailable }
     }
 
-    /// The file that runs: the link's real target, with its size, change time and inode.
-    /// A few `stat` calls, so the chord can compare it without starting anything.
+    /// The file that runs: the link's real target, with its device, inode, size,
+    /// modification time and status-change time. One `stat`, so the chord can compare it
+    /// without starting anything, and the spawn runs this `path`, never the link.
     struct Binary: Codable, Equatable, Sendable {
         var path: String
         var size: Int64
         var modified: Double
         var inode: UInt64
+        /// Optional, like `changed`: a record without them reads as a different file.
+        var device: Int64?
+        /// `st_ctimespec`: a `chmod`, a rename or a rewrite that restores the
+        /// modification time still moves it.
+        var changed: Double?
     }
 
     /// A Test that passed: which tool, the version its start-up record gave, and the file.
@@ -150,9 +157,10 @@ struct ConnectedTool: Codable, Equatable, Sendable {
         defer { free(resolved) }
         var info = stat()
         guard stat(resolved, &info) == 0 else { return nil }
+        func seconds(_ time: timespec) -> Double { Double(time.tv_sec) + Double(time.tv_nsec) / 1e9 }
         return Binary(path: String(cString: resolved), size: Int64(info.st_size),
-                      modified: Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1e9,
-                      inode: UInt64(info.st_ino))
+                      modified: seconds(info.st_mtimespec), inode: UInt64(info.st_ino),
+                      device: Int64(info.st_dev), changed: seconds(info.st_ctimespec))
     }
 
     /// "~/.local/bin/claude" for Settings.
@@ -422,7 +430,8 @@ struct ConnectedTool: Codable, Equatable, Sendable {
         guard kind == .claudeCode else { return .failed("cannot prove it runs no commands of its own") }
         guard let before = binary(at: executable) else { return .failed("could not be found") }
         let check = StreamCheck(expecting: nil)
-        let command = CLIProcess.Command(executable: executable, arguments: arguments(kind),
+        // The file that was stat'ed runs, not the link, so what is pinned is what ran.
+        let command = CLIProcess.Command(executable: URL(fileURLWithPath: before.path), arguments: arguments(kind),
                                          environment: environment())
         let outcome = await runner(command, Data(testPrompt.utf8), 30, 1 << 20, { check.accept($0) })
         return verdict(outcome, check: check, kind: kind, before: before, after: binary(at: executable))
