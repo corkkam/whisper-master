@@ -273,6 +273,7 @@ struct ConnectedTool: Codable, Equatable, Sendable {
         case .timedOut: return "did not answer within \(Int(timeout)) seconds"
         case .tooLarge: return "printed more than 1 MB"
         case .couldNotStart(let code): return "could not start (error \(code))"
+        case .refused: return "printed something the app does not allow, so it was stopped"
         case .cancelled: return nil
         }
     }
@@ -295,7 +296,7 @@ struct ConnectedTool: Codable, Equatable, Sendable {
                         runner: CLIProcess.Runner = CLIProcess.live) async -> String? {
         let command = CLIProcess.Command(executable: executable, arguments: versionArguments,
                                          environment: environment())
-        guard case .exited(0, let stdout) = await runner(command, Data(), 5, 4_096) else { return nil }
+        guard case .exited(0, let stdout) = await runner(command, Data(), 5, 4_096, nil) else { return nil }
         return version(from: stdout, kind: kind)
     }
 
@@ -320,7 +321,7 @@ struct ConnectedTool: Codable, Equatable, Sendable {
         }
         let command = CLIProcess.Command(executable: executable, arguments: testArguments(kind),
                                          environment: environment())
-        let outcome = await runner(command, Data(testPrompt.utf8), 30, 1 << 20)
+        let outcome = await runner(command, Data(testPrompt.utf8), 30, 1 << 20, nil)
         guard case .exited(let status, let stdout) = outcome else {
             return .failed(failure(outcome, kind: kind, timeout: 30) ?? "was stopped")
         }

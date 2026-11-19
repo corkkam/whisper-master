@@ -6,12 +6,17 @@ import XCTest
 /// a temporary folder. No test starts the real `claude` or `codex`.
 final class CLIProcessTests: XCTestCase {
     /// `fake-cli <mode> [arg]`. The environment is scrubbed, so the mode comes from argv.
+    /// `late` and `hang` leave a grandchild in a group of its own (`setpgrp`), which the
+    /// group kill cannot reach, holding stdout after the leader exits.
     static let fakeCLI = """
     #!/bin/sh
     mode="$1"; arg="$2"
     case "$mode" in
-      reply)   cat >/dev/null; cat "$arg" ;;
+      marker)  touch "$arg"; cat ;;
       echo)    cat ;;
+      late)    cat >/dev/null; perl -e 'setpgrp(0,0); select(undef,undef,undef,0.6); print "tail\\n"' &
+               sleep 0.1; echo head ;;
+      hang)    cat >/dev/null; perl -e 'setpgrp(0,0); sleep 3' & sleep 0.1; echo head ;;
       sleep)   cat >/dev/null; sleep 60 & echo $! >"$arg"; wait ;;
       garbage) cat >/dev/null; printf 'not json' ;;
       exit)    cat >/dev/null; exit 3 ;;
@@ -46,11 +51,15 @@ final class CLIProcessTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    /// Shared with `ConnectedToolTests`, which runs the Test against the same script.
-    static func writeFakeCLI(in folder: URL, name: String = "fake-cli") throws -> URL {
+    private static func writeFakeCLI(in folder: URL) throws -> URL {
+        try writeScript(fakeCLI, in: folder, name: "fake-cli")
+    }
+
+    /// An executable shell script. `ConnectedToolTests` writes its stand-in tools with it.
+    static func writeScript(_ body: String, in folder: URL, name: String) throws -> URL {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent(name)
-        try fakeCLI.write(to: url, atomically: true, encoding: .utf8)
+        try body.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         return url
     }
@@ -107,14 +116,65 @@ final class CLIProcessTests: XCTestCase {
         try await assertGone(pidFile)
     }
 
-    func testATaskCancelledBeforeTheRunStartsNothing() async {
-        let command = command("echo")
+    func testATaskCancelledBeforeTheRunStartsNothing() async throws {
+        let marker = folder.appendingPathComponent("started")
+        let command = command("marker", marker.path)
         let task = Task {
             withUnsafeCurrentTask { $0?.cancel() }
             return await CLIProcess.run(command, stdin: Data("x".utf8), timeout: 5, outputCap: 1 << 20)
         }
         let outcome = await task.value
         XCTAssertEqual(outcome, .cancelled)
+        // A started script writes its marker within milliseconds.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "the program was started")
+    }
+
+    /// The control for the test above: the same script, not cancelled, writes it.
+    func testTheMarkerScriptWritesItsMarker() async {
+        let marker = folder.appendingPathComponent("started")
+        let outcome = await run("marker", marker.path, stdin: Data("x".utf8))
+        XCTAssertEqual(outcome, .exited(status: 0, stdout: Data("x".utf8)))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    /// The check sees each line as it arrives and can end the run on it.
+    func testARefusedLineStopsTheRun() async {
+        let seen = Lines()
+        let outcome = await CLIProcess.run(command("echo"), stdin: Data("first\nbad\nlast\n".utf8),
+                                           timeout: 5, outputCap: 1 << 20) {
+            seen.add($0)
+            return $0 != Data("bad".utf8)
+        }
+        XCTAssertEqual(outcome, .refused)
+        XCTAssertEqual(seen.all, [Data("first".utf8), Data("bad".utf8)])
+    }
+
+    func testACheckThatPassesEveryLineLeavesTheOutputWhole() async {
+        let seen = Lines()
+        let outcome = await CLIProcess.run(command("echo"), stdin: Data("one\ntwo".utf8),
+                                           timeout: 5, outputCap: 1 << 20) {
+            seen.add($0)
+            return true
+        }
+        XCTAssertEqual(outcome, .exited(status: 0, stdout: Data("one\ntwo".utf8)))
+        XCTAssertEqual(seen.all, [Data("one".utf8), Data("two".utf8)], "the last line has no newline")
+    }
+
+    /// The leader exits in time, and the timer fires while stdout is still held open.
+    /// The exit wins: the reader drains the rest and the outcome is the program's own.
+    func testAnExitBeforeTheTimeoutWinsWhileStdoutDrains() async {
+        let outcome = await run("late", timeout: 0.3)
+        XCTAssertEqual(outcome, .exited(status: 0, stdout: Data("head\ntail\n".utf8)))
+    }
+
+    /// The bound on that drain: something outside the group that keeps stdout open ends
+    /// the read a second after the timeout.
+    func testAStdoutHeldOutsideTheGroupStillTimesOut() async {
+        let started = Date()
+        let outcome = await run("hang", timeout: 0.3)
+        XCTAssertEqual(outcome, .timedOut)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2.5)
     }
 
     func testOutputThatIsNotJSONComesBackAsItIs() async {
@@ -162,21 +222,21 @@ final class CLIProcessTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: path), "the folder outlived the run")
     }
 
-    /// The loop is on the main actor, and a run takes seconds: it must not stop the UI.
-    @MainActor
-    func testTheMainActorKeepsRunningDuringARun() async throws {
-        let pidFile = folder.appendingPathComponent("pid")
-        async let outcome = CLIProcess.run(command("sleep", pidFile.path), stdin: Data(),
-                                           timeout: 1, outputCap: 1 << 20)
-        var ticks = 0
-        let started = Date()
-        while Date().timeIntervalSince(started) < 0.8 {
-            try await Task.sleep(nanoseconds: 20_000_000)
-            ticks += 1
+    /// Every blocking call runs on a thread of its own, so runs never hold the task pool
+    /// the app's async work waits on. Three runs per core, each a second long: a run that
+    /// blocked a pool thread would make them take turns, three seconds or more.
+    func testManyRunsAtOnceDoNotHoldTheTaskPool() async {
+        let commands = (0..<ProcessInfo.processInfo.activeProcessorCount * 3).map {
+            command("sleep", folder.appendingPathComponent("pid-\($0)").path)
         }
-        let finished = await outcome
-        XCTAssertEqual(finished, .timedOut)
-        XCTAssertGreaterThan(ticks, 10, "the main actor stalled during the run")
+        let started = Date()
+        await withTaskGroup(of: CLIProcess.Outcome.self) { group in
+            for command in commands {
+                group.addTask { await CLIProcess.run(command, stdin: Data(), timeout: 1, outputCap: 1_024) }
+            }
+            for await outcome in group { XCTAssertEqual(outcome, .timedOut) }
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2.5, "the runs took turns on the task pool")
     }
 
     func testAMissingProgramCouldNotStart() async {
@@ -184,5 +244,23 @@ final class CLIProcessTests: XCTestCase {
                                          arguments: [], environment: [:])
         let outcome = await CLIProcess.run(missing, stdin: Data(), timeout: 5, outputCap: 1024)
         XCTAssertEqual(outcome, .couldNotStart(errno: ENOENT))
+    }
+}
+
+/// The lines a check was handed.
+final class Lines: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [Data] = []
+
+    func add(_ line: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        lines.append(line)
+    }
+
+    var all: [Data] {
+        lock.lock()
+        defer { lock.unlock() }
+        return lines
     }
 }

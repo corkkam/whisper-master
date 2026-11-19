@@ -15,8 +15,11 @@ import Foundation
 /// - **The input goes over stdin, never argv**: every process on the Mac can read argv
 ///   with `ps`. The write end ignores SIGPIPE (`F_SETNOSIGPIPE`), because a child that
 ///   exits before it reads would otherwise end the app.
-/// - **A timeout, the output cap and the task's cancel all stop the whole group**:
-///   SIGTERM, then SIGKILL a second later. The first reason wins.
+/// - **A timeout, the output cap, a refused line and the task's cancel all stop the
+///   whole group**: SIGTERM, then SIGKILL a second later. The first reason wins.
+/// - **An exit wins over a late timeout.** Once the child is reaped, a timer that fires
+///   while stdout is still draining gives the reader a second more, and ends the read
+///   only if something outside the group still holds stdout.
 /// - **It always reaps.** It waits for the exit without reaping (`WNOWAIT`) and kills
 ///   what is left of the group while the exited child still holds the group id, so a
 ///   kill can never reach a group that reused the id.
@@ -41,21 +44,28 @@ enum CLIProcess {
         /// The calling task was cancelled: Escape, a sign-out, or the loop's budget.
         case cancelled
         case couldNotStart(errno: Int32)
+        /// The caller's `LineCheck` refused a line, and the run was stopped there. What
+        /// it printed is discarded.
+        case refused
     }
 
-    /// `run`, as a value a caller can replace in a test.
-    typealias Runner = @Sendable (Command, Data, TimeInterval, Int) async -> Outcome
+    /// Each complete stdout line, as it arrives, on the reader's thread. false stops the
+    /// run at once: a caller can end a run on its first bad line rather than after it.
+    typealias LineCheck = @Sendable (Data) -> Bool
 
-    static let live: Runner = { command, stdin, timeout, outputCap in
-        await run(command, stdin: stdin, timeout: timeout, outputCap: outputCap)
+    /// `run`, as a value a caller can replace in a test.
+    typealias Runner = @Sendable (Command, Data, TimeInterval, Int, LineCheck?) async -> Outcome
+
+    static let live: Runner = { command, stdin, timeout, outputCap, check in
+        await run(command, stdin: stdin, timeout: timeout, outputCap: outputCap, check: check)
     }
 
     static func run(_ command: Command, stdin: Data, timeout: TimeInterval,
-                    outputCap: Int) async -> Outcome {
+                    outputCap: Int, check: LineCheck? = nil) async -> Outcome {
         let job = Job()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                job.start(command, stdin: stdin, timeout: timeout, outputCap: outputCap) {
+                job.start(command, stdin: stdin, timeout: timeout, outputCap: outputCap, check: check) {
                     continuation.resume(returning: $0)
                 }
             }
@@ -85,8 +95,19 @@ private final class Job: @unchecked Sendable {
     /// it does nothing: a timer that fires late must not rewrite the outcome.
     func stop(_ why: CLIProcess.Outcome) {
         lock.lock()
-        guard !finished else { lock.unlock(); return }
-        if reason == nil { reason = why }
+        guard !finished, reason == nil else { lock.unlock(); return }
+        if why == .timedOut, reaped {
+            // The program ended in time and the reader is draining what it printed. A
+            // second more, then give up only if something outside the group holds stdout.
+            lock.unlock()
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1) { [self] in
+                lock.lock()
+                if !finished, reason == nil { reason = .timedOut }
+                lock.unlock()
+            }
+            return
+        }
+        reason = why
         lock.unlock()
         signalGroup()
     }
@@ -110,8 +131,8 @@ private final class Job: @unchecked Sendable {
         }
     }
 
-    func start(_ command: CLIProcess.Command, stdin: Data, timeout: TimeInterval,
-               outputCap: Int, done: @escaping @Sendable (CLIProcess.Outcome) -> Void) {
+    func start(_ command: CLIProcess.Command, stdin: Data, timeout: TimeInterval, outputCap: Int,
+               check: CLIProcess.LineCheck?, done: @escaping @Sendable (CLIProcess.Outcome) -> Void) {
         // A task already cancelled runs its cancel handler first: start nothing.
         lock.lock()
         if let reason {
@@ -164,7 +185,7 @@ private final class Job: @unchecked Sendable {
             close(inPipe[1])
         }.start()
         Thread { [self] in
-            read(from: outPipe[0], cap: outputCap)
+            read(from: outPipe[0], cap: outputCap, check: check)
             close(outPipe[0])
             group.leave()
         }.start()
@@ -246,10 +267,21 @@ private final class Job: @unchecked Sendable {
         }
     }
 
-    /// stdout until EOF, the cap plus one byte, or a stop. Polled, so a timeout ends the
-    /// read even when a grandchild outside the group holds stdout open.
-    private func read(from fd: Int32, cap: Int) {
+    /// stdout until EOF, the cap plus one byte, a refused line, or a stop. Polled, so a
+    /// timeout ends the read even when a grandchild outside the group holds stdout open.
+    private func read(from fd: Int32, cap: Int, check: CLIProcess.LineCheck?) {
         var chunk = [UInt8](repeating: 0, count: 65_536)
+        var checked = 0
+        /// Hands each new complete line (and, at EOF, the last one) to the check.
+        func passes(atEnd: Bool) -> Bool {
+            guard let check else { return true }
+            while let newline = output[checked...].firstIndex(of: UInt8(ascii: "\n")) {
+                defer { checked = newline + 1 }
+                if !check(Data(output[checked..<newline])) { return false }
+            }
+            if atEnd, checked < output.count, !check(Data(output[checked...])) { return false }
+            return true
+        }
         while !quitting {
             var ready = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
             let polled = poll(&ready, 1, 100)
@@ -258,11 +290,10 @@ private final class Job: @unchecked Sendable {
             let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, room) }
             if count > 0 {
                 output.append(contentsOf: chunk[0..<count])
-                if output.count > cap {
-                    stop(.tooLarge)
-                    return
-                }
+                if output.count > cap { return stop(.tooLarge) }
+                if !passes(atEnd: false) { return stop(.refused) }
             } else if count == 0 || (errno != EINTR && errno != EAGAIN) {
+                if !passes(atEnd: true) { stop(.refused) }
                 return
             }
         }

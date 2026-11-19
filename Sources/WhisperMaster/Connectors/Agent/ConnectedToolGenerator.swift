@@ -43,7 +43,7 @@ struct ConnectedToolGenerator: Sendable {
     }
 
     func reply(_ messages: [[String: String]], tools: [String]) async -> String? {
-        let check = await runner(command(ConnectedTool.versionArguments), Data(), 5, 4_096)
+        let check = await runner(command(ConnectedTool.versionArguments), Data(), 5, 4_096, nil)
         guard case .exited(0, let printed) = check,
               let version = ConnectedTool.version(from: printed, kind: kind) else {
             if case .couldNotStart = check {
@@ -56,7 +56,7 @@ struct ConnectedToolGenerator: Sendable {
         sent.record(Self.framed(messages), tools: tools)
         let outcome = await runner(command(ConnectedTool.arguments(kind)),
                                    Data(Self.prompt(messages, tools: tools, kind: kind).utf8),
-                                   timeout, outputCap)
+                                   timeout, outputCap, nil)
         if case .exited(0, let stdout) = outcome, let text = ConnectedTool.reply(from: stdout, kind: kind) {
             return text
         }

@@ -311,7 +311,7 @@ final class ConnectedToolTests: XCTestCase {
     /// fixed prompt on stdin.
     func testTheTestRunsTheVersionThenTheFixedPrompt() async {
         let calls = Calls()
-        let runner: CLIProcess.Runner = { command, stdin, _, _ in
+        let runner: CLIProcess.Runner = { command, stdin, _, _, _ in
             calls.add(command.arguments, stdin)
             return command.arguments == ["--version"]
                 ? .exited(status: 0, stdout: Data("2.1.328 (Claude Code)\n".utf8))
@@ -326,7 +326,7 @@ final class ConnectedToolTests: XCTestCase {
 
     func testATestWithNoVersionStopsBeforeAnythingIsSent() async {
         let calls = Calls()
-        let runner: CLIProcess.Runner = { command, stdin, _, _ in
+        let runner: CLIProcess.Runner = { command, stdin, _, _, _ in
             calls.add(command.arguments, stdin)
             return .exited(status: 1, stdout: Data())
         }
@@ -388,7 +388,7 @@ final class ConnectedToolGeneratorTests: XCTestCase {
         }
 
         var runner: CLIProcess.Runner {
-            { [self] command, stdin, _, _ in
+            { [self] command, stdin, _, _, _ in
                 calls.add(command.arguments, stdin)
                 if command.arguments == ConnectedTool.versionArguments {
                     return .exited(status: 0, stdout: Data("\(version) (Claude Code)\n".utf8))
