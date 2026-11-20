@@ -315,16 +315,35 @@ final class ApprovalCopyTests: XCTestCase {
                        "Set a reminder on This Mac")
     }
 
-    /// The longest note the runner lets through wraps onto lines the band reserves,
-    /// inside the panel, which is sized once.
-    func testTheLongestNoteCardFitsThePanel() {
-        let body = String(repeating: "a", count: ApprovalCopy.maxWrappedDetail - 2)
-        let card = localCard("create_note", ["body": body])
-        XCTAssertEqual(card.detail.count, ApprovalCopy.maxWrappedDetail)
-        XCTAssertEqual(card.detailLines, 3, "a note wraps rather than being cut")
+    /// A note of any length scrolls in at most `maxVisibleScrollLines`, and the
+    /// tallest card fits the panel, which is sized once.
+    func testALongNoteCardScrollsInsideThePanel() {
+        let short = localCard("create_note", ["body": "Buy milk"])
+        XCTAssertEqual(short.detailLines, 1)
+        XCTAssertFalse(short.detailOverflows)
+
+        let card = localCard("create_note", ["body": String(repeating: "word ", count: 400)])
+        XCTAssertTrue(card.scrollsDetail)
+        XCTAssertTrue(card.detailOverflows, "the foot fades to show more is below")
+        XCTAssertEqual(card.detailLines, ApprovalCopy.maxVisibleScrollLines)
+
+        let lines = localCard("create_note", ["body": "one\ntwo\nthree"])
+        XCTAssertEqual(lines.detailLines, 3, "each line break is a line")
+
         let layout = NotchSurfaceLayout()
         let tall = NotchApprovalBanner.thickness(for: card, banner: layout.bannerThickness)
+        XCTAssertEqual(tall, NotchApprovalBanner.maxThickness(banner: layout.bannerThickness))
         let geometry = NotchGeometry(notchWidth: 200, notchHeight: 37.5, screenWidth: 1512)
         XCTAssertLessThanOrEqual(tall, layout.panelSize(for: geometry).height - geometry.notchHeight)
+    }
+
+    /// A link still wraps onto three lines and does not scroll.
+    func testALinkCardDoesNotScroll() {
+        let link = PendingApproval(tool: "open_url", instanceID: DeviceToolCatalog.thisMacID,
+                                   instanceLabel: "This Mac", target: "example.com",
+                                   arguments: ["url": "https://example.com/" + String(repeating: "a", count: 120)],
+                                   grantOffered: true, grantable: false)
+        XCTAssertFalse(link.scrollsDetail)
+        XCTAssertLessThanOrEqual(link.detailLines, 3)
     }
 }

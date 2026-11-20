@@ -355,9 +355,13 @@ scoped to This Mac (`DeviceToolCatalog.thisMacID`), with the after-read warning,
 time**: no grant is looked up, Always is not offered, and an Always answer runs once. The
 card shows what is saved: the note's title and body, the reminder's title, body and the
 time `RelativeTimeParser` or the hour-out default resolved (never the model's phrase).
-The text wraps onto three lines, and text longer than `ApprovalCopy.maxWrappedDetail`
-(150 characters) is refused before the card, as a link is, so the card never cuts what
-it approves. No, a timeout, a cancel or no card to raise (`requestApproval` nil) saves
+**No length is refused**: the text sits in a scroll area of up to
+`ApprovalCopy.maxVisibleScrollLines` (4) lines, its foot fades when more is below, and
+the card never cuts what it approves (owner decision, 2026-11-20; a 150-character cap
+was rejected because "summarise my mail into a note" runs past it). The line count is
+an estimate, so the area scrolls even when it seems to fit: a wrong estimate scrolls
+rather than clips. `NotchApprovalBanner.maxThickness` sizes the panel for the tallest
+card. No, a timeout, a cancel or no card to raise (`requestApproval` nil) saves
 nothing and returns a failure with no `Effect`, so the call is not "executed". **With no
 read, nothing changes**: no card, instant save. `swift test --filter
 LocalToolApprovalTests` is the lock.

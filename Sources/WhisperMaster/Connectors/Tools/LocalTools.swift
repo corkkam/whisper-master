@@ -234,13 +234,6 @@ struct LocalToolRunner {
             arguments: arguments,
             grantOffered: false,
             grantable: false)
-        // The card wraps the text onto three lines at most. Text it would cut is
-        // refused rather than half-shown, as a link is.
-        guard approval.detail.count <= ApprovalCopy.maxWrappedDetail else {
-            return .stop(.failure("This run read text from your accounts or your selection, so "
-                + "\(tool) needs the approval card, and the card can show at most "
-                + "\(ApprovalCopy.maxWrappedDetail) characters. Make it shorter."))
-        }
         guard let requestApproval else {
             return .stop(.failure("This run read text from your accounts or your selection, and "
                 + "no approval card can be shown here, so nothing was saved."))

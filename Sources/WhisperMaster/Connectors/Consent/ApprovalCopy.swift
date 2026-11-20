@@ -48,15 +48,33 @@ enum ApprovalCopy {
     /// these, which is the most the card reserves.
     static let linkCharactersPerLine = 50
 
-    /// The most a wrapped payload holds: three lines. A note or reminder longer than
-    /// this is refused before its card, so the card never cuts the text it approves.
-    static let maxWrappedDetail = linkCharactersPerLine * 3
+    /// Tools whose payload is text to be saved: a note and a reminder. Their card
+    /// shows the whole text in a scroll area (`NotchApprovalBanner`), so nothing the
+    /// user approves is cut and no length is refused.
+    static func scrollsDetail(tool: String) -> Bool {
+        tool == "create_note" || tool == "create_reminder"
+    }
 
-    /// Lines the payload may take: one, except a link, a note and a reminder, which
-    /// wrap rather than being cut. The end of a link is where a planted address hides,
-    /// and a note's or a reminder's text is the whole of what is approved.
+    /// Lines a scrolling payload shows before it scrolls. Kept small so the band stays
+    /// a band: `NotchApprovalBanner.maxThickness` is charged for this many.
+    static let maxVisibleScrollLines = 4
+
+    /// Lines the text takes on the wide card, with each line break kept. An estimate,
+    /// rounded against the text; a wrong one makes the area scroll, never cut.
+    static func estimatedLines(_ detail: String) -> Int {
+        detail.components(separatedBy: .newlines).reduce(0) { total, paragraph in
+            total + max(1, (paragraph.count + linkCharactersPerLine - 1) / linkCharactersPerLine)
+        }
+    }
+
+    /// Lines the payload may take: one, except a link, which wraps onto three rather
+    /// than being cut because the end of a link is where a planted address hides, and
+    /// a note or a reminder, which shows up to `maxVisibleScrollLines` and scrolls.
     static func detailLines(tool: String, detail: String) -> Int {
-        guard ["open_url", "create_note", "create_reminder"].contains(tool) else { return 1 }
+        if scrollsDetail(tool: tool) {
+            return min(maxVisibleScrollLines, max(1, estimatedLines(detail)))
+        }
+        guard tool == "open_url" else { return 1 }
         let lines = (detail.count + linkCharactersPerLine - 1) / linkCharactersPerLine
         return min(3, max(1, lines))
     }

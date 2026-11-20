@@ -80,7 +80,8 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
     /// standing grant for it would outlast this one card.
     let grantOffered: Bool
     /// Whether the tool can ever have a standing grant. False for `open_url`, whose
-    /// card shows every time, and for a note or reminder, carded only after a read. Kept apart from `grantOffered` because that one also
+    /// card shows every time, and for a note or reminder, carded only after a read.
+    /// Kept apart from `grantOffered` because that one also
     /// raises the after-reading warning, and an untainted link card has nothing to
     /// warn about.
     let grantable: Bool
@@ -128,9 +129,19 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
     }
 
     /// Lines the payload may take. One, except a link, which wraps rather than
-    /// truncates so the whole address is on the card.
+    /// truncates so the whole address is on the card, and a note or a reminder,
+    /// which scrolls (`ApprovalCopy.detailLines`).
     var detailLines: Int {
         ApprovalCopy.detailLines(tool: tool, detail: detail)
+    }
+
+    /// The payload scrolls in place rather than wrapping to a fixed line count.
+    var scrollsDetail: Bool { ApprovalCopy.scrollsDetail(tool: tool) }
+
+    /// More text than the visible lines hold, so the card fades its last line to
+    /// show that it scrolls.
+    var detailOverflows: Bool {
+        scrollsDetail && ApprovalCopy.estimatedLines(detail) > ApprovalCopy.maxVisibleScrollLines
     }
 }
 

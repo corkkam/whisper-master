@@ -140,17 +140,19 @@ final class LocalToolApprovalTests: XCTestCase {
         XCTAssertEqual(result.authorization, .allowedOnce)
     }
 
-    /// Text the card would have to cut is refused before any card.
-    func testANoteTooLongForTheCardIsRefusedBeforeTheCard() async {
+    /// A long note is not refused: the card carries all of it, and Yes saves all of it.
+    func testALongNoteRaisesTheCardWithItsFullTextAndSaves() async {
         let notes = notesStore()
         let recorder = Recorder()
-        let long = String(repeating: "word ", count: ApprovalCopy.maxWrappedDetail / 5 + 1)
+        let long = String(repeating: "word ", count: 120).trimmingCharacters(in: .whitespaces)
         let (result, effect) = await runner(notes, taint: afterConnectorRead(), recorder: recorder)
             .run(ToolCall(tool: "create_note", arguments: ["body": long]))
-        XCTAssertTrue(recorder.cards.isEmpty)
-        XCTAssertFalse(result.ok)
-        XCTAssertNil(effect)
-        XCTAssertTrue(notes.visibleNotes.isEmpty)
+        XCTAssertEqual(recorder.cards.count, 1)
+        XCTAssertTrue(recorder.cards.first?.detail.contains(long) ?? false, "the whole body is on the card")
+        XCTAssertEqual(recorder.cards.first?.detailOverflows, true)
+        XCTAssertTrue(result.ok)
+        XCTAssertNotNil(effect)
+        XCTAssertEqual(notes.visibleNotes.first?.body, long)
     }
 
     /// Where nobody can answer a card, a tainted save fails rather than going through.

@@ -23,6 +23,8 @@ struct NotchApprovalBanner: View {
     let approval: PendingApproval
     let onResolve: (ApprovalOutcome) -> Void
 
+    @Environment(\.isSnapshot) private var isSnapshot
+
     var body: some View {
         NotchBannerRow(
             icon: "hand.raised",
@@ -39,12 +41,16 @@ struct NotchApprovalBanner: View {
                     if let warning = approval.readWarning {
                         Text(warning).foregroundStyle(Theme.Notch.warning)
                     }
-                    // A link wraps onto the lines `thickness` reserved for it, and
-                    // shrinks a little rather than lose its tail if a break falls
-                    // badly. A one-line payload keeps its old rendering exactly.
-                    Text(approval.detail)
-                        .lineLimit(approval.detailLines)
-                        .minimumScaleFactor(approval.detailLines > 1 ? 0.75 : 1)
+                    if approval.scrollsDetail {
+                        scrollingDetail
+                    } else {
+                        // A link wraps onto the lines `thickness` reserved for it, and
+                        // shrinks a little rather than lose its tail if a break falls
+                        // badly. A one-line payload keeps its old rendering exactly.
+                        Text(approval.detail)
+                            .lineLimit(approval.detailLines)
+                            .minimumScaleFactor(approval.detailLines > 1 ? 0.75 : 1)
+                    }
                 }
             },
             trailing: {
@@ -54,6 +60,34 @@ struct NotchApprovalBanner: View {
                     choice("No", .denied, isDestructive: true)
                 }
             })
+    }
+
+    /// A note's or a reminder's text is the whole of what is approved, so it is never
+    /// cut: it sits in a scroll area the height of `detailLines`, and its foot fades
+    /// when more is below. The area scrolls even when the estimate says it fits,
+    /// because a wrong estimate must scroll rather than clip. `ImageRenderer` cannot
+    /// draw a scroll view, so a snapshot shows the visible lines, clipped.
+    @ViewBuilder
+    private var scrollingDetail: some View {
+        let height = CGFloat(approval.detailLines) * Self.warningLineHeight
+        let text = Text(approval.detail)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        Group {
+            if isSnapshot {
+                text.frame(height: height, alignment: .top).clipped()
+            } else {
+                ScrollView(.vertical, showsIndicators: true) { text }
+                    .frame(height: height)
+            }
+        }
+        .mask(
+            LinearGradient(
+                stops: [.init(color: .black, location: 0),
+                        .init(color: .black, location: approval.detailOverflows ? 0.7 : 1),
+                        .init(color: .black.opacity(approval.detailOverflows ? 0.25 : 1), location: 1)],
+                startPoint: .top, endPoint: .bottom))
     }
 
     /// Height the warning line adds: one `notchCaption` line (10.5pt, ~12.5pt tall)
@@ -68,6 +102,13 @@ struct NotchApprovalBanner: View {
         let warning: CGFloat = approval.readWarning == nil ? 0 : warningLineHeight
         // A wrapped link line is one more caption line; the gap is the same budget.
         return banner + warning + CGFloat(approval.detailLines - 1) * warningLineHeight
+    }
+
+    /// The tallest card there is: the after-read warning plus a full scroll area.
+    /// `NotchSurfaceLayout.maxBandThickness` reads it, because the panel is sized once.
+    static func maxThickness(banner: CGFloat) -> CGFloat {
+        banner + warningLineHeight
+            + CGFloat(ApprovalCopy.maxVisibleScrollLines - 1) * warningLineHeight
     }
 
     /// VoiceOver gets the full payload untruncated — a screen-reader user must not be
