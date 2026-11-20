@@ -279,4 +279,52 @@ final class ApprovalCopyTests: XCTestCase {
         let geometry = NotchGeometry(notchWidth: 200, notchHeight: 37.5, screenWidth: 1512)
         XCTAssertLessThanOrEqual(tall, layout.panelSize(for: geometry).height - geometry.notchHeight)
     }
+
+    // MARK: - A note or a reminder after a read
+
+    private func localCard(_ tool: String, _ arguments: [String: String]) -> PendingApproval {
+        PendingApproval(tool: tool, instanceID: DeviceToolCatalog.thisMacID,
+                        instanceLabel: DeviceToolCatalog.thisMacLabel,
+                        target: DeviceToolCatalog.thisMacLabel,
+                        arguments: arguments, grantOffered: false, grantable: false)
+    }
+
+    func testANoteCardShowsTheTitleAndTheWholeBody() {
+        let body = "Dana says the launch moved to Friday and the deck needs the new pricing slide"
+        let card = localCard("create_note", ["title": "Launch", "body": body])
+        XCTAssertEqual(card.headline, "Save a note on This Mac")
+        XCTAssertEqual(card.detail, "\u{201C}Launch\u{201D}  ·  \u{201C}\(body)\u{201D}")
+        XCTAssertEqual(card.readWarning, ApprovalCopy.readWarning)
+        XCTAssertFalse(card.offersAlways)
+    }
+
+    /// The card states the time the app resolved and will save, never the phrase.
+    func testAReminderCardShowsTheResolvedTimeNotThePhrase() {
+        let detail = ApprovalCopy.detail(
+            tool: "create_reminder",
+            arguments: ["title": "Call the bank", "due": ConnectorHTTP.iso8601(from: date(9, 9)),
+                        "body": "Ask about the fee"],
+            calendar: calendar,
+            now: date(8, 7))
+
+        XCTAssertTrue(detail.hasPrefix("\u{201C}Call the bank\u{201D}  ·  Tomorrow 9:00"), detail)
+        XCTAssertTrue(detail.hasSuffix("AM  ·  \u{201C}Ask about the fee\u{201D}"), detail)
+        XCTAssertFalse(detail.contains("due"), "the stamp is presented, not shown raw")
+        XCTAssertEqual(ApprovalCopy.headline(tool: "create_reminder", target: "This Mac",
+                                             instanceLabel: "This Mac"),
+                       "Set a reminder on This Mac")
+    }
+
+    /// The longest note the runner lets through wraps onto lines the band reserves,
+    /// inside the panel, which is sized once.
+    func testTheLongestNoteCardFitsThePanel() {
+        let body = String(repeating: "a", count: ApprovalCopy.maxWrappedDetail - 2)
+        let card = localCard("create_note", ["body": body])
+        XCTAssertEqual(card.detail.count, ApprovalCopy.maxWrappedDetail)
+        XCTAssertEqual(card.detailLines, 3, "a note wraps rather than being cut")
+        let layout = NotchSurfaceLayout()
+        let tall = NotchApprovalBanner.thickness(for: card, banner: layout.bannerThickness)
+        let geometry = NotchGeometry(notchWidth: 200, notchHeight: 37.5, screenWidth: 1512)
+        XCTAssertLessThanOrEqual(tall, layout.panelSize(for: geometry).height - geometry.notchHeight)
+    }
 }

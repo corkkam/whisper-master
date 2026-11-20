@@ -80,7 +80,7 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
     /// standing grant for it would outlast this one card.
     let grantOffered: Bool
     /// Whether the tool can ever have a standing grant. False for `open_url`, whose
-    /// card shows every time. Kept apart from `grantOffered` because that one also
+    /// card shows every time, and for a note or reminder, carded only after a read. Kept apart from `grantOffered` because that one also
     /// raises the after-reading warning, and an untainted link card has nothing to
     /// warn about.
     let grantable: Bool

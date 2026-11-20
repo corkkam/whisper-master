@@ -33,6 +33,8 @@ enum ApprovalCopy {
         case "send_message": return "Post to"
         case "create_calendar_event": return "Add an event to"
         case "open_app", "open_url": return "Open"
+        case "create_note": return "Save a note on"
+        case "create_reminder": return "Set a reminder on"
         default: return "Run \(tool) on"
         }
     }
@@ -46,10 +48,15 @@ enum ApprovalCopy {
     /// these, which is the most the card reserves.
     static let linkCharactersPerLine = 50
 
-    /// Lines the payload may take: one, except a link, which wraps rather than being
-    /// cut, because the end of a link is where a planted address hides.
+    /// The most a wrapped payload holds: three lines. A note or reminder longer than
+    /// this is refused before its card, so the card never cuts the text it approves.
+    static let maxWrappedDetail = linkCharactersPerLine * 3
+
+    /// Lines the payload may take: one, except a link, a note and a reminder, which
+    /// wrap rather than being cut. The end of a link is where a planted address hides,
+    /// and a note's or a reminder's text is the whole of what is approved.
     static func detailLines(tool: String, detail: String) -> Int {
-        guard tool == "open_url" else { return 1 }
+        guard ["open_url", "create_note", "create_reminder"].contains(tool) else { return 1 }
         let lines = (detail.count + linkCharactersPerLine - 1) / linkCharactersPerLine
         return min(3, max(1, lines))
     }
@@ -124,6 +131,19 @@ enum ApprovalCopy {
             // Unquoted and whole: the address is the consent.
             if let url = remaining.removeValue(forKey: "url"), !url.isEmpty {
                 parts.append(url)
+            }
+
+        case "create_note", "create_reminder":
+            if let title = remaining.removeValue(forKey: "title"), !title.isEmpty {
+                parts.append(quoted(title))
+            }
+            // The time the app resolved, never the model's phrase.
+            if let due = ConnectorHTTP.parseISO8601(remaining["due"]) {
+                remaining.removeValue(forKey: "due")
+                parts.append(when(start: due, end: nil, calendar: calendar, now: now))
+            }
+            if let body = remaining.removeValue(forKey: "body"), !body.isEmpty {
+                parts.append(quoted(body))
             }
 
         default:

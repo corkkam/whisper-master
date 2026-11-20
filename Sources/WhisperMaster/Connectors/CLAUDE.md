@@ -344,6 +344,24 @@ the connector branch, so a user with no connection still gets the card.
   of the model, and a model-route key press during a hold is the bug `Media/CLAUDE.md`
   forbids.
 
+## Notes and reminders after a read (`Tools/LocalTools.swift`)
+
+`create_note` and `create_reminder` are local, but after a read their text can come
+from what the assistant read: mail text such as "set a reminder to call 555-0100", and a
+reminder then shows that text in the notch with a sound. So the taint rule applies to
+them too (owner decision, 2026-11-20). **In a tainted run** (a connector read,
+`read_selection`, or a tainted follow-up) `LocalToolRunner` raises the connector card,
+scoped to This Mac (`DeviceToolCatalog.thisMacID`), with the after-read warning, **every
+time**: no grant is looked up, Always is not offered, and an Always answer runs once. The
+card shows what is saved: the note's title and body, the reminder's title, body and the
+time `RelativeTimeParser` or the hour-out default resolved (never the model's phrase).
+The text wraps onto three lines, and text longer than `ApprovalCopy.maxWrappedDetail`
+(150 characters) is refused before the card, as a link is, so the card never cuts what
+it approves. No, a timeout, a cancel or no card to raise (`requestApproval` nil) saves
+nothing and returns a failure with no `Effect`, so the call is not "executed". **With no
+read, nothing changes**: no card, instant save. `swift test --filter
+LocalToolApprovalTests` is the lock.
+
 ## Verifying
 
 `swift test --filter "DeviceToolRunnerTests|AgentIntentMatcherTests|ApprovalCopyTests"`
