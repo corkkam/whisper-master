@@ -1,7 +1,7 @@
 name: Eval
 
 # Grade the shipped pipeline on a clean machine and publish the scores to
-# whisper.corkkam.com/eval.
+# typing.sucks/eval.
 #
 # This exists because the eval was, until now, something only one laptop could
 # run. `Scripts/release.sh` runs it at release time, but that path had never
@@ -104,7 +104,7 @@ jobs:
           set -euo pipefail
           dir=$(eval echo "$MODELS_DIR")
           mkdir -p "$dir"
-          url="https://dl.corkkam.com/models/${MODEL_NAME}.zip"
+          url="https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/models/${MODEL_NAME}.zip"
           echo ">> $url"
           curl -fSL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/model.zip" "$url"
           actual=$(shasum -a 256 "$RUNNER_TEMP/model.zip" | cut -d' ' -f1)
@@ -179,7 +179,7 @@ jobs:
           github.event_name == 'workflow_dispatch' && inputs.push_results
         env:
           EVAL_INGEST_TOKEN: ${{ secrets.EVAL_INGEST_TOKEN }}
-          DASHBOARD_URL: https://whisper.corkkam.com
+          DASHBOARD_URL: https://typing.sucks
           # Through env, never inlined: an inlined input is shell source in a
           # step that holds the ingest token.
           INPUT_LABEL: ${{ inputs.label }}
