@@ -91,7 +91,7 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
   remember. A tainted run hands its taint to the follow-up.
 - **Escape** goes through the existing Escape monitor in `AppDelegate`, no new one:
   `DictationViewModel.handleAssistantEscape` denies a waiting card, cancels the loop's
-  task (the loop then ends like a spent budget and the words are filed), drops a draft
+  task (the loop then ends like a spent budget and the words are filed, unless the card it denied was a note or a reminder: then nothing is saved), drops a draft
   waiting on the band, or closes a long answer. With none of these pending it does nothing and returns false, so
   the coding-agent bands keep their own Escape. **Known limit:** the key is only
   observed, never consumed, so an Escape pressed in another app (an editor, a dialog)
@@ -343,6 +343,36 @@ the connector branch, so a user with no connection still gets the card.
 - **No `media_control` tool.** `MediaCommandDetector` already handles transport ahead
   of the model, and a model-route key press during a hold is the bug `Media/CLAUDE.md`
   forbids.
+
+## Notes and reminders after a read (`Tools/LocalTools.swift`)
+
+`create_note` and `create_reminder` are local, but after a read their text can come
+from what the assistant read: mail text such as "set a reminder to call 555-0100", and a
+reminder then shows that text in the notch with a sound. So the taint rule applies to
+them too (owner decision, 2026-11-20). **In a tainted run** (a connector read,
+`read_selection`, or a tainted follow-up) `LocalToolRunner` raises the connector card,
+scoped to This Mac (`DeviceToolCatalog.thisMacID`), with the after-read warning, which names the selection when that was the only read
+(`PendingApproval.readSelectionOnly`; the connector and device cards say the same), **every
+time**: no grant is looked up, Always is not offered, and an Always answer runs once. The
+card shows what is saved: the note's title and body, the reminder's title, body and the
+time `RelativeTimeParser` or the hour-out default resolved (never the model's phrase).
+**No length is refused**: the text sits in a scroll area of up to
+`ApprovalCopy.maxVisibleScrollLines` (4) lines, and the card never cuts what it
+approves (owner decision, 2026-11-20; a 150-character cap was rejected because
+"summarise my mail into a note" runs past it). The line estimate sets only the height
+of the area, and a wide character (CJK, an emoji) counts as two. The foot fade is
+measured, so it shows while text is below and goes away at the end: a wrong estimate
+scrolls rather than clips. A one-line payload that fits shows as plain text.
+`NotchApprovalBanner.maxThickness` sizes the panel for the tallest card. No, a timeout, a cancel or no card to raise (`requestApproval` nil) saves
+nothing and returns a failure with no `Effect`, so the call is not "executed". **The
+refusal holds end to end:** `routeCommandCapture` stops at
+`DictationViewModel.refusedSave` and shows "Nothing saved" with no chime, so the
+deterministic rung does not file the words another way, whichever tier made the call.
+A cancel before the card was raised files the words as before. **Known limit:** a
+sign-out and an `ApprovalCoordinator` auto-deny (a second card while one is up) also
+deny the card, so they end the same way, and the words stay only in Traces. **With no
+read, nothing changes**: no card, instant save. `swift test --filter
+LocalToolApprovalTests` is the lock.
 
 ## Verifying
 

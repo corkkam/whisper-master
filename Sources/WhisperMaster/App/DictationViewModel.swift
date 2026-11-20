@@ -1335,7 +1335,8 @@ final class DictationViewModel {
     /// note, the kind that needs nothing but words. Pasting "take a note buy milk"
     /// into the user's editor is the one outcome the key press rules out, so the last
     /// tier is what guarantees the words land somewhere even when the model is no
-    /// help.
+    /// help. The last tier does not file the words after the user refused that save
+    /// on its card (`refusedSave`).
     private func routeCommandCapture(_ text: String, spoken: SpokenCapture,
                                      selectionRead: Task<SelectionContext?, Never>?,
                                      keyDownApp: SelectionReader.FrontApp?,
@@ -1399,8 +1400,21 @@ final class DictationViewModel {
 
         await requestCalendarAccessIfNeeded()
 
-        let attempt = await runCommandAgent(text, selectionRead: selectionRead, followUp: followUp,
+        var attempt = await runCommandAgent(text, selectionRead: selectionRead, followUp: followUp,
                                             keyDownApp: keyDownApp, pressStaysLocal: pressStaysLocal)
+        // A save the user refused on its card stays refused. The service's own
+        // decision says the words go on to be filed, which is no longer true.
+        let refused = Self.refusedSave(handled: attempt.handled, calls: attempt.calls)
+        if let refused {
+            attempt.decision = TraceDecision(
+                title: attempt.decision.title,
+                detail: refused.authorization == .timedOut
+                    ? "Nobody answered the card for this save, so nothing was saved and the words "
+                        + "were not filed another way."
+                    : "The card for this save was declined, so nothing was saved and the words "
+                        + "were not filed another way.",
+                taken: true)
+        }
         trace.decisions += attempt.priorDecisions + [attempt.decision]
         trace.connectorsAllowed = attempt.connectorsAllowed
         trace.toolsOffered = attempt.toolsOffered
@@ -1411,6 +1425,18 @@ final class DictationViewModel {
             trace.answer = attempt.answer
             trace.provenance = attempt.provenance
             trace.createdSomething = attempt.createdSomething
+            Analytics.shared.send(.assistantRouted(route: .agent))
+            finish(trace, since: startedAt)
+            return true
+        }
+        // No chime: nothing was delivered.
+        if let refused {
+            showCommandConfirmation(
+                "Nothing saved", icon: "xmark.circle",
+                detail: refused.authorization == .timedOut ? "Nobody answered the card" : "The card was declined",
+                window: AppState.commandConfirmationDuration, chime: false)
+            trace.answer = "Nothing saved."
+            trace.provenance = ""
             Analytics.shared.send(.assistantRouted(route: .agent))
             finish(trace, since: startedAt)
             return true
@@ -1736,6 +1762,14 @@ final class DictationViewModel {
             && !calls.contains { $0.authorization?.isRefusal == true }
     }
 
+    /// The note or reminder the user refused on its card (a No, a timeout, or an
+    /// Escape, which denies the card). The deterministic rung must not save it another
+    /// way.
+    static func refusedSave(handled: Bool, calls: [ToolCallTrace]) -> ToolCallTrace? {
+        guard !handled else { return nil }
+        return calls.last { LocalToolCatalog.saves.contains($0.tool) && $0.authorization?.isRefusal == true }
+    }
+
     /// Whether the endpoint copied before the selection wait may still take the
     /// capture: still on, and still agreed to for the same address and API.
     static func endpointMayStillSend(copied: AgentEndpoint, current: AgentEndpoint) -> Bool {
@@ -2013,14 +2047,15 @@ final class DictationViewModel {
         _ message: String,
         icon: String,
         detail: String = "Saved to Notes & Reminders",
-        window: TimeInterval
+        window: TimeInterval,
+        chime: Bool = true
     ) {
         state.commandConfirmation = message
         state.commandConfirmationDetail = detail
         state.commandConfirmationIcon = icon
         state.commandConfirmationWindow = window
         state.commandConfirmationAt = Date()
-        Feedback.delivered(soundEnabled: state.soundEnabled)
+        if chime { Feedback.delivered(soundEnabled: state.soundEnabled) }
     }
 
     private func createReminder(from intent: ClassifiedIntent, fallbackTitle: String) {

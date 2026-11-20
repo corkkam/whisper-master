@@ -26,6 +26,10 @@ enum ApprovalCopy {
     /// rather than a habitual Once.
     static let readWarning = "I wrote this after reading text from your accounts. Check it first."
 
+    /// The same line when the run's only read was the selection the chord captured,
+    /// so the card does not claim an account was read.
+    static let selectionReadWarning = "I wrote this after reading your selection. Check it first."
+
     /// Human verb for a tool name, so the card reads as a sentence rather than an
     /// identifier.
     static func verb(for tool: String) -> String {
@@ -33,6 +37,8 @@ enum ApprovalCopy {
         case "send_message": return "Post to"
         case "create_calendar_event": return "Add an event to"
         case "open_app", "open_url": return "Open"
+        case "create_note": return "Save a note on"
+        case "create_reminder": return "Set a reminder on"
         default: return "Run \(tool) on"
         }
     }
@@ -46,9 +52,58 @@ enum ApprovalCopy {
     /// these, which is the most the card reserves.
     static let linkCharactersPerLine = 50
 
-    /// Lines the payload may take: one, except a link, which wraps rather than being
-    /// cut, because the end of a link is where a planted address hides.
+    /// Tools whose payload is text to be saved: a note and a reminder. Their card
+    /// shows the whole text in a scroll area (`NotchApprovalBanner`), so nothing the
+    /// user approves is cut and no length is refused.
+    static func scrollsDetail(tool: String) -> Bool {
+        tool == "create_note" || tool == "create_reminder"
+    }
+
+    /// Lines a scrolling payload shows before it scrolls. Kept small so the band stays
+    /// a band: `NotchApprovalBanner.maxThickness` is charged for this many.
+    static let maxVisibleScrollLines = 4
+
+    /// Lines the text takes on the wide card, with each line break kept. An estimate,
+    /// rounded against the text. It sets only the height of the scroll area: the
+    /// card's fade is measured (`NotchApprovalBanner`), and a wrong estimate scrolls,
+    /// never cuts.
+    static func estimatedLines(_ detail: String) -> Int {
+        detail.components(separatedBy: .newlines).reduce(0) { total, paragraph in
+            let width = paragraph.reduce(0) { $0 + columns($1) }
+            return total + max(1, (width + linkCharactersPerLine - 1) / linkCharactersPerLine)
+        }
+    }
+
+    /// Columns a character takes in the estimate: two for an emoji and for an East
+    /// Asian wide or full-width character, one for any other. A CJK note counted as
+    /// one per character got a scroll area half its height.
+    static func columns(_ character: Character) -> Int {
+        let scalars = character.unicodeScalars
+        if scalars.contains(where: { $0.value == 0xFE0F || $0.properties.isEmojiPresentation }) {
+            return 2
+        }
+        guard let value = scalars.first?.value else { return 1 }
+        return wideRanges.contains { $0.contains(value) } ? 2 : 1
+    }
+
+    private static let wideRanges: [ClosedRange<UInt32>] = [
+        0x1100...0x115F,   // Hangul Jamo
+        0x2E80...0xA4CF,   // CJK radicals through Yi
+        0xAC00...0xD7A3,   // Hangul syllables
+        0xF900...0xFAFF,   // CJK compatibility ideographs
+        0xFE30...0xFE4F,   // CJK compatibility forms
+        0xFF00...0xFF60,   // full-width forms
+        0xFFE0...0xFFE6,   // full-width signs
+        0x20000...0x3FFFD, // CJK extensions B and later
+    ]
+
+    /// Lines the payload may take: one, except a link, which wraps onto three rather
+    /// than being cut because the end of a link is where a planted address hides, and
+    /// a note or a reminder, which shows up to `maxVisibleScrollLines` and scrolls.
     static func detailLines(tool: String, detail: String) -> Int {
+        if scrollsDetail(tool: tool) {
+            return min(maxVisibleScrollLines, max(1, estimatedLines(detail)))
+        }
         guard tool == "open_url" else { return 1 }
         let lines = (detail.count + linkCharactersPerLine - 1) / linkCharactersPerLine
         return min(3, max(1, lines))
@@ -124,6 +179,19 @@ enum ApprovalCopy {
             // Unquoted and whole: the address is the consent.
             if let url = remaining.removeValue(forKey: "url"), !url.isEmpty {
                 parts.append(url)
+            }
+
+        case "create_note", "create_reminder":
+            if let title = remaining.removeValue(forKey: "title"), !title.isEmpty {
+                parts.append(quoted(title))
+            }
+            // The time the app resolved, never the model's phrase.
+            if let due = ConnectorHTTP.parseISO8601(remaining["due"]) {
+                remaining.removeValue(forKey: "due")
+                parts.append(when(start: due, end: nil, calendar: calendar, now: now))
+            }
+            if let body = remaining.removeValue(forKey: "body"), !body.isEmpty {
+                parts.append(quoted(body))
             }
 
         default:

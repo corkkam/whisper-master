@@ -201,6 +201,24 @@ final class ConnectorConsentTests: XCTestCase {
         XCTAssertEqual(cards.map(\.grantOffered), [true, false])
     }
 
+    /// A run whose only read was the selection names the selection on a connector
+    /// card, and a connector read names the accounts.
+    func testTheCardNamesWhatTheRunRead() async {
+        var cards: [PendingApproval] = []
+        var router = ToolRouter(store: calendarAndSlack(grantOnOps: false),
+                                requestApproval: { approval in cards.append(approval); return .denied })
+        let taint = Taint()
+        taint.isSet = true
+        router.taint = taint
+
+        _ = await router.run(postToOps)
+        _ = await router.run(ToolCall(tool: "list_calendar_events", arguments: [:]))
+        _ = await router.run(postToOps)
+
+        XCTAssertEqual(cards.map(\.readWarning),
+                       [ApprovalCopy.selectionReadWarning, ApprovalCopy.readWarning])
+    }
+
     /// The card hides Always, and the router still refuses to store a grant if an
     /// `.allowedAlways` arrives anyway.
     func testAlwaysInATaintedRunRunsOnceAndStoresNoGrant() async {

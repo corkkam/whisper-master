@@ -158,7 +158,8 @@ struct CommandAgentService {
                 // what was actually said next to the model's rewrite of it.
                 voice: .init(transcript: spoken, takeAudio: takeNoteAudio),
                 selection: selection,
-                taint: taint),
+                taint: taint,
+                requestApproval: { [approvals] approval in await approvals.request(approval) }),
             connectors: connectorRouter,
             device: DeviceToolRunner(
                 store: store,
