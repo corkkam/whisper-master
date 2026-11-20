@@ -346,4 +346,28 @@ final class ApprovalCopyTests: XCTestCase {
         XCTAssertFalse(link.scrollsDetail)
         XCTAssertLessThanOrEqual(link.detailLines, 3)
     }
+
+    /// An East Asian wide character or an emoji takes two columns, so a CJK note gets a
+    /// scroll area its real height rather than half of it.
+    func testWideCharactersCountTwiceInTheEstimate() {
+        XCTAssertEqual(ApprovalCopy.estimatedLines(String(repeating: "\u{6F22}", count: 120)), 5)
+        XCTAssertEqual(ApprovalCopy.estimatedLines(String(repeating: "\u{1F600}", count: 30)), 2)
+        XCTAssertEqual(ApprovalCopy.estimatedLines(String(repeating: "a", count: 120)), 3)
+        XCTAssertEqual(ApprovalCopy.columns("\u{AC00}"), 2, "a Hangul syllable")
+        XCTAssertEqual(ApprovalCopy.columns("\u{2764}\u{FE0F}"), 2, "an emoji by its selector")
+        XCTAssertEqual(ApprovalCopy.columns("\u{E9}"), 1)
+
+        // 100 ideographs: 102 characters with the quotes, which the old count put on 3 lines.
+        let card = localCard("create_note", ["body": String(repeating: "\u{6F22}", count: 100)])
+        XCTAssertEqual(card.detailLines, ApprovalCopy.maxVisibleScrollLines)
+    }
+
+    /// The live card fades its foot only while text is below the visible area, with
+    /// half a point of slack for rounding.
+    func testTheFootFadesOnlyWhileTextIsBelow() {
+        XCTAssertFalse(NotchApprovalBanner.hasMoreBelow(contentBottom: 56, visibleHeight: 56))
+        XCTAssertFalse(NotchApprovalBanner.hasMoreBelow(contentBottom: 51, visibleHeight: 56))
+        XCTAssertTrue(NotchApprovalBanner.hasMoreBelow(contentBottom: 70, visibleHeight: 56))
+        XCTAssertFalse(NotchApprovalBanner.hasMoreBelow(contentBottom: 56.4, visibleHeight: 56))
+    }
 }

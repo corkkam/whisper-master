@@ -138,8 +138,9 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
     /// The payload scrolls in place rather than wrapping to a fixed line count.
     var scrollsDetail: Bool { ApprovalCopy.scrollsDetail(tool: tool) }
 
-    /// More text than the visible lines hold, so the card fades its last line to
-    /// show that it scrolls.
+    /// More text than the visible lines hold, by the estimate. The snapshot's fade
+    /// only: `ImageRenderer` draws one pass, so it cannot measure. The live card
+    /// measures its text and fades while more is below.
     var detailOverflows: Bool {
         scrollsDetail && ApprovalCopy.estimatedLines(detail) > ApprovalCopy.maxVisibleScrollLines
     }

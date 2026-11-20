@@ -24,6 +24,8 @@ struct NotchApprovalBanner: View {
     let onResolve: (ApprovalOutcome) -> Void
 
     @Environment(\.isSnapshot) private var isSnapshot
+    /// Text is below the scroll area's foot, as measured. Live card only.
+    @State private var moreBelow = false
 
     var body: some View {
         NotchBannerRow(
@@ -63,31 +65,71 @@ struct NotchApprovalBanner: View {
     }
 
     /// A note's or a reminder's text is the whole of what is approved, so it is never
-    /// cut: it sits in a scroll area the height of `detailLines`, and its foot fades
-    /// when more is below. The area scrolls even when the estimate says it fits,
-    /// because a wrong estimate must scroll rather than clip. `ImageRenderer` cannot
-    /// draw a scroll view, so a snapshot shows the visible lines, clipped.
+    /// cut. A one-line payload that fits shows as plain text, like any other card, so
+    /// a short note stays centred. Anything longer, or with a line break, goes in
+    /// `scrollArea`.
     @ViewBuilder
     private var scrollingDetail: some View {
+        if approval.detail.contains(where: \.isNewline) {
+            scrollArea
+        } else {
+            ViewThatFits(in: .horizontal) {
+                Text(approval.detail).fixedSize()
+                scrollArea
+            }
+        }
+    }
+
+    /// The text in a scroll area the height of `detailLines`. The estimate sets only
+    /// that height. The foot fade is measured: it shows while text is below the area
+    /// and goes away at the end, so a wrong estimate scrolls rather than clips, and
+    /// a text that fits does not fade. `ImageRenderer` draws one pass and cannot
+    /// scroll or measure, so a snapshot shows the visible lines, clipped, and fades
+    /// by the estimate (`detailOverflows`).
+    @ViewBuilder
+    private var scrollArea: some View {
         let height = CGFloat(approval.detailLines) * Self.warningLineHeight
         let text = Text(approval.detail)
             .lineLimit(nil)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-        Group {
-            if isSnapshot {
-                text.frame(height: height, alignment: .top).clipped()
-            } else {
-                ScrollView(.vertical, showsIndicators: true) { text }
-                    .frame(height: height)
+        if isSnapshot {
+            text.frame(height: height, alignment: .top).clipped()
+                .mask(Self.foot(fades: approval.detailOverflows))
+        } else {
+            ScrollView(.vertical, showsIndicators: true) {
+                text.background(GeometryReader { proxy in
+                    Color.clear.preference(key: DetailBottomKey.self,
+                                           value: proxy.frame(in: .named(Self.scrollSpace)).maxY)
+                })
             }
+            .coordinateSpace(.named(Self.scrollSpace))
+            .frame(height: height)
+            .onPreferenceChange(DetailBottomKey.self) { bottom in
+                let more = Self.hasMoreBelow(contentBottom: bottom, visibleHeight: height)
+                if more != moreBelow { moreBelow = more }
+            }
+            .mask(Self.foot(fades: moreBelow))
+            .id(approval.id)
         }
-        .mask(
-            LinearGradient(
-                stops: [.init(color: .black, location: 0),
-                        .init(color: .black, location: approval.detailOverflows ? 0.7 : 1),
-                        .init(color: .black.opacity(approval.detailOverflows ? 0.25 : 1), location: 1)],
-                startPoint: .top, endPoint: .bottom))
+    }
+
+    /// The scroll area's own coordinate space, where the text's bottom edge is read.
+    private static let scrollSpace = "NotchApprovalBanner.detail"
+
+    /// Whether text is still below the visible area. Half a point of slack, so a
+    /// rounding error at the end of the text does not keep the fade on.
+    static func hasMoreBelow(contentBottom: CGFloat, visibleHeight: CGFloat) -> Bool {
+        contentBottom > visibleHeight + 0.5
+    }
+
+    /// The mask on the scroll area: the last part of it fades only while more is below.
+    static func foot(fades: Bool) -> LinearGradient {
+        LinearGradient(
+            stops: [.init(color: .black, location: 0),
+                    .init(color: .black, location: fades ? 0.7 : 1),
+                    .init(color: .black.opacity(fades ? 0.25 : 1), location: 1)],
+            startPoint: .top, endPoint: .bottom)
     }
 
     /// Height the warning line adds: one `notchCaption` line (10.5pt, ~12.5pt tall)
@@ -143,5 +185,13 @@ struct NotchApprovalBanner: View {
             return "Always allow \(approval.tool) to \(approval.target) on \(approval.instanceLabel)"
         case .denied, .timedOut: return "Don't allow"
         }
+    }
+}
+
+/// The bottom edge of a scrolling payload, in the scroll area's coordinate space.
+private struct DetailBottomKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

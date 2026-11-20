@@ -60,12 +60,38 @@ enum ApprovalCopy {
     static let maxVisibleScrollLines = 4
 
     /// Lines the text takes on the wide card, with each line break kept. An estimate,
-    /// rounded against the text; a wrong one makes the area scroll, never cut.
+    /// rounded against the text. It sets only the height of the scroll area: the
+    /// card's fade is measured (`NotchApprovalBanner`), and a wrong estimate scrolls,
+    /// never cuts.
     static func estimatedLines(_ detail: String) -> Int {
         detail.components(separatedBy: .newlines).reduce(0) { total, paragraph in
-            total + max(1, (paragraph.count + linkCharactersPerLine - 1) / linkCharactersPerLine)
+            let width = paragraph.reduce(0) { $0 + columns($1) }
+            return total + max(1, (width + linkCharactersPerLine - 1) / linkCharactersPerLine)
         }
     }
+
+    /// Columns a character takes in the estimate: two for an emoji and for an East
+    /// Asian wide or full-width character, one for any other. A CJK note counted as
+    /// one per character got a scroll area half its height.
+    static func columns(_ character: Character) -> Int {
+        let scalars = character.unicodeScalars
+        if scalars.contains(where: { $0.value == 0xFE0F || $0.properties.isEmojiPresentation }) {
+            return 2
+        }
+        guard let value = scalars.first?.value else { return 1 }
+        return wideRanges.contains { $0.contains(value) } ? 2 : 1
+    }
+
+    private static let wideRanges: [ClosedRange<UInt32>] = [
+        0x1100...0x115F,   // Hangul Jamo
+        0x2E80...0xA4CF,   // CJK radicals through Yi
+        0xAC00...0xD7A3,   // Hangul syllables
+        0xF900...0xFAFF,   // CJK compatibility ideographs
+        0xFE30...0xFE4F,   // CJK compatibility forms
+        0xFF00...0xFF60,   // full-width forms
+        0xFFE0...0xFFE6,   // full-width signs
+        0x20000...0x3FFFD, // CJK extensions B and later
+    ]
 
     /// Lines the payload may take: one, except a link, which wraps onto three rather
     /// than being cut because the end of a link is where a planted address hides, and

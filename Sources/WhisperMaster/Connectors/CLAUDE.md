@@ -356,12 +356,13 @@ time**: no grant is looked up, Always is not offered, and an Always answer runs 
 card shows what is saved: the note's title and body, the reminder's title, body and the
 time `RelativeTimeParser` or the hour-out default resolved (never the model's phrase).
 **No length is refused**: the text sits in a scroll area of up to
-`ApprovalCopy.maxVisibleScrollLines` (4) lines, its foot fades when more is below, and
-the card never cuts what it approves (owner decision, 2026-11-20; a 150-character cap
-was rejected because "summarise my mail into a note" runs past it). The line count is
-an estimate, so the area scrolls even when it seems to fit: a wrong estimate scrolls
-rather than clips. `NotchApprovalBanner.maxThickness` sizes the panel for the tallest
-card. No, a timeout, a cancel or no card to raise (`requestApproval` nil) saves
+`ApprovalCopy.maxVisibleScrollLines` (4) lines, and the card never cuts what it
+approves (owner decision, 2026-11-20; a 150-character cap was rejected because
+"summarise my mail into a note" runs past it). The line estimate sets only the height
+of the area, and a wide character (CJK, an emoji) counts as two. The foot fade is
+measured, so it shows while text is below and goes away at the end: a wrong estimate
+scrolls rather than clips. A one-line payload that fits shows as plain text.
+`NotchApprovalBanner.maxThickness` sizes the panel for the tallest card. No, a timeout, a cancel or no card to raise (`requestApproval` nil) saves
 nothing and returns a failure with no `Effect`, so the call is not "executed". **The
 refusal holds end to end:** `routeCommandCapture` stops at
 `DictationViewModel.refusedSave` and shows "Nothing saved" with no chime, so the
