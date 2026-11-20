@@ -328,7 +328,7 @@ echo "  archive: ${R2_PUBLIC_BASE_URL%/}/$(basename "$ZIP")"
 #
 # Launches the bundle we just built with WM_EVAL_CASES set, pushes every case
 # through the real shipped cleanup pipeline, and posts the scores to
-# whisper.corkkam.com/eval tagged with $VERSION and $CHANNEL. Doing it here
+# typing.sucks/eval tagged with $VERSION and $CHANNEL. Doing it here
 # rather than by hand is the whole point: "how did 1.1.0-beta.9 score" only has
 # an answer if something records it at release time.
 #
@@ -360,7 +360,7 @@ if [[ "${RUN_EVAL:-$EVAL_DEFAULT}" == "1" ]]; then
         bash eval/text-cleanup/run-eval.sh \
             "${EVAL_CASES:-eval/text-cleanup/cases.jsonl}" \
             "$VERSION ($CHANNEL)"; then
-        echo ">> Score published: https://whisper.corkkam.com/eval"
+        echo ">> Score published: https://typing.sucks/eval"
     elif [[ -n "${EVAL_REQUIRED:-}" ]]; then
         echo "error: the eval failed and EVAL_REQUIRED is set." >&2
         exit 1

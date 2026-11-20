@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # One command: run the in-app eval end to end, then publish the result to the
-# public history at whisper.corkkam.com/eval.
+# public history at typing.sucks/eval.
 #
 #   bash run-eval.sh [cases.jsonl] [label]
 #
@@ -11,7 +11,7 @@
 # Env overrides:
 #   APP            path to the built .app   (default: /Applications/Whisper Master.app)
 #   OUT            results.json output path (default: ./.eval-scratch/results.json)
-#   DASHBOARD_URL  where to POST the run    (default: https://whisper.corkkam.com)
+#   DASHBOARD_URL  where to POST the run    (default: https://typing.sucks)
 #   TIMEOUT        seconds to wait for the run to finish (default: 1200)
 #   NO_PUSH=1      run the eval but skip the push (just write results.json)
 #   EVAL_VERSION   marketing version this run grades (Scripts/release.sh sets it)
@@ -36,7 +36,7 @@ label="${2:-eval $(date '+%Y-%m-%d %H:%M')}"
 app="${APP:-/Applications/Whisper Master.app}"
 out="${OUT:-$here/.eval-scratch/results.json}"
 timeout="${TIMEOUT:-1200}"
-dashboard_url="${DASHBOARD_URL:-https://whisper.corkkam.com}"
+dashboard_url="${DASHBOARD_URL:-https://typing.sucks}"
 
 # Absolute paths — EvalRunner + launchctl need them.
 cases="$(cd "$(dirname "$cases_in")" && pwd)/$(basename "$cases_in")"
