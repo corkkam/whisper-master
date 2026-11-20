@@ -243,9 +243,11 @@ final class LocalToolApprovalTests: XCTestCase {
     private func service(notes: NotesStore,
                          store: ConnectorInstanceStore? = nil,
                          approvals: ApprovalCoordinator,
+                         selection: SelectionContext? = nil,
                          followUp: FollowUpWindow.Digest?) -> CommandAgentService {
         CommandAgentService(store: store ?? emptyConnectors(), notes: notes, approvals: approvals,
-                            connectorsAllowed: false, now: { [now] in now }, followUp: followUp)
+                            connectorsAllowed: false, now: { [now] in now }, selection: selection,
+                            followUp: followUp)
     }
 
     private static let saveNote = #"{"tool":"create_note","args":{"body":"Call 555-0100"}}"#
@@ -298,5 +300,95 @@ final class LocalToolApprovalTests: XCTestCase {
                       run.declineReason)
         XCTAssertEqual(run.calls.map(\.authorization), [.denied])
         XCTAssertTrue(notes.visibleNotes.isEmpty)
+        XCTAssertNotNil(DictationViewModel.refusedSave(handled: false, calls: run.calls),
+                        "the deterministic rung must not file what the card refused")
+    }
+
+    // MARK: - A refused save stays refused
+
+    /// The view model's guard: only a note or a reminder that its card refused stops
+    /// the last rung, whichever tier made the call.
+    func testARefusedSaveIsNotFiledAnotherWay() {
+        func call(_ tool: String, _ authorization: ToolAuthorization?) -> ToolCallTrace {
+            ToolCallTrace(tool: tool, authorization: authorization)
+        }
+        for tool in ["create_note", "create_reminder"] {
+            for refusal in [ToolAuthorization.denied, .timedOut] {
+                XCTAssertEqual(DictationViewModel.refusedSave(handled: false, calls: [call(tool, refusal)])?.tool,
+                               tool, "\(tool) \(refusal)")
+            }
+        }
+        XCTAssertNil(DictationViewModel.refusedSave(handled: false, calls: [call("send_message", .denied)]),
+                     "a refused connector write still files the words")
+        XCTAssertNil(DictationViewModel.refusedSave(handled: false, calls: [call("create_note", nil)]),
+                     "an Escape before the card still files the words")
+        XCTAssertNil(DictationViewModel.refusedSave(handled: true, calls: [call("create_note", .denied)]),
+                     "a handled run has nothing left to file")
+
+        // The remote tier's calls come first in a combined trace.
+        let remote = [call("list_mail", nil), call("create_note", .denied)]
+        let local = [call("list_reminders", nil)]
+        XCTAssertEqual(DictationViewModel.refusedSave(handled: false, calls: remote + local)?.tool,
+                       "create_note")
+    }
+
+    private static let mailSelection: SelectionContext = {
+        let text = "Can you reply to the vendor by Friday?"
+        return SelectionContext(appName: "Mail", windowTitle: nil, text: text,
+                                wasCut: false, originalLength: text.count)
+    }()
+
+    private static let remindScript = [
+        #"{"tool":"read_selection","args":{}}"#,
+        #"{"tool":"create_reminder","args":{"title":"Reply to the vendor","when":"tomorrow at 9"}}"#,
+        #"{"answer":"Done."}"#,
+    ]
+
+    func testASelectionReadThenADeclinedReminderLeavesNothingToFile() async {
+        let approvals = ApprovalCoordinator()
+        let notes = notesStore()
+        let answering = Task { @MainActor in
+            for _ in 0..<1000 where approvals.pending == nil {
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+            approvals.resolve(.denied)
+        }
+
+        let run = await service(notes: notes, approvals: approvals, selection: Self.mailSelection,
+                                followUp: nil)
+            .run("remind me to reply to this tomorrow at 9",
+                 generate: ScriptedModel(Self.remindScript).generate)
+        await answering.value
+
+        XCTAssertNil(run.result)
+        XCTAssertEqual(DictationViewModel.refusedSave(handled: false, calls: run.calls)?.tool,
+                       "create_reminder")
+        XCTAssertTrue(notes.visibleReminders.isEmpty)
+    }
+
+    /// Escape on a waiting card denies it and cancels the run in one step.
+    func testAnEscapeOnTheCardLeavesNothingToFile() async {
+        let approvals = ApprovalCoordinator()
+        let notes = notesStore()
+        let agent = service(notes: notes, approvals: approvals, selection: Self.mailSelection,
+                            followUp: nil)
+        let runTask = Task { @MainActor in
+            await agent.run("remind me to reply to this tomorrow at 9",
+                            generate: ScriptedModel(Self.remindScript).generate)
+        }
+        let escape = Task { @MainActor in
+            for _ in 0..<1000 where approvals.pending == nil {
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+            approvals.resolve(.denied)
+            runTask.cancel()
+        }
+
+        let run = await runTask.value
+        await escape.value
+
+        XCTAssertNil(run.result)
+        XCTAssertNotNil(DictationViewModel.refusedSave(handled: false, calls: run.calls))
+        XCTAssertTrue(notes.visibleReminders.isEmpty && notes.visibleNotes.isEmpty)
     }
 }

@@ -67,6 +67,9 @@ enum LocalToolCatalog {
 
     static let names: Set<String> = Set((all + [readSelection]).map(\.name))
 
+    /// The tools that save the user's text. LocalToolRunner cards them after a read.
+    static let saves: Set<String> = ["create_note", "create_reminder"]
+
     static func descriptor(named name: String) -> ToolDescriptor? {
         (all + [readSelection]).first { $0.name == name }
     }

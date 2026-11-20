@@ -91,7 +91,7 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
   remember. A tainted run hands its taint to the follow-up.
 - **Escape** goes through the existing Escape monitor in `AppDelegate`, no new one:
   `DictationViewModel.handleAssistantEscape` denies a waiting card, cancels the loop's
-  task (the loop then ends like a spent budget and the words are filed), drops a draft
+  task (the loop then ends like a spent budget and the words are filed, unless the card it denied was a note or a reminder: then nothing is saved), drops a draft
   waiting on the band, or closes a long answer. With none of these pending it does nothing and returns false, so
   the coding-agent bands keep their own Escape. **Known limit:** the key is only
   observed, never consumed, so an Escape pressed in another app (an editor, a dialog)
@@ -362,7 +362,13 @@ was rejected because "summarise my mail into a note" runs past it). The line cou
 an estimate, so the area scrolls even when it seems to fit: a wrong estimate scrolls
 rather than clips. `NotchApprovalBanner.maxThickness` sizes the panel for the tallest
 card. No, a timeout, a cancel or no card to raise (`requestApproval` nil) saves
-nothing and returns a failure with no `Effect`, so the call is not "executed". **With no
+nothing and returns a failure with no `Effect`, so the call is not "executed". **The
+refusal holds end to end:** `routeCommandCapture` stops at
+`DictationViewModel.refusedSave` and shows "Nothing saved" with no chime, so the
+deterministic rung does not file the words another way, whichever tier made the call.
+A cancel before the card was raised files the words as before. **Known limit:** a
+sign-out and an `ApprovalCoordinator` auto-deny (a second card while one is up) also
+deny the card, so they end the same way, and the words stay only in Traces. **With no
 read, nothing changes**: no card, instant save. `swift test --filter
 LocalToolApprovalTests` is the lock.
 
