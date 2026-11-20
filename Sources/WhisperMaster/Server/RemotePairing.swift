@@ -106,13 +106,19 @@ enum RemotePairing {
     /// Both ends build these the same way; the handshake fails unless both hold
     /// the identical key, so this is simultaneously the encryption and the
     /// authentication. Returns nil when no key is available.
+    static let ciphersuites: [UInt16] = [
+        UInt16(TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256),
+        UInt16(TLS_PSK_WITH_AES_128_GCM_SHA256),
+    ]
+
     static func tlsParameters(key: Data? = RemotePairing.key()) -> NWParameters? {
         guard let key, !key.isEmpty else { return nil }
 
         let tls = NWProtocolTLS.Options()
         let sec = tls.securityProtocolOptions
 
-        // TLS 1.2 is the floor; 1.3 is negotiated when both ends support it.
+        // TLS 1.2, not 1.3: Network.framework fails every TLS 1.3 handshake that
+        // uses an external PSK (measured on macOS 26, -9858), so 1.3 is not an option.
         sec_protocol_options_set_min_tls_protocol_version(sec, .TLSv12)
 
         let keyData = key.withUnsafeBytes { DispatchData(bytes: $0) }
@@ -122,11 +128,15 @@ enum RemotePairing {
             keyData as __DispatchData,
             identityData as __DispatchData
         )
-        // A PSK handshake needs an explicitly offered PSK ciphersuite.
-        sec_protocol_options_append_tls_ciphersuite(
-            sec,
-            tls_ciphersuite_t(rawValue: TLS_PSK_WITH_AES_128_GCM_SHA256)!
-        )
+        // A PSK handshake needs explicitly offered PSK ciphersuites, in preference
+        // order. ECDHE-PSK mixes an ephemeral key exchange into the PSK, so a key
+        // that leaks later (a photo of the pairing QR) cannot decrypt recorded
+        // sessions; two Macs always land on it. Plain PSK has no forward secrecy
+        // and stays only because the shipped iOS client offers nothing else —
+        // drop it once that client offers ECDHE-PSK (see `WireProtocol.swift`).
+        for suite in Self.ciphersuites {
+            sec_protocol_options_append_tls_ciphersuite(sec, tls_ciphersuite_t(rawValue: suite)!)
+        }
 
         let params = NWParameters(tls: tls)
         // The server binds a fixed port and may restart quickly (app relaunch);

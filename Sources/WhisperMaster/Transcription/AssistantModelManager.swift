@@ -69,7 +69,9 @@ final class AssistantModelManager {
     func prepareForFirstUse() {
         guard Policy.shouldFetchOnFirstUse(
             assistantEnabled: state.connectorAgentEnabled,
-            alreadyInstalled: CleanupModel.General.isInstalled,
+            // The shipped model, not "anything loadable": an install still running the
+            // previous assistant is owed the fetch, and keeps answering meanwhile.
+            alreadyInstalled: !CleanupModel.General.needsShippedModel,
             alreadyStarted: didStartOnDemand,
             previouslyFailed: state.assistantModelFailed)
         else { return }
@@ -115,7 +117,6 @@ final class AssistantModelManager {
 
     private func ensureAvailable() async {
         guard !isPreparing else { return }
-        if await service.isReady { state.assistantModelReady = true; return }
         isPreparing = true
         defer {
             isPreparing = false
@@ -123,22 +124,32 @@ final class AssistantModelManager {
         }
         state.assistantModelFailed = false
 
-        if !CleanupModel.General.isInstalled {
+        if CleanupModel.General.needsShippedModel {
             await download()
+        }
+
+        // Whatever `directory` resolves to now: the shipped model, or the previous
+        // assistant when the shipped one could not be fetched. Only nothing at all is
+        // a failure; an update must not take away an assistant that was working.
+        guard CleanupModel.General.isInstalled else {
+            state.assistantModelFailed = true
+            Log.modelPrep.error("Assistant model unavailable: download failed and none is on disk")
+            return
         }
 
         // Same retry shape as the cleanup model: each MLX load attempt is
         // timeout-bounded in the service, and a stalled Metal init under launch
-        // contention should not read as a permanent failure.
+        // contention should not read as a permanent failure. At least one attempt
+        // always runs, because a resident model may be the wrong one: the previous
+        // assistant, still loaded after the shipped one has arrived.
         var attempt = 0
-        while !(await service.isReady), attempt < 3 {
+        repeat {
             attempt += 1
-            await service.prepare(
-                configuration: .init(directory: CleanupModel.General.directory))
+            await service.prepareAssistant()
             if await service.isReady { break }
             Log.modelPrep.error("Assistant model load attempt \(attempt) not ready; retrying")
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-        }
+        } while attempt < 3
 
         if await service.isReady {
             state.assistantModelReady = true
@@ -152,13 +163,19 @@ final class AssistantModelManager {
     /// R2 mirror first (real byte counts, resumable, checksum-pinned), Hugging
     /// Face as the loud fallback — the same order and the same honesty as every
     /// other model in the app.
+    ///
+    /// The fallback **downloads, then loads**, never `prepare(id:)`: a load is capped
+    /// at `MlxCleanupService.loadTimeoutSeconds` (60 s), and a load that has to fetch
+    /// 2.3 GB first spends that minute on the network and fails on anything slower
+    /// than about 300 Mbps. `LabHuggingFace.download` has no time limit and also
+    /// fetches the `chat_template.jinja` a 2507 model keeps its template in.
     private func download() async {
         do {
             try await ModelInstaller.installIfNeeded(
                 archiveName: CleanupModel.General.archiveName,
                 destinationRoot: CleanupModel.modelsRoot,
                 label: CleanupModel.General.label,
-                isInstalled: { CleanupModel.General.isInstalled },
+                isInstalled: { !CleanupModel.General.needsShippedModel },
                 onProgress: { [weak self] progress in
                     Task { @MainActor in self?.state.assistantModelDownload = progress }
                 }
@@ -166,13 +183,20 @@ final class AssistantModelManager {
         } catch {
             Log.modelPrep.error(
                 "Assistant model mirror unavailable, falling back to Hugging Face: \(error.localizedDescription, privacy: .public)")
-            await service.prepare(configuration: .init(id: CleanupModel.General.huggingFaceId)) {
-                [weak self] fraction in
-                Task { @MainActor in
-                    self?.state.assistantModelDownload = ModelInstaller.Progress(
-                        fractionCompleted: fraction,
-                        detail: "Downloading from backup source (slower)")
+            state.assistantModelDownload = ModelInstaller.Progress(
+                fractionCompleted: 0, detail: "Downloading from backup source (slower)")
+            do {
+                _ = try await LabHuggingFace.download(repoID: CleanupModel.General.huggingFaceId) {
+                    [weak self] fraction in
+                    Task { @MainActor in
+                        self?.state.assistantModelDownload = ModelInstaller.Progress(
+                            fractionCompleted: fraction,
+                            detail: "Downloading from backup source (slower)")
+                    }
                 }
+            } catch {
+                Log.modelPrep.error(
+                    "Assistant model Hugging Face download failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

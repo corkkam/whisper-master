@@ -72,6 +72,8 @@ final class AppState {
     static let keepAwakeForRemoteDefaultsKey = "WhisperMaster.keepAwakeForRemote.v1"
     static let remoteDictationEnabledDefaultsKey = "WhisperMaster.remoteDictationEnabled.v1"
     static let analyticsEnabledDefaultsKey = "WhisperMaster.analyticsEnabled.v1"
+    static let meetingDetectionDefaultsKey = "WhisperMaster.meetingDetection.v1"
+    static let meetingIgnoredAppsDefaultsKey = "WhisperMaster.meetingIgnoredApps.v1"
 
     /// The persisted analytics opt-in, readable **without building an `AppState`**.
     ///
@@ -110,6 +112,8 @@ final class AppState {
     static let learnedBannerDuration: TimeInterval = 4
     /// How long the "smart cleanup is ready" notch confirmation stays down.
     static let cleanupReadyBannerDuration: TimeInterval = 5
+    /// How long the Ready notice stays on screen. Counted only while it shows.
+    static let readyNoticeDuration: TimeInterval = 4
     /// How long the success "delivered" checkmark holds in the notch after a
     /// transcript lands at the cursor, before the surface retracts.
     static let deliveredBeatDuration: TimeInterval = 1.1
@@ -169,6 +173,18 @@ final class AppState {
     /// transcribes the podcast as well as the user. See `Media/MediaPauser`.
     var pauseMediaWhileListening: Bool = true {
         didSet { UserDefaults.standard.set(pauseMediaWhileListening, forKey: Self.pauseMediaDefaultsKey) }
+    }
+
+    /// Offer to take notes when a call app (Slack huddle, Teams, Zoom, a Meet tab)
+    /// takes the mic. On by default where the feature is built in: the offer is
+    /// the feature, and it asks before recording anything.
+    var meetingDetectionEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(meetingDetectionEnabled, forKey: Self.meetingDetectionDefaultsKey) }
+    }
+
+    /// Bundle families the user answered "Never for <app>" to.
+    var meetingIgnoredApps: [String] = [] {
+        didSet { UserDefaults.standard.set(meetingIgnoredApps, forKey: Self.meetingIgnoredAppsDefaultsKey) }
     }
 
     /// The key that talks to a coding agent, or nil for off.
@@ -300,6 +316,14 @@ final class AppState {
     /// button. Replaced in place if a late polish produces better wording, so
     /// what the button copies is always the best version. Transient.
     var undeliveredText: String?
+    /// Text the assistant wrote for the app the user was in (`replace_selection`,
+    /// `insert_text`), on the band until a tap types or copies it. Transient and
+    /// never persisted: a rewrite of the selection is the user's text from another
+    /// app. Set by the view model; expired by the AppDelegate refresh loop.
+    var agentDraft: AgentDraft?
+    var agentDraftAt: Date?
+    /// Long enough to read a paragraph and decide; a tap or Escape ends it sooner.
+    static let agentDraftDuration: TimeInterval = 60
     /// True while the optional on-device polish is running over the transcript we
     /// just delivered. Drives the notch "thinking" orb — the deterministic text
     /// is already pasted, so this is purely a "still improving it" signal.
@@ -332,6 +356,15 @@ final class AppState {
     /// "smart cleanup is ready" notch banner. Transient (never persisted),
     /// auto-expired by the AppDelegate refresh loop after `cleanupReadyBannerDuration`.
     var cleanupModelReadyAt: Date?
+    /// When the Ready notice went up: setup closed before the speech files were
+    /// ready, and they now are. Transient (never persisted), written only by the
+    /// view model and only on change. While a higher band holds the notch, the
+    /// AppDelegate tick moves it forward by the time held, then drops it after
+    /// `readyNoticeDuration` on screen.
+    var readyNoticeAt: Date?
+    /// Whether typing was on when the notice went up, which picks its line.
+    /// Transient; written by the view model with `readyNoticeAt`.
+    var readyNoticeTypingOn = true
     /// Whether the cleanup model is currently loaded and usable. Transient;
     /// mirrors `MlxCleanupService.isReady` synchronously for the Settings status
     /// (works for both the R2 and Hugging Face load paths). Written by
@@ -543,6 +576,27 @@ final class AppState {
     /// whole run. Nil outside a run, and while the loop is between steps the last
     /// one stands — see `AgentLoop.onStep`.
     var agentActivity: AgentActivity?
+    /// Which tier that loop runs on. A remote tier puts its static mark
+    /// (`AgentTier.remoteName`) on the band, because the words are leaving the Mac
+    /// while it shows.
+    var commandAgentTier: AgentTier = .onDevice
+    /// The model behind an endpoint the user set (dev builds only). The key is in the
+    /// Keychain, not here (`AgentEndpoint.apiKey()`).
+    var agentEndpoint = AgentEndpoint() {
+        didSet {
+            guard agentEndpoint != oldValue else { return }
+            if AgentEndpoint.keyMustGo(from: oldValue, to: agentEndpoint) { AgentEndpoint.setAPIKey(nil) }
+            agentEndpoint.save()
+        }
+    }
+    /// The user's own coding tool as the chord's brain (dev builds only). The app only
+    /// starts it and never reads its sign-in; nothing here is secret.
+    var connectedTool = ConnectedTool() {
+        didSet {
+            guard connectedTool != oldValue else { return }
+            connectedTool.save()
+        }
+    }
     /// Default alert style new reminders inherit (per-reminder overridable).
     /// Persisted as the enum raw value. This is the "configure in settings" knob.
     var reminderDefaultAlertStyle: ReminderAlertStyle = .notification {
@@ -619,6 +673,10 @@ final class AppState {
     /// `UsageStore(load: false)`.
     let agents = AgentSurfaceController()
 
+    /// Meeting notes: call detection, recording, and the notes pass. Dormant until
+    /// `start(state:)` post-auth, same posture as `agents`.
+    let meetings = MeetingController()
+
     /// Whether the ambient row is showing something clickable.
     ///
     /// The **one** answer both the window-level interactivity guard
@@ -655,7 +713,7 @@ final class AppState {
     /// the immediate consequence of something the user just said out loud and it
     /// denies itself on a timeout, so it must not be the one that waits.
     var shouldShowAgentAsk: Bool {
-        agents.ask != nil && approvals.pending == nil
+        agents.activeAsk != nil && approvals.pending == nil
     }
 
     /// Whether the user has the agent surface open to look at it. Below the ask,
@@ -721,6 +779,7 @@ final class AppState {
         !shouldShowAgentAsk && !shouldShowAgentGlance && !shouldShowAgentWorking
             && !shouldShowAgentReply
             && approvals.pending == nil
+            && !shouldShowAgentDraft
             && !shouldShowDueReminderBanner
             && !shouldShowCommandConfirmation
             && !shouldShowDaySummary
@@ -738,6 +797,26 @@ final class AppState {
     }
 
     static let agentNudgesDefaultsKey = "WhisperMaster.agentNudges.v1"
+
+    /// Show Shed's Claude Code and Codex agents in the notch. On unless turned off;
+    /// with no Shed running there is simply nothing to show.
+    var shedEnabled: Bool = true {
+        didSet {
+            UserDefaults.standard.set(shedEnabled, forKey: Self.shedEnabledDefaultsKey)
+            agents.shed.configure(enabled: shedEnabled, urlOverride: shedURL)
+        }
+    }
+
+    /// Where Shed is, when it is not on its usual local port. Empty means discover.
+    var shedURL: String = "" {
+        didSet {
+            UserDefaults.standard.set(shedURL, forKey: Self.shedURLDefaultsKey)
+            agents.shed.configure(enabled: shedEnabled, urlOverride: shedURL)
+        }
+    }
+
+    static let shedEnabledDefaultsKey = "WhisperMaster.shedEnabled.v1"
+    static let shedURLDefaultsKey = "WhisperMaster.shedURL.v1"
 
     /// From the moment a prompt is delivered until its reply lands, the revealed
     /// band always has something to show. Keying this on the session's *state*
@@ -781,7 +860,7 @@ final class AppState {
         didSet { UserDefaults.standard.set(speakAnswersEnabled, forKey: Self.speakAnswersDefaultsKey) }
     }
 
-    var answerVoiceEngine: AnswerVoiceEngine = .system {
+    var answerVoiceEngine: AnswerVoiceEngine = .natural {
         didSet {
             UserDefaults.standard.set(answerVoiceEngine.rawValue, forKey: Self.answerVoiceEngineDefaultsKey)
         }
@@ -836,16 +915,24 @@ final class AppState {
         // is dark for everyone who has never opened Settings.
         agentNudgesEnabled =
             UserDefaults.standard.object(forKey: Self.agentNudgesDefaultsKey) as? Bool ?? true
+        shedEnabled = UserDefaults.standard.object(forKey: Self.shedEnabledDefaultsKey) as? Bool ?? true
+        shedURL = UserDefaults.standard.string(forKey: Self.shedURLDefaultsKey) ?? ""
         // Opt-out: on unless the user has explicitly turned it off.
         holdToTalkEnabled = UserDefaults.standard.object(forKey: Self.holdToTalkDefaultsKey) as? Bool ?? true
         pauseMediaWhileListening =
             UserDefaults.standard.object(forKey: Self.pauseMediaDefaultsKey) as? Bool ?? true
+        meetingDetectionEnabled =
+            UserDefaults.standard.object(forKey: Self.meetingDetectionDefaultsKey) as? Bool ?? true
+        meetingIgnoredApps =
+            UserDefaults.standard.stringArray(forKey: Self.meetingIgnoredAppsDefaultsKey) ?? []
         // Opt-out: a connected connector is used unless the user turns this off.
         connectorAgentEnabled = UserDefaults.standard.object(forKey: Self.connectorAgentDefaultsKey) as? Bool ?? true
+        agentEndpoint = AgentEndpoint.load()
+        connectedTool = ConnectedTool.load()
         // Opt-out: you asked out loud, so an answer you can hear is the default.
         speakAnswersEnabled = UserDefaults.standard.object(forKey: Self.speakAnswersDefaultsKey) as? Bool ?? true
         answerVoiceEngine = (UserDefaults.standard.string(forKey: Self.answerVoiceEngineDefaultsKey))
-            .flatMap(AnswerVoiceEngine.init(rawValue:)) ?? .system
+            .flatMap(AnswerVoiceEngine.init(rawValue:)) ?? .natural
         systemVoiceIdentifier = UserDefaults.standard.string(forKey: Self.systemVoiceDefaultsKey) ?? ""
         naturalVoiceID = UserDefaults.standard.string(forKey: Self.naturalVoiceDefaultsKey)
             ?? NaturalVoiceCatalog.defaultVoice
@@ -939,6 +1026,7 @@ final class AppState {
             && preparingEngine == nil
             && approvals.pending == nil
             && !shouldShowAgentAsk
+            && !shouldShowAgentDraft
             && !shouldShowReminderTimePrompt
             && !shouldShowUndeliveredBanner
     }
@@ -994,6 +1082,31 @@ final class AppState {
             && !shouldShowDueReminderBanner
     }
 
+    /// The answer band opens into the expanded reply, with Copy, because the assistant's
+    /// answer is too long for one line. Only an assistant answer (it carries its
+    /// question): the day summary and the media line are written to fit.
+    var shouldShowExpandedAnswer: Bool {
+        guard shouldShowDaySummary, let summary = activeDaySummary, summary.question != nil
+        else { return false }
+        return Self.answerIsLong(summary.headline)
+    }
+
+    /// More than about one band line: over 220 characters, or over two sentences
+    /// (counted the way the expanded reply splits its verdict, so "0.6b" and "e.g."
+    /// end nothing).
+    static func answerIsLong(_ answer: String) -> Bool {
+        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count <= 220 else { return true }
+        var sentences = 0
+        var rest: String? = text
+        while let remaining = rest, !remaining.isEmpty {
+            sentences += 1
+            if sentences > 2 { return true }
+            rest = AgentReplyDocument.firstSentence(remaining).rest
+        }
+        return false
+    }
+
     /// Show the Bluetooth-mic hint in the notch only when idle (never mid-
     /// recording) and the user hasn't dismissed it.
     var shouldShowBluetoothBanner: Bool {
@@ -1001,6 +1114,36 @@ final class AppState {
             && !shouldShowReminderTimePrompt && !shouldShowCommandConfirmation
             && !shouldShowDaySummary
             && !shouldShowDueReminderBanner
+    }
+
+    /// The meeting offer or the "notes saved" line. Idle only, so it never lands
+    /// on top of a dictation the user is in the middle of.
+    var shouldShowMeetingBanner: Bool {
+        (meetings.showsPrompt || meetings.showsReady) && canShowMeetingBanner
+    }
+
+    /// Whether the meeting band would be on screen if it had something to say:
+    /// idle, and no band above it in `DictationPillContent`'s ladder is up. While
+    /// this is false the meeting banners' clocks are held (`AppDelegate`), the same
+    /// paused-clock shape as `canShowDueReminderBanner`.
+    var canShowMeetingBanner: Bool {
+        phase == .idle && download == nil && preparingEngine == nil
+            && approvals.pending == nil && !shouldShowAgentDraft
+            && !shouldShowAgentAsk && !shouldShowAgentGlance && !shouldShowAgentWorking && !shouldShowAgentReply
+            && !shouldShowDueReminderBanner && !shouldShowCommandConfirmation && !shouldShowDaySummary
+            && !shouldShowUndeliveredBanner && !shouldShowAgentNudge && !shouldShowLearnedBanner
+            && !shouldShowCleanupReadyBanner
+    }
+
+    /// The draft band: directly below the two cards with a caller suspended behind
+    /// them, because it is consent too — the tap is what types the text — and above
+    /// everything else. Idle only, so a new dictation takes the band back.
+    var shouldShowAgentDraft: Bool {
+        guard let at = agentDraftAt, agentDraft != nil else { return false }
+        return Date().timeIntervalSince(at) < Self.agentDraftDuration
+            && approvals.pending == nil
+            && !shouldShowAgentAsk
+            && phase == .idle
     }
 
     /// Show the "saved, nowhere to paste" hint when a recent dictation had no
@@ -1053,6 +1196,22 @@ final class AppState {
             && preparingEngine == nil
             && !shouldShowUndeliveredBanner
             && !shouldShowDueReminderBanner
+    }
+
+    /// The Ready notice: the lowest banner rung, below the delivered beat and
+    /// above the ambient row (`NotchActivity.readyNotice`). Not in
+    /// `notchIsOccupied`, so the hover panel still opens over it.
+    var shouldShowReadyNotice: Bool { readyNoticeAt != nil }
+
+    /// Whether the band is free to carry the Ready notice: no dictation, and no
+    /// band above it in `DictationPillContent`'s ladder. While this is false the
+    /// AppDelegate tick holds the notice's clock rather than letting it run out
+    /// behind something else.
+    var canShowReadyNotice: Bool {
+        // Every band above the meeting banner, then the rest of the ladder down
+        // to the delivered beat.
+        canShowMeetingBanner && !shouldShowMeetingBanner && !shouldShowBluetoothBanner
+            && !shouldShowReminder && !isPolishing && !shouldShowPolishedBeat && !shouldShowDeliveredBeat
     }
 
     /// Whether the band should show the live dictation line (the state word + the
@@ -1109,7 +1268,7 @@ final class AppState {
     var notchIsOccupied: Bool {
         if phase != .idle { return true }
         if download != nil || preparingEngine != nil { return true }
-        if approvals.pending != nil { return true }
+        if approvals.pending != nil || shouldShowAgentDraft { return true }
         if shouldShowAgentAsk || shouldShowAgentGlance || shouldShowAgentWorking
             || shouldShowAgentReply { return true }
         return shouldShowReminderTimePrompt
@@ -1117,6 +1276,7 @@ final class AppState {
             || shouldShowCommandConfirmation
             || shouldShowDaySummary
             || shouldShowBluetoothBanner
+            || shouldShowMeetingBanner
             || shouldShowUndeliveredBanner
             || shouldShowAgentNudge
             || shouldShowLearnedBanner

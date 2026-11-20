@@ -14,7 +14,7 @@ import XCTest
 /// Results are written to `.context/test-audio/`. Skips when no recordings exist.
 ///     swift test --filter AudioReplayTests
 final class AudioReplayTests: XCTestCase {
-    private let vocabulary = ["Parakeet", "RAG: rack, rag", "Lyzr: laser, lizer", "NVIDIA"]
+    private let vocabulary = ["Parakeet", "RAG: rack, rag", "Lazur: laser, lizer", "NVIDIA"]
 
     /// Full app pipeline: raw ASR → filler removal → glossary replacement.
     func testReplayRecordedParagraphs() async throws {

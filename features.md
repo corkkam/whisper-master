@@ -117,6 +117,7 @@ A companion to the Mac app. It doesn't transcribe on its own — it captures you
 - **Dictation beyond the local network** — reaching your Mac from anywhere (relay / NAT traversal). Today, phone and Mac must be on the same network.
 - **Multi-Mac routing for iPhone dictation** — automatically using the least-busy Mac. The plumbing (load, latency, proximity) is in; the routing isn't.
 - **Custom vocabulary on iPhone** — supported on Mac today; not yet wired up on the phone.
+- **Meeting notes** — when a Slack huddle, Teams, Zoom or Meet call starts, the notch offers to take notes; it then records both sides on the Mac, shows a live transcript, and files a note with a summary, decisions and action items. Built in dev builds only; not tested on real calls yet.
 
 ---
 

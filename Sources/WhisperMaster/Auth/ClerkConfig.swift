@@ -9,7 +9,7 @@ import Foundation
 /// right one is chosen per build. There are **two Clerk instances** under one
 /// app (see the landing page `lib/clerk/beta.ts`):
 ///
-///   • **Production** (`whisper.corkkam.com`, `pk_live_…`) — the real userbase.
+///   • **Production** (`typing.sucks`, `pk_live_…`) — the real userbase.
 ///     Both the shipping *stable* build **and** the side-by-side *beta* build use
 ///     it: beta and stable users share one account and differ only by
 ///     `publicMetadata.betaAccess` (which picks the Sparkle channel — see
@@ -30,8 +30,8 @@ import Foundation
 /// message rather than crashing: we never hand a bogus key to `Clerk.configure`,
 /// whose validation would `assertionFailure` in debug builds.
 enum ClerkConfig {
-    /// Production Clerk instance (whisper.corkkam.com) — stable + beta users.
-    private static let liveKey = "pk_live_Y2xlcmsud2hpc3Blci5jb3Jra2FtLmNvbSQ"
+    /// Production Clerk instance (typing.sucks, moved from whisper.corkkam.com on 2026-11-20) — stable + beta users.
+    private static let liveKey = "pk_live_Y2xlcmsudHlwaW5nLnN1Y2tzJA"
     /// Development Clerk instance (sweeping-humpback-68) — internal dev builds.
     private static let devKey = "pk_test_c3dlZXBpbmctaHVtcGJhY2stNjguY2xlcmsuYWNjb3VudHMuZGV2JA"
 

@@ -12,7 +12,7 @@ import Foundation
 /// kind with fields but no provider would be the cosmetic-tile bug this redesign
 /// removed. Today every catalogued kind has a provider.
 ///
-/// Why so few managed-OAuth entries: Slack, Notion, Zoom, Asana and Linear all
+/// Why so few managed-OAuth entries (Google and Microsoft only): Slack, Notion, Zoom, Asana and Linear all
 /// require a `client_secret` at token exchange and offer no public PKCE client. A
 /// desktop app can only satisfy that by shipping the secret (it isn't secret) or
 /// running a broker (rejected — it would put connector tokens through our infra and
@@ -56,14 +56,20 @@ enum ConnectorCatalog {
         ConnectorDescriptor(
             kind: .outlook,
             authKind: .none,
-            capabilities: [.events],
+            capabilities: [.events, .mail],
             fields: [],
             instructions: [
-                "Add your Exchange/Outlook account in macOS Calendar first.",
+                "Add your Exchange or Outlook account in macOS Calendar first.",
                 "Then pick which of its calendars this connector should read.",
             ],
-            aliases: ["exchange", "microsoft", "office", "calendar", "mail", "365"],
-            supportsManagedOAuth: false),
+            aliases: ["exchange", "microsoft", "office", "calendar", "mail", "email", "inbox", "365"],
+            // Two paths, like Google Calendar: the calendars macOS already syncs
+            // (`authKind == .none`, calendar only), or Microsoft sign-in, which reads
+            // mail *and* calendar over Graph. `.mail` above is what the signed-in path
+            // adds; an EventKit instance is narrowed back to `.events` by
+            // `ConnectorInstance.capabilities`. Gated at runtime on
+            // `MicrosoftOAuthConfig.isConfigured`.
+            supportsManagedOAuth: true),
 
         // MARK: - Manual credential paste
 
@@ -93,23 +99,41 @@ enum ConnectorCatalog {
             // can fix from its own side.
             supportsManagedOAuth: true),
 
+        // The field key stays `bot_token` — it is the Keychain key every existing Slack
+        // connection was saved under. A user token (xoxp-) goes in the same field.
         ConnectorDescriptor(
             kind: .slack,
             authKind: .staticSecret,
             capabilities: [.messages],
             fields: [
-                CredentialField("bot_token", "Bot token",
-                                help: "Starts with xoxb-. From your Slack app's OAuth & Permissions page.",
-                                placeholder: "xoxb-…"),
+                CredentialField("bot_token", "Slack token",
+                                help: "A bot token (xoxb-) or a user token (xoxp-) from your Slack app's OAuth & Permissions page.",
+                                placeholder: "xoxb-..."),
             ],
             instructions: [
                 "Create a Slack app at api.slack.com/apps for your workspace.",
-                "Add the scopes you want to read (channels:history, channels:read, users:read), then install it.",
-                "Copy the Bot User OAuth Token and paste it here.",
-                "Slack's OAuth needs a client secret, so there's no one-click path — your own app keeps the token yours.",
+                "Add these scopes: channels:read, channels:history, groups:read, groups:history, im:read, im:history, mpim:read, mpim:history, users:read, and chat:write to post. Then install it.",
+                "Paste a token here. A bot token reads only the channels the bot is invited to. A user token reads your own channels and DMs, and posts as you.",
+                "Slack's OAuth needs a client secret, so there is no one-click path. Your own app keeps the token yours.",
             ],
             aliases: ["chat", "messages", "workspace", "dm", "mentions"],
             supportsManagedOAuth: false),
+
+        // Sign-in is the whole connector: Graph has no token a person can mint that
+        // lasts longer than an hour, so a paste form would make a connection that dies
+        // the same afternoon. `fields` is empty and the kind is only offered while
+        // `MicrosoftOAuthConfig.isConfigured` (`ProviderRegistry.isConnectable`).
+        ConnectorDescriptor(
+            kind: .teams,
+            authKind: .refreshableGrant,
+            capabilities: [.messages],
+            fields: [],
+            instructions: [
+                "Sign in with a work or school Microsoft account. Teams chats are not available for personal accounts.",
+                "Reads your recent 1:1 and group chats, and can post to a chat after you approve it.",
+            ],
+            aliases: ["microsoft", "chat", "messages", "dm", "office", "365"],
+            supportsManagedOAuth: true),
 
         ConnectorDescriptor(
             kind: .notion,

@@ -35,17 +35,34 @@ struct OrbView: View {
     /// to want the `large` one (they are separate designs, not a scale factor).
     var preset: OrbPreset = .small
 
+    /// Play the entry pop. Off where the caller already stages the orb's arrival
+    /// (onboarding's band orb), which also overrides Reduce Motion's read.
+    var entrance: Bool = true
+    /// Draw this instant instead of the wall clock (see `OrbTime`).
+    var time: Double? = nil
+    /// Force the one static frame (see `OrbTime`).
+    var staticFrame: Bool = false
+    /// The listening wave's gain, in place of the mapping from `level`.
+    /// Onboarding passes `OnboardingOrbGain` here, which is 0 until a voice is
+    /// heard. `nil` keeps the dictation band's own mapping.
+    var gain: Double? = nil
+    /// How far the dots have spread out of the centre (see `ThinkingOrb.gather`).
+    var gather: Double = 1
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Entry pop (mirrors the old orb's appearance beat).
     @State private var appeared = false
 
     /// Map the mic level to the wave's amplitude gain. Quiet speech still shows a
-    /// gentle wave; loud speech swells it. `level * 18` matches the old orb's
-    /// level→activity mapping.
-    private var waveGain: Double {
-        let activity = Double(min(1, max(0, level * 18)))
-        return 0.35 + 1.05 * activity
+    /// gentle wave; loud speech swells it.
+    nonisolated static func waveGain(level: Float) -> Double {
+        0.35 + 1.05 * waveActivity(level)
+    }
+
+    /// `level * 18` matches the old orb's level→activity mapping.
+    nonisolated static func waveActivity(_ level: Float) -> Double {
+        Double(min(1, max(0, level * 18)))
     }
 
     private var orbState: OrbState {
@@ -63,12 +80,15 @@ struct OrbView: View {
             preset: preset,
             dark: true,
             speed: 1,
-            extraOpts: mode == .listening ? ["gain": waveGain] : [:]
+            extraOpts: mode == .listening ? ["gain": gain ?? Self.waveGain(level: level)] : [:],
+            time: time,
+            staticFrame: staticFrame,
+            gather: gather
         )
-        .scaleEffect(reduceMotion || appeared ? 1 : 0.86)
-        .opacity(reduceMotion || appeared ? 1 : 0)
+        .scaleEffect(!entrance || reduceMotion || appeared ? 1 : 0.86)
+        .opacity(!entrance || reduceMotion || appeared ? 1 : 0)
         .onAppear {
-            guard !reduceMotion else { return }
+            guard entrance, !reduceMotion else { return }
             withAnimation(Theme.Motion.appear) { appeared = true }
         }
     }

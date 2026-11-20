@@ -72,6 +72,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// tick would immediately let a `.dev` build back in). Cleared on the next
     /// real sign-in. In-memory only, so a relaunch restores the dev convenience.
     private var userDidSignOut = false
+    /// Set by `signOut()` until Clerk's call returns or `SignOutHold.limit`
+    /// passes. While it is set the gate stays up and nothing behind it opens:
+    /// `isSignedIn` is false and `reconcileAuthGate()` only hides. In-memory only.
+    private var signOutHold = SignOutHold()
     /// True while the app's own windows (Settings, dictation pill) are hidden
     /// behind the sign-in gate. Tracks the gated↔ungated transition so we hide /
     /// reveal them exactly once instead of every 0.5s reconcile tick.
@@ -82,6 +86,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var startItem: NSMenuItem?
     private var stopItem: NSMenuItem?
     private var cancelItem: NSMenuItem?
+    /// "Take Meeting Notes" / "Stop Meeting Notes" — one item whose title follows
+    /// the meeting state. Hidden where meeting notes are not built in.
+    private var meetingItem: NSMenuItem?
+    private var appliedMeetingItemTitle: String?
+    /// Pause or resume the user's endpoint. Hidden until one is set and agreed to.
+    private var endpointItem: NSMenuItem?
+    /// nil while hidden, so the first tick that shows it writes the title.
+    private var appliedEndpointItemTitle: String?
+    /// Pause or resume the connected tool. Hidden until one is allowed.
+    private var connectedToolItem: NSMenuItem?
+    private var appliedConnectedToolItemTitle: String?
     private var pasteLastItem: NSMenuItem?
     private var historyMenu: NSMenu?
     private var historyMenuItem: NSMenuItem?
@@ -147,6 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindow()
         setupPill()
         setupHotkey()
+        viewModel.state.meetings.requestNotes = { [weak self] in self?.startMeetingNotes() }
         startStatusRefreshLoop()
 
         // Sparkle's gentle "update available" reminder posts a macOS
@@ -201,31 +217,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // yet (Clerk restores it asynchronously), so this always shows; the
         // refresh-loop reconcile then either dismisses it — proceeding to
         // onboarding/settings — the moment a persisted session loads, or leaves
-        // it up showing Clerk's sign-in UI.
-        // Dev build skips the gate; don't even flash the sign-in window.
-        if !authBypassEnabled {
-            presentAuthGate()
-        }
+        // it up showing Clerk's sign-in UI. Every build is gated, dev included.
+        presentAuthGate()
         reconcileAuthGate()
     }
 
     /// True once the user is signed in with a real Clerk session. Everything
     /// that lets the user actually dictate is gated on this.
     private var isSignedIn: Bool {
-        authBypassEnabled || (ClerkConfig.isConfigured && Clerk.shared.user != nil)
-    }
-
-    /// Dev-only escape from the sign-in gate, so the whole app can be exercised
-    /// without a Clerk account. True **only** in the locally re-badged dev build
-    /// (bundle id ends in ".dev", produced by `Scripts/dev-install.sh`); the
-    /// shipping build's id is `app.whispermaster.mac`, so this is always false in
-    /// production and the real gate is completely untouched. Set `WM_REQUIRE_AUTH=1`
-    /// to force the real gate back on even in the dev build (to test sign-in).
-    private var authBypassEnabled: Bool {
-        // An explicit sign-out defeats the bypass so the gate can actually return.
-        guard !userDidSignOut else { return false }
-        guard (Bundle.main.bundleIdentifier ?? "").hasSuffix(".dev") else { return false }
-        return ProcessInfo.processInfo.environment["WM_REQUIRE_AUTH"] != "1"
+        !signOutHold.inFlight && ClerkConfig.isConfigured && Clerk.shared.user != nil
     }
 
     /// Identity for the usage-sync client: the Clerk user id plus a fresh session
@@ -261,19 +261,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    /// The onboarding capture gate, run after `ensureCanDictate()` on every
+    /// capture path. It reads the key and the beat, never the words: on beats 1
+    /// to 3, and on Ready with the microphone off or the engine not ready, the
+    /// press records nothing and its gesture resets (else a double-tap here
+    /// leaves the key latched hands-free, and the next hold on Ready ends that
+    /// latch instead of starting). On Ready with the microphone on and the
+    /// engine ready, the band is cut and the caller records in the same call,
+    /// so the first word is kept.
+    private func onboardingAllowsCapture() -> Bool {
+        guard let onboardingWindow else { return true }
+        let decision = OnboardingCaptureDecision.resolve(
+            onboardingOpen: true, step: onboardingWindow.step, micGranted: onboardingWindow.micGranted,
+            engineReady: onboardingWindow.engineReady)
+        return OnboardingCaptureDecision.apply(
+            decision,
+            micCheckListening: onboardingWindow.micCheckListening,
+            resetGesture: { hotkeyManager?.resetGesture() },
+            noteSwallowedPress: { onboardingWindow.noteSwallowedPress() },
+            handOff: { onboardingWindow.handOff() })
+    }
+
     /// Reconcile the gate against the current Clerk session. Driven both once at
     /// launch and from the 0.5s status refresh loop (our @Observable→AppKit
     /// bridge), so sign-in/sign-out flip the gate without any Clerk callback.
     private func reconcileAuthGate() {
-        // Dev build: skip the gate entirely and go straight into the app.
-        if authBypassEnabled {
-            authGateWindow?.close()
-            proceedAfterAuthIfNeeded()
-            viewModel.state.usageStore.activate(userID: "dev-local")
-            viewModel.state.notesStore.activate(userID: "dev-local")
-            viewModel.state.connectorStore.activate(userID: "dev-local")
-            return
-        }
+        // A sign-out still on the network: Clerk's user stays set until it
+        // returns, and the signed-in branch below would reveal the app again.
+        guard !signOutHold.inFlight else { presentAuthGate(); hideAppSurfacesForGate(); return }
         // No key configured, or a definitively signed-out session → stay gated.
         guard ClerkConfig.isConfigured else { presentAuthGate(); hideAppSurfacesForGate(); return }
         if let user = Clerk.shared.user {
@@ -360,7 +375,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // on the refresh tick picks up later toggles.
         reconcileRemoteServer()
         // Discover other Macs running Whisper Master on the network (the mesh).
-        meshCoordinator.start()
+        // Gated on the same answer as the Nearby Macs page: while that page reads
+        // "Coming soon", nothing may browse Bonjour or use Bluetooth in its name —
+        // it raised Local Network and Bluetooth prompts for a feature nobody can open.
+        if SettingsSection.mesh.isAvailable { meshCoordinator.start() }
 
         // Watch for coding agents on this Mac. Held behind the gate with the rest of
         // the bring-up, and dormant until now so `swift test` and the headless
@@ -375,6 +393,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // calendar grant it reads nothing and the ambient row simply never appears.
         viewModel.state.now.start()
 
+        // Watch for calls (Slack huddle, Teams, Zoom, a Meet tab) so the notch can
+        // offer to take notes. Dormant until here so tests and the snapshot
+        // renderer never poll Core Audio; a no-op where the feature is not built in.
+        viewModel.state.meetings.start(state: viewModel.state)
+
         // Ask the appcast whether there is an update, without showing anything.
         // `checkForUpdateInformation()` is the one Sparkle entry point that has no
         // user driver behind it: it only fires the delegate callbacks below, which
@@ -384,24 +407,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // miss the beta channel.
         updaterController.updater.checkForUpdateInformation()
 
-        let userID = currentOnboardingUserID()
-
-        // Migration for existing installs: they have no per-user onboarding
-        // record. If the account has already granted the core permissions it's
-        // plainly past onboarding — seed as seen so we don't re-show the wizard.
-        if let userID, !OnboardingProgress.hasRecord(userID: userID),
-           permissionsManager.microphoneStatus() == .granted,
-           permissionsManager.accessibilityGranted() {
-            OnboardingProgress.markSeen(OnboardingStep.allCases.map(\.id), userID: userID)
-        }
-
-        // Single-step permissions wizard once per account. Past that: quiet
-        // notification prompt + open Settings if the model still needs install
-        // (progress lives in Settings / the notch, not a done step).
-        let pending = userID.map { OnboardingProgress.pendingSteps(userID: $0) } ?? OnboardingStep.allCases
-        if !pending.isEmpty {
-            showOnboarding(userID: userID)
-        } else {
+        // Setup once per account. Past that: the quiet notification prompt (setup
+        // never asks; the next launch does) + open Settings if the model still
+        // needs install (progress lives in Settings / the notch, not a done step).
+        if showOnboardingIfPending() != .show {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
             if !viewModel.state.selectedEngine.isInstalled {
                 showWindow()
@@ -409,13 +418,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// The account onboarding progress is scoped to: the signed-in Clerk user,
-    /// or `dev-local` when the dev build bypasses the auth gate. Mirrors the
-    /// identity `usageStore.activate(userID:)` uses.
+    /// Opens setup, with the stage, for an account that has not finished it. Also
+    /// the migration for existing installs: an account with no per-user record
+    /// that has already granted the core permissions is seeded as seen. Runs on
+    /// the launch path and on every reveal after a sign-in, so a sign-out mid-way
+    /// gives the same unfinished account a new window at beat 1.
+    @discardableResult
+    private func showOnboardingIfPending() -> OnboardingLaunchDecision {
+        let userID = currentOnboardingUserID()
+        let decision = OnboardingLaunchDecision.resolve(
+            userID: userID,
+            micGranted: permissionsManager.microphoneStatus() == .granted,
+            accessibilityGranted: permissionsManager.accessibilityGranted(),
+            signOutInFlight: signOutHold.inFlight)
+        switch decision {
+        case .seedAsSeen:
+            if let userID { OnboardingProgress.markSeen(OnboardingStep.allCases.map(\.id), userID: userID) }
+        case .show:
+            showOnboarding(userID: userID)
+        case .skip:
+            break
+        }
+        return decision
+    }
+
+    /// The account onboarding progress is scoped to: the signed-in Clerk user.
+    /// Mirrors the identity `usageStore.activate(userID:)` uses.
     private func currentOnboardingUserID() -> String? {
-        if let id = Clerk.shared.user?.id { return id }
-        if authBypassEnabled { return "dev-local" }
-        return nil
+        Clerk.shared.user?.id
     }
 
     /// Sign the current user out. The refresh-loop reconcile then re-presents the
@@ -426,12 +456,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Latch first so the dev-build bypass can't immediately let us back in,
         // then hide the app and show the gate right away — no half-second window
         // where the app still looks usable while the network sign-out is in flight.
+        // The hold keeps it that way until Clerk's call returns.
+        let hold = signOutHold.begin()
         userDidSignOut = true
         hideAppSurfacesForGate()
         presentAuthGate()
         viewModel.state.usageStore.deactivate()
         viewModel.state.notesStore.deactivate()
         viewModel.state.connectorStore.deactivate()
+        // The assistant's run, card and last answer belong to that account too.
+        viewModel.handleSignOut()
         // The day belongs to the account that was signed in — stop reading it and
         // clear what is held, or the next person to sign in sees the last one's
         // meetings on the bezel.
@@ -440,10 +474,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 try await Clerk.shared.auth.signOut()
             } catch {
+                // Offline, the session stays: the reconcile below reveals the
+                // app signed in again, as before the hold existed.
                 Log.auth.error("Sign out failed: \(error.localizedDescription, privacy: .public)")
             }
-            // Reconcile picks up the cleared session on the next tick and keeps
-            // the gate up (the latch holds it there even in a dev build).
+            // Reconcile picks up the cleared session and keeps the gate up (the
+            // latch holds it there even in a dev build).
+            if self.signOutHold.end(hold) { self.reconcileAuthGate() }
+        }
+        // The bound: a stalled network must not hold the gate with no end.
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(SignOutHold.limit * 1_000_000_000))
+            guard self.signOutHold.end(hold) else { return }
+            Log.auth.error("Sign out still waiting after \(Int(SignOutHold.limit), privacy: .public) s; gate released")
             self.reconcileAuthGate()
         }
     }
@@ -456,20 +499,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !appSurfacesHidden else { return }
         appSurfacesHidden = true
         window?.orderOut(nil)
+        // Released, not kept, and not marked seen: the next sign-in of an
+        // unfinished account makes a new window at beat 1.
         onboardingWindow?.close()
+        onboardingWindow = nil
         pillWindow?.hide()
         // Nothing of the account's data may be reachable behind the gate, and the
-        // band is made of exactly that.
+        // band is made of exactly that. The suspend setup put on it ends with the
+        // window, or the hover band would never open again after the next sign-in.
         quickActionsWindow?.stop()
+        quickActionsWindow?.resume()
+        viewModel.state.meetings.hideLiveWindow()
     }
 
     /// Bring the passive dictation pill back after a sign-in. The Settings window
     /// is intentionally left closed (the user opens it explicitly); only the
-    /// always-present notch pill is restored.
+    /// always-present notch pill is restored — unless setup is up, which owns
+    /// the notch until `dismissOnboarding()` gives it back.
     private func revealAppSurfacesAfterAuth() {
         guard appSurfacesHidden else { return }
         appSurfacesHidden = false
-        pillWindow?.show()
+        if onboardingWindow == nil { showOnboardingIfPending() }
+        if onboardingWindow == nil { pillWindow?.show() }
         quickActionsWindow?.start()
     }
 
@@ -481,17 +532,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// A meeting in progress is asked about first: its alert can still cancel the quit,
+    /// and `MlxWorkGate.holdQuit` refuses MLX work for good once it runs. Every way out
+    /// then waits for MLX (policy and timeout in `MlxWorkGate`), because exiting under a
+    /// running generation crashes MLX on the way out.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let meeting = viewModel.state.meetings.confirmQuit { Self.replyAfterMlx(sender) }
+        guard meeting == .terminateNow else { return meeting }
+        return MlxWorkGate.shared.holdQuit { sender.reply(toApplicationShouldTerminate: true) }
+            ? .terminateLater : .terminateNow
+    }
+
+    /// The end of a held quit: the meeting's notes pass can still be generating when
+    /// its time limit replies, so this waits for MLX too.
+    private static func replyAfterMlx(_ sender: NSApplication) {
+        let held = MlxWorkGate.shared.holdQuit { sender.reply(toApplicationShouldTerminate: true) }
+        if !held { sender.reply(toApplicationShouldTerminate: true) }
+    }
+
     /// Silence any answer still being read aloud.
     ///
     /// **Not optional.** Speech plays out of process (`speechsynthesisd` for the system
     /// voice), so quitting mid-utterance can leave the Mac talking after the app is
     /// gone — with nothing left on screen to explain it or any way to stop it.
     func applicationWillTerminate(_ notification: Notification) {
+        statusRefreshTimer?.invalidate()
+        statusRefreshTimer = nil
+        bluetoothInputMonitor?.stop()
+        viewModel.shutdown()
         viewModel.stopSpeaking()
         // Whatever we paused for a dictation goes back to playing — otherwise
         // quitting mid-session leaves the speakers silent with nothing left running
         // to explain why.
         viewModel.releaseHeldMedia()
+        // A meeting being recorded cannot be mixed or transcribed in the time a
+        // quit allows, so its temporary tracks are deleted rather than left behind.
+        viewModel.state.meetings.discardForTermination()
         // The other half of crash detection. macOS calls this for ⌘Q, the tray
         // Quit item, and logout — but never for a crash, which is precisely the
         // discrimination `CrashReporter` relies on. A Force Quit skips it too and
@@ -525,10 +601,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // exists so the button has a target and accepts both mouse buttons.
     }
 
+    /// Shed lives in the main window's Coding tab, not in a window of its own.
+    @objc private func showCodingTab() {
+        viewModel.state.requestedSettingsSection = .coding
+        showWindow()
+    }
+
     /// Standard Dock-app menu bar. Without it, a `.regular` app has no working
     /// Cmd-Q or Edit shortcuts (cut/copy/paste/select-all/undo) — the latter
     /// matter for the custom-words editor. The tray menu stays the primary surface.
     private func setupMainMenu() {
+        ShedLink.showCodingTab = { [weak self] in self?.showCodingTab() }
         let appName = "Whisper Master"
         let mainMenu = NSMenu()
 
@@ -542,6 +625,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(.separator())
         let settings = appMenu.addItem(withTitle: "Settings…", action: #selector(showWindow), keyEquivalent: ",")
         settings.target = self
+        let coding = appMenu.addItem(withTitle: "Coding", action: #selector(showCodingTab), keyEquivalent: "")
+        coding.target = self
         appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Hide \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
@@ -676,6 +761,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(stop)
         stopItem = stop
 
+        let meeting = NSMenuItem(
+            title: "Take Meeting Notes",
+            action: #selector(toggleMeetingNotes),
+            keyEquivalent: ""
+        )
+        meeting.isHidden = !FeatureFlags.meetingNotesAvailable
+        menu.addItem(meeting)
+        meetingItem = meeting
+
+        let endpoint = NSMenuItem(
+            title: "Pause Your Endpoint",
+            action: #selector(toggleEndpointPause),
+            keyEquivalent: ""
+        )
+        endpoint.isHidden = true
+        menu.addItem(endpoint)
+        endpointItem = endpoint
+
+        let connectedTool = NSMenuItem(
+            title: "Pause Connected Tool",
+            action: #selector(toggleConnectedToolPause),
+            keyEquivalent: ""
+        )
+        connectedTool.isHidden = true
+        menu.addItem(connectedTool)
+        connectedToolItem = connectedTool
+
         let cancel = NSMenuItem(
             title: "Cancel Voice Engine Setup",
             action: #selector(cancelVoiceEngineSetup),
@@ -782,6 +894,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startItem?.isEnabled = state.canStart
         stopItem?.isEnabled = state.canStop
         cancelItem?.isHidden = state.preparingEngine == nil
+        let meetingTitle = state.meetings.isRecording ? "Stop Meeting Notes" : "Take Meeting Notes"
+        if appliedMeetingItemTitle != meetingTitle {
+            appliedMeetingItemTitle = meetingTitle
+            meetingItem?.title = meetingTitle
+        }
+        let endpointTitle: String? = FeatureFlags.agentEndpointAvailable
+            && state.agentEndpoint.hasConsent
+            ? (state.agentEndpoint.paused ? "Resume Your Endpoint" : "Pause Your Endpoint")
+            : nil
+        if appliedEndpointItemTitle != endpointTitle {
+            appliedEndpointItemTitle = endpointTitle
+            endpointItem?.isHidden = endpointTitle == nil
+            if let endpointTitle { endpointItem?.title = endpointTitle }
+        }
+        let connectedToolTitle: String? = FeatureFlags.agentEndpointAvailable
+            && state.connectedTool.hasConsent
+            ? (state.connectedTool.paused ? "Resume Connected Tool" : "Pause Connected Tool")
+            : nil
+        if appliedConnectedToolItemTitle != connectedToolTitle {
+            appliedConnectedToolItemTitle = connectedToolTitle
+            connectedToolItem?.isHidden = connectedToolTitle == nil
+            if let connectedToolTitle { connectedToolItem?.title = connectedToolTitle }
+        }
 
         // The notch panel is click-through except while an interactive banner is
         // up — the Bluetooth-mic "use built-in" button, the tappable command
@@ -796,6 +931,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // menu-bar clicks for the whole ten minutes before a meeting.
             state.ambientRowTakesClicks
                 || state.approvals.pending != nil
+                // The draft band's Replace / Copy, which is the consent to type.
+                || state.shouldShowAgentDraft
                 // The nudge is a pointer to another session, so it has to be
                 // tappable — a band that says "tap to answer" and swallows the tap
                 // is worse than no band.
@@ -809,15 +946,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // pressing stop opened a menu-bar assistant instead.
                 || state.shouldShowAgentWorking
                 || state.shouldShowBluetoothBanner
+                // "Take notes" on a detected call, and the tappable "notes saved".
+                || state.shouldShowMeetingBanner
                 || state.shouldShowCommandConfirmation
                 || state.shouldShowDueReminderBanner
-                || state.shouldShowUndeliveredBanner)
+                || state.shouldShowUndeliveredBanner
+                // A long answer's Copy.
+                || state.shouldShowExpandedAnswer)
 
         // Keep the optional coding-agent key in step with the preference, and give
         // the menu bar back once a revealed session has been read.
         reconcileAgentHotkey()
         if state.agents.revealHasExpired() { state.agents.closeGlance() }
         reconcileAgentNudge()
+        reconcileReadyNotice()
 
         // Drive gentle reminders off the same poll — a cheap, idle-gated check.
         viewModel.evaluateReminders()
@@ -857,11 +999,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Same for the meeting offer and "notes saved": an offer that ran out
+        // behind a dictation or a higher band was never made.
+        if !state.canShowMeetingBanner {
+            state.meetings.holdBannerClocks()
+        }
+
         // Retract the "nowhere to paste" hint once its display window elapses.
         if let at = state.undeliveredTranscriptAt,
            Date().timeIntervalSince(at) >= AppState.undeliveredBannerDuration {
             state.undeliveredTranscriptAt = nil
             state.undeliveredText = nil
+        }
+
+        // Drop an unanswered draft once its window elapses: it holds text from
+        // another app, so it is not kept a moment longer than the band shows it.
+        if let at = state.agentDraftAt,
+           Date().timeIntervalSince(at) >= AppState.agentDraftDuration {
+            state.agentDraftAt = nil
+            state.agentDraft = nil
         }
 
         // Retract the polished-transcript beat once its window elapses.
@@ -1095,6 +1251,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The Ready notice's paused clock, in the shape of `reconcileAgentNudge`.
+    /// While dictation, a higher band, setup or the gate holds the notch, the
+    /// clock is held (one write, when the hold ends); after its time on screen
+    /// it is dropped, so it cannot come back stale.
+    private func reconcileReadyNotice() {
+        let state = viewModel.state
+        guard state.readyNoticeAt != nil else { return }
+        guard onboardingWindow == nil, !appSurfacesHidden, state.canShowReadyNotice else {
+            viewModel.holdReadyNotice()
+            return
+        }
+        viewModel.resumeReadyNotice()
+        guard let shownAt = state.readyNoticeAt else { return }
+        if Date().timeIntervalSince(shownAt) >= AppState.readyNoticeDuration {
+            viewModel.dropReadyNotice()
+        }
+    }
+
     private func trayAppearance(for state: AppState) -> (String?, String, String) {
         if state.preparingEngine != nil {
             let percent = Int((state.download?.fractionCompleted ?? 0) * 100)
@@ -1142,7 +1316,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             checkForUpdates: { [weak self] in self?.updaterController.checkForUpdates(nil) },
             startSetup: { [weak self] in self?.viewModel.prepareSelectedEngineInBackground() },
             cancelSetup: { [weak self] in self?.viewModel.cancelModelPreparation() },
-            signOut: { [weak self] in self?.signOut() }
+            signOut: { [weak self] in self?.signOut() },
+            startDictation: { [weak self] in self?.startRecording() }
         )
         // Inject the shared Clerk instance so the Account panel can read the
         // signed-in user reactively (same source the auth gate observes).
@@ -1196,6 +1371,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // the polished transcript when the on-device pass produced one.
                 self?.viewModel.copyUndeliveredTranscript()
             },
+            onCopyAnswer: { [weak self] in
+                self?.viewModel.copyAnswer()
+            },
+            onDraft: { [weak self] action in
+                self?.viewModel.handleDraftAction(action)
+            },
             onToggleDueReminder: { [weak self] in
                 // The checkbox on a reminder that just came due — ticks it off, or
                 // puts it back if the tick was a misfire.
@@ -1224,6 +1405,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onJoin: { [weak self] url in
                 self?.openConferenceLink(url)
             },
+            onOpenLink: { [weak self] url in
+                self?.openNotchLink(url)
+            },
             onOpenNotes: { [weak self] request in
                 guard let self else { return }
                 self.viewModel.state.requestedSettingsSection = .notes
@@ -1232,7 +1416,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.viewModel.state.requestedNotesComposer = request
                 self.showWindow()
             },
-            onOpenSettings: { [weak self] in self?.showWindow() })
+            onOpenSettings: { [weak self] section in
+                guard let self else { return }
+                self.viewModel.state.requestedSettingsSection = section
+                self.showWindow()
+            })
         quickActionsWindow?.start()
 
         // Watch for a Bluetooth mic input so the notch can offer to switch to
@@ -1278,14 +1466,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Gate dictation on sign-in AND waitlist acceptance: a press while
                 // signed out surfaces the sign-in window; while not-yet-accepted,
                 // the waitlist notice — instead of starting a recording.
-                guard self.ensureCanDictate() else { return }
+                guard self.ensureCanDictate(), self.onboardingAllowsCapture() else { return }
                 self.viewModel.handleHotkeyStart()
             case .stop:
                 self.viewModel.handleHotkeyStop()
             case .handsFree:
+                // Gated like `.start`: an ignored press on an early beat must not
+                // latch hands-free either.
+                guard self.ensureCanDictate(), self.onboardingAllowsCapture() else { return }
                 self.viewModel.handleHotkeyHandsFree()
             case .toggle:
-                guard self.ensureCanDictate() else { return }
+                guard self.ensureCanDictate(), self.onboardingAllowsCapture() else { return }
                 self.viewModel.handleHotkeyToggle()
             }
         }
@@ -1313,7 +1504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch event {
             case .engaged:
-                guard self.ensureCanDictate() else { return }
+                guard self.ensureCanDictate(), self.onboardingAllowsCapture() else { return }
                 self.viewModel.handleCommandChordEngaged()
             case .released:
                 self.viewModel.handleCommandChordReleased()
@@ -1329,6 +1520,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // swallow the key, and does not need to; the band closing is the whole
         // effect. The turn itself keeps running server-side (the stop button on
         // the working row is what interrupts).
+        //
+        // The assistant is asked first (`handleAssistantEscape`): it denies a waiting
+        // approval card, stops a running loop, drops a staged draft, or closes a long
+        // answer. Because the key is only observed, an Esc meant for another app does
+        // this too; each is safe to do by mistake (a denial, words filed as a note,
+        // nothing typed, a band closed).
         escKeyMonitorGlobal = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) {
             [weak self] event in
             self?.handleEscIfAgentSurfaceShowing(event)
@@ -1342,6 +1539,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleEscIfAgentSurfaceShowing(_ event: NSEvent) {
         guard event.keyCode == 53 else { return }
+        if viewModel.handleAssistantEscape() { return }
         let state = viewModel.state
         guard state.shouldShowAgentReply || state.shouldShowAgentGlance
             || state.shouldShowAgentWorking
@@ -1387,7 +1585,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch event {
             case .start:
-                guard self.ensureCanDictate() else { return }
+                guard self.ensureCanDictate(), self.onboardingAllowsCapture() else { return }
                 self.viewModel.handleAgentKeyStart()
             case .stop:
                 self.viewModel.handleAgentKeyStop()
@@ -1403,7 +1601,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The dictation pill is hidden while it's up: both panels anchor to the notch
     /// and the engine download that starts at launch would otherwise draw its
     /// progress band straight through the onboarding one.
+    ///
+    /// Every path in plays the opening (the stage): the launch, and the menu and
+    /// About replays too, so an existing user sees it when they ask for setup.
     private func showOnboarding(userID: String? = nil) {
+        // Every path in (the launch, a reveal after sign-in, About, the tray) is
+        // behind the gate. During a sign-out the surfaces are already hidden, so a
+        // window made now would outlive the hide that should release it.
+        guard isSignedIn else {
+            presentAuthGate()
+            return
+        }
         if let onboardingWindow {
             onboardingWindow.show()
             return
@@ -1428,30 +1636,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state: viewModel.state,
             permissions: permissionsManager,
             onOpenSettings: { [weak self] in self?.showWindow() },
-            onClose: { [weak self] in
-                // User dismissed early — drop to the tray. Mark it seen so it
-                // doesn't reopen every launch; they can still reopen it via
-                // the "Reopen Onboarding…" menu item.
-                guard let self else { return }
-                markSeen()
-                self.dismissOnboarding()
-                // Keep engine prep going (download-if-missing / load-if-present).
-                self.viewModel.prepareDefaultEngineOnLaunch()
-            },
-            onComplete: { [weak self] in
-                guard let self else { return }
-                markSeen()
-                self.dismissOnboarding()
-                Analytics.shared.send(.onboardingFinished)
-                // Notifications used to be their own step; prompt quietly now.
-                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-                // Engine prep was kicked off at launch; this is idempotent — if the
-                // model is already on disk it just loads, never re-downloads.
-                self.viewModel.prepareDefaultEngineOnLaunch()
-                self.showWindow()
-            }
+            // × or ⌘W: drop to the tray. Marked seen so it doesn't reopen every
+            // launch; the "Reopen Onboarding…" menu item still can.
+            onClose: { [weak self] in self?.endOnboarding(nil, markSeen: markSeen) },
+            onComplete: { [weak self] kind in self?.endOnboarding(kind, markSeen: markSeen) },
+            // Ready's Failed variant: Try Again starts one more prep now.
+            onRetryEngine: { [weak self] in self?.viewModel.prepareDefaultEngineOnLaunch() },
+            settingsVisible: { [weak self] in self?.window?.isVisible == true }
         )
         onboardingWindow?.show()
+    }
+
+    /// The finish plan, for every way setup ends: a finish kind, or nil for ×
+    /// and ⌘W. The window has already given focus back (`willEnd`). No kind asks
+    /// for notifications: the next launch does.
+    private func endOnboarding(_ kind: OnboardingFinish?, markSeen: () -> Void) {
+        markSeen()
+        dismissOnboarding()
+        // Idempotent: a model already on disk just loads, and after a failure
+        // this is the one more background attempt the Failed copy promises.
+        viewModel.prepareDefaultEngineOnLaunch()
+        let state = viewModel.state
+        if state.preparedEngine != state.selectedEngine { viewModel.armReadyNotice() }
+        guard let kind else { return }
+        Analytics.shared.send(.onboardingFinished)
+        // Done and the capture-key hand-off give focus back to the app the user
+        // came from; only Close and open Settings opens it, never behind the gate.
+        // The hold is false here on every path today (a sign-out's hide stops the
+        // outro's completion, and the hand-off needs `isSignedIn`); it stays as
+        // the guard for a completion that ever runs during a sign-out.
+        if OnboardingFinishPlan.plan(for: kind, signOutInFlight: signOutHold.inFlight).opensSettings {
+            showWindow()
+        }
     }
 
     /// Tear the onboarding band down and give the notch back to the dictation
@@ -1487,6 +1703,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             presentAuthGate()
             return
         }
+        // The user chose the tray item, so the app comes forward and the band
+        // can take the keyboard. Setup never activates the app on its own.
+        NSApp.activate(ignoringOtherApps: true)
         showOnboarding()
     }
 
@@ -1500,8 +1719,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func startRecording() {
-        guard ensureCanDictate() else { return }
+        guard ensureCanDictate(), onboardingAllowsCapture() else { return }
         viewModel.startRecording()
+    }
+
+    @objc
+    private func toggleEndpointPause() {
+        viewModel.setAgentEndpointPaused(!viewModel.state.agentEndpoint.paused)
+    }
+
+    @objc
+    private func toggleConnectedToolPause() {
+        viewModel.setConnectedToolPaused(!viewModel.state.connectedTool.paused)
+    }
+
+    @objc
+    private func toggleMeetingNotes() {
+        let meetings = viewModel.state.meetings
+        if meetings.isRecording {
+            meetings.stopNotes()
+        } else {
+            startMeetingNotes()
+        }
+    }
+
+    /// Every start of meeting notes: the tray item, the live window's Start and
+    /// the notch offer (`MeetingController.requestNotes`). A capture like the
+    /// tray's Start Dictation, so it is gated the same way.
+    private func startMeetingNotes() {
+        guard ensureCanDictate(), onboardingAllowsCapture() else { return }
+        viewModel.state.meetings.takeNotes()
     }
 
     @objc
@@ -1541,10 +1788,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func quitApp() {
-        statusRefreshTimer?.invalidate()
-        statusRefreshTimer = nil
-        bluetoothInputMonitor?.stop()
-        viewModel.shutdown()
+        // Teardown lives in `applicationWillTerminate`: the quit gate may be cancelled.
         NSApp.terminate(nil)
     }
 }
@@ -1693,6 +1937,17 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
     /// dropped silently: the button is only ever drawn for one that passed, so a
     /// failure here means something upstream is wrong rather than that the user
     /// needs telling.
+    /// A pinned connector's item or home, from the notch band. Re-checked here for
+    /// the same reason `openConferenceLink` is: the link came out of a third party's
+    /// API response, and `NSWorkspace.open` will launch whatever it is handed.
+    private func openNotchLink(_ url: URL) {
+        guard NotchConnectorLinks.isOpenable(url) else {
+            Log.app.error("Refused to open a non-https link from the notch")
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
     private func openConferenceLink(_ url: URL) {
         guard ConferenceLink.isJoinable(url) else {
             Log.app.error("Refused to open a non-conference link from the notch")

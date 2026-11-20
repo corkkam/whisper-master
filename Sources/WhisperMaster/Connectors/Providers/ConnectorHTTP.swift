@@ -17,15 +17,21 @@ struct ConnectorItem: Equatable, Sendable, Identifiable {
     let url: String?
     /// The connector instance this came from, so a merged answer can name it.
     let instanceLabel: String
+    /// Still waiting on the user (unread mail). Only a provider that can tell sets
+    /// it; the notch counts these for a tab's badge, so a provider that can't tell
+    /// must leave it false rather than guess.
+    let isUnread: Bool
 
     init(id: String, title: String, detail: String = "",
-         timestamp: Date? = nil, url: String? = nil, instanceLabel: String = "") {
+         timestamp: Date? = nil, url: String? = nil, instanceLabel: String = "",
+         isUnread: Bool = false) {
         self.id = id
         self.title = title
         self.detail = detail
         self.timestamp = timestamp
         self.url = url
         self.instanceLabel = instanceLabel
+        self.isUnread = isUnread
     }
 }
 
@@ -124,6 +130,15 @@ enum ConnectorHTTP {
     static func requireSlackOK(_ json: [String: Any]) throws {
         guard (json["ok"] as? Bool) == true else {
             let error = json["error"] as? String ?? "unknown"
+            // `missing_scope` is the token's grant, not the network: the same family
+            // as a Google 403 for a scope never granted, so it gets the same
+            // "reconnect" repair instead of "couldn't read just now", which would
+            // promise it fixes itself. Slack names the scope it wanted; log that.
+            if error == "missing_scope" {
+                Log.connectors.error(
+                    "slack: missing_scope, needed \(json["needed"] as? String ?? "?", privacy: .public)")
+                throw Failure.unauthorized
+            }
             if error.contains("auth") || error.contains("token") { throw Failure.unauthorized }
             if error.contains("ratelimit") { throw Failure.rateLimited }
             throw Failure.badStatus(200, error)

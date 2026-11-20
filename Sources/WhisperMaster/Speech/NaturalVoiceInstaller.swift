@@ -1,13 +1,15 @@
+import FluidAudio
 import Foundation
 
 /// Puts the natural voice's models on disk, R2 mirror first.
 ///
-/// FluidAudio can fetch these itself, but only from HuggingFace — and a silent HF
-/// fallback is exactly the failure this project already got bitten by once (see the
-/// mirror-first rules in the root `CLAUDE.md`). So the archives are published to the
-/// same R2 bucket as every other model and pulled with the same generic
-/// `ModelInstaller.installIfNeeded`, which brings resumable background downloads,
-/// retries, bounded timeouts and an honest percentage along with it.
+/// FluidAudio can fetch these itself, but only from HuggingFace, so the archives are
+/// published to the same R2 bucket as every other model and pulled first with the same
+/// generic `ModelInstaller.installIfNeeded`, which brings resumable background
+/// downloads, retries, bounded timeouts and an honest percentage along with it.
+/// HuggingFace is the fallback, and like every other fallback in the app it is
+/// **loud, not silent** (the mirror-first rules in `Transcription/CLAUDE.md`): it is
+/// logged at `.error` and the progress line says "downloading from backup source".
 ///
 /// ## ⚠️ Where the files must land
 ///
@@ -26,20 +28,38 @@ import Foundation
 /// subdirectory (the mono and Mandarin variants are dead weight we never load):
 ///
 /// ```bash
-/// ditto -c -k --keepParent kokoro-82m-coreml kokoro-82m-coreml.zip
-/// ditto -c -k --keepParent kokoro           kokoro.zip
-/// # upload both to whisper-master/models/ on R2
+/// ditto -c -k --norsrc --noextattr --keepParent kokoro-82m-coreml kokoro-82m-coreml.zip
+/// ditto -c -k --norsrc --noextattr --keepParent kokoro           kokoro.zip
+/// # upload both to models/ in the R2 bucket ($R2_BUCKET), then pin both in ModelChecksums
 /// ```
 ///
-/// Do the pull with every voice pack present (they're ~0.5 MB each) so the archive
-/// carries them all. Otherwise switching voice in Settings triggers FluidAudio's own
-/// per-voice HuggingFace fetch, which is the one path this whole type exists to avoid.
+/// - `ANE/` must hold every `NaturalVoiceCatalog` voice as `<id>.bin`. Upstream
+///   (FluidInference/kokoro-82m-coreml) publishes only `af_heart.bin` in that form; the
+///   rest exist only as `voices/<id>.json`. Convert each: keys "1" to "510" in order,
+///   256 floats per key, written as float32 little-endian. This is byte-identical to the
+///   upstream `af_heart.bin` when applied to `af_heart.json`.
+/// - Keep both `KokoroNoise.mlmodelc` and `KokoroNoise_v2.mlmodelc`. FluidAudio 0.15
+///   loads `_v2`. Builds shipped before 2026-10-14 check for the old name and still
+///   install unpinned archives, so they fetch the same zip.
+/// - **A FluidAudio bump can invalidate the archive.** FluidAudio renames a stage
+///   (rather than overwriting it) to force cached clients to re-download, as it did
+///   with `KokoroNoise_v2`. `isInstalled` reads FluidAudio's own file lists, so after
+///   such a bump every install reads as missing and the mirror download fails with
+///   `incompleteAfterUnpack` until a rebuilt archive is uploaded and re-pinned. That
+///   is the honest failure: the system voice speaks and Settings says why. Copying
+///   the names here instead is what let `_v2` drift — the app reported the voice
+///   installed while FluidAudio went to HuggingFace for a file the check never named.
+/// - Keep `kokoro/us_lexicon_cache.json`, or every `initialize()` makes a best-effort
+///   HuggingFace request.
 enum NaturalVoiceInstaller {
 
     /// The 7-stage CoreML chain plus its vocab and default voice pack.
     private static let chainArchive = "kokoro-82m-coreml"
     /// The shared English text→IPA assets, pinned to their own directory by FluidAudio.
     private static let g2pArchive = "kokoro"
+
+    /// Both archives, for the test that locks their pins in `ModelChecksums`.
+    static let archiveNames = [chainArchive, g2pArchive]
 
     /// The chain is by far the larger download; splitting the bar this way keeps it from
     /// stalling at 99% while the small archive lands.
@@ -61,16 +81,13 @@ enum NaturalVoiceInstaller {
         modelsRoot.appendingPathComponent("kokoro", isDirectory: true)
     }
 
-    /// The 7 `.mlmodelc` bundles, the vocab, and the default voice pack — mirroring
-    /// `ModelNames.KokoroAne.requiredModels`, which is what FluidAudio itself checks.
-    private static let chainFiles = [
-        "KokoroAlbert.mlmodelc", "KokoroPostAlbert.mlmodelc", "KokoroAlignment.mlmodelc",
-        "KokoroProsody.mlmodelc", "KokoroNoise.mlmodelc", "KokoroVocoder.mlmodelc",
-        "KokoroTail.mlmodelc", "vocab.json", "af_heart.bin"
-    ]
+    /// The 7 `.mlmodelc` bundles, the vocab, and the default voice pack. Read from
+    /// FluidAudio rather than copied, because it is exactly the set
+    /// `KokoroAneResourceDownloader` checks before it reaches for HuggingFace.
+    private static var chainFiles: Set<String> { ModelNames.KokoroAne.requiredModels }
 
-    /// `ModelNames.G2P.requiredModels`.
-    private static let g2pFiles = ["G2PEncoder.mlmodelc", "G2PDecoder.mlmodelc", "g2p_vocab.json"]
+    /// The G2P assets, likewise the set FluidAudio itself checks.
+    private static var g2pFiles: Set<String> { ModelNames.G2P.requiredModels }
 
     // MARK: - State
 
@@ -81,7 +98,7 @@ enum NaturalVoiceInstaller {
         exists(chainFiles, in: chainDirectory) && exists(g2pFiles, in: g2pDirectory)
     }
 
-    private static func exists(_ names: [String], in directory: URL) -> Bool {
+    private static func exists(_ names: Set<String>, in directory: URL) -> Bool {
         names.allSatisfy {
             FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path)
         }
@@ -96,11 +113,33 @@ enum NaturalVoiceInstaller {
 
     // MARK: - Install
 
-    /// Downloads whatever is missing. Throws if the mirror can't provide it — the caller
-    /// keeps using the system voice, which is why there's no HuggingFace fallback here:
-    /// silence is not on the table, so a failed download is just "stay on the system
-    /// voice and say so in Settings".
+    /// Downloads whatever is missing: from the mirror first, then from Hugging Face
+    /// through FluidAudio's own `KokoroAneManager.initialize()`, which writes to the
+    /// same `~/.cache/fluidaudio/Models/` paths `isInstalled` checks.
+    ///
+    /// The fallback exists because the natural voice is the default answer voice, and
+    /// both archives are pinned in `ModelChecksums` but not uploaded to the mirror yet
+    /// (`kokoro-82m-coreml` and `kokoro` both 404). Until they are, every install takes
+    /// the Hugging Face path. If that fails too, this throws and the caller stays on
+    /// the system voice: silence is never an outcome.
     static func install(onProgress: @escaping @Sendable (ModelInstaller.Progress) -> Void) async throws {
+        do {
+            try await installFromMirror(onProgress: onProgress)
+        } catch {
+            Log.modelPrep.error(
+                "Natural voice mirror install failed, using Hugging Face: \(error.localizedDescription, privacy: .public)")
+            onProgress(ModelInstaller.Progress(
+                fractionCompleted: 0, detail: "downloading from backup source (slower)"))
+            let manager = KokoroAneManager(variant: .english)
+            try await manager.initialize()
+            await manager.cleanup()
+            guard isInstalled else { throw ModelInstaller.InstallError.incompleteAfterUnpack }
+        }
+    }
+
+    private static func installFromMirror(
+        onProgress: @escaping @Sendable (ModelInstaller.Progress) -> Void
+    ) async throws {
         let share = chainShareOfProgress
         try await ModelInstaller.installIfNeeded(
             archiveName: chainArchive,

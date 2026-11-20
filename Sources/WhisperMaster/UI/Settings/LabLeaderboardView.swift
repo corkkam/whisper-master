@@ -56,7 +56,7 @@ struct LabLeaderboardView: View {
     }
 
     private func row(_ result: LabModelResult, run: LabRun) -> some View {
-        let model = LabCatalog.model(id: result.modelID)
+        let model = lab.allModels.first { $0.id == result.modelID }
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 0) {
                 HStack(spacing: 6) {
@@ -64,7 +64,7 @@ struct LabLeaderboardView: View {
                         .font(Typography.caption)
                         .foregroundStyle(Theme.textPrimary)
                         .lineLimit(1)
-                    if let badge = model?.provenance.badge { RowTag(badge) }
+                    if let badge = model?.railTag { RowTag(badge) }
                 }
                 .frame(width: 168, alignment: .leading)
 

@@ -31,6 +31,10 @@ enum ConnectorConfig: Codable, Equatable, Sendable {
     /// secret would hand the provider a token nothing ever refreshes, and the
     /// connection would stop reading an hour after it was made.
     case googleOAuth
+    /// Connected through the app's own Microsoft sign-in (Outlook over Graph, Teams).
+    /// The Microsoft twin of `.googleOAuth`: no payload, but it is what makes the
+    /// instance a refreshable grant and routes Outlook to Graph instead of EventKit.
+    case microsoftOAuth
     /// Slack: the workspace this instance is bound to.
     case workspace(teamID: String)
     /// Zoom: the account whose token we mint per request.
@@ -54,7 +58,7 @@ enum ConnectorConfig: Codable, Equatable, Sendable {
     var isNetworkBacked: Bool {
         switch self {
         case .calendars, .empty: return false
-        case .googleAPI, .googleOAuth, .workspace, .account: return true
+        case .googleAPI, .googleOAuth, .microsoftOAuth, .workspace, .account: return true
         }
     }
 
@@ -66,9 +70,15 @@ enum ConnectorConfig: Codable, Equatable, Sendable {
     var isManagedGoogleGrant: Bool {
         switch self {
         case .googleAPI, .googleOAuth: return true
-        case .calendars, .workspace, .account, .empty: return false
+        case .calendars, .microsoftOAuth, .workspace, .account, .empty: return false
         }
     }
+
+    /// Whether this instance holds a grant from the app's own Microsoft sign-in.
+    var isManagedMicrosoftGrant: Bool { self == .microsoftOAuth }
+
+    /// A grant this app minted and refreshes, from either issuer.
+    var isManagedGrant: Bool { isManagedGoogleGrant || isManagedMicrosoftGrant }
 }
 
 /// A connector's failure state. Rendered on the instance row with a repair action —
@@ -187,17 +197,35 @@ struct ConnectorInstance: Identifiable, Codable, Equatable, Sendable {
     /// managed grant is decided *first* — deriving it from the descriptor alone gets
     /// one of the two shapes wrong whichever way the descriptor is written.
     var authKind: ConnectorAuthKind {
-        if config.isManagedGoogleGrant { return .refreshableGrant }
+        if config.isManagedGrant { return .refreshableGrant }
         return config.isNetworkBacked && descriptor.authKind == .none
             ? .refreshableGrant
             : descriptor.authKind
     }
 
-    var capabilities: Set<ConnectorCapability> { descriptor.capabilities }
+    /// What *this instance* can be read for — the descriptor's set, narrowed for an
+    /// instance that reads through macOS Calendar.
+    ///
+    /// Outlook is one kind with two shapes: signed in, it reads mail and calendar
+    /// over Graph; added through macOS Calendar, it can only ever read a calendar.
+    /// Taking the kind's set at face value would publish `list_mail` with the
+    /// EventKit connection's label in it, and the model's call would then be skipped
+    /// for want of a mail provider — a tool offered that can never answer.
+    var capabilities: Set<ConnectorCapability> {
+        config.calendarIdentifiers != nil
+            ? descriptor.capabilities.intersection([.events])
+            : descriptor.capabilities
+    }
 
     func provides(_ capability: ConnectorCapability) -> Bool {
-        descriptor.capabilities.contains(capability)
+        capabilities.contains(capability)
     }
+
+    /// Whether this instance reads through a macOS framework rather than the network.
+    /// Per instance, not per kind: a signed-in Google Calendar or Outlook shares its
+    /// kind with an EventKit one, and only the EventKit one has calendars to re-pick
+    /// or a macOS Calendar grant to need.
+    var isSystemBacked: Bool { authKind == .none }
 
     /// Enabled *and* not in a failure state — the gate every read fans out through.
     var isReadable: Bool { isEnabled && lastError == nil }

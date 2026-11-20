@@ -93,6 +93,137 @@ final class ConnectorConsentTests: XCTestCase {
             .granted)
     }
 
+    // MARK: - Taint: a connector read earlier in the run
+
+    /// Read text is written by other people, so a write composed after it may be an
+    /// instruction planted there. The grant was given for the user's own requests.
+    func testATaintedRunAsksEvenWhenAGrantCoversTheWrite() {
+        let grants = [Grant(tool: "send_message", instanceID: workID, target: "#general")]
+        XCTAssertEqual(
+            WriteAuthorizer.authorize(tool: sendMessage, instanceID: workID,
+                                      target: "#general", grants: grants, tainted: true),
+            .needsApproval)
+        XCTAssertEqual(
+            WriteAuthorizer.authorize(tool: sendMessage, instanceID: workID,
+                                      target: "#general", grants: grants, tainted: false),
+            .granted)
+    }
+
+    /// Taint can only add a question: a refusal stays a refusal, and a read stays a read.
+    func testTaintNeitherLiftsARefusalNorGatesARead() {
+        guard case .refused = WriteAuthorizer.authorize(
+            tool: sendMessage, instanceID: workID, target: nil, grants: [], tainted: true) else {
+            return XCTFail("a write with no target must stay refused when tainted")
+        }
+        let untargeted = ToolDescriptor(
+            name: "nuke", summary: "", access: .write,
+            capability: .messages, targetArg: nil, parameters: [])
+        guard case .refused = WriteAuthorizer.authorize(
+            tool: untargeted, instanceID: workID, target: "x", grants: [], tainted: true) else {
+            return XCTFail("an untargetable write must stay refused when tainted")
+        }
+        XCTAssertEqual(
+            WriteAuthorizer.authorize(tool: listEvents, instanceID: workID,
+                                      target: nil, grants: [], tainted: true),
+            .granted)
+    }
+
+    /// A calendar to read and a Slack connection to write to. The read goes to the
+    /// calendar on purpose: a Slack read with no token under `swift test` marks that
+    /// connection unreadable, and the write would then find no connector at all.
+    private func calendarAndSlack(grantOnOps: Bool = true) -> ConnectorInstanceStore {
+        let store = ConnectorInstanceStore(load: false)
+        store.persistenceEnabled = false
+        store.add(ConnectorInstance(
+            kind: .appleCalendar, label: "Personal", identity: "iCloud",
+            config: .calendars(identifiers: ["cal-1"], sourceTitle: "iCloud")))
+        let slack = store.add(ConnectorInstance(kind: .slack, label: "Work chat", identity: "acme"))
+        if grantOnOps {
+            store.addGrant(Grant(tool: "send_message", instanceID: slack.id, target: "#ops"))
+        }
+        return store
+    }
+
+    private let postToOps = ToolCall(tool: "send_message",
+                                     arguments: ["channel": "#ops", "text": "hi"])
+
+    /// The bench case: the model reads, then writes to a target the user once allowed.
+    func testAReadInTheRunPutsTheCardInFrontOfAGrantedWrite() async {
+        var asked: PendingApproval?
+        let router = ToolRouter(store: calendarAndSlack(),
+                                requestApproval: { approval in asked = approval; return .denied })
+
+        let read = await router.run(ToolCall(tool: "list_calendar_events", arguments: [:]))
+        XCTAssertTrue(read.ok)
+        let write = await router.run(postToOps)
+
+        XCTAssertEqual(asked?.target, "#ops", "the grant must not answer for a write after a read")
+        XCTAssertEqual(write.authorization, .denied)
+    }
+
+    func testWithNoReadFirstAGrantStillRunsWithoutACard() async {
+        var asked = false
+        let router = ToolRouter(store: calendarAndSlack(),
+                                requestApproval: { _ in asked = true; return .denied })
+
+        let write = await router.run(postToOps)
+
+        XCTAssertFalse(asked)
+        XCTAssertEqual(write.authorization, .standingGrant)
+    }
+
+    /// A read that failed returned no one's text, so it has nothing to taint the run with.
+    func testAFailedReadDoesNotTaintTheRun() async {
+        var asked = false
+        let router = ToolRouter(store: calendarAndSlack(),
+                                requestApproval: { _ in asked = true; return .denied })
+
+        // No task connection is set up, so this read fails.
+        let read = await router.run(ToolCall(tool: "list_tasks", arguments: [:]))
+        XCTAssertFalse(read.ok)
+        let write = await router.run(postToOps)
+
+        XCTAssertFalse(asked)
+        XCTAssertEqual(write.authorization, .standingGrant)
+    }
+
+    /// The card a tainted run raises does not offer Always: a grant made there could be
+    /// for a target that planted text chose.
+    func testATaintedCardDoesNotOfferAGrant() async {
+        var cards: [PendingApproval] = []
+        let router = ToolRouter(store: calendarAndSlack(grantOnOps: false),
+                                requestApproval: { approval in cards.append(approval); return .denied })
+
+        _ = await router.run(postToOps)
+        _ = await router.run(ToolCall(tool: "list_calendar_events", arguments: [:]))
+        _ = await router.run(postToOps)
+
+        XCTAssertEqual(cards.map(\.grantOffered), [true, false])
+    }
+
+    /// The card hides Always, and the router still refuses to store a grant if an
+    /// `.allowedAlways` arrives anyway.
+    func testAlwaysInATaintedRunRunsOnceAndStoresNoGrant() async {
+        let store = calendarAndSlack(grantOnOps: false)
+        let router = ToolRouter(store: store, requestApproval: { _ in .allowedAlways })
+
+        _ = await router.run(ToolCall(tool: "list_calendar_events", arguments: [:]))
+        let write = await router.run(postToOps)
+
+        XCTAssertEqual(write.authorization, .allowedOnce)
+        XCTAssertTrue(store.grants.isEmpty)
+    }
+
+    func testAlwaysInAnUntaintedRunStillStoresAGrant() async {
+        let store = calendarAndSlack(grantOnOps: false)
+        let router = ToolRouter(store: store, requestApproval: { _ in .allowedAlways })
+
+        let write = await router.run(postToOps)
+
+        XCTAssertEqual(write.authorization, .allowedAlways)
+        XCTAssertEqual(store.grants.map(\.target), ["#ops"])
+    }
+
     // MARK: - Grant identity + store
 
     func testGrantIDIsStableAcrossTargetCasingAndGrantTime() {

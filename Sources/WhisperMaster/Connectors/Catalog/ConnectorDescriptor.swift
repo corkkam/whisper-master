@@ -16,7 +16,9 @@ enum ConnectorAuthKind: String, Codable, Sendable {
     /// integration token). Validated once at connect; there is nothing to refresh.
     case staticSecret
     /// An OAuth grant we can refresh on-device: access token + refresh token +
-    /// expiry + scopes. Google only — see `supportsManagedOAuth`.
+    /// expiry + scopes. Google and Microsoft — see `supportsManagedOAuth`. As a
+    /// *descriptor* auth kind it means the kind has no other path: sign-in is the
+    /// whole connector (Teams).
     case refreshableGrant
     /// Client credentials that *mint* a short-lived token on demand. We store the
     /// material, never a token (Zoom server-to-server: 1 hour expiry).

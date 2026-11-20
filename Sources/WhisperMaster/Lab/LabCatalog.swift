@@ -20,13 +20,41 @@ enum LabProvenance: String, Codable, Sendable {
     case retired
     /// Never shipped. Here to be measured.
     case candidate
+    /// Added on this Mac by its Hugging Face id (`LabCustomModels`).
+    case custom
 
     var badge: String? {
         switch self {
         case .shippingCleanup, .shippingAssistant: return "shipping"
         case .retired: return "retired"
         case .candidate: return nil
+        case .custom: return "added"
         }
+    }
+}
+
+/// Whether a model reasons before it answers, read off its chat template.
+enum LabReasoning: String, Codable, Sendable {
+    /// Answers directly. The shipped assistant (Qwen3-4B-Instruct-2507) is one.
+    case none
+    /// The template honours `enable_thinking`: Qwen3's hybrid builds, SmolLM3.
+    /// Benched both ways, as two rows.
+    case optional
+    /// The template opens `<think>` on every turn: Qwen3 Thinking-2507, the R1
+    /// distills. There is no way to switch it off.
+    case always
+
+    /// Read from the chat template. Only the part after the last
+    /// `add_generation_prompt` decides "always", because that is what is appended
+    /// to every prompt: the shipped Instruct-2507 template mentions `<think>` too,
+    /// but only to strip it from earlier turns.
+    static func detect(chatTemplate template: String) -> LabReasoning {
+        if template.contains("enable_thinking") { return .optional }
+        guard let tail = template.range(of: "add_generation_prompt", options: .backwards) else {
+            return .none
+        }
+        let prompt = template[tail.upperBound...]
+        return prompt.contains("<think>") && !prompt.contains("</think>") ? .always : .none
     }
 }
 
@@ -56,21 +84,56 @@ struct LabModel: Identifiable, Hashable, Sendable {
     let provenance: LabProvenance
     /// One line on why this model is in the list at all.
     let note: String
+    /// What the model can do. Decides whether a reasoning row is offered for it.
+    var reasoning: LabReasoning = .none
+    /// This row is benched with its reasoning on. The same model on disk can be
+    /// two rows, one per setting, so a run can put them side by side.
+    var thinks = false
 
     func supports(_ role: LabRole) -> Bool { roles.contains(role) }
+
+    /// The one tag a row has room for. "reasoning" wins over the provenance
+    /// badge, because two rows of the same weights read the same otherwise.
+    var railTag: String? { thinks ? "reasoning" : provenance.badge }
+
+    /// The row that benches a hybrid model with its reasoning on.
+    ///
+    /// **Assistant only.** Reasoning before a cleanup triples its latency to
+    /// produce one sentence, and the tool suite is where reasoning can earn
+    /// its cost.
+    var reasoningVariant: LabModel {
+        var variant = LabModel(
+            id: id + "+reasoning", name: name + " (reasoning)", huggingFaceId: huggingFaceId,
+            archiveName: archiveName, approximateDownloadBytes: approximateDownloadBytes,
+            parameters: parameters, quantization: quantization, roles: [.assistant],
+            provenance: provenance,
+            note: "Same weights, reasoning on. Thinks before it calls a tool.")
+        variant.reasoning = reasoning
+        variant.thinks = true
+        return variant
+    }
+
+    /// This row, then its reasoning row when it has one.
+    var rows: [LabModel] {
+        reasoning == .optional && supports(.assistant) ? [self, reasoningVariant] : [self]
+    }
 }
 
 /// The models the lab offers.
 ///
-/// Adding one is a row here and nothing else: the runner, the rail and the
-/// leaderboard all read this list. Sizes are the 4-bit MLX conversions published
-/// by `mlx-community` unless the id says otherwise.
+/// Adding one for everybody is a row in `builtIn` and nothing else: the runner,
+/// the rail and the leaderboard all read this list. Sizes are the 4-bit MLX
+/// conversions published by `mlx-community` unless the id says otherwise. Trying
+/// one on this Mac only needs its Hugging Face id typed into the rail, which
+/// lands in `LabCustomModels` and joins the list here.
 ///
 /// **The three shipped/retired entries earn their place.** A bench with no
 /// baseline answers "which candidate is best" when the question is always "is any
 /// candidate better than what users already have".
 enum LabCatalog {
-    static let all: [LabModel] = [
+    static let builtIn: [LabModel] = catalogue.flatMap(\.rows)
+
+    private static let catalogue: [LabModel] = [
         LabModel(
             id: "s1-mini-4bit",
             name: "S1-mini",
@@ -91,8 +154,8 @@ enum LabCatalog {
             parameters: "4B",
             quantization: "4-bit",
             roles: [.assistant, .cleanup],
-            provenance: .shippingAssistant,
-            note: "The shipped tool-caller. Non-thinking by default, so no <think> blocks."),
+            provenance: .candidate,
+            note: "The assistant until 2026-10-17. Non-thinking: 16/16 tools at 3.9 s p50."),
         LabModel(
             id: "qwen2.5-3b-instruct-4bit",
             name: "Qwen2.5-3B-Instruct",
@@ -114,7 +177,8 @@ enum LabCatalog {
             quantization: "4-bit",
             roles: [.cleanup, .assistant],
             provenance: .candidate,
-            note: "S1-mini's base model, un-finetuned. What the fine-tune is worth."),
+            note: "S1-mini's base model, un-finetuned. What the fine-tune is worth.",
+            reasoning: .optional),
         LabModel(
             id: "qwen3-1.7b-4bit",
             name: "Qwen3-1.7B",
@@ -125,7 +189,21 @@ enum LabCatalog {
             quantization: "4-bit",
             roles: [.cleanup, .assistant],
             provenance: .candidate,
-            note: "The cheapest model that might still tool-call."),
+            note: "The cheapest model that might still tool-call.",
+            reasoning: .optional),
+        LabModel(
+            id: "qwen3-4b-thinking-2507-4bit",
+            name: "Qwen3-4B-Thinking-2507",
+            huggingFaceId: "mlx-community/Qwen3-4B-Thinking-2507-4bit",
+            archiveName: "Qwen3-4B-Thinking-2507-4bit",
+            approximateDownloadBytes: 2_280 * 1_000_000,
+            parameters: "4B",
+            quantization: "4-bit",
+            roles: [.assistant],
+            provenance: .shippingAssistant,
+            note: "The shipped assistant since 2026-10-17. Always thinks first.",
+            reasoning: .always,
+            thinks: true),
         LabModel(
             id: "llama-3.2-1b-instruct-4bit",
             name: "Llama-3.2-1B-Instruct",
@@ -171,25 +249,35 @@ enum LabCatalog {
             provenance: .candidate,
             note: "Strong on instruction following for its size."),
         LabModel(
-            id: "smollm2-1.7b-instruct-4bit",
+            // mlx-community publishes no 4-bit SmolLM2-1.7B; the old id here
+            // answered 401 and the model never ran. This is the 16-bit build.
+            id: "smollm2-1.7b-instruct",
             name: "SmolLM2-1.7B-Instruct",
-            huggingFaceId: "mlx-community/SmolLM2-1.7B-Instruct-4bit",
+            huggingFaceId: "mlx-community/SmolLM2-1.7B-Instruct",
             archiveName: nil,
-            approximateDownloadBytes: 950 * 1_000_000,
+            approximateDownloadBytes: 3_430 * 1_000_000,
             parameters: "1.7B",
-            quantization: "4-bit",
+            quantization: "16-bit",
             roles: [.cleanup],
             provenance: .candidate,
             note: "The small-model floor: how bad is bad."),
     ]
 
-    static func model(id: String) -> LabModel? { all.first { $0.id == id } }
+    /// The built-in models, then the ones added on this Mac.
+    static func all(defaults: UserDefaults = .standard) -> [LabModel] {
+        builtIn + LabCustomModels.load(defaults: defaults).flatMap(\.models)
+    }
 
-    static func models(for role: LabRole) -> [LabModel] { all.filter { $0.supports(role) } }
+    /// Built-ins first, so the common lookup never decodes the added list.
+    /// `CleanupModel.directory` comes through here whenever a slot is overridden.
+    static func model(id: String, defaults: UserDefaults = .standard) -> LabModel? {
+        if let model = builtIn.first(where: { $0.id == id }) { return model }
+        return LabCustomModels.load(defaults: defaults).flatMap(\.models).first { $0.id == id }
+    }
 
     /// The entry the shipped cleanup path uses, which is the default baseline in
     /// every comparison.
-    static var shippedCleanup: LabModel { all.first { $0.provenance == .shippingCleanup }! }
+    static var shippedCleanup: LabModel { builtIn.first { $0.provenance == .shippingCleanup }! }
 
-    static var shippedAssistant: LabModel { all.first { $0.provenance == .shippingAssistant }! }
+    static var shippedAssistant: LabModel { builtIn.first { $0.provenance == .shippingAssistant }! }
 }

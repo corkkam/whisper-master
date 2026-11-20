@@ -25,9 +25,13 @@ import Foundation
 //      (identity hint) query items and store the key in the Keychain.
 //   2. Build `NWParameters` exactly as `RemotePairing.tlsParameters` does —
 //      `NWProtocolTLS.Options`, min TLS 1.2, `sec_protocol_options_add_pre_shared_key`
-//      with that key + identity, and append the
-//      `TLS_PSK_WITH_AES_128_GCM_SHA256` ciphersuite — then dial with those
-//      instead of `.tcp`.
+//      with that key + identity, and append the ciphersuites in
+//      `RemotePairing.ciphersuites`, in that order — then dial with those
+//      instead of `.tcp`. The iOS client shipped before 2026-10-11 offers only
+//      `TLS_PSK_WITH_AES_128_GCM_SHA256`, which has no forward secrecy; the Mac
+//      still accepts it for that client. Once iOS offers
+//      `TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256` first, remove the plain
+//      PSK suite from `RemotePairing.ciphersuites`.
 //   3. Mirror `MessageChannel.maxFramePayloadBytes` so both ends reject
 //      oversized frames identically.
 // Re-pair each device after a key rotation (Settings → Nearby Macs → Rotate).

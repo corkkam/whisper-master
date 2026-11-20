@@ -134,8 +134,21 @@ final class LabBenchRunner {
             memory.resetPeak()
             let before = memory.sample(atMs: 0)
 
+            if LabPaths.installedDirectory(for: model) == nil {
+                do {
+                    try await download(model)
+                } catch {
+                    if Task.isCancelled { break }
+                    result.failure = "Download failed: \(error.localizedDescription)"
+                    append(.bad, "\(model.name): \(result.failure!)")
+                    update(result, at: index)
+                    persist()
+                    continue
+                }
+                if Task.isCancelled { break }
+            }
             guard let configuration = configuration(for: model) else {
-                result.failure = "Not installed, and no Hugging Face id to fetch it from."
+                result.failure = "Downloaded, but the files MLX needs are not all there."
                 append(.bad, "\(model.name): \(result.failure!)")
                 update(result, at: index)
                 persist()
@@ -170,7 +183,7 @@ final class LabBenchRunner {
                 caseIndex = caseNumber
 
                 let caseResult = await evaluate(
-                    labCase, with: service, source: loaded.sources[labCase.id],
+                    labCase, with: service, thinking: model.thinks, source: loaded.sources[labCase.id],
                     toolSetup: toolSetup, transcripts: &transcripts)
                 result.cases.append(caseResult)
 
@@ -200,7 +213,8 @@ final class LabBenchRunner {
 
             append(.good, "\(model.name): \(result.passed)/\(result.total) at "
                 + "\(LabFormat.milliseconds(result.p50LatencyMs)) p50, peak "
-                + "\(LabFormat.bytes(result.peakGPUBytes))")
+                + "\(LabFormat.bytes(result.peakGPUBytes))"
+                + (result.medianReasoningTokens.map { ", \($0) reasoning tokens median" } ?? ""))
             update(result, at: index)
             persist()
 
@@ -240,7 +254,7 @@ final class LabBenchRunner {
     // MARK: - One case
 
     private func evaluate(
-        _ labCase: LabCase, with service: MlxCleanupService,
+        _ labCase: LabCase, with service: MlxCleanupService, thinking: Bool,
         source: EvalCase?, toolSetup: LabToolBench.Setup?,
         transcripts: inout [String: (text: String, ms: Int)]
     ) async -> LabCaseResult {
@@ -267,7 +281,7 @@ final class LabBenchRunner {
 
         case .spokenCommand(let spoken, let expectedTool):
             return await toolCase(labCase, spoken: spoken, expectedTool: expectedTool,
-                                  setup: toolSetup, service: service)
+                                  setup: toolSetup, service: service, thinking: thinking)
         }
     }
 
@@ -331,7 +345,7 @@ final class LabBenchRunner {
     /// parser reads a call to the expected tool.
     private func toolCase(
         _ labCase: LabCase, spoken: String, expectedTool: String,
-        setup: LabToolBench.Setup?, service: MlxCleanupService
+        setup: LabToolBench.Setup?, service: MlxCleanupService, thinking: Bool
     ) async -> LabCaseResult {
         guard let setup else {
             return LabCaseResult(
@@ -343,13 +357,15 @@ final class LabBenchRunner {
         let started = Date()
         let (raw, cost) = await service.generateWithToolsMeasured(
             messages: LabToolBench.messages(for: spoken, setup: setup),
-            toolSchemasJSON: setup.schemas)
+            toolSchemasJSON: setup.schemas, thinking: thinking)
         let latencyMs = Int(Date().timeIntervalSince(started) * 1000)
         let output = raw ?? ""
         let called = LabToolBench.calledTool(in: output, setup: setup)
         let passed = called == expectedTool
         var reasons: [String] = []
-        if called == nil {
+        if thinking, raw == nil, cost.generatedTokens > 0 {
+            reasons = ["still reasoning when the budget ran out (\(cost.generatedTokens) tokens)"]
+        } else if called == nil {
             reasons = ["no parseable tool call"]
         } else if !passed {
             reasons = ["called \(called!), expected \(expectedTool)"]
@@ -363,19 +379,34 @@ final class LabBenchRunner {
             latencyMs: latencyMs,
             promptTokens: cost.promptTokens, generatedTokens: cost.generatedTokens,
             tokensPerSecond: cost.tokensPerSecond,
-            expectedTool: expectedTool, calledTool: called)
+            expectedTool: expectedTool, calledTool: called,
+            reasoningTokens: thinking ? cost.reasoningTokens : nil)
     }
 
     // MARK: - Helpers
 
-    /// Prefer a local directory; fall back to the Hugging Face id, which makes
-    /// MLX fetch the model on first use. That fallback is how a candidate gets
-    /// installed at all — there is no separate download step to forget.
+    /// Load from disk only. `execute` downloads first, because a load that has
+    /// to fetch spends its 60-second timeout on the network.
     private func configuration(for model: LabModel) -> ModelConfiguration? {
-        if let directory = LabPaths.installedDirectory(for: model) {
-            return ModelConfiguration(directory: directory)
+        // The app's own builder, so a model ranks here on the configuration the
+        // shipped slot would load it with.
+        LabPaths.installedDirectory(for: model).map(MlxModelConfiguration.local)
+    }
+
+    /// Fetch a model before its load, logging every tenth of the way. The log is
+    /// the only progress there is, and a 4 GB fetch with no word for minutes
+    /// reads as a hang.
+    private func download(_ model: LabModel) async throws {
+        append(.info, "\(model.name): downloading about \(LabFormat.bytes(model.approximateDownloadBytes))")
+        let started = Date()
+        let tenths = LabDownloadTenths()
+        _ = try await LabHuggingFace.download(model) { [weak self] fraction in
+            guard let tenth = tenths.crossed(fraction) else { return }
+            Task { @MainActor in
+                self?.append(.info, "\(model.name): downloaded \(tenth * 10)%")
+            }
         }
-        return ModelConfiguration(id: model.huggingFaceId)
+        append(.good, "\(model.name): downloaded in \(LabFormat.duration(Date().timeIntervalSince(started)))")
     }
 
     /// Replay a recording through the real streaming transcriber in ~100 ms
@@ -408,6 +439,24 @@ final class LabBenchRunner {
     private func append(_ kind: LabLogLine.Kind, _ text: String) {
         log.append(LabLogLine(at: Date(), kind: kind, text: text))
         if log.count > logLimit { log.removeFirst(log.count - logLimit) }
+    }
+}
+
+/// Which tenth of a download was last reported. A class with a lock because the
+/// progress callback arrives on whatever queue the hub client uses.
+final class LabDownloadTenths: @unchecked Sendable {
+    private let lock = NSLock()
+    private var reported = 0
+
+    /// The new tenth when `fraction` crosses one, else nil. Never repeats one and
+    /// never goes backward, whatever order the callbacks land in.
+    func crossed(_ fraction: Double) -> Int? {
+        let tenth = Int((min(1, max(0, fraction)) * 10).rounded(.down))
+        return lock.withLock {
+            guard tenth > reported else { return nil }
+            reported = tenth
+            return tenth
+        }
     }
 }
 

@@ -57,6 +57,18 @@ struct CommandAgentService {
     /// Hand this capture's recording to a note the agent files, or nil to file
     /// without one. Consumed at most once per capture.
     var takeNoteAudio: (UUID) -> NoteAudio? = { _ in nil }
+    /// What the user had selected when they held the chord. Set, it adds
+    /// `read_selection` to the tools and one line of context to the prompt.
+    var selection: SelectionContext?
+    /// The last answered command, when it is recent (`FollowUpWindow`). Set, the loop
+    /// sends it as an earlier turn of the conversation (`AgentLoop.earlier`) and, when
+    /// that run was tainted, this one is tainted from the start.
+    var followUp: FollowUpWindow.Digest?
+    /// The app in front when the chord went down. Set, the run offers the draft
+    /// tools, which may only ever type into this app.
+    var frontApp: SelectionReader.FrontApp?
+    /// What the device tools touch. Injected so a test opens and reads nothing real.
+    var device: DeviceToolRunner.Environment = .live
 
     /// A run of the agent, result **and** the record of how it got there.
     ///
@@ -80,6 +92,20 @@ struct CommandAgentService {
         /// Why there is no result, or empty when there is one. One of the four decline
         /// rules in this type's doc comment, in words.
         let declineReason: String
+        /// The loop ran out of time or steps. Its last generation may still hold the
+        /// model (`AgentLoop.generateWithinBudget` walks away from it, it can't stop
+        /// it), so a caller about to generate again should not wait behind it.
+        var budgetSpent = false
+        /// The answer as the trace and the answer log may keep it: a placeholder when
+        /// it repeats the selection the run read. The band still shows `result.answer`.
+        let storableAnswer: String
+        /// Untrusted text entered the run (`Taint`). Carried into a follow-up, never
+        /// stored.
+        var tainted = false
+        /// Which brain ran it.
+        var tier: AgentTier = .onDevice
+        /// Text the model wrote for the front app, for the band. Never stored.
+        var draft: AgentDraft?
     }
 
     /// - Parameter onStep: called as the loop moves, so the band can name the
@@ -91,31 +117,75 @@ struct CommandAgentService {
         await run(spoken, generate: generate, onStep: onStep).result
     }
 
+    /// - Parameters:
+    ///   - generateNative: set, the loop runs the native tool-calling path on this
+    ///     generator instead of `generate` (`CloudToolGenerator` for the endpoint tier).
+    ///   - tier: which brain this is, for the answer line and the trace. Every rule
+    ///     below — the taint, the card, the execution rule — is the same for both.
     func run(_ spoken: String,
              generate: @escaping AgentLoop.Generate,
+             generateNative: AgentLoop.GenerateNative? = nil,
+             tier: AgentTier = .onDevice,
              onStep: @escaping (AgentActivity) -> Void = { _ in }) async -> Run {
         let connectorTools = connectorsAllowed
             ? ToolRegistry.available(store: store, includeWrites: true)
             : []
         // Local first in the list: it's the fallback the prompt names, and a small
         // model biases toward what it read first.
-        let tools = LocalToolCatalog.all + connectorTools
+        let tools = ToolPackRouter.pack(
+            LocalToolCatalog.all
+                + (selection == nil ? [] : [LocalToolCatalog.readSelection])
+                + DeviceToolCatalog.offered(selection: selection != nil, frontApp: frontApp != nil)
+                + connectorTools,
+            spoken: spoken)
 
+        // One flag for the whole run: a connector read and a selection read both gate
+        // a later write, whichever runner served them. A follow-up starts with the
+        // flag of the run it follows, whose answer is in its prompt. Its source is not
+        // kept, so it counts as outside the selection: the conservative reading.
+        let taint = Taint()
+        taint.isSet = followUp?.tainted ?? false
+        taint.outsideSelection = taint.isSet
         let connectorRouter = connectorTools.isEmpty
             ? nil
             : ToolRouter(store: store,
-                         requestApproval: { [approvals] approval in await approvals.request(approval) })
+                         requestApproval: { [approvals] approval in await approvals.request(approval) },
+                         taint: taint)
         let router = CommandToolRouter(
             local: LocalToolRunner(
                 notes: notes, alertStyle: alertStyle, soundName: soundName, now: now,
                 // The capture's own words and audio, so a note the agent files keeps
                 // what was actually said next to the model's rewrite of it.
-                voice: .init(transcript: spoken, takeAudio: takeNoteAudio)),
+                voice: .init(transcript: spoken, takeAudio: takeNoteAudio),
+                selection: selection,
+                taint: taint),
             connectors: connectorRouter,
+            device: DeviceToolRunner(
+                store: store,
+                requestApproval: { [approvals] approval in await approvals.request(approval) },
+                environment: device,
+                taint: taint,
+                frontApp: frontApp,
+                selection: selection,
+                now: now),
             now: now)
 
         var loop = AgentLoop(tools: tools, router: router, generate: generate)
-        loop.prompt = AgentPrompt.command(toolList:)
+        loop.generateNative = generateNative
+        // `thinks` describes the on-device model; an endpoint gets the plain budget.
+        loop.budget = tier == .onDevice
+            ? AgentLoop.budget(thinks: CleanupModel.General.thinks)
+            : AgentLoop.defaultBudget
+        // The prompt names the selection; the text itself comes only through the tool.
+        loop.prompt = { [selection] toolList in
+            let prompt = AgentPrompt.command(toolList: toolList)
+            return selection.map { prompt + "\n\n" + $0.promptLine } ?? prompt
+        }
+        loop.nativePrompt = { [selection] in
+            let prompt = AgentPrompt.commandNative()
+            return selection.map { prompt + "\n\n" + $0.promptLine } ?? prompt
+        }
+        loop.earlier = followUp.map { ($0.question, $0.answer) }
         loop.now = now
         loop.onStep = onStep
         // The chord suppresses the paste, so an answer with nothing executed behind it
@@ -127,19 +197,50 @@ struct CommandAgentService {
         /// the same shape `SessionAccounting` uses to make an unaccounted exit
         /// impossible.
         func run(_ result: CommandAgentResult?, _ declineReason: String = "") -> Run {
-            Run(result: result,
-                toolsOffered: tools.map(\.name),
-                connectorsAllowed: connectorsAllowed,
-                calls: router.journal,
-                turns: Self.traceTurns(outcome.turns),
-                declineReason: result == nil ? declineReason : "")
+            let answer = result?.answer ?? ""
+            var storable = router.selectionRead?.storable(answer) ?? answer
+            // A model that repeats its draft in the answer must not store it there.
+            if let draft = router.draft {
+                storable = DeviceToolCatalog.strip(draft.text, from: storable)
+            }
+            return Run(result: result,
+                       toolsOffered: tools.map(\.name),
+                       connectorsAllowed: connectorsAllowed,
+                       calls: router.journal,
+                       turns: Self.traceTurns(outcome.turns, selection: router.selectionRead,
+                                              draft: router.draft),
+                       declineReason: result == nil ? declineReason : "",
+                       budgetSpent: outcome.exhausted,
+                       storableAnswer: storable,
+                       tainted: taint.isSet,
+                       tier: tier,
+                       draft: router.draft)
         }
 
+        // Escape stopped the loop. Something a tool already created stands, and is
+        // reported below like any run that ran dry after acting.
+        if Task.isCancelled, outcome.exhausted, !router.didCreateSomething {
+            return run(nil, "Stopped with Escape before anything was created, so the "
+                + "words were filed instead.")
+        }
         guard !router.executed.isEmpty else {
-            return run(nil, tools.isEmpty
-                ? "No tools were available, so there was nothing the assistant could do."
-                : "The model answered without calling a tool, so nothing was acted on "
-                    + "and the words were filed instead.")
+            if tools.isEmpty {
+                return run(nil, "No tools were available, so there was nothing the assistant could do.")
+            }
+            return run(nil, (router.journal.isEmpty
+                ? "The model answered without calling a tool"
+                : "Every tool call failed or was refused")
+                + ", so nothing was acted on and the words were filed instead.")
+        }
+        // Reading the selection is not acting. The prompt invites that call on every
+        // chord press, so "remind me to email Dana" with text selected can end as
+        // read_selection plus prose — and the paste is suppressed, so the words would
+        // be lost. A capture that opens with a note or reminder trigger is therefore
+        // filed unless something else ran. (Legal here: this is behind the chord.)
+        if router.executed.allSatisfy({ $0 == LocalToolCatalog.readSelection.name }),
+           CommandDetector.detect(spoken) != nil {
+            return run(nil, "The model only read the selection, so nothing was acted on "
+                + "and the words were filed instead.")
         }
         // An exhausted loop that already *created* something is not a failure to hand
         // back to the caller — the reminder exists, or the message went out. Falling
@@ -166,7 +267,8 @@ struct CommandAgentService {
             answer: answer,
             detail: Self.detailLine(effects: router.effects,
                                     served: outcome.instanceLabels,
-                                    unreadable: router.unreadable),
+                                    unreadable: router.unreadable,
+                                    tier: tier),
             icon: icon(for: router),
             createdSomething: router.didCreateSomething))
     }
@@ -176,10 +278,21 @@ struct CommandAgentService {
     ///
     /// Tool turns are dropped — their text is already journalled in `calls`, and a
     /// trace that keeps every result twice is what `TraceText.clamp` exists to stop.
-    private static func traceTurns(_ turns: [AgentTurn]) -> [TraceTurn] {
+    /// After a `read_selection`, a turn that repeats the selection is kept as a
+    /// placeholder, because traces persist.
+    private static func traceTurns(_ turns: [AgentTurn],
+                                   selection: SelectionContext?,
+                                   draft: AgentDraft?) -> [TraceTurn] {
         turns
             .filter { $0.role != .tool }
-            .map { TraceTurn(role: $0.role.rawValue, text: TraceText.clamp($0.text)) }
+            .map { turn in
+                // A model turn that calls a draft tool keeps the call, not the text,
+                // and any later turn that repeats the staged draft keeps its length.
+                var shown = turn.role == .model ? DeviceToolCatalog.storableTurn(turn.text) : turn.text
+                if let draft { shown = DeviceToolCatalog.strip(draft.text, from: shown) }
+                let text = selection?.storable(shown) ?? shown
+                return TraceTurn(role: turn.role.rawValue, text: TraceText.clamp(text))
+            }
     }
 
     /// The second line: where it went, or who answered, plus any connection that
@@ -191,10 +304,17 @@ struct CommandAgentService {
     /// day. The wording is the deterministic day summary's own tail, so the two
     /// surfaces report a gap identically.
     /// Pure, so the gap rule is testable without a provider that can fail on demand.
+    /// A remote run says so on this line too, never "On-device assistant".
     static func detailLine(effects: [CommandToolRouter.Effect],
                            served: [String],
-                           unreadable: [String]) -> String {
-        let line = destination(effects: effects, served: served)
+                           unreadable: [String],
+                           tier: AgentTier = .onDevice) -> String {
+        var line = destination(effects: effects, served: served)
+        if let label = tier.answerLabel {
+            line = line == onDeviceLine
+                ? "Answered by \(label)"
+                : line + "  \u{00B7}  via \(label)"
+        }
         guard !unreadable.isEmpty else { return line }
         return line + "  ·  couldn't read \(unreadable.joined(separator: ", "))"
     }
@@ -215,14 +335,19 @@ struct CommandAgentService {
                 return "Saved to Notes & Reminders"
             case .connectorWrite(let tool, let written) where !written.isEmpty:
                 return writeDestination(tool: tool, written: written)
+            case .device(.openedApp): return "On \(DeviceToolCatalog.thisMacLabel)"
+            case .device(.openedURL): return "In your browser"
+            case .device(.draftStaged(let draft)): return "Draft for \(draft.app.name)"
             case .local(.read), .connectorWrite:
                 continue
             }
         }
         let labels = Set(served).sorted()
         if !labels.isEmpty { return "From \(labels.joined(separator: ", "))" }
-        return "On-device assistant"
+        return onDeviceLine
     }
+
+    private static let onDeviceLine = "On-device assistant"
 
     private func icon(for router: CommandToolRouter) -> String {
         for effect in router.effects {
@@ -231,6 +356,9 @@ struct CommandAgentService {
             case .local(.noteCreated): return "note.text"
             case .local(.read): continue
             case .connectorWrite(let tool, _): return Self.writeIcon(tool: tool)
+            case .device(.openedApp): return "macwindow"
+            case .device(.openedURL): return "safari"
+            case .device(.draftStaged): return "text.cursor"
             }
         }
         return "sparkles"

@@ -8,7 +8,8 @@ import Foundation
 ///
 /// - `.none` — nothing to resolve (EventKit).
 /// - `.staticSecret` — hand back what the user pasted.
-/// - `.refreshableGrant` — refresh in place when it's near expiry, then hand back.
+/// - `.refreshableGrant` — refresh in place when it's near expiry, then hand back
+///   (Google or Microsoft, whichever issued it).
 /// - `.mintedToken` — exchange stored client credentials for a fresh short-lived token
 ///   on every use; nothing is ever cached to disk.
 @MainActor
@@ -120,7 +121,9 @@ enum CredentialStrategy {
     private static func performRefresh(_ refreshToken: String,
                                        into credential: ConnectorCredential) async throws -> Resolved {
         do {
-            let response = try await OAuthPKCEFlow.refresh(refreshToken: refreshToken)
+            // Routed by the issuer recorded in the credential, so a Microsoft grant is
+            // never sent to Google's token endpoint (or the reverse).
+            let response = try await OAuthPKCEFlow.refresh(credential, refreshToken: refreshToken)
             return Resolved(token: response.accessToken,
                             updatedCredential: response.merged(into: credential))
         } catch {

@@ -52,8 +52,8 @@ final class CleanupFaithfulnessGuardTests: XCTestCase {
 
     func testAcceptsBossCase() {
         assertAccept(
-            "hey um so the the lyzr demo is at four thirty no wait five o'clock and accuracy is like ninety percent now",
-            "Hey, so the lyzr demo is at 5:30 and accuracy is like 90%.")
+            "hey um so the the lazur demo is at four thirty no wait five o'clock and accuracy is like ninety percent now",
+            "Hey, so the lazur demo is at 5:30 and accuracy is like 90%.")
     }
 
     func testAcceptsSingleWord() {

@@ -28,8 +28,8 @@ enum UpdateChannel: String, CaseIterable {
     /// drift onto different buckets. Keep in lock-step with `CH_SU_FEED_URL`.
     var feedURLString: String {
         switch self {
-        case .stable, .beta: return "https://dl.corkkam.com/appcast.xml"
-        case .dev: return "https://dl.corkkam.com/appcast-dev.xml"
+        case .stable, .beta: return "https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast.xml"
+        case .dev: return "https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast-dev.xml"
         }
     }
 

@@ -6,9 +6,9 @@ final class CorrectionDetectorTests: XCTestCase {
     func testSingleWordReplacementIsDetected() {
         let correction = CorrectionDetector.detectSingleWordReplacement(
             injected: "the laser pipeline is ready",
-            current: "the Lyzr pipeline is ready"
+            current: "the Lazur pipeline is ready"
         )
-        XCTAssertEqual(correction, .init(heard: "laser", typed: "Lyzr"))
+        XCTAssertEqual(correction, .init(heard: "laser", typed: "Lazur"))
     }
 
     func testReplacementFoundInsideSurroundingText() {
@@ -35,22 +35,22 @@ final class CorrectionDetectorTests: XCTestCase {
 
     func testCaseOnlyChangeIsIgnored() {
         XCTAssertNil(CorrectionDetector.detectSingleWordReplacement(
-            injected: "using lyzr for agents",
-            current: "using Lyzr for agents"
+            injected: "using lazur for agents",
+            current: "using Lazur for agents"
         ))
     }
 
     func testTwoChangedWordsReturnsNil() {
         XCTAssertNil(CorrectionDetector.detectSingleWordReplacement(
             injected: "the laser pipeline is ready",
-            current: "the Lyzr pipelines is ready"
+            current: "the Lazur pipelines is ready"
         ))
     }
 
     func testTooShortSentenceReturnsNil() {
         XCTAssertNil(CorrectionDetector.detectSingleWordReplacement(
             injected: "laser pipeline",
-            current: "Lyzr pipeline"
+            current: "Lazur pipeline"
         ))
     }
 
@@ -97,15 +97,15 @@ final class CorrectionDetectorTests: XCTestCase {
         XCTAssertEqual(
             CorrectionDetector.detectSingleWordReplacement(
                 injected: "the laser pipeline is ready",
-                current: "the Lyzr pipeline is ready"
+                current: "the Lazur pipeline is ready"
             ),
-            .init(heard: "laser", typed: "Lyzr")
+            .init(heard: "laser", typed: "Lazur")
         )
     }
 
     func testSimilarityMetric() {
         XCTAssertEqual(CorrectionDetector.similarity("rack", "rack"), 1.0)
-        XCTAssertGreaterThan(CorrectionDetector.similarity("laser", "lyzr"), 0.3)
+        XCTAssertGreaterThan(CorrectionDetector.similarity("laser", "lazur"), 0.3)
         XCTAssertLessThan(CorrectionDetector.similarity("great", "fantastic"), 0.3)
     }
 }

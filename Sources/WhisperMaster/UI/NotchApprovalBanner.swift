@@ -8,6 +8,14 @@ import SwiftUI
 /// connection. Approving "post to #standup" must never read as approving Slack in
 /// general.
 ///
+/// A run that has read connector text gets two choices, Once and No
+/// (`PendingApproval.grantOffered`). The target may come from text other people
+/// wrote, so the card does not offer a grant that would outlast it. That card also
+/// carries one more line under the headline (`PendingApproval.readWarning`): the
+/// model still proposes writes built from what it read, and with the card the only
+/// gate, approving by habit is the risk. The extra line is why the band's height
+/// is `thickness(for:banner:)` and not a constant.
+///
 /// Interactive, so it's in `DictationPillContent.allowsHitTesting` and the
 /// `setInteractive` call in the AppDelegate refresh loop, alongside the Bluetooth and
 /// undelivered banners.
@@ -25,20 +33,49 @@ struct NotchApprovalBanner: View {
             // than pushing them off the band — an approval card whose answers are
             // off-screen can only be answered by walking away from it.
             textGivesWayToTrailing: true,
-            subtitle: { Text(approval.detail) },
+            subtitle: {
+                // Stacked, so the warning never takes width from the payload.
+                VStack(alignment: .leading, spacing: 1) {
+                    if let warning = approval.readWarning {
+                        Text(warning).foregroundStyle(Theme.Notch.warning)
+                    }
+                    // A link wraps onto the lines `thickness` reserved for it, and
+                    // shrinks a little rather than lose its tail if a break falls
+                    // badly. A one-line payload keeps its old rendering exactly.
+                    Text(approval.detail)
+                        .lineLimit(approval.detailLines)
+                        .minimumScaleFactor(approval.detailLines > 1 ? 0.75 : 1)
+                }
+            },
             trailing: {
                 HStack(spacing: 6) {
                     choice("Once", .allowedOnce)
-                    choice("Always", .allowedAlways)
+                    if approval.offersAlways { choice("Always", .allowedAlways) }
                     choice("No", .denied, isDestructive: true)
                 }
             })
     }
 
+    /// Height the warning line adds: one `notchCaption` line (10.5pt, ~12.5pt tall)
+    /// plus the 1pt stack gap, rounded up. The band's height is decided before the
+    /// card lays out, so this is pinned rather than measured.
+    static let warningLineHeight: CGFloat = 14
+
+    /// How tall the band must be for this card. `DictationPillContent.bandThickness`
+    /// reads it, and `NotchSurfaceLayout.maxBandThickness` adds `warningLineHeight`
+    /// to the banner: a band taller than its panel is clipped by its own window.
+    static func thickness(for approval: PendingApproval, banner: CGFloat) -> CGFloat {
+        let warning: CGFloat = approval.readWarning == nil ? 0 : warningLineHeight
+        // A wrapped link line is one more caption line; the gap is the same budget.
+        return banner + warning + CGFloat(approval.detailLines - 1) * warningLineHeight
+    }
+
     /// VoiceOver gets the full payload untruncated — a screen-reader user must not be
     /// asked to consent to something the visual layout abbreviated away.
-    private var accessibilityText: String {
-        "\(approval.headline). \(approval.detail). Choose once, always, or no."
+    var accessibilityText: String {
+        let choices = approval.offersAlways ? "once, always, or no" : "once or no"
+        let warning = approval.readWarning.map { " \($0)" } ?? ""
+        return "\(approval.headline).\(warning) \(approval.detail). Choose \(choices)."
     }
 
     private func choice(_ title: String,

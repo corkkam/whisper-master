@@ -18,7 +18,7 @@
 
 ## paragraph-5.m4a
 - **raw**   (26 words): We are using parakeet for transcription and rag pipeline for retrieval, the laser agent handles the routing and it all runs on the Nvidia card only.
-- **final** (26 words): We are using Parakeet for transcription and RAG pipeline for retrieval, the Lyzr agent handles the routing and it all runs on the NVIDIA card only.
+- **final** (26 words): We are using Parakeet for transcription and RAG pipeline for retrieval, the Lazur agent handles the routing and it all runs on the NVIDIA card only.
 
 ## paragraph-6.m4a
 - **raw**   (122 words): Yesterday I walked down to the harbour to watch the boats come in, the water was calm and the air smelled like salt and diesel. An old fisherman was mending his net. on the dock, and he nodded at me as I passed. Further along, a group of kids were dropping crab lines off the pier and shouting every time. one of them caught something. I bought a paper cup of chowder from a little stand and I found a bench in the sun. For a while I just sat there watching the gulls fight over the scraps and I forgot all about the work waiting for me at the home. It was the most peaceful hour I had spent in weeks.
@@ -26,5 +26,5 @@
 
 ## paragraph-7.m4a
 - **raw**   (50 words): Hey, um quick update on the laser demo. We shipped the new build this morning and our accuracy is up around ninety percent now. Uh still need to fix the one bug where the last word gets cut off but um other than that that's it's work looking pretty good.
-- **final** (47 words): Hey, quick update on the Lyzr demo. We shipped the new build this morning and our accuracy is up around ninety percent now. Still need to fix the one bug where the last word gets cut off but other than that that's it's work looking pretty good.
+- **final** (47 words): Hey, quick update on the Lazur demo. We shipped the new build this morning and our accuracy is up around ninety percent now. Still need to fix the one bug where the last word gets cut off but other than that that's it's work looking pretty good.
 

@@ -29,15 +29,15 @@ final class FixCountingTests: XCTestCase {
 
     func testVocabApplyCountingSubstitutes() {
         let (text, subs) = VocabularyPostProcessor.applyCounting(
-            "the laser platform", glossary: ["Lyzr: laser"])
+            "the laser platform", glossary: ["Lazur: laser"])
         XCTAssertEqual(subs, 1)
-        XCTAssertTrue(text.contains("Lyzr"), "expected canonical term in \"\(text)\"")
+        XCTAssertTrue(text.contains("Lazur"), "expected canonical term in \"\(text)\"")
         XCTAssertFalse(text.contains("laser"))
     }
 
     func testVocabApplyCountingNoMatch() {
         let (text, subs) = VocabularyPostProcessor.applyCounting(
-            "the platform works", glossary: ["Lyzr: laser"])
+            "the platform works", glossary: ["Lazur: laser"])
         XCTAssertEqual(subs, 0)
         XCTAssertEqual(text, "the platform works")
     }

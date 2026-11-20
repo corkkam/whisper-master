@@ -15,12 +15,12 @@ final class ModelLabTests: XCTestCase {
     // MARK: - Catalogue
 
     func testCatalogueIDsAreUniqueBecauseRunsAreKeyedOnThem() {
-        let ids = LabCatalog.all.map(\.id)
+        let ids = LabCatalog.builtIn.map(\.id)
         XCTAssertEqual(Set(ids).count, ids.count, "a duplicate id would collide in every saved run")
     }
 
     func testEveryModelCanBeFetchedAndDeclaresARole() {
-        for model in LabCatalog.all {
+        for model in LabCatalog.builtIn {
             XCTAssertFalse(model.huggingFaceId.isEmpty, "\(model.id) has nowhere to be fetched from")
             XCTAssertFalse(model.roles.isEmpty, "\(model.id) can run no suite")
             XCTAssertGreaterThan(model.approximateDownloadBytes, 0, "\(model.id) has no size to warn about")
@@ -35,7 +35,9 @@ final class ModelLabTests: XCTestCase {
     /// A normalizer offered for the tool-calling suite would score zero for a
     /// reason that has nothing to do with its quality.
     func testToolSuiteOnlyOffersModelsThatCanToolCall() {
-        let eligible = LabCatalog.models(for: LabSuite.tools.requiredRole)
+        let lab = LabController(load: false)
+        lab.suite = .tools
+        let eligible = lab.eligibleModels
         XCTAssertFalse(eligible.contains { $0.id == LabCatalog.shippedCleanup.id })
         XCTAssertTrue(eligible.contains { $0.id == LabCatalog.shippedAssistant.id })
     }
@@ -306,10 +308,17 @@ final class ModelLabTests: XCTestCase {
 
     func testAnOverrideIsIgnoredWhenTheModelIsNotOnDisk() throws {
         let defaults = try scratchDefaults()
-        LabModelOverride.set("llama-3.2-1b-instruct-4bit", for: .cleanup, defaults: defaults)
+        // An added model whose repo cannot exist, so it is absent on every Mac. A
+        // catalogue id broke this test as soon as a bench run downloaded it.
+        let absent = LabCustomModel(
+            huggingFaceId: "test-only/never-downloaded-\(UUID().uuidString.prefix(8))", modelType: "qwen3",
+            approximateDownloadBytes: 1, parameters: "1B", quantization: "4-bit",
+            supportsTools: false, addedAt: Date())
+        LabCustomModels.save([absent], defaults: defaults)
+        LabModelOverride.set(absent.id, for: .cleanup, defaults: defaults)
 
         XCTAssertEqual(LabModelOverride.modelID(for: .cleanup, defaults: defaults),
-                       "llama-3.2-1b-instruct-4bit", "the choice is remembered, so it can be shown")
+                       absent.id, "the choice is remembered, so it can be shown")
         XCTAssertNil(LabModelOverride.directory(for: .cleanup, defaults: defaults),
                      "but a model that is not installed must not be loaded")
         XCTAssertFalse(LabModelOverride.isOverridden(.cleanup, defaults: defaults))
@@ -331,7 +340,9 @@ final class ModelLabTests: XCTestCase {
         defer { if let hadCleanup { defaults.set(hadCleanup, forKey: LabModelOverride.cleanupKey) } }
 
         XCTAssertEqual(CleanupModel.directory, CleanupModel.shippedDirectory)
-        XCTAssertEqual(CleanupModel.General.directory, CleanupModel.General.shippedDirectory)
+        // The assistant's own resolution (mirror, Hugging Face, previous model), with
+        // no say from the lab.
+        XCTAssertEqual(CleanupModel.General.directory, CleanupModel.General.installedDirectory)
     }
 
     // MARK: - Controller

@@ -46,6 +46,9 @@ struct NotchAgentReplyExpanded: View {
     /// Puts the whole answer on the clipboard. Injected so the view stays free of the
     /// pasteboard, the same shape the undelivered hint's Copy uses.
     var onCopy: () -> Void = {}
+    /// What VoiceOver calls the band. The assistant's answer puts its provenance in
+    /// `repo`, so "Reply from …" would not read right there.
+    var accessibilityTitle: String?
 
     /// Latched for a beat after a copy, so the button reports what it did. Local
     /// because it is presentation, not app state.
@@ -88,7 +91,7 @@ struct NotchAgentReplyExpanded: View {
         .padding(.bottom, Metrics.bottomPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Reply from \(repo)")
+        .accessibilityLabel(accessibilityTitle ?? "Reply from \(repo)")
     }
 
     // MARK: The line above

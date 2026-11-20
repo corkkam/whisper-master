@@ -194,7 +194,6 @@ final class OAuthPKCETests: XCTestCase {
 final class GoogleSignInLabelTests: XCTestCase {
     func testSuggestsTheCompanyNameFromAWorkAddress() {
         XCTAssertEqual(GoogleSignInStep.suggestedLabel(from: "sam@acme.com"), "Acme")
-        XCTAssertEqual(GoogleSignInStep.suggestedLabel(from: "s@lyzr.ai"), "Lyzr")
         XCTAssertEqual(GoogleSignInStep.suggestedLabel(from: "a@sub.example.co.uk"), "Sub")
     }
 

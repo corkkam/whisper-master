@@ -35,6 +35,18 @@ final class ConnectorInstanceStore {
     /// separate store would need a subscription to guarantee that.
     private(set) var grants: [Grant] = []
 
+    /// Connections pinned to the notch, in the order their tabs appear.
+    ///
+    /// A pin is per **connection**, not per kind: "Gmail Work" and "Gmail Personal"
+    /// pin apart, because each one gets its own tab and its own count. Capped at
+    /// `notchPinLimit` — every pin is a tab in a band the width of the notch.
+    /// Kept here rather than on `ConnectorInstance` so the order is one list, and
+    /// so removing a connection takes its pin with it, same as its grants.
+    private(set) var notchPins: [UUID] = []
+
+    /// Most connections the notch band holds as tabs.
+    static let notchPinLimit = 3
+
     /// Live EventKit authorization, refreshed by `CalendarConnector`. One TCC grant
     /// covers every calendar instance, so this is store-wide rather than per-instance.
     var calendarAccessGranted: Bool = false
@@ -83,6 +95,7 @@ final class ConnectorInstanceStore {
         instances = []
         defaultsByKind = [:]
         grants = []
+        notchPins = []
     }
 
     // MARK: - Reads
@@ -116,6 +129,16 @@ final class ConnectorInstanceStore {
             return $0.connectedAt < $1.connectedAt
         }
     }
+
+    /// The pinned connections that still exist, in tab order.
+    var pinnedToNotch: [ConnectorInstance] {
+        notchPins.compactMap { instance(id: $0) }
+    }
+
+    func isPinnedToNotch(_ id: UUID) -> Bool { notchPins.contains(id) }
+
+    /// Whether another connection can be pinned right now.
+    var canPinToNotch: Bool { notchPins.count < Self.notchPinLimit }
 
     func isDefault(_ id: UUID) -> Bool {
         guard let instance = instance(id: id) else { return false }
@@ -175,6 +198,24 @@ final class ConnectorInstanceStore {
         guard let index = instances.firstIndex(where: { $0.id == id }) else { return }
         instances[index].isEnabled = on
         persist()
+    }
+
+    /// Pin a connection to the notch, or unpin it. Returns false (and changes
+    /// nothing) for an unknown id or a pin past `notchPinLimit` — the caller dims the
+    /// control at the cap, so this is the backstop, not the UX.
+    @discardableResult
+    func setPinnedToNotch(_ id: UUID, _ on: Bool) -> Bool {
+        if !on {
+            notchPins.removeAll { $0 == id }
+            persist()
+            return true
+        }
+        guard instance(id: id) != nil else { return false }
+        if notchPins.contains(id) { return true }
+        guard canPinToNotch else { return false }
+        notchPins.append(id)
+        persist()
+        return true
     }
 
     func setDefault(_ id: UUID) {
@@ -239,6 +280,7 @@ final class ConnectorInstanceStore {
         }
         // A removed connection must not leave live write permissions behind.
         grants.removeAll { $0.instanceID == id }
+        notchPins.removeAll { $0 == id }
         if persistenceEnabled { ConnectorCredentials.delete(for: id) }
         persist()
     }
@@ -290,6 +332,8 @@ final class ConnectorInstanceStore {
         var defaults: [String: String]
         /// Optional so a file written before grants existed still decodes.
         var grants: [Grant]?
+        /// Optional so a file written before notch pins existed still decodes.
+        var notchPins: [String]?
     }
 
     nonisolated static var directory: URL {
@@ -316,12 +360,14 @@ final class ConnectorInstanceStore {
         instances = []
         defaultsByKind = [:]
         grants = []
+        notchPins = []
         guard persistenceEnabled,
               let data = try? Data(contentsOf: fileURL),
               let payload = try? JSONDecoder().decode(Payload.self, from: data)
         else { return }
         instances = payload.instances
         grants = payload.grants ?? []
+        notchPins = (payload.notchPins ?? []).compactMap(UUID.init(uuidString:))
         defaultsByKind = Dictionary(uniqueKeysWithValues: payload.defaults.compactMap { key, value in
             guard let kind = ConnectorKind(rawValue: key), let id = UUID(uuidString: value) else { return nil }
             return (kind, id)
@@ -333,7 +379,8 @@ final class ConnectorInstanceStore {
         let payload = Payload(
             instances: instances,
             defaults: Dictionary(uniqueKeysWithValues: defaultsByKind.map { ($0.key.rawValue, $0.value.uuidString) }),
-            grants: grants)
+            grants: grants,
+            notchPins: notchPins.map(\.uuidString))
         guard let data = try? JSONEncoder().encode(payload) else { return }
         try? FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
         try? data.write(to: fileURL, options: .atomic)

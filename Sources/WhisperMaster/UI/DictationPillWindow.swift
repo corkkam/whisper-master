@@ -15,6 +15,10 @@ final class DictationPillWindow {
     /// Copies the undelivered transcript when its banner's Copy button is tapped.
     /// Injected by `AppDelegate`, which owns the view model that does the copying.
     private let onCopyUndelivered: () -> Void
+    /// Copies a long assistant answer from its expanded band.
+    private let onCopyAnswer: () -> Void
+    /// The draft band's buttons. Injected by `AppDelegate`, whose view model types.
+    private let onDraft: (NotchDraftBanner.Action) -> Void
     /// Ticks the due-reminder banner's checkbox on or off. Injected by
     /// `AppDelegate`, which holds the pre-tick snapshot an un-tick restores.
     private let onToggleDueReminder: () -> Void
@@ -33,6 +37,8 @@ final class DictationPillWindow {
         state: AppState,
         onOpenNotes: @escaping () -> Void = {},
         onCopyUndelivered: @escaping () -> Void = {},
+        onCopyAnswer: @escaping () -> Void = {},
+        onDraft: @escaping (NotchDraftBanner.Action) -> Void = { _ in },
         onToggleDueReminder: @escaping () -> Void = {},
         onCompleteNowReminder: @escaping (UUID) -> Void = { _ in },
         onJoin: @escaping (URL) -> Void = { _ in }
@@ -40,6 +46,8 @@ final class DictationPillWindow {
         self.state = state
         self.onOpenNotes = onOpenNotes
         self.onCopyUndelivered = onCopyUndelivered
+        self.onCopyAnswer = onCopyAnswer
+        self.onDraft = onDraft
         self.onToggleDueReminder = onToggleDueReminder
         self.onCompleteNowReminder = onCompleteNowReminder
         self.onJoin = onJoin
@@ -66,6 +74,8 @@ final class DictationPillWindow {
             state: state,
             onOpenNotes: onOpenNotes,
             onCopyUndelivered: onCopyUndelivered,
+            onCopyAnswer: onCopyAnswer,
+            onDraft: onDraft,
             onToggleDueReminder: onToggleDueReminder,
             onCompleteNowReminder: onCompleteNowReminder,
             onJoin: onJoin))
@@ -136,6 +146,8 @@ final class DictationPillWindow {
             layout: layout,
             onOpenNotes: onOpenNotes,
             onCopyUndelivered: onCopyUndelivered,
+            onCopyAnswer: onCopyAnswer,
+            onDraft: onDraft,
             onToggleDueReminder: onToggleDueReminder,
             onCompleteNowReminder: onCompleteNowReminder,
             onJoin: onJoin)

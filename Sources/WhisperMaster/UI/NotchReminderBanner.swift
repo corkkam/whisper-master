@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// A gentle "you haven't used me in a while" line shown inside the notch.
+/// A gentle "you haven't used me in a while" line shown inside the notch. The
+/// Ready notice after setup (`NotchActivity.readyNotice`) draws the same line.
 ///
 /// A single short line on the dark notch surface, deliberately non-interactive —
 /// it simply appears for a moment and retracts. The scheduler owns its lifetime;

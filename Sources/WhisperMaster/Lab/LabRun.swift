@@ -49,6 +49,10 @@ struct LabCaseResult: Codable, Identifiable, Sendable, Equatable {
     /// hand the offline scorer the same two strings `EvalRunner` does.
     let asrText: String?
     let asrReference: String?
+    /// Reasoning rows only: how many of `generatedTokens` were thinking before
+    /// the answer. Nil, not zero, for a row that does not reason, and for runs
+    /// saved before the lab benched reasoning.
+    let reasoningTokens: Int?
 
     init(
         id: String, category: String, target: String, inputKind: String, prompt: String,
@@ -57,7 +61,7 @@ struct LabCaseResult: Codable, Identifiable, Sendable, Equatable {
         latencyMs: Int, asrMs: Int? = nil, wer: Double? = nil,
         promptTokens: Int = 0, generatedTokens: Int = 0, tokensPerSecond: Double = 0,
         expectedTool: String? = nil, calledTool: String? = nil,
-        asrText: String? = nil, asrReference: String? = nil
+        asrText: String? = nil, asrReference: String? = nil, reasoningTokens: Int? = nil
     ) {
         self.id = id; self.category = category; self.target = target
         self.inputKind = inputKind; self.prompt = prompt
@@ -69,6 +73,7 @@ struct LabCaseResult: Codable, Identifiable, Sendable, Equatable {
         self.tokensPerSecond = tokensPerSecond
         self.expectedTool = expectedTool; self.calledTool = calledTool
         self.asrText = asrText; self.asrReference = asrReference
+        self.reasoningTokens = reasoningTokens
     }
 }
 
@@ -115,6 +120,14 @@ struct LabModelResult: Codable, Identifiable, Sendable, Equatable {
         let values = cases.map(\.tokensPerSecond).filter { $0 > 0 }.sorted()
         guard !values.isEmpty else { return 0 }
         return values[values.count / 2]
+    }
+
+    /// What reasoning cost per case, for a row that reasons. Latency already
+    /// carries it in time; this says how much of that was thinking.
+    var medianReasoningTokens: Int? {
+        let values = cases.compactMap(\.reasoningTokens)
+        guard !values.isEmpty else { return nil }
+        return LabStats.percentile(values, 0.5)
     }
 
     /// Mean word error rate over the cases that have one.

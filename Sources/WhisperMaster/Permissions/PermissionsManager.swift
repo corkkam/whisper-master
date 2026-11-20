@@ -96,6 +96,15 @@ final class PermissionsManager {
         NSWorkspace.shared.open(url)
     }
 
+    /// The Sound pane, where the input device and its level are. Opens the pane
+    /// only; it sets no device.
+    func openSoundSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.sound") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
     func openNotificationSettings() {
         guard let url = URL(
             string: "x-apple.systempreferences:com.apple.preference.notifications"

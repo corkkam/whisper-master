@@ -9,7 +9,9 @@ import Foundation
 /// is in its defaults. It is validated against the filesystem on every read, so a
 /// model the user deleted falls back to the shipped one rather than wedging
 /// cleanup on a missing directory. And it stores a **catalogue id**, not a path,
-/// so nothing can be pointed at an arbitrary folder.
+/// so nothing can be pointed at an arbitrary folder. A model added by its Hugging
+/// Face id is a catalogue id too: its directory is derived from a repo id that
+/// `LabCustomModels` re-checks on every read, never from a stored path.
 ///
 /// Read from `CleanupModel.directory` and `CleanupModel.General.directory`, which
 /// is deliberately low: everything downstream — the installer's `isInstalled`
@@ -38,13 +40,19 @@ enum LabModelOverride {
     }
 
     static func model(for role: LabRole, defaults: UserDefaults = .standard) -> LabModel? {
-        modelID(for: role, defaults: defaults).flatMap(LabCatalog.model(id:))
+        modelID(for: role, defaults: defaults).flatMap { LabCatalog.model(id: $0, defaults: defaults) }
     }
 
     /// The directory to load, or nil to use the shipped model. Nil whenever the
     /// override names a model that is not installed right now.
+    ///
+    /// Nil for a reasoning row too. The cleanup path cannot reason (it renders with
+    /// `enable_thinking: false` on a 12-second budget). The assistant path can, but
+    /// it only knows the shipped model reasons (`CleanupModel.General.thinks(loadedFrom:)`
+    /// recognises the shipped directories), so any override runs as non-reasoning,
+    /// and a model that always reasons would time out on every turn that way.
     static func directory(for role: LabRole, defaults: UserDefaults = .standard) -> URL? {
-        guard let model = model(for: role, defaults: defaults) else { return nil }
+        guard let model = model(for: role, defaults: defaults), !model.thinks else { return nil }
         return LabPaths.installedDirectory(for: model)
     }
 

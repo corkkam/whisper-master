@@ -44,6 +44,8 @@ final class NaturalSpeechSynthesizer: SpeechSynthesizing {
 
     private var isLoaded = false
     private var loadTask: Task<Void, Never>?
+    /// When the last load threw; nil once one succeeds. See `prewarm(force:)`.
+    private var lastLoadFailure: Date?
     private var unloadTask: Task<Void, Never>?
     private var player: AVAudioPlayer?
     private var playbackContinuation: CheckedContinuation<Void, Never>?
@@ -151,8 +153,14 @@ final class NaturalSpeechSynthesizer: SpeechSynthesizing {
 
     /// Load the models in the background. Called when the user picks the natural voice,
     /// when they preview it, and on the first (system-voiced) answer after a cold start.
-    func prewarm() {
-        guard !isLoaded, loadTask == nil, NaturalVoiceInstaller.isInstalled else { return }
+    ///
+    /// After a failed load it waits out `NaturalVoicePolicy.loadRetryBackoff` before
+    /// trying again unless `force` says the user asked, so a load that fails every time
+    /// costs one attempt per few minutes rather than one per answer.
+    func prewarm(force: Bool = false) {
+        guard !isLoaded, loadTask == nil, NaturalVoiceInstaller.isInstalled,
+              NaturalVoicePolicy.mayLoad(lastFailure: lastLoadFailure, now: Date(), force: force)
+        else { return }
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -160,11 +168,13 @@ final class NaturalSpeechSynthesizer: SpeechSynthesizing {
                 try await self.manager.initialize()
                 self.isLoaded = true
                 self.loadTask = nil
+                self.lastLoadFailure = nil
                 Log.modelPrep.notice(
                     "Natural voice ready in \(Int(Date().timeIntervalSince(started) * 1000))ms")
                 self.onReady()
             } catch {
                 self.loadTask = nil
+                self.lastLoadFailure = Date()
                 Log.modelPrep.error(
                     "Natural voice failed to load: \(error.localizedDescription, privacy: .public)")
                 self.onFailure(error.localizedDescription)

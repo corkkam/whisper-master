@@ -116,8 +116,12 @@ enum SnapshotMode {
             render(accountPopover, to: dir.appendingPathComponent("\(name).png"))
         }
 
+        renderAgentEndpoint(dir)
+        renderConnectedTool(dir)
+
         // Onboarding, in the notch — one render per beat, plus the two states
         // inside the microphone beat that the orb is doing the work in.
+        let engine: @MainActor () -> EngineStatus = { EngineStatus(state) }
         renderOnboarding(dir, name: "onboarding-1-microphone", state: state) {
             .snapshot(step: .microphone)
         }
@@ -147,7 +151,8 @@ enum SnapshotMode {
                 step: .ready,
                 micGranted: true,
                 accessibilityGranted: true,
-                launchAtLoginEnabled: true)
+                launchAtLoginEnabled: true,
+                engineStatus: engine)
         }
         // The finished form of the last beat: engine ready, so the sub-line hands
         // off to the assistant chord instead of reporting download progress.
@@ -158,14 +163,24 @@ enum SnapshotMode {
                 step: .ready,
                 micGranted: true,
                 accessibilityGranted: true,
-                launchAtLoginEnabled: true)
+                launchAtLoginEnabled: true,
+                engineStatus: engine)
         }
         state.preparedEngine = engineBefore
+        renderOnboardingCues(dir, state: state)
+        renderOnboardingKeyCues(dir, state: state)
 
         // The hover quick-actions band: what the notch holds when the pointer rests
         // on it. Both states, since the empty one is what a fresh account sees.
         renderQuickActions(dir, name: "quick-actions", state: state)
         renderQuickActions(dir, name: "quick-actions-empty", state: AppState())
+        // One render per tab: the pinned connections (seeded below) each have one.
+        renderQuickActions(dir, name: "quick-actions-notes", state: state, tab: .notes)
+        renderQuickActions(dir, name: "quick-actions-settings", state: state, tab: .settings)
+        for (index, pinned) in state.connectorStore.pinnedToNotch.enumerated() {
+            renderQuickActions(dir, name: "quick-actions-pin-\(index + 1)", state: state,
+                               tab: .connector(pinned.id))
+        }
 
         // Notch pill / moment-of-truth states. The dark surface is rendered on a
         // neutral backdrop so the black band reads. Each state uses its own fresh
@@ -203,6 +218,17 @@ enum SnapshotMode {
             s.phase = .idle
             s.deliveredAt = Date()
         }
+        // The Ready notice: setup closed before the speech files were ready, and
+        // now they are. The lowest banner rung, one line, typing on and off.
+        renderPill(dir, name: "pill-13-ready-notice") { s in
+            s.phase = .idle
+            s.readyNoticeAt = Date()
+        }
+        renderPill(dir, name: "pill-13b-ready-notice-typing-off") { s in
+            s.phase = .idle
+            s.readyNoticeAt = Date()
+            s.readyNoticeTypingOn = false
+        }
         renderPill(dir, name: "pill-4-failed") { s in
             s.phase = .failed("The network appears to be offline")
             s.failedAt = Date()
@@ -213,6 +239,18 @@ enum SnapshotMode {
             s.undeliveredText = "Ship the notch transcript today and see how it reads."
             s.undeliveredTranscriptAt = Date()
         }
+        // A call app took the mic: the one-time offer to take notes.
+        renderPill(dir, name: "pill-12-meeting-detected") { s in
+            s.phase = .idle
+            s.meetings.seedPromptForSnapshot(DetectedCall(
+                name: "Slack huddle", bundleFamily: "com.tinyspeck.slackmacgap",
+                calendarTitle: "Design review"))
+        }
+        renderPill(dir, name: "pill-12b-meeting-notes-saved") { s in
+            s.phase = .idle
+            s.meetings.seedReadyForSnapshot(title: "Design review")
+        }
+        renderMeetingLive(dir)
         renderPill(dir, name: "pill-6-bluetooth") { s in
             s.phase = .idle
             s.bluetoothInputActive = true
@@ -252,6 +290,19 @@ enum SnapshotMode {
             s.daySummaryWasSpoken = true
             s.isSpeakingAnswer = true
         }
+        // A long assistant answer: more than one band line, so it opens the coding
+        // agent's expanded reply, with Copy, instead of being cut to one line.
+        renderPill(dir, name: "pill-6e-answer-long") { s in
+            s.phase = .idle
+            s.activeDaySummary = DaySummary(
+                headline: "Three meetings today, and the first is the design review at ten. "
+                    + "Lunch with Priya is at one, in the usual place. The vendor call at four "
+                    + "moved to Thursday, so the afternoon is free after two.",
+                detail: "From Work calendar",
+                events: [], gaps: [], scopedTo: nil,
+                question: "What does my day look like?")
+            s.daySummaryAt = Date()
+        }
         // The assistant working, captioned by the connector it's waiting on rather
         // than by one static "Working on it" for the whole 30-second budget. The
         // chord suppresses the paste, so this row is the only thing saying the words
@@ -286,6 +337,23 @@ enum SnapshotMode {
             s.commandAgentRunning = true
             s.agentActivity = .running(
                 tool: "list_calendar_events", target: "Personal Google Calendar")
+        }
+        // The static mark while the user's endpoint answers: the words are leaving the
+        // Mac while it shows, so it leads the caption and never animates.
+        renderPill(dir, name: "pill-7f-agent-your-endpoint") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.commandAgentRunning = true
+            s.commandAgentTier = .endpoint
+            s.agentActivity = .running(tool: "list_calendar_events", target: "Personal")
+        }
+        // The same mark while the connected tool answers.
+        renderPill(dir, name: "pill-7g-agent-claude-code") { s in
+            s.phase = .idle
+            s.isPolishing = true
+            s.commandAgentRunning = true
+            s.commandAgentTier = .claudeCode
+            s.agentActivity = .running(tool: "list_calendar_events", target: "Personal")
         }
         // The consent card for a connector write — the one banner that carries three
         // buttons beside its two lines, so it takes the *wide* surface. These two
@@ -326,6 +394,114 @@ enum SnapshotMode {
                         + "without me and I'll catch up on the thread afterwards.",
                     ToolDescriptor.instanceArgument: "Work",
                 ]))
+        }
+        // The same card after the run read connector text: Once and No only, because
+        // the target may come from text other people wrote, and the warning line
+        // under the headline.
+        renderPill(dir, name: "pill-9c-approval-after-read") { s in
+            s.phase = .idle
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "send_message",
+                instanceID: UUID(),
+                instanceLabel: "Work",
+                target: "#eng-standup",
+                arguments: ["channel": "#eng-standup", "text": "Shipping the fix now."],
+                grantOffered: false))
+        }
+        // The case the warning exists for: a message the model built from text it
+        // read. The payload is long, so this checks the warning keeps its own line,
+        // the payload keeps its full width, and Once / No stay whole on the band.
+        renderPill(dir, name: "pill-9d-approval-after-read-long") { s in
+            s.phase = .idle
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "send_message",
+                instanceID: UUID(),
+                instanceLabel: "Work",
+                target: "#general",
+                arguments: [
+                    "channel": "#general",
+                    "text": "I quit, effective today. Please remove my access and "
+                        + "don't contact me about any of the open projects.",
+                    ToolDescriptor.instanceArgument: "Work",
+                ],
+                grantOffered: false))
+        }
+        // The device route: a card with no connector behind it, scoped to This Mac.
+        // An app keeps Always; the payload line says what a yes does.
+        renderPill(dir, name: "pill-9e-approval-open-app") { s in
+            s.phase = .idle
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "open_app",
+                instanceID: DeviceToolCatalog.thisMacID,
+                instanceLabel: DeviceToolCatalog.thisMacLabel,
+                target: "Figma",
+                arguments: ["app": "Figma"]))
+        }
+        // A link: never Always, the host in the headline, and the whole address
+        // wrapped onto the lines the card reserved for it rather than cut.
+        renderPill(dir, name: "pill-9f-approval-open-url") { s in
+            s.phase = .idle
+            let link = "https://github.com/corkkam/whisper-master/pull/72/files?diff=split&w=1"
+                + "#diff-4f2c1a9e0b7d3f8a6c5e2d1b0a9f8e7d"
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "open_url",
+                instanceID: DeviceToolCatalog.thisMacID,
+                instanceLabel: DeviceToolCatalog.thisMacLabel,
+                target: link,
+                arguments: ["url": link],
+                grantable: false))
+        }
+        // The longest link the card accepts, in a tainted run: three wrapped lines
+        // plus the warning, and the tail of the address still on the band.
+        renderPill(dir, name: "pill-9g-approval-open-url-longest") { s in
+            s.phase = .idle
+            let head = "https://docs.example.com/guides/setup/whisper-master/agent-mode/device-tools/"
+            let link = head + String(repeating: "x", count: DeviceToolCatalog.maxURLLength - head.count - 4)
+                + "/end"
+            s.approvals.seedPendingForSnapshot(PendingApproval(
+                tool: "open_url",
+                instanceID: DeviceToolCatalog.thisMacID,
+                instanceLabel: DeviceToolCatalog.thisMacLabel,
+                target: link,
+                arguments: ["url": link],
+                grantOffered: false,
+                grantable: false))
+        }
+        // "Make this shorter": the rewrite on the band with its line breaks, and
+        // nothing typed until Replace.
+        renderPill(dir, name: "pill-14-draft-replace") { s in
+            s.phase = .idle
+            s.agentDraft = AgentDraft(
+                kind: .replaceSelection,
+                text: "Hi Sam,\n\nThe numbers are in and they look good. Revenue is up 12% "
+                    + "on last quarter, mostly from the new plan.\n\nDana",
+                app: SelectionReader.FrontApp(bundleID: "com.apple.mail", name: "Mail", pid: 1),
+                selection: "The quarterly numbers came in this morning.",
+                copyOnlyReason: nil)
+            s.agentDraftAt = Date()
+        }
+        // A 300-character unbroken token (a key, a long link): the band counts every
+        // line it wraps to, so the tail is on the band rather than clipped.
+        renderPill(dir, name: "pill-14c-draft-long-token") { s in
+            s.phase = .idle
+            s.agentDraft = AgentDraft(
+                kind: .insertText,
+                text: "Here is the token:\n" + String(repeating: "a1B2c3D4e5", count: 29) + "ENDTOKEN!!",
+                app: SelectionReader.FrontApp(bundleID: "com.apple.Notes", name: "Notes", pid: 1),
+                selection: nil,
+                copyOnlyReason: nil)
+            s.agentDraftAt = Date()
+        }
+        // A multi-line draft for a terminal: copy only, and the band says why.
+        renderPill(dir, name: "pill-14b-draft-copy-only") { s in
+            s.phase = .idle
+            s.agentDraft = AgentDraft(
+                kind: .insertText,
+                text: "cd ~/code/whisper-master\nswift test --filter DeviceToolRunnerTests",
+                app: SelectionReader.FrontApp(bundleID: "com.apple.Terminal", name: "Terminal", pid: 1),
+                selection: nil,
+                copyOnlyReason: AgentDraft.multiLineInTerminal)
+            s.agentDraftAt = Date()
         }
         // A coding agent asking to run a command. Same three answers as the connector
         // card above, because it is the same question: the payload is unbounded, so
@@ -674,24 +850,301 @@ enum SnapshotMode {
         exit(0)
     }
 
-    /// Render the notch onboarding band in a single pinned beat, on the same
-    /// neutral backdrop the pill snapshots use so the black surface reads.
+    /// Render the notch onboarding band in a single pinned beat, on the notched
+    /// stand-in and the neutral backdrop the pill snapshots use.
     private static func renderOnboarding(
         _ dir: URL,
         name: String,
         state: AppState,
+        orbTime: Double? = nil,
+        keyForm: (key: HotkeyManager.HotkeyOption, holdToTalk: Bool)? = nil,
         model: () -> NotchOnboardingModel
     ) {
         let layout = NotchOnboardingLayout()
+        let geometry = snapshotNotch
         // Size the stand-in panel exactly as the real one, so a layout change
         // can't silently clip the snapshot.
-        let panel = layout.panelSize(for: .none)
+        let panel = layout.panelSize(for: geometry)
         let view = ZStack(alignment: .top) {
             Color(white: 0.28)
-            NotchOnboardingView(model: model(), state: state, layout: layout)
+            NotchOnboardingView(
+                model: model(), state: state, geometry: geometry, layout: layout, orbTime: orbTime, keyForm: keyForm)
                 .frame(width: panel.width, height: panel.height, alignment: .top)
         }
         .frame(width: panel.width + 92, height: panel.height + 60)
+        render(view, to: dir.appendingPathComponent("\(name).png"))
+    }
+
+    /// Every cue frame and settled state onboarding can draw without the key
+    /// panel. Each cue is pinned on a fixed clock; the orb draws `0.6 + elapsed`.
+    private static func renderOnboardingCues(_ dir: URL, state: AppState) {
+        let clock = OnboardingClock.fixed(1_000)
+        func ms(_ seconds: TimeInterval) -> String { String(format: "t%04d", Int((seconds * 1000).rounded())) }
+
+        // The first-launch opening, from T0. 3,160 and 3,340 are extra looks at
+        // the fold on its way into the swap.
+        for t in [0, 0.26, 0.7, 1.24, 2.0, 2.4, 2.9, 3.16, 3.2, 3.34, 3.56, 3.6, 3.74, 4.02, 4.1] {
+            renderOpening(dir, name: "onboarding-0-opening-\(ms(t))", state: state, t: t)
+        }
+        // A click 1,240 ms in, when the orb has gathered; frames from the click.
+        let skipAt = 1.24
+        for t in [0, 0.125, 0.25, 0.29, 0.43, 0.71] {
+            renderOpening(dir, name: "onboarding-0-skipped-\(ms(t))", state: state, t: skipAt + t, skipAt: skipAt)
+        }
+        // The still version: the hold frame, then the band at rest after the fade.
+        let still = OnboardingMotionPolicy.resolve(reduceMotion: true, lowPower: false, thermal: .nominal, voiceOver: false)
+        renderOpening(dir, name: "onboarding-0-still-t1000", state: state, t: 1, policy: still)
+        renderOpening(dir, name: "onboarding-0-still-t2600", state: state, t: 2.6, policy: still)
+        // Under VoiceOver there is no stage: the band at rest at once.
+        renderOnboarding(dir, name: "onboarding-0-voiceover", state: state) {
+            .snapshot(step: .microphone, clock: clock)
+        }
+
+        // Skip to band: no stage (no screen for it), microphone on. The band and
+        // its orb gather in, no dip. A replay plays the stage, like the launch.
+        for t in [0, 0.27, 0.54] {
+            renderOnboarding(dir, name: "onboarding-1-skip-to-band-\(ms(t))", state: state, orbTime: 0.6 + t) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .microphone, micGranted: true, micGrantedOnEntry: true, clock: clock)
+                model.pinReveal(at: t)
+                return model
+            }
+        }
+
+        // Microphone to Typing, after a heard voice: the bloom leaves with the old copy.
+        for t in [0, 0.07, 0.14, 0.25, 0.5, 0.7] {
+            renderOnboarding(dir, name: "onboarding-2-from-mic-\(ms(t))", state: state, orbTime: 0.6 + t) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .accessibility, micGranted: true, heardVoice: true, clock: clock)
+                model.pinChange(from: .micHeard(.movingOn), previousFigure: .listening, at: t)
+                return model
+            }
+        }
+        // Start with your Mac to Ready: the figure stays listening, so no dip.
+        for t in [0, 0.25, 0.5] {
+            renderOnboarding(dir, name: "onboarding-4-from-login-\(ms(t))", state: state, orbTime: 0.6 + t) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .ready, micGranted: true, accessibilityGranted: true, launchAtLoginEnabled: true,
+                    clock: clock)
+                model.pinChange(from: .loginOn(.movingOn), previousFigure: .listening, at: t)
+                return model
+            }
+        }
+        // A grant: signal for Typing (the figure changes, so it dips), ember for Heard.
+        for t in [0, 0.14, 0.36, 0.56] {
+            renderOnboarding(dir, name: "onboarding-2-grant-\(ms(t))", state: state, orbTime: 0.6 + t) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .accessibility, micGranted: true, accessibilityGranted: true, clock: clock)
+                model.pinChange(from: .typingAsk, previousFigure: .thinking, at: t)
+                return model
+            }
+        }
+        for t in [0.14, 0.56] {
+            renderOnboarding(dir, name: "onboarding-1-heard-\(ms(t))", state: state, orbTime: 0.6 + t) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .microphone, micGranted: true, heardVoice: true, clock: clock)
+                model.pinChange(from: .micWaiting, previousFigure: .listening, at: t)
+                return model
+            }
+        }
+        // Done: the content fades, then the band folds into the notch.
+        for t in [0, 0.1, 0.2, 0.4] {
+            renderOnboarding(dir, name: "onboarding-4-outro-\(ms(t))", state: state, orbTime: 0.6 + t) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .ready, micGranted: true, accessibilityGranted: true, launchAtLoginEnabled: true,
+                    clock: clock)
+                model.pinOutro(at: t)
+                return model
+            }
+        }
+
+        // Settled states inside the beats, and every Ready cell.
+        renderOnboarding(dir, name: "onboarding-1-prompt-up", state: state) {
+            .snapshot(step: .microphone, requestingMic: true)
+        }
+        renderOnboarding(dir, name: "onboarding-1-mic-on", state: state) {
+            .snapshot(step: .microphone, micGranted: true, micGrantedOnEntry: true)
+        }
+        renderOnboarding(dir, name: "onboarding-1-mic-denied", state: state) {
+            .snapshot(step: .microphone, micDenied: true)
+        }
+        renderOnboarding(dir, name: "onboarding-1-waiting-still", state: state) {
+            let model = NotchOnboardingModel.snapshot(step: .microphone, micGranted: true)
+            model.pinPolicy(still)
+            return model
+        }
+        renderOnboarding(dir, name: "onboarding-2-typing-granted", state: state) {
+            .snapshot(step: .accessibility, micGranted: true, accessibilityGranted: true)
+        }
+        renderOnboarding(dir, name: "onboarding-3-login-on", state: state) {
+            .snapshot(step: .openAtLogin, micGranted: true, accessibilityGranted: true, launchAtLoginEnabled: true)
+        }
+        let cells: [(String, EngineStatus, PermissionsManager.MicStatus, Bool, Bool)] = [
+            ("ready", .ready, .granted, true, false),
+            ("ready-assistant", .ready, .granted, true, true),
+            ("typing-off", .ready, .granted, false, false),
+            ("mic-not-asked", .ready, .notDetermined, true, false),
+            ("mic-denied", .ready, .denied, true, false),
+            ("downloading", .downloading(percent: 42), .granted, true, false),
+            ("preparing", .preparing, .granted, true, false),
+            ("loading-typing-off", .preparing, .granted, false, false),
+            ("loading-mic-not-asked", .downloading(percent: 42), .notDetermined, true, false),
+            ("loading-mic-denied", .preparing, .denied, true, false),
+            ("failed", .failed, .granted, true, false),
+        ]
+        for (name, engine, mic, typing, assistant) in cells {
+            renderOnboarding(dir, name: "onboarding-4-ready-\(name)", state: state) {
+                .snapshot(
+                    step: .ready, micGranted: mic == .granted, micDenied: mic == .denied,
+                    accessibilityGranted: typing, launchAtLoginEnabled: true, showsAssistantLine: assistant,
+                    engineStatus: { engine })
+            }
+        }
+    }
+
+    /// The cues that need the key panel's state: where the keyboard is, the
+    /// top-bar line, Back, the waits, focus, and each push-to-talk key's name.
+    /// Unless a name says "not-key", the band has the keyboard.
+    private static func renderOnboardingKeyCues(_ dir: URL, state: AppState) {
+        let clock = OnboardingClock.fixed(1_000)
+
+        // Beat 1: no voice for about 8 s, and a mic check that could not start.
+        renderOnboarding(dir, name: "onboarding-1-still-silent", state: state) {
+            .snapshot(step: .microphone, micGranted: true, micStillSilent: true)
+        }
+        renderOnboarding(dir, name: "onboarding-1-mic-failed", state: state) {
+            .snapshot(step: .microphone, micGranted: true, micCheckFailed: true)
+        }
+        // Beat 2: asked, back from System Settings, still not trusted.
+        renderOnboarding(dir, name: "onboarding-2-typing-still-off", state: state) {
+            .snapshot(step: .accessibility, micGranted: true, typingStillOff: true)
+        }
+
+        // Back: to "Heard, after Back" and to "Granted, after Back", 250 ms in
+        // and at rest. Neither draws a bloom.
+        renderOnboarding(dir, name: "onboarding-1-back-heard-t0250", state: state, orbTime: 0.85) {
+            let model = NotchOnboardingModel.snapshot(
+                step: .microphone, micGranted: true, heardVoice: true, clock: clock)
+            model.pinBack()
+            model.pinChange(from: .typingAsk, previousFigure: .thinking, at: 0.25, backward: true)
+            return model
+        }
+        renderOnboarding(dir, name: "onboarding-2-back-granted-t0250", state: state, orbTime: 0.85) {
+            let model = NotchOnboardingModel.snapshot(
+                step: .accessibility, micGranted: true, accessibilityGranted: true, clock: clock)
+            model.pinBack()
+            model.pinChange(from: .loginAsk, previousFigure: .thinking, at: 0.25, backward: true)
+            return model
+        }
+        renderOnboarding(dir, name: "onboarding-1-heard-after-back", state: state) {
+            let model = NotchOnboardingModel.snapshot(step: .microphone, micGranted: true, heardVoice: true)
+            model.pinBack()
+            return model
+        }
+        renderOnboarding(dir, name: "onboarding-2-granted-after-back", state: state) {
+            let model = NotchOnboardingModel.snapshot(step: .accessibility, micGranted: true, accessibilityGranted: true)
+            model.pinBack()
+            return model
+        }
+
+        // A done beat three ways: moving on (with and without the keyboard),
+        // after a cancel with Continue, and with the app not active.
+        renderOnboarding(dir, name: "onboarding-2-typing-granted-not-key", state: state) {
+            .snapshot(step: .accessibility, micGranted: true, accessibilityGranted: true, panelIsKey: false)
+        }
+        renderOnboarding(dir, name: "onboarding-2-typing-granted-continue", state: state) {
+            let model = NotchOnboardingModel.snapshot(step: .accessibility, micGranted: true, accessibilityGranted: true)
+            model.pinCancel(.interaction, appActive: true)
+            return model
+        }
+        renderOnboarding(dir, name: "onboarding-2-typing-granted-paused", state: state) {
+            let model = NotchOnboardingModel.snapshot(
+                step: .accessibility, micGranted: true, accessibilityGranted: true, panelIsKey: false)
+            model.pinCancel(.appInactive, appActive: false)
+            return model
+        }
+
+        // The top-bar line: beats 1 to 3 without the keyboard, the nudge with
+        // and without it, and the Ready microphone nudges.
+        renderOnboarding(dir, name: "onboarding-2-not-key", state: state) {
+            .snapshot(step: .accessibility, micGranted: true, panelIsKey: false)
+        }
+        for (name, key) in [("key", true), ("not-key", false)] {
+            renderOnboarding(dir, name: "onboarding-2-nudge-\(name)", state: state) {
+                let model = NotchOnboardingModel.snapshot(step: .accessibility, micGranted: true, panelIsKey: key)
+                model.pinNudge()
+                return model
+            }
+        }
+        for (name, mic) in [("mic-not-asked", PermissionsManager.MicStatus.notDetermined), ("mic-denied", .denied)] {
+            renderOnboarding(dir, name: "onboarding-4-nudge-\(name)", state: state) {
+                let model = NotchOnboardingModel.snapshot(
+                    step: .ready, micGranted: mic == .granted, micDenied: mic == .denied, accessibilityGranted: true,
+                    launchAtLoginEnabled: true)
+                model.pinNudge()
+                return model
+            }
+        }
+
+        // Focus: on Not now, and on the main (ember) button, with its 2 pt gap.
+        for (name, action) in [("not-now", OnboardingAction.second), ("main", .main)] {
+            renderOnboarding(dir, name: "onboarding-2-focus-\(name)", state: state) {
+                .snapshot(step: .accessibility, micGranted: true, focusedAction: action)
+            }
+        }
+
+        // Each push-to-talk key's name: the Microphone ask (the first-use form)
+        // and Ready without the keyboard (the top-bar line names the key), then
+        // once in the press form.
+        for key in HotkeyManager.HotkeyOption.allCases {
+            renderOnboarding(dir, name: "onboarding-keys-\(key.rawValue)-mic-ask", state: state, keyForm: (key, true)) {
+                .snapshot(step: .microphone)
+            }
+            renderOnboarding(dir, name: "onboarding-keys-\(key.rawValue)-ready", state: state, keyForm: (key, true)) {
+                .snapshot(
+                    step: .ready, micGranted: true, accessibilityGranted: true, launchAtLoginEnabled: true,
+                    panelIsKey: false)
+            }
+        }
+        renderOnboarding(dir, name: "onboarding-keys-press-mic-ask", state: state, keyForm: (.rightOption, false)) {
+            .snapshot(step: .microphone)
+        }
+        renderOnboarding(dir, name: "onboarding-keys-press-ready", state: state, keyForm: (.rightOption, false)) {
+            .snapshot(
+                step: .ready, micGranted: true, accessibilityGranted: true, launchAtLoginEnabled: true, panelIsKey: false)
+        }
+    }
+
+    /// The opening `t` seconds after T0 as the screen shows it: the stage panel,
+    /// and from the swap the band panel over it. Both are top-centred, as the
+    /// two real panels are on the display.
+    private static func renderOpening(
+        _ dir: URL, name: String, state: AppState, t: TimeInterval, skipAt: TimeInterval? = nil,
+        policy: OnboardingMotionPolicy = .resolve(reduceMotion: false, lowPower: false, thermal: .nominal, voiceOver: false)
+    ) {
+        let layout = NotchOnboardingLayout()
+        let geometry = snapshotNotch
+        let model = NotchOnboardingModel.snapshot(step: .microphone, clock: .fixed(1_000))
+        model.pinPolicy(policy)
+        model.pinOpening(at: t, skipAt: skipAt)
+        let full = policy.layers == .full
+        let swap = skipAt.map { $0 + (full ? OpeningTimeline.skipBlend : 0) }
+            ?? (full ? OpeningTimeline.swapAt : OpeningTimeline.stillSwapAt)
+        let stageOut = swap + (full ? OpeningTimeline.stageOutDelay : OpeningTimeline.stillFade)
+        let stage = layout.stagePanelSize(for: geometry)
+        let band = layout.panelSize(for: geometry)
+        let view = ZStack(alignment: .top) {
+            Color(white: 0.28)
+            if t < stageOut {
+                OnboardingStageView(model: model, geometry: geometry, layout: layout, orbTime: 0.6 + t)
+                    .frame(width: stage.width, height: stage.height, alignment: .top)
+            }
+            if t >= swap {
+                NotchOnboardingView(model: model, state: state, geometry: geometry, layout: layout, orbTime: 0.6 + t)
+                    .frame(width: band.width, height: band.height, alignment: .top)
+            }
+        }
+        .frame(width: stage.width + 92, height: stage.height + 60)
         render(view, to: dir.appendingPathComponent("\(name).png"))
     }
 
@@ -712,11 +1165,15 @@ enum SnapshotMode {
     /// Render the hover quick-actions band on the same stand-in bezel the pill and
     /// onboarding snapshots use, sized exactly as the real panel so a layout change
     /// can't silently clip it.
-    private static func renderQuickActions(_ dir: URL, name: String, state: AppState) {
+    private static func renderQuickActions(_ dir: URL, name: String, state: AppState,
+                                           tab: NotchQuickActionsTab = .today) {
         let layout = NotchQuickActionsLayout()
         let geometry = snapshotNotch
-        let model = NotchQuickActionsModel(state: state)
-        let panel = layout.panelSize(for: geometry, rows: model.visibleRowCount)
+        let model = NotchQuickActionsModel(state: state, persistsTab: false)
+        seedNotchFeed(model.feed, pinned: state.connectorStore.pinnedToNotch)
+        model.select(tab)
+        let panel = layout.panelSize(for: geometry, rows: model.visibleRowCount,
+                                     captioned: model.isCaptioned)
         let view = ZStack(alignment: .top) {
             Color(white: 0.28)
             NotchQuickActionsView(
@@ -728,6 +1185,46 @@ enum SnapshotMode {
         }
         .frame(width: panel.width + 92, height: panel.height + 60)
         render(view, to: dir.appendingPathComponent("\(name).png"))
+    }
+
+    /// What the pinned tabs hold in the renderer, which has no network: an inbox
+    /// with unread mail, a Slack read (recent, so no badge), and a calendar day.
+    private static func seedNotchFeed(_ feed: NotchConnectorFeed, pinned: [ConnectorInstance]) {
+        let now = Date()
+        // Relative to now, so the rows are still ahead whenever the renderer runs.
+        func inMinutes(_ minutes: Double) -> Date { now.addingTimeInterval(minutes * 60) }
+        for instance in pinned {
+            switch instance.kind {
+            case .gmail:
+                feed.seed(instance.id, .items([
+                    ConnectorItem(id: "m1", title: "Q4 pricing review", detail: "Priya Shah <priya@acme.com>",
+                                  timestamp: now.addingTimeInterval(-1_500), url: "https://mail.google.com/", isUnread: true),
+                    ConnectorItem(id: "m2", title: "Invoice #2231 for September", detail: "Vercel <billing@vercel.com>",
+                                  timestamp: now.addingTimeInterval(-5_400), url: "https://mail.google.com/", isUnread: true),
+                    ConnectorItem(id: "m3", title: "Re: Seat expansion for the sales team", detail: "Arjun Rao <arjun@acme.com>",
+                                  timestamp: now.addingTimeInterval(-9_000), url: "https://mail.google.com/", isUnread: true),
+                    ConnectorItem(id: "m4", title: "[corkkam/whisper] PR #23 merged", detail: "GitHub <noreply@github.com>",
+                                  timestamp: now.addingTimeInterval(-90_000), url: "https://mail.google.com/"),
+                ]))
+            case .slack:
+                feed.seed(instance.id, .items([
+                    ConnectorItem(id: "s1", title: "can you ship 1.2.1 today?", detail: "#release · Rahul",
+                                  timestamp: now.addingTimeInterval(-700)),
+                    ConnectorItem(id: "s2", title: "Beta build crashes on launch for me", detail: "#bugs · Neha",
+                                  timestamp: now.addingTimeInterval(-2_400)),
+                    ConnectorItem(id: "s3", title: "Standup notes posted", detail: "#team · Standup bot",
+                                  timestamp: now.addingTimeInterval(-4_200)),
+                ]))
+            default:
+                feed.seed(instance.id, .events([
+                    DayEvent(id: "e1", title: "Design sync", start: inMinutes(20), end: inMinutes(50), isAllDay: false,
+                             calendarTitle: "Work", sourceTitle: "Google", instanceLabel: instance.displayLabel,
+                             joinURL: URL(string: "https://meet.google.com/abc-defg-hij")),
+                    DayEvent(id: "e2", title: "Investor call", start: inMinutes(65), end: inMinutes(95), isAllDay: false,
+                             calendarTitle: "Work", sourceTitle: "Google", instanceLabel: instance.displayLabel),
+                ]))
+            }
+        }
     }
 
     /// A believable turn for the session-view snapshot, built from real wire frames
@@ -746,6 +1243,87 @@ enum SnapshotMode {
         return json.compactMap {
             try? JSONDecoder().decode(KunaiWire.Event.self, from: Data($0.utf8))
         }
+    }
+
+    /// The floating live-notes window mid-meeting.
+    private static func renderMeetingLive(_ dir: URL) {
+        let controller = MeetingController()
+        let session = MeetingSession(
+            call: DetectedCall(name: "Google Meet", bundleFamily: "com.google.Chrome",
+                               calendarTitle: "Weekly sync"),
+            now: Date().addingTimeInterval(-14 * 60))
+        session.seedForSnapshot(
+            lines: [
+                (.others, 14_000, "Morning. Quick agenda: the beta numbers, then the pricing page."),
+                (.me, 31_000, "Sounds good. Beta first."),
+                (.others, 52_000, "We have 212 active installs, up from 180 last week. Crash rate is flat."),
+                (.me, 75_000, "Great. Can we move the pricing page launch to Friday?"),
+                (.others, 96_000, "Friday works. Priya will send the copy by Wednesday."),
+            ],
+            liveNotes: ["- Beta at 212 active installs, up from 180\n- Crash rate flat",
+                        "- Pricing page launch moves to Friday\n- Priya sends copy by Wednesday"],
+            ownNotes: "Ask about annual plan discount")
+        controller.seedSessionForSnapshot(session)
+        let view = MeetingLiveView(controller: controller)
+            .frame(width: 720, height: 480)
+        render(view, to: dir.appendingPathComponent("meeting-live.png"))
+        session.discardForTermination()  // removes the temp folder its recorder made
+    }
+
+    /// The endpoint section before and after consent, and the consent sheet. Drawn from
+    /// a constant binding, so no mock endpoint is written into this process's defaults;
+    /// the mock key goes to the in-memory store `seedMockData` switched to.
+    private static func renderAgentEndpoint(_ dir: URL) {
+        var endpoint = AgentEndpoint(api: .anthropic,
+                                     url: "https://api.anthropic.com/v1/messages",
+                                     model: "claude-opus-5-5")
+        func section(_ value: AgentEndpoint) -> some View {
+            AgentEndpointSettingsSection(endpoint: .constant(value))
+                .frame(width: 680, alignment: .leading)
+                .padding(.horizontal, 44)
+                .padding(.vertical, 40)
+                .background(WarmBackground())
+        }
+        render(section(endpoint), to: dir.appendingPathComponent("panel-agent-endpoint.png"))
+        endpoint.consentedTo = endpoint.consentKey
+        AgentEndpoint.setAPIKey("snapshot-mock-key")
+        render(section(endpoint), to: dir.appendingPathComponent("panel-agent-endpoint-allowed.png"))
+        AgentEndpoint.setAPIKey(nil)
+        render(
+            AgentEndpointConsentSheet(host: endpoint.host, onAllow: {}, onCancel: {})
+                .padding(20)
+                .background(Color(white: 0.9)),
+            to: dir.appendingPathComponent("sheet-agent-endpoint-consent.png"))
+    }
+
+    /// The connected tool card: found and tested but not allowed, on, and not found, and
+    /// its consent sheet. Drawn from a constant binding and an injected detection, so
+    /// nothing is started and nothing is written into this process's defaults.
+    private static func renderConnectedTool(_ dir: URL) {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let file = ConnectedTool.Binary(path: home.appendingPathComponent(".local/share/claude/versions/2.1.328").path,
+                                        size: 214_000_000, modified: 1_763_000_000, inode: 41_005)
+        let found = ConnectedTool.Detection(path: home.appendingPathComponent(".local/bin/claude"), binary: file)
+        var tool = ConnectedTool(kind: .claudeCode,
+                                 tested: .init(kind: .claudeCode, version: "2.1.328", binary: file))
+        func section(_ value: ConnectedTool, _ detection: ConnectedTool.Detection) -> some View {
+            ConnectedToolSettingsSection(tool: .constant(value), detection: detection)
+                .frame(width: 680, alignment: .leading)
+                .padding(.horizontal, 44)
+                .padding(.vertical, 40)
+                .background(WarmBackground())
+        }
+        render(section(tool, found), to: dir.appendingPathComponent("panel-connected-tool.png"))
+        tool.consentedTo = .claudeCode
+        render(section(tool, found), to: dir.appendingPathComponent("panel-connected-tool-on.png"))
+        render(section(ConnectedTool(), ConnectedTool.Detection()),
+               to: dir.appendingPathComponent("panel-connected-tool-missing.png"))
+        render(
+            ConnectedToolSettingsSection.consentSheet(kind: .claudeCode, program: file.path,
+                                                      onAllow: {}, onCancel: {})
+                .padding(20)
+                .background(Color(white: 0.9)),
+            to: dir.appendingPathComponent("sheet-connected-tool-consent.png"))
     }
 
     private static func renderPill(_ dir: URL, name: String, configure: (AppState) -> Void) {
@@ -779,6 +1357,7 @@ enum SnapshotMode {
         case .insights: InsightsSettingsView(viewModel: viewModel, state: state)
         case .notes: NotesSettingsView(state: state, tab: .constant(notesTab))
         case .connectors: ConnectorsSettingsView(state: state)
+        case .coding: ShedCodingView(state: state)
         case .settings: GeneralSettingsView(viewModel: viewModel, state: state)
         case .engine: EngineSettingsView(viewModel: viewModel, state: state)
         case .agents: AgentSettingsView(state: state)
@@ -967,7 +1546,7 @@ enum SnapshotMode {
         // card is absent — the snapshots deliberately show the loud state, which
         // is the one worth reviewing.
         state.availableUpdateVersion = "1.2.0"
-        state.customVocabulary = ["RAG", "Parakeet", "Lyzr"]
+        state.customVocabulary = ["RAG", "Parakeet", "Lazur"]
         // A finished bench, so the Model Lab photographs as a populated page.
         // Seeded in memory only (`seedForSnapshot` never writes), and every
         // figure here is invented for layout — the lab's real numbers come from
@@ -1027,8 +1606,19 @@ enum SnapshotMode {
         state.llmCleanupEnabled = true
         let mockSlack = state.connectorStore.add(ConnectorInstance(
             kind: .slack, label: "Work chat", identity: "Acme / whisper"))
+        state.connectorStore.add(ConnectorInstance(
+            kind: .outlook, label: "Acme mail", identity: "alex@acme.com", config: .microsoftOAuth))
         state.connectorStore.addGrant(
             Grant(tool: "send_message", instanceID: mockSlack.id, target: "#standup"))
+        // Three pins, so the band's tab bar is full and the Connectors page shows
+        // the pin glyph both lit and at the cap.
+        let mockGmail = state.connectorStore.add(ConnectorInstance(
+            kind: .gmail, label: "Work mail", identity: "sam@acme.com", config: .googleOAuth))
+        state.connectorStore.setPinnedToNotch(mockGmail.id, true)
+        state.connectorStore.setPinnedToNotch(mockSlack.id, true)
+        if let work = state.connectorStore.instances(of: .googleCalendar).first {
+            state.connectorStore.setPinnedToNotch(work.id, true)
+        }
     }
 
     /// A couple of believable notes + reminders so the Notes & Reminders panel
@@ -1146,7 +1736,29 @@ enum SnapshotMode {
             provenance: "Saved to Notes & Reminders",
             createdSomething: true,
             milliseconds: 180)
-        store.seed(dictation: [polished, rejected], assistant: [answered, posted, filed])
+        // The connected tool timed out and the on-device assistant took the words: the
+        // decision leads with the failure, and "What was sent" says it may have left.
+        let toolTimedOut = AssistantTrace(
+            askedAt: Date(timeIntervalSinceNow: -12_000),
+            heard: "what's on my calendar tomorrow",
+            asked: "What's on my calendar tomorrow?",
+            decisions: [
+                TraceDecision(
+                    title: "Claude Code",
+                    detail: "Claude Code did not answer within 20 seconds, so nothing was acted on. "
+                        + "The on-device assistant took it next.",
+                    taken: false),
+                TraceDecision(title: "Agent", detail: "Answered from list_calendar_events.", taken: true),
+            ],
+            connectorsAllowed: true,
+            toolsOffered: ["create_note", "create_reminder", "list_reminders", "list_calendar_events"],
+            answer: "Two meetings tomorrow: design review at 10 and the team sync at 3.",
+            provenance: "From Personal",
+            milliseconds: 26_400,
+            endpoint: EndpointSendTrace(host: "Claude Code", requests: 1, instructions: 1_180, spoken: 31,
+                                        toolList: 3_400, failures: 1, tool: "Claude Code",
+                                        failure: "did not answer within 20 seconds"))
+        store.seed(dictation: [polished, rejected], assistant: [answered, posted, filed, toolTimedOut])
     }
 
     private static func seedNotes(_ store: NotesStore) {

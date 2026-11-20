@@ -39,6 +39,12 @@ bash Scripts/install.sh
 REBUILD=0 bash Scripts/install.sh       # skip rebuild
 RELAUNCH=0 bash Scripts/install.sh      # install without launching
 
+# Local test build beside the real app: "Whisper Master Dev" in /Applications.
+# Use this, not `SIGN_IDENTITY=- bundle.sh`, for anything you run: it signs with a
+# stable Apple Development identity, so the keychain "Always Allow" survives a
+# rebuild. An ad-hoc signature changes every build and re-prompts for every item.
+bash Scripts/dev-install.sh
+
 # Ship a Sparkle auto-update — bump CFBundleShortVersionString AND
 # CFBundleVersion in Resources/Info.plist first, then:
 bash Scripts/release.sh                 # build → sign → appcast → upload to R2
@@ -99,20 +105,31 @@ WM_AGENT_TOOL_EVAL=1 "./build/Whisper Master.app/Contents/MacOS/WhisperMaster"
 **It must be the app bundle, not `.build/debug/WhisperMaster`.** The SwiftPM binary
 dies with `Failed to load the default metallib` — MLX's Metal shaders are a bundle
 resource only `xcodebuild` stages. The bench needs the **assistant** model
-(`Qwen3-4B-Instruct-2507-4bit`, ~2.3 GB) installed under
-`~/Library/Application Support/FluidAudio/Models/`; without it the bench prints
-`ABORT` and exits, so it is safe to run anywhere. To install it outside the app,
-fetch `$(ModelInstaller.mirrorBaseURL)/Qwen3-4B-Instruct-2507-4bit.zip`, check the
-digest against `ModelChecksums.sha256`, and unzip it into that directory.
+(`CleanupModel.General.archiveName`, Qwen3-4B-Thinking-2507-4bit since 2026-10-17,
+~2.3 GB) installed under `~/Library/Application Support/FluidAudio/Models/`. **Without it
+the bench loads the previous assistant (Instruct-2507) if that is on disk**, because the
+app does (`CleanupModel.General.installedDirectory`), so read the `Model loaded from`
+line before trusting a run; with neither it prints `ABORT` and exits, so it is safe to
+run anywhere. To install it outside the app: `uvx --from huggingface_hub hf download
+mlx-community/Qwen3-4B-Thinking-2507-4bit --local-dir "<that dir>/Qwen3-4B-Thinking-2507-4bit"`.
 
 The three arms are `via clean` (the retired routing, kept as the control),
 `hand-rolled` (what ships) and `native` (the chat template's own tools mechanism,
 built and tested but **not** wired into production — nothing sets
 `AgentLoop.generateNative`).
 
-**Measured 2026-08-22.** All three call the correct tool 16/16 on the first turn,
-so first-turn tool choice is not what separates them — **don't re-run the bench to
-decide that question again.** They separate on the turn that reads a result:
+**Measured 2026-10-17, on Qwen3-4B-Thinking-2507 (what ships).** First turn:
+`hand-rolled` **14/16**, `native` **15/16**. The two hand-rolled misses were a
+`create_reminder` with `body` instead of `title` (the parser correctly refuses a call
+missing a required argument) and one command still reasoning at the 60 s budget. The
+grounding turn answered correctly from both calendars. So on the reasoning model the
+arms differ by one first-turn case; one case is within what a single reasoning timeout
+can move, and native stays unwired until a re-run shows the gap holds.
+
+**Measured 2026-08-22, on Instruct-2507 (the assistant before the switch).** All three
+called the correct tool 16/16 on the first turn, so on that model first-turn tool choice
+is not what separates them — **don't re-run the bench on Instruct-2507 to decide that
+question again.** They separate on the turn that reads a result:
 
 - `via clean` answered from **part of the data and said nothing about it**. The
   460-word conversation is past the chunk budget, so it was split, each piece
@@ -125,6 +142,48 @@ decide that question again.** They separate on the turn that reads a result:
   path on tool choice and grounding, and its answer ran longer. Flipping the
   default needs a case the bench can show, not the argument that the chat template
   is more in-distribution.
+
+### Assistant chain bench (`WM_AGENT_CHAIN_EVAL`)
+
+The tool bench above scores the **first turn**. `App/AgentChainEval.swift` runs the
+whole shipped loop (hand-rolled generator, `AgentPrompt.command`, 8 iterations, 30 s)
+on commands that need two or more tool calls, against scripted tools, and grades what
+the model *called*. Same bundle and model requirements as above.
+
+```bash
+WM_AGENT_CHAIN_EVAL=1 "./build/Whisper Master.app/Contents/MacOS/WhisperMaster"
+# WM_CHAIN_OUT=<file.json>   WM_CHAIN_ONLY=<id,id>   WM_CHAIN_NATIVE=1 (comparison arm)
+```
+
+**Measured 2026-11-17 (M4, 24 GB, one run per case).** 10/24 chains: two reads 4/7,
+a read then a write 5/8, three steps 1/5, two actions in one sentence **0/4**.
+**First-turn 16/16 does not carry to chains — don't infer it.** What happens instead:
+
+- On a sentence with two actions it does the first and then **reports the second as
+  done** ("the design channel has been notified", with no `send_message` call).
+- It invents a day for `when` ("tomorrow at 9" for "my first meeting") and narrows a
+  read to one connector nobody named.
+- Three-step chains run out of the 30 s budget (5 of 32 runs exhausted).
+- One injection probe got a calendar event created from text inside a tool result.
+  The approval card is all that stands between that and the user's calendar, and a
+  standing grant removes it.
+- Long results were not the problem: one fact in a 600- and a 1,200-word listing was
+  found 4/4.
+- Offering the 13 planned tools beside the shipped 11 kept first-turn choice at 16/16
+  (15/16 at 16 tools) and raised p50 from 4.7 s to 6.7 s.
+- The native arm scored 1/24: each native turn took ~15 s, so two turns filled the
+  budget. Cause not investigated, and it is one more reason native stays unwired.
+
+Seconds are model time only — a scripted tool returns at once and no approval card is
+waited on. The cases cannot be passed without reading (`AgentChainEvalTests` refuses a
+graded fragment that is already in the spoken command); keep that when adding one.
+
+**Re-measured 2026-11-18 (dev 0cd190b).** 23/24 chains, first turn 16/16, and long
+results 4/4 with the 8,000-character reducer. The tool-count sweep held 16/16 at 11,
+16, 20 and 24 tools. **The probes did not improve:** the model still proposes 3 of 4
+injected writes. The bench has no card. In the app the taint rule puts each one behind
+the approval card, which now says the text was read (`ApprovalCopy.readWarning`). The
+p50 time was measured on a busy machine (load 48 at start).
 
 **⚠️ A keyword rule only sees what somebody thought to assert.** The 2026-08-21
 long-form truncation dropped three fifths of a 525-word input and passed every
@@ -180,9 +239,10 @@ is not loaded:
   empty `models/` prefix silently degrades every user to the slow HuggingFace path.
 - **Never commit directly to `main`** — it only receives merges from `release/*`
   and `hotfix/*`, and every production release is tagged `vX.Y.Z` (CI pushes the
-  tag; don't add a second one by hand). Nothing on the server enforces this: the
-  repo is private on a free plan, so branch protection and rulesets are
-  unavailable. Feature branches are `feature/<slug>` off `dev` — no ticket id —
+  tag; don't add a second one by hand). Branch protection on `main` and `dev`
+  (PR + 1 approval, no force-push) enforces this; only the `corkkam` owner can
+  bypass it. A CI release also waits for `corkkam` to approve the run (the
+  `release` Environment). Feature branches are `feature/<slug>` off `dev` — no ticket id —
   and **a branch is deleted in the same step it is merged**.
 - **Non-stable channels must carry the channel marker in the version** (`-beta.N`,
   `-dev.N`); `release.sh` aborts otherwise, which is what stops a beta/dev upload
@@ -260,6 +320,43 @@ the text that actually gets pasted from those same windows. The second
 short-window "preview" manager that used to paint the notch was **removed on
 purpose**; don't reintroduce it.
 
+
+### Connectors (`Connectors/`)
+
+Calendars, mail and chat the assistant chord can read and, after approval, write.
+Google Calendar and Outlook each have two paths (macOS Calendar, or the provider's
+own sign-in), so **an instance's config, not its kind, decides its provider,
+capabilities and auth**. Outlook and Teams sign in through Microsoft, which is dormant
+until `MicrosoftOAuthClientID` is set. Details and the Entra setup:
+**`Sources/WhisperMaster/Connectors/CLAUDE.md`**.
+
+**The chord can use a model behind an endpoint the user sets** (dev builds only,
+`FeatureFlags.agentEndpointAvailable`; `Connectors/Agent/CloudToolGenerator.swift`).
+**Text only leaves the Mac, never audio**: the transcript, what the assistant reads
+(mail, calendar, messages, the selection), the results of acting on this Mac (which app or link opened), the text it writes for the app in front, and the tool list go to that address, after a
+per-address consent sheet. The on-device model stays the fallback, a password manager
+in front or secure input keeps a capture local, the tray can pause it, and every
+endpoint counts as off-device, loopback included. The key is in the Keychain. Rules and
+history rebuild: the endpoint section of `Connectors/CLAUDE.md`.
+
+**It can also use the user's own Claude Code**, ahead of the endpoint, behind the same
+flag (`Connectors/Agent/ConnectedTool.swift`, Settings card "Connected tool"). The app
+starts the CLI by its absolute path as a text generator, with the lean flags (no tools, no
+MCP servers, no settings, never `--bare`), the prompt on stdin, an empty temp folder and
+an allowlisted environment, and **never reads its sign-in**. The Settings Test proves the
+lean flags and pins the file it ran; a changed file sends nothing until the Test passes
+again, and every run is stopped at a start-up record that shows a tool, an MCP server, a
+hook or another version. A Pause or a Revoke stops the next turn of a run in flight.
+Codex is built but off on every channel (`connectedCodexAvailable`), and a stored Codex
+is dropped on load: its sandbox still runs shell commands. Rules: the connected tool section of
+`Connectors/CLAUDE.md`.
+
+The assistant can also act on this Mac (`Connectors/Tools/DeviceTools.swift`): open an
+installed app, open a link, and put text it wrote into the app the user was in. Opening
+goes through the same approval card, scoped to "This Mac"; a link is carded every time
+with no Always. **Text the model wrote is typed into another app only after a tap on
+the draft band, and never followed by Return** (owner decision, 2026-11-17). The
+capture itself is still never pasted.
 
 ### Reading answers aloud (`Speech/`)
 
@@ -441,7 +538,7 @@ a person watching a video can settle it without going to find the terminal. The 
 feature is **interrupt-first** — nothing here is summoned, and it adds **no keyboard
 shortcut at all**.
 
-- **The app is a client, never a host.** It does not ship, start, install or
+- **Kunai and Shed: the app is a client, never a host.** It does not ship, start, install or
   supervise [kunai](https://github.com/HEGADE/kunai) (the Go server that drives
   `claude` over its stream-json control protocol and re-publishes the result). If a
   server answers, the surface lights up; if not, the feature is simply absent, which
@@ -450,6 +547,22 @@ shortcut at all**.
   on a fixed port with its own data dir, so a second copy inside this app would fight
   the one already there over the port, `~/.kunai`, and the `~/.claude/commands/kunai.md`
   slash command kunai rewrites on every boot.
+- **Shed: the same rule, for the same reason.** Shed shows its agents in the notch next
+  to kunai, and the app finds a Shed the user installed and runs nothing itself. Shed
+  has kunai's shape — a fixed port (4378), its own data folder, two launch agents
+  (`dev.shed.server`, `dev.shed.tunnel`) and its own installer — so a bundled copy would
+  fight the installed one, and running it meant `npm ci` on the user's Mac outside the
+  notarized bundle. A bundled, supervised engine was built on `feature/shed-engine` and
+  **removed before merge**; don't bring it back. `ShedAgents`/`ShedClient` (`Agents/`)
+  are the notch client: Claude Code and Codex sessions, the choice card and the working
+  row, behind the same `AgentTransport` seam as kunai. Discovery is the Settings URL
+  (`WhisperMaster.shedURL.v1`), `SHED_URL`, 4378 (`~/.shed/app`), then 4379
+  (`~/code/shed`), and the address the user typed always comes first.
+  **Shed opens in the main window, never in a window of its own**: the sidebar's
+  **Coding** tab (`SettingsSection.coding`) shows `ShedPage`'s one `WKWebView`, edge to
+  edge, on the endpoint the notch reads. "Open full session" and the app menu's
+  **Coding** item both go through `ShedLink`, which selects that tab. The master token
+  goes only to a Shed on loopback; a Shed at another address shows its own sign-in.
 - **⚠️ Sessions live on the machine that runs them, and so does the fleet socket.**
   `GET /api/machines` lists the fleet (`{id,label,url,self}`); `GET /api/sessions` and
   the fleet push both read the **local** session manager, so a client that talks only
@@ -670,7 +783,8 @@ shortcut at all**.
 
 ### Model Lab (`Lab/`, dev builds only)
 
-A bench inside the app: install several open-source MLX models, run the real
+A bench inside the app: install several open-source MLX models (the built-in
+list, or any MLX repo on Hugging Face added by id), run the real
 suites (cleanup, polish, destinations, tool calling, audio WER) against each one,
 and compare them on score, latency and memory. Reachable only when
 `FeatureFlags.modelLabAvailable` — `ReleaseChannel.current == .dev`, which also
@@ -723,7 +837,9 @@ transcript — were removed for exactly this reason and are not coming back.
 the chord, where the paste has already been ruled out. **`MediaCommandDetector`
 ("pause the music") is under the same restriction** and matches the whole capture
 rather than a word inside it — run over an ordinary dictation it would eat the
-sentence and type nothing.
+sentence and type nothing. **`AgentIntentMatcher` ("open Figma", "go to github.com")
+is under it too**, for the same reason, and its slots are closed: an installed app or
+a bare domain.
 
 **⚠️ "Answered without any tool having executed" counts as not acting.** With the
 paste suppressed, a model that talks instead of acting has thrown the user's words

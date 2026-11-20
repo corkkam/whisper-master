@@ -178,7 +178,7 @@ enum FocusedElementInspector {
         return value as? String
     }
 
-    private static func stringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
+    static func stringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success
         else { return nil }

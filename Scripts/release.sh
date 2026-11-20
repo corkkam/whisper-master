@@ -60,6 +60,48 @@ EOF
     [[ "${ALLOW_HOST_MISMATCH:-0}" == "1" ]] || exit 1
 fi
 
+# --- Every pinned model archive must be on the mirror ---
+#
+# An archive can be pinned in ModelChecksums ahead of its upload, and nothing
+# stopped a build shipping in that state: every install of that model then
+# 404s on the mirror and takes the slow Hugging Face path, and for the 2.3 GB
+# assistant that path was the one that failed outright. So a pin is a promise
+# the release has to keep. HEAD each one before building anything.
+_mirror="https://${_app_host:-pub-98e94ebcf8904c07b38b85605ad49284.r2.dev}/models"
+_missing=()
+_unchecked=()
+while read -r _archive; do
+    _url="$_mirror/$_archive.zip"
+    _code="$(curl -s -o /dev/null -I -w '%{http_code}' "$_url" || true)"
+    # One retry: a dropped connection (000) or a 5xx says nothing about the file.
+    if [[ "$_code" != "200" && "$_code" != "403" && "$_code" != "404" ]]; then
+        _code="$(curl -s -o /dev/null -I -w '%{http_code}' "$_url" || true)"
+    fi
+    case "$_code" in
+        200) ;;
+        403|404) _missing+=("$_archive ($_code)") ;;
+        *) _unchecked+=("$_archive ($_code)") ;;
+    esac
+done < <(sed -n 's|^ *"\([^"]*\)": "[0-9a-f]\{64\}",*$|\1|p' \
+    Sources/WhisperMaster/ModelInstall/ModelChecksums.swift)
+if (( ${#_unchecked[@]} )); then
+    {
+        echo "error: could not check the mirror, it did not answer ($_mirror):"
+        printf '  %s\n' "${_unchecked[@]}"
+        echo "Could not check (HTTP code beside each name). Retry the release."
+    } >&2
+    exit 1
+fi
+if (( ${#_missing[@]} )); then
+    {
+        echo "error: pinned model archives are missing on the mirror ($_mirror):"
+        printf '  %s\n' "${_missing[@]}"
+        echo "Upload the exact zips the pins describe (see ModelChecksums.swift), then re-run."
+        echo "Override for a deliberate one-off with ALLOW_MISSING_MODELS=1."
+    } >&2
+    [[ "${ALLOW_MISSING_MODELS:-0}" == "1" ]] || exit 1
+fi
+
 # --- Tools ---
 command -v rclone >/dev/null || { echo "error: rclone not installed (brew install rclone)" >&2; exit 1; }
 
@@ -286,7 +328,7 @@ echo "  archive: ${R2_PUBLIC_BASE_URL%/}/$(basename "$ZIP")"
 #
 # Launches the bundle we just built with WM_EVAL_CASES set, pushes every case
 # through the real shipped cleanup pipeline, and posts the scores to
-# whisper.corkkam.com/eval tagged with $VERSION and $CHANNEL. Doing it here
+# typing.sucks/eval tagged with $VERSION and $CHANNEL. Doing it here
 # rather than by hand is the whole point: "how did 1.1.0-beta.9 score" only has
 # an answer if something records it at release time.
 #
@@ -318,7 +360,7 @@ if [[ "${RUN_EVAL:-$EVAL_DEFAULT}" == "1" ]]; then
         bash eval/text-cleanup/run-eval.sh \
             "${EVAL_CASES:-eval/text-cleanup/cases.jsonl}" \
             "$VERSION ($CHANNEL)"; then
-        echo ">> Score published: https://whisper.corkkam.com/eval"
+        echo ">> Score published: https://typing.sucks/eval"
     elif [[ -n "${EVAL_REQUIRED:-}" ]]; then
         echo "error: the eval failed and EVAL_REQUIRED is set." >&2
         exit 1

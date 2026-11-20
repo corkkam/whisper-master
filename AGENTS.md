@@ -25,9 +25,16 @@ evaluation harness and public accuracy dashboard.
 | Release machinery | `Scripts/`, `.github/workflows/release.yml` | bash, notarization, Sparkle, Cloudflare R2 |
 
 Speech recognition is NVIDIA Parakeet through FluidAudio; the optional deeper
-cleanup is qwen2.5-3B through MLX. Both run on the user's own machine. Audio is
+cleanup is qwen2.5-3B through MLX. Both run on the user's own machine. With an
+endpoint the user sets, or the user's own Claude Code CLI, and the consent sheet for it
+(dev builds only), the assistant's text, never audio, can leave the Mac
+(`Connectors/CLAUDE.md`). Audio is
 captured to memory, transcribed, and discarded — it is never written to a socket
-and never written to disk on the normal dictation path. **That property is the
+and never written to disk on the normal dictation path. **Meeting notes are the
+one deliberate exception** (`Meetings/`, dev builds only): after the user taps
+"Take notes", both sides of the call are written to disk and kept as the note's
+recording. The audio and the transcript stay on this Mac. The written notes (title
+and summary) sync like any other note unless the user turns sync off. **That property is the
 product**, not a feature of it. Any change that would send audio off-device is a
 different product and has to be argued as one.
 
@@ -48,6 +55,7 @@ Read in this order, and stop as soon as you have what you need.
    | `Auth/` | the Clerk sign-in gate, the OAuth redirect allowlist per build |
    | `Diagnostics/` | the developer-only session tracer (`DIAGNOSTICS` builds only) |
    | `Input/` | push-to-talk gestures, the fn+control assistant chord, paste routing |
+   | `Meetings/` | call detection, the call-audio process tap, meeting notes |
    | `Notes/` | voice notes and the hand-written `Codable` that must stay hand-written |
    | `Reminders/` | idle nudges and user reminders in the notch band |
    | `Speech/` | reading answers aloud, and why it must stay out of `Audio/` |
@@ -88,8 +96,9 @@ git-ignored.** Dependencies are declared in both `project.yml` and `Package.swif
 
 **The gate for a change here is `swift build` and `swift test` green**, plus the
 audio bench for anything on the transcription path and the eval harness for
-anything on the cleanup path. There is **no CI test workflow** — the only GitHub
-workflow is release automation, so the gate is you running it and pasting the
+anything on the cleanup path. `.github/workflows/test.yml` runs `swift build` and
+`swift test` on every pull request and every push to `dev`, but it does not run the
+audio bench or the eval harness, so you still run those yourself and paste the
 output.
 
 **The tree is green.** As of 2026-08-14: `swift build` clean; `swift test` runs
@@ -188,9 +197,15 @@ These hold even when the file that explains them is not loaded.
   dogfood on the dev channel, then merge `dev` into `main`. A release branch that
   `dev` has overtaken holds no commits and only misinforms; finish it or delete
   it. Full flow: the **`releasing`** skill, section "Branching".
-- **The GitHub default branch is `dev`, not `main`**, and the repo is private on
-  a free plan, so **no branch protection or ruleset can exist**. Nothing on the
-  server stops a push to `main`. The rules here are the only guard.
+- **The GitHub default branch is `dev`, not `main`.** The repo is public (AGPL-3.0)
+  since 2026-10. Since 2026-10-10, `dev` and `main` are protected: a PR with 1
+  approval and resolved conversations, no force-push, no delete. `enforce_admins`
+  is off, so only the `corkkam` owner account can bypass. `shobhit8797` cannot
+  approve its own PRs. Secret-scanning push protection and Dependabot are on (set
+  with `gh secure`). CodeQL runs from `.github/workflows/codeql.yml` (advanced
+  setup, so Swift is scanned); the default setup must stay off or GitHub rejects
+  its uploads. The `release` job runs in the `release` Environment, which waits
+  for the `corkkam` owner to approve each run in the Actions tab.
 - `[skip release]`, `[skip announce]`, and `[skip ci]` are three different
   switches — the whole release job, the Telegram step only, and the entire
   workflow. Do not confuse them.
@@ -202,11 +217,10 @@ These hold even when the file that explains them is not loaded.
 
 ## 7. What is in flight right now
 
-**⚠️ Release freeze, set 2026-08-14. No stable release.** Do not merge anything
-into `main`, and do not bump `CFBundleShortVersionString` on `dev` — either one
-makes CI build, sign, notarize, and ship. If a release run starts by accident,
-cancel it (`gh run cancel`) instead of letting it finish. Only the owner lifts
-this.
+**No release freeze.** The freeze set on 2026-08-14 was lifted by the owner on
+2026-09-06; the `releasing` skill keeps its record. A version change on `dev` still
+ships the dev channel and a merge into `main` still ships stable, so both still need
+the confirmation in §8. Only the owner sets or lifts a freeze.
 
 `dev` carries a large uncommitted change set. Treat these as **built but not
 released**, and do not describe them as shipped:
@@ -232,11 +246,9 @@ released**, and do not describe them as shipped:
     offer is narrowed by `ProviderRegistry.shippedKinds`.
   - **Nearby Macs is closed** on every channel (`SettingsSection.isAvailable`).
 
-Released and current: **`v1.1.0-beta.6`** on the beta channel (Gmail, Drive, and
-Zoom connectors reading for real), **`v1.0.1`** on stable (the mic-crash hotfix).
-`main` is at `0ad6611`; `dev` is 76 commits ahead of it and carries
-`1.1.0-beta.6` in `Resources/Info.plist`. **1.1.0 has never reached `main`**, and
-under the freeze above it is not going to yet.
+Released: **`v1.2.0`** on stable (2026-09-14, the merge of `release/1.2.0` into
+`main`), after `v1.2.0-beta.1` and `v1.2.0-dev.1`. `dev` carries the next dev-channel
+version in `Resources/Info.plist`; read it there rather than here.
 
 **There is one version source: `Resources/Info.plist`.** `GENERATE_INFOPLIST_FILE:
 NO` plus literal version keys mean nothing interpolates a build setting, and the
@@ -341,6 +353,9 @@ arrive as "whisper mash" or "visible master".
 - **kunai** — an external Go server that drives Claude Code sessions. This app
   is a client only: it never ships, starts, or supervises kunai. No server →
   the feature is absent, which is the normal state.
+- **Shed** — a second agent server, shown in the notch next to kunai. Like kunai,
+  the app is a client only and never ships or runs it. Shed's own page shows in the
+  main window's Coding tab.
 - **Fleet socket / app socket** — `/ws/fleet` pushes every session's state;
   `/ws/app/{id}` carries one conversation. Two sockets, never one per session.
 - **Ask / choice card / nudge** — a permission question answerable on the band;
@@ -373,3 +388,14 @@ arrive as "whisper mash" or "visible master".
 - **XcodeGen / `project.yml`** — `project.yml` is the source of truth; the
   `.xcodeproj` is generated and git-ignored. Dependencies are declared in both
   `project.yml` and `Package.swift`.
+
+## 10. Agent roles
+
+Five role agents live in `.claude/agents/`: `cto`, `cpo`, `marketing`, `sales`, `cfo`. This section is the rule set they all follow.
+
+1. **This is a personal project.** Never use any employer's connectors, data, accounts, email domain or name. Before a connector call, check that the account behind it is the owner's personal one.
+2. **Draft freely, send never.** Anything a real person receives (email, message, post, outreach, invoice) is a draft until the owner approves that exact item. Approval does not carry over to the next item (§8).
+3. **No spend, no billing change, no release.** Recommend. The release freeze in §7 applies to every role.
+4. **Every claim needs a source.** Cite a file, a test result, a published eval number or a public page. Say what you did not verify.
+5. **Commit identity.** Use the repo-local git config: author `corkkam`, GitHub noreply address, pushes over HTTPS as `corkkam` through the credential helper in `.git/config`. Never commit a secret or a personal address.
+6. **Business output is private.** Write finance, product, marketing, sales and engineering reports into the private repo `corkkam/whisper-master-business` (checked out at `~/code/whisper-master-business`), in `<role>/`, on a `feature/<slug>` branch with a PR to `main`. Never commit them to this public repo.

@@ -21,7 +21,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.0</string>
+	<string>1.3.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -34,9 +34,19 @@
 				<string>com.googleusercontent.apps.140047576864-ev40jmg8f2ju19j39qj1u761vse6ddhl</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>Microsoft OAuth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>msauth.app.whispermaster.mac</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1789392124</string>
+	<string>1795161160</string>
 	<key>ClerkPublishableKey</key>
 	<string>REPLACE_WITH_CLERK_PUBLISHABLE_KEY</string>
 	<key>GAAPISecret</key>
@@ -47,10 +57,18 @@
 	<true/>
 	<key>GoogleOAuthClientID</key>
 	<string>140047576864-ev40jmg8f2ju19j39qj1u761vse6ddhl.apps.googleusercontent.com</string>
+	<!-- Entra ID public-client application id for Outlook and Teams sign-in.
+	     Empty keeps both dormant (MicrosoftOAuthConfig.isConfigured is false).
+	     Not a secret: a public client has none. Redirect URI on the registration:
+	     msauth.app.whispermaster.mac://auth -->
+	<key>MicrosoftOAuthClientID</key>
+	<string></string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<false/>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Whisper Master records the other people on a call only when you choose to take meeting notes. The recording stays on this Mac.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Whisper Master uses Bluetooth to gauge how physically close nearby Macs are.</string>
 	<key>NSBonjourServices</key>
@@ -72,7 +90,7 @@
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://dl.corkkam.com/appcast.xml</string>
+	<string>https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>MNSycgAfQ8X2YX/xQJ22uuqoM/oH5mwjYcVo204vB8Y=</string>
 	<key>SUScheduledCheckInterval</key>

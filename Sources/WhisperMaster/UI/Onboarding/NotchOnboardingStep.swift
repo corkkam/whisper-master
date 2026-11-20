@@ -25,14 +25,18 @@ enum NotchOnboardingStep: Int, CaseIterable, Identifiable {
     /// The next beat, or `nil` on the last one (which finishes the flow).
     var next: NotchOnboardingStep? { NotchOnboardingStep(rawValue: rawValue + 1) }
 
-    /// Short name for the step, used as the VoiceOver context for the band (the
-    /// visible copy is written per-state by the view, since it changes as each
-    /// permission flips).
+    /// The beat Back returns to, or `nil` on the first one.
+    var previous: NotchOnboardingStep? { NotchOnboardingStep(rawValue: rawValue - 1) }
+
+    /// The step's name as the user reads it, in VoiceOver labels and the step
+    /// progress. Presentation only: the case names, raw values and persisted ids
+    /// stay as they were. "Typing" rather than "Accessibility", because the beat
+    /// is about what the grant lets the app do, not the name of the pane.
     var title: String {
         switch self {
         case .microphone: return "Microphone"
-        case .accessibility: return "Accessibility"
-        case .openAtLogin: return "Open at login"
+        case .accessibility: return "Typing"
+        case .openAtLogin: return "Start with your Mac"
         case .ready: return "Ready"
         }
     }

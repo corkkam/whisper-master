@@ -43,6 +43,20 @@ struct ToolRouter {
     /// Injected so a `when` phrase ("tomorrow", "next monday") resolves against a
     /// fixed clock in tests rather than the wall clock.
     var now: () -> Date = Date.init
+    /// Set once a connector read has come back ok, and never cleared: see
+    /// `WriteAuthorizer.authorize(tainted:)`. A box because `run` is non-mutating.
+    /// `CommandAgentService.run` builds one per run and hands the same box to the
+    /// `LocalToolRunner`, so a `read_selection` taints the run too, and the flag
+    /// cannot leak into the next command.
+    var taint = Taint()
+    /// The provider that performs a write. Injected so a test can stand in for the
+    /// network.
+    var writeProvider: (ConnectorInstance) -> (any WriteCapableProvider)? = {
+        ProviderRegistry.provider(for: $0) as? any WriteCapableProvider
+    }
+
+    /// What a write stopped by a cancel (Escape, sign-out) reports. Nothing was sent.
+    static let stoppedBeforeWrite = "Stopped before it ran, so nothing was sent."
 
     func run(_ call: ToolCall) async -> ToolResult {
         guard let descriptor = ToolCatalog.descriptor(named: call.tool) else {
@@ -72,10 +86,15 @@ struct ToolRouter {
             // the whole design turns on.
             let scoped = named.flatMap { ConnectorLabelMatcher.match($0, in: candidates) }
             let targets = scoped.map { [$0] } ?? candidates
-            return await read(capability: capability,
-                              from: targets,
-                              scopedTo: scoped?.displayLabel,
-                              call: call)
+            let result = await read(capability: capability,
+                                    from: targets,
+                                    scopedTo: scoped?.displayLabel,
+                                    call: call)
+            if result.ok {
+                taint.isSet = true
+                taint.outsideSelection = true
+            }
+            return result
 
         case .write:
             // Unqualified writes use the kind default and say which one — never merge,
@@ -105,7 +124,7 @@ struct ToolRouter {
             let lines = summary.events.map { event in
                 let when = event.isAllDay ? "all day" : Self.time.string(from: event.start)
                 let whose = event.instanceLabel.isEmpty ? "" : " [\(event.instanceLabel)]"
-                return "\(when) — \(event.title)\(whose)"
+                return "\(when) — \(Self.oneLine(event.title))\(whose)"
             }
             // Gaps are named rather than read as an empty day: "couldn't look" and
             // "nothing scheduled" mean opposite things.
@@ -129,18 +148,22 @@ struct ToolRouter {
             for instance in instances {
                 guard let provider = ProviderRegistry.itemProvider(for: instance) else { continue }
                 let outcome = await provider.recentItems(for: instance, limit: 15)
+                // A read cut by a cancel says nothing about the connection, so it
+                // marks no error on it.
                 if let error = outcome.error {
-                    store.setError(instance.id, error)
+                    if !Task.isCancelled { store.setError(instance.id, error) }
                     // Named, not swallowed — a partial answer must admit what's missing.
                     lines.append("[\(instance.displayLabel)] couldn't be read: \(error.message)")
                     unreadable.append(instance.displayLabel)
                     continue
                 }
-                store.setError(instance.id, nil)
+                if !Task.isCancelled { store.setError(instance.id, nil) }
                 served.append(instance.displayLabel)
                 lines += outcome.value.map { item in
-                    let detail = item.detail.isEmpty ? "" : " (\(item.detail))"
-                    return "\(item.title)\(detail) [\(instance.displayLabel)]"
+                    let parts = (item.isUnread ? ["unread"] : [])
+                        + (item.detail.isEmpty ? [] : [Self.oneLine(item.detail)])
+                    let detail = parts.isEmpty ? "" : " (\(parts.joined(separator: " · ")))"
+                    return "\(Self.oneLine(item.title))\(detail) [\(instance.displayLabel)]"
                 }
             }
             let text = lines.isEmpty ? "Nothing to report." : lines.joined(separator: "\n")
@@ -154,7 +177,7 @@ struct ToolRouter {
     private func write(_ call: ToolCall,
                        descriptor: ToolDescriptor,
                        instance: ConnectorInstance) async -> ToolResult {
-        guard let provider = ProviderRegistry.provider(for: instance) as? any WriteCapableProvider else {
+        guard let provider = writeProvider(instance) else {
             return .failure("\(instance.displayLabel) can't be written to.")
         }
         // A tool whose target *is* the connection (a calendar event goes to a
@@ -182,18 +205,22 @@ struct ToolRouter {
         switch WriteAuthorizer.authorize(tool: descriptor,
                                          instanceID: instance.id,
                                          target: target,
-                                         grants: store.grants) {
+                                         grants: store.grants,
+                                         tainted: taint.isSet) {
         case .refused(let reason):
             return .failure(reason)
 
         case .needsApproval:
             guard let target else { return .failure("No target to approve.") }
+            // A stopped run raises no card.
+            guard !Task.isCancelled else { return .failure(Self.stoppedBeforeWrite) }
             let approval = PendingApproval(
                 tool: call.tool,
                 instanceID: instance.id,
                 instanceLabel: instance.displayLabel,
                 target: target,
-                arguments: arguments)
+                arguments: arguments,
+                grantOffered: !taint.isSet)
             let askedAt = now()
             let outcome = await requestApproval(approval)
             waited = Int(now().timeIntervalSince(askedAt) * 1000)
@@ -214,6 +241,11 @@ struct ToolRouter {
                                       + "so nothing was sent.",
                                   instanceLabels: [], authorization: .timedOut,
                                   approvalMilliseconds: waited)
+            case .allowedAlways where taint.isSet:
+                // The card hides Always in a tainted run, so only a caller that ignores
+                // `grantOffered` gets here. A grant would outlast the card for a target
+                // planted text may have chosen, so this runs once and stores nothing.
+                authorization = .allowedOnce
             case .allowedAlways:
                 store.addGrant(Grant(tool: call.tool, instanceID: instance.id, target: target))
                 authorization = .allowedAlways
@@ -225,8 +257,17 @@ struct ToolRouter {
             authorization = .standingGrant
         }
 
-        let result = await provider.performWrite(
-            tool: call.tool, arguments: arguments, instance: instance)
+        // Checked again after the card: a cancel that arrived while it waited (Escape,
+        // sign-out) stops the write even if the card was answered Once.
+        guard !Task.isCancelled else {
+            return ToolResult(ok: false, text: Self.stoppedBeforeWrite, instanceLabels: [],
+                              approvalMilliseconds: waited)
+        }
+        // Its own task, so a cancel cannot cut a request already on the wire: the
+        // server may have taken it, and the receipt must then say it was sent.
+        let result = await Task {
+            await provider.performWrite(tool: call.tool, arguments: arguments, instance: instance)
+        }.value
         return ToolResult(ok: result.ok, text: result.summary,
                           instanceLabels: [instance.displayLabel],
                           authorization: authorization,
@@ -353,9 +394,27 @@ struct ToolRouter {
         return ToolResult(ok: true, text: text, instanceLabels: store.ordered.map(\.displayLabel))
     }
 
+    /// One row is one line: a chat or mail preview can carry line breaks, and
+    /// `ToolResultReducer` counts and cuts by line.
+    nonisolated static func oneLine(_ text: String) -> String {
+        text.components(separatedBy: .newlines).filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
     private static let time: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
         return formatter
     }()
+}
+
+/// A run's taint flag. Copies of the router share it, which is right: a copy still
+/// serves the same run. Shared with `LocalToolRunner` for the same reason.
+@MainActor
+final class Taint {
+    var isSet = false
+    /// Set by every untrusted source except this run's own `read_selection`: a
+    /// connector read, or the taint a follow-up inherits. A draft that would type
+    /// such text into the user's app is copy only (`AgentDraft.stage`); a rewrite of
+    /// the selection typed back over it is not.
+    var outsideSelection = false
 }

@@ -399,6 +399,10 @@ private struct AssistantTraceRow: View {
             if !trace.connectorsAllowed {
                 TraceBadge(text: "Connectors off", tone: .warning)
             }
+            // Text left the Mac on this one, so it says so on the row.
+            if let endpoint = trace.endpoint {
+                TraceBadge(text: endpoint.tool ?? "Your endpoint", tone: .warning)
+            }
             ForEach(trace.touchedConnectors, id: \.self) { label in
                 TraceBadge(text: label, tone: .accent)
             }
@@ -472,6 +476,14 @@ private struct AssistantTraceRow: View {
                 Text(trace.provenance)
                     .font(Typography.subheadline)
                     .foregroundStyle(Theme.textSecondary)
+            }
+
+            if let endpoint = trace.endpoint {
+                TraceSubhead("What was sent")
+                Text(endpoint.summary)
+                    .font(Typography.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

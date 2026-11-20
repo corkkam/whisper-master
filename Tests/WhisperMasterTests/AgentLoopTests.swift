@@ -392,6 +392,31 @@ final class AgentLoopTests: XCTestCase {
         XCTAssertEqual(calls(), 1, "the second iteration is past the budget")
     }
 
+    /// Time on the approval card is the user's, not the model's. A card can wait a
+    /// minute against a 30 s budget, so counting it would exhaust a run that was only
+    /// waiting on a person.
+    func testTimeOnTheApprovalCardDoesNotSpendTheBudget() async {
+        let store = makeStore()
+        store.add(ConnectorInstance(kind: .slack, label: "Work chat", identity: "acme"))
+        let clock = TestClock(Date(timeIntervalSince1970: 0))
+        let (generate, _) = scripted([
+            ##"{"tool":"send_message","args":{"channel":"#ops","text":"hi"}}"##,
+            ##"{"answer":"You declined it."}"##,
+        ])
+        let router = StubConnectorRouter(
+            ToolResult(ok: false, text: "The user declined that.", instanceLabels: [],
+                       authorization: .denied, approvalMilliseconds: 60_000),
+            whileRunning: { clock.advance(60) })
+        var loop = AgentLoop(tools: ToolRegistry.available(store: store),
+                             router: router, generate: generate)
+        loop.now = { clock.now }
+
+        let outcome = await loop.run(question: "post hi to ops")
+
+        XCTAssertFalse(outcome.exhausted, "a minute on the card must not use up the budget")
+        XCTAssertEqual(outcome.answer, "You declined it.")
+    }
+
     /// …and the budget also has to survive a generation that never comes back.
     ///
     /// It used to be checked only *between* iterations, with a bare `await` on the
@@ -591,5 +616,131 @@ final class AgentLoopTests: XCTestCase {
         _ = await router.run(ToolCall(
             tool: "send_message", arguments: ["channel": "#ops", "text": "hi"]))
         XCTAssertTrue(store.grants.isEmpty)
+    }
+
+    // MARK: - What later turns carry
+
+    /// Every later turn resends the tool result, so the reduced text is what the model
+    /// reads; the loop's own transcript keeps the whole result for the journal.
+    func testTheNextTurnSeesTheReducedResult() async {
+        let store = makeStore()
+        // About 13,000 characters: past the 8,000 budget, so the tail is cut.
+        let rows = (1...200).map { "9:\($0 % 6)0 AM — Planning sync number \($0) with the platform pod [Work]" }
+        let full = (["Today:"] + rows).joined(separator: "\n")
+        XCTAssertGreaterThan(full.count, ToolResultReducer.budget)
+        let model = InputRecorder([
+            #"{"tool":"list_calendar_events","args":{}}"#,
+            #"{"answer":"A busy day."}"#,
+        ])
+        let loop = AgentLoop(
+            tools: ToolRegistry.available(store: store),
+            router: StubConnectorRouter(ToolResult(ok: true, text: full, instanceLabels: ["Work"])),
+            generate: model.generate)
+
+        let outcome = await loop.run(question: "what's my day")
+
+        XCTAssertEqual(outcome.answer, "A busy day.")
+        let second = model.inputs[1]
+        XCTAssertTrue(second.contains(ToolResultReducer.reduce(full)))
+        XCTAssertTrue(second.contains("more not shown."))
+        XCTAssertFalse(second.contains(rows.last!), "a row past the budget is not resent")
+        XCTAssertEqual(outcome.turns.first { $0.role == .tool }?.text, full)
+    }
+
+    /// A selection is capped and its cut stated by `SelectionReader`; it is not cut a
+    /// second time by the reducer, even when its header and stated cut take it past
+    /// the reducer's budget.
+    func testASelectionIsNotCutTwice() async {
+        let selection = "Selected in Notes (9000 characters):\n" + String(repeating: "z", count: 8_000)
+            + "\n[1000 more characters not shown]"
+        XCTAssertGreaterThan(selection.count, ToolResultReducer.budget)
+        let model = InputRecorder([
+            #"{"tool":"read_selection","args":{}}"#,
+            #"{"answer":"A long note."}"#,
+        ])
+        let loop = AgentLoop(
+            tools: [LocalToolCatalog.readSelection],
+            router: StubConnectorRouter(ToolResult(ok: true, text: selection, instanceLabels: [])),
+            generate: model.generate)
+
+        _ = await loop.run(question: "summarize this")
+
+        XCTAssertTrue(model.inputs[1].contains(selection))
+        XCTAssertEqual(model.inputs[1].components(separatedBy: "not shown").count, 2,
+                       "only the selection's own stated cut")
+    }
+
+    /// Escape cancels the task the loop runs in. A generation still in progress is
+    /// walked away from at once rather than at the budget.
+    func testCancellingTheRunStopsItAtOnce() async {
+        let store = makeStore()
+        var loop = makeLoop(store: store, generate: { _, _ in
+            try? await Task.sleep(nanoseconds: 5 * NSEC_PER_SEC)
+            return #"{"answer":"too late to matter"}"#
+        })
+        loop.budget = 30
+        let ready = loop
+
+        let started = Date()
+        let task = Task { await ready.run(question: "what's my day") }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        task.cancel()
+        let outcome = await task.value
+
+        XCTAssertTrue(outcome.exhausted)
+        XCTAssertTrue(outcome.answer.isEmpty)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3, "the loop waited on the model")
+    }
+
+    /// A run cancelled before anything was created is declined with that reason, so
+    /// the caller files the words.
+    func testACancelledCommandIsDeclinedAsStopped() async {
+        let notes = NotesStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("cancel-\(UUID()).json"), load: false)
+        let store = ConnectorInstanceStore(load: false)
+        store.persistenceEnabled = false
+        let service = CommandAgentService(store: store, notes: notes,
+                                          approvals: ApprovalCoordinator(),
+                                          connectorsAllowed: false)
+        let task = Task {
+            await service.run("what reminders do I have", generate: { _, _ in
+                try? await Task.sleep(nanoseconds: 5 * NSEC_PER_SEC)
+                return nil
+            })
+        }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        task.cancel()
+        let run = await task.value
+
+        XCTAssertNil(run.result)
+        XCTAssertTrue(run.declineReason.contains("Escape"), run.declineReason)
+    }
+}
+
+/// Plays scripted replies and records the conversation each generation was handed.
+private final class InputRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let replies: [String]
+    private var recorded: [String] = []
+
+    init(_ replies: [String]) {
+        self.replies = replies
+    }
+
+    var generate: AgentLoop.Generate {
+        { [self] text, _ in next(text) }
+    }
+
+    var inputs: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    private func next(_ text: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        recorded.append(text)
+        return recorded.count <= replies.count ? replies[recorded.count - 1] : nil
     }
 }

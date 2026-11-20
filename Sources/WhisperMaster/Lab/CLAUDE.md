@@ -68,6 +68,108 @@ a wrong folder says so when it is chosen rather than at the start of a 15 minute
 run. Bundling the suites would mean two versions of every case and a build step to
 keep them equal; this is a dev surface on the machine that built it.
 
+### Any Hugging Face model, by id
+
+The catalogue is `LabCatalog.builtIn`; anything else is typed into the rail's
+"Add from Hugging Face" field (a bare `owner/name` or a pasted URL) and saved in
+`LabCustomModels` (`WhisperMaster.lab.customModels.v1`), with the id `hf:<repo
+lowercased>` so it can never collide with a built-in one.
+
+- **The repo is checked when it is added, not when the run starts.**
+  `LabHuggingFace.check` reads `GET /api/models/<id>?blobs=true` and refuses a
+  repo that is missing, gated, has no `config.json` / `tokenizer.json` /
+  `.safetensors`, has no chat template, or names a `model_type` the pinned
+  MLXLLM cannot build. It needs `tokenizer.json` specifically because the
+  download fetches `*.json`, `*.safetensors` and `*.jinja`, never
+  `tokenizer.model`.
+- **⚠️ The chat template is often in `chat_template.jinja`, not in the API.**
+  Every Qwen3 2507 build and SmolLM3 keep it there, so the API's `config`
+  carries none. The check fetches that file, and `LabHuggingFace.download` adds
+  `*.jinja` to the fetch because `MLXLMCommon.downloadModel` does not: a 2507
+  model fetched by MLX alone arrives with no template and fails every prompt. Hugging Face answers **401, not 404**, for a repo
+  that does not exist when you are not logged in.
+- **Supported architectures are asked of `LLMTypeRegistry`, never copied.** The
+  registry has no lookup, so `isSupportedModelType` builds from a config file that
+  does not exist: an unknown type throws `unsupportedModelType` first. Bumping
+  mlx-swift-examples widens the list with no edit here.
+- **The tool suite is offered only when the chat template takes `tools`.**
+  Same reason a normalizer is kept out of it.
+- **A saved repo id is re-validated on every read.** It becomes a directory under
+  the Hugging Face cache, and the slot override can point the shipped cleanup path
+  at that directory, so `..` in a hand-edited defaults value must not become a path
+  out of the cache. This is what keeps `LabModelOverride`'s "never a path" fence
+  true for added models.
+- **The runner downloads before it loads.** The load is capped at 60 s
+  (`MlxCleanupService.loadTimeoutSeconds`), and a load that had to fetch first
+  spent that minute on the network, so anything much over a gigabyte failed as
+  "load failed" without reaching the GPU. This applied to the built-in candidates
+  too. Progress goes to the run log every tenth (`LabDownloadTenths`).
+- **⚠️ The first download after launch can be refused as "offline".** The hub
+  client creates its network monitor on that call and reads "not connected"
+  until `NWPathMonitor` reports. `LabHuggingFace.download` retries
+  `offlineModeError` twice. The client also counts Low Data Mode and a phone
+  hotspot as offline, which no retry fixes, and the error says so.
+- **⚠️ Generation stops on the chat template's end-of-turn token, not only on
+  `eos_token`.** Gemma ends a turn with `<end_of_turn>` and Phi-4-mini with
+  `<|end|>`, while their `eos_token` is something else, so without
+  `EndOfTurnTokens` both wrote invented follow-up turns, the guard rejected every
+  output, and run 7 scored them as the no-op fallback. The markers are read from
+  each model's own `tokenizer.json`. **Every load from disk takes the same
+  configuration** (`MlxModelConfiguration.local`, through
+  `MlxCleanupService.prepare(directory:)`): the lab, `EvalRunner`, and both shipped
+  slots. While only the lab added the stops, a model could rank well here and then,
+  pointed at the cleanup slot on a dev build, have every output rejected and do
+  nothing. Do not build a `ModelConfiguration(directory:)` by hand.
+- **Remove takes the files with it.** An added model off the list is a download
+  nobody can reach from the page. Saved runs keep their results under its name.
+- Live check of the API shape: `LAB_HF_LIVE=1 swift test --filter LabHuggingFaceTests`
+  (skipped otherwise).
+
+### Reasoning models
+
+A model that thinks before it answers is benched on the **tool suite only**, as a
+row of its own, so it can sit beside the shipped assistant in one run.
+
+- **`LabReasoning` is read off the chat template.** `enable_thinking` anywhere →
+  `.optional` (Qwen3 hybrids, SmolLM3). `<think>` opened after the *last*
+  `add_generation_prompt` → `.always` (Qwen3 Thinking-2507, the R1 distills).
+  Only the tail counts: the shipped Instruct-2507 template names `<think>` in its
+  body to strip it from earlier turns, and is not a reasoning model.
+- **A hybrid gets two rows over one download**: the plain row, and
+  `<id>+reasoning` (`LabModel.reasoningVariant`, assistant-only, `thinks`). An
+  `.always` model is one row, assistant-only, and an added one that also takes no
+  tools is refused: no suite here could measure it.
+- **The reasoning budget.** `generateWithToolsMeasured(thinking:)` renders with
+  `enable_thinking: true` and gets `reasoningMaxTokens` (2048) and
+  `reasoningTimeoutSeconds` (60 s). The lab passes `thinking` per row; the shipped
+  assistant gets the same budget from the resident model (`loadedThinks`). The
+  cleanup path still renders with `enable_thinking: false` on 512 tokens / 12 s,
+  which would cut a reasoning model off before it answered.
+- **A model out of budget with no `</think>` scores no answer, never its
+  reasoning.** Its reasoning can name the tool it is weighing, and handing that to
+  the parser would pass a model that never answered. The case says "still
+  reasoning when the budget ran out".
+- **⚠️ A reasoning row can never take a shipped slot.** `LabController.canUse`
+  refuses it and `LabModelOverride.directory` repeats the refusal, because the
+  shipped paths cannot reason and an `.always` model would time out on every turn
+  of a dev build's assistant. Making the assistant reason is a change to
+  `CommandAgentService`'s budget and prompt, not a lab toggle. **That change was
+  made on 2026-10-17**: the shipped assistant is now Qwen3-4B-Thinking-2507 (the
+  `.shippingAssistant` row) and the assistant paths reason when the resident model
+  does (`MlxCleanupService.loadedThinks`, recorded at load). The override rule still
+  holds: a dev build can point the slot at a non-thinking model, never at another
+  reasoning row, because only the shipped directories are recognised as reasoning.
+- Reasoning tokens per case are kept (`LabCaseResult.reasoningTokens`) and the
+  median goes in the run log. Latency already carries the cost in time.
+- **Measured 2026-10-04 (M5, 24 GB, tool suite, 16 cases, run 5).** The shipped
+  Qwen3-4B-Instruct-2507 scored 16/16 at 3.9 s p50. Qwen3-4B-Thinking-2507 scored
+  15/16 at 10.7 s p50 (64 s p95, 328 reasoning tokens median); Qwen3-1.7B with
+  reasoning scored 15/16 at 6.4 s p50. Each miss was a case still reasoning at the
+  budget. **On first-turn tool choice, reasoning buys nothing and costs 2.7x the
+  latency**, so do not re-run this to decide that question. Where reasoning could
+  earn its cost is the turn that reads a tool result, which this suite does not
+  ask; that needs `AgentToolEval`'s grounding case, not a bigger budget here.
+
 ### Measurement rules
 
 - **One model resident at a time.** Two models loaded together share one GPU
@@ -97,8 +199,24 @@ keep them equal; this is a dev surface on the machine that built it.
 `cleanup` and `polish` (the same `cases.jsonl` through the two shipped prompts),
 `destinations` (`flow-cases.jsonl`, one row per declared target — the target joins
 the id, or three rows collide), `tools` (16 spoken commands, native tool schemas,
-first turn only, **assistant-role models only**), and `audio` (the committed
-recordings through the real streaming transcriber, scored on WER).
+first turn only, **assistant-role models only**), `audio` (the committed
+recordings through the real streaming transcriber, scored on WER), and
+`disfluency` (`disfluency-cases.jsonl`, 250 public DisfluencySpeech turns through
+the light prompt, each passing on `max_reference_wer`; see `eval/README.md`). Its
+bars are measured from the deterministic passes' output, the text the model is
+handed, and `DisfluencySuiteTests` both writes them and fails when the committed
+file no longer matches what the passes give.
+
+### Arena
+
+`LabArena` turns a run into head-to-head ratings: every pair of models meets on
+every case, a pass beats a fail, two equal verdicts go to the output closer to
+the case's `reference`, and the points are fit with Bradley-Terry onto the Elo
+scale. A case whose pass rule *is* a word-error limit (`max_reference_wer`) is
+decided on word error and the margin alone, because ruling on its pass first made
+a hair across the bar a full win and a large gap on one side of it a tie. The headless bench prints it after the score table when a run has two or
+more models. It is a fit, not a running Elo, so case order cannot move it, and
+each pair carries one virtual tie so an unbeaten model stays finite.
 
 ### Testing
 

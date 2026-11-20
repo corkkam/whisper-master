@@ -188,6 +188,49 @@ final class TraceTests: XCTestCase {
         XCTAssertEqual(trace.calls.first?.milliseconds, 420)
         XCTAssertNil(trace.calls.first?.approvalMilliseconds)
         XCTAssertNil(trace.calls.first?.authorization)
+        XCTAssertNil(trace.endpoint, "nothing left the Mac in a trace written before the endpoint tier")
+
+        // A send record written before `tool` and `failure` existed.
+        let oldSend = #"{"host":"api.example.com","requests":1,"instructions":10,"spoken":5,"#
+            + #""modelReplies":0,"toolResults":0,"toolList":20,"failures":1}"#
+        let send = try JSONDecoder().decode(EndpointSendTrace.self, from: Data(oldSend.utf8))
+        XCTAssertNil(send.tool)
+        XCTAssertNil(send.failure)
+        XCTAssertEqual(send.summary, "1 request to api.example.com: your words 5, instructions 10, "
+            + "tool list 20 characters. 1 failed. Text only; audio never leaves this Mac.")
+    }
+
+    func testTheSendSummarySaysWhyTheRemoteBrainFailed() {
+        let send = EndpointSendTrace(host: "Claude Code", requests: 1, spoken: 42, failures: 1,
+                                     tool: "Claude Code", failure: "did not answer within 20 seconds")
+        XCTAssertEqual(send.summary, "1 request to Claude Code: your words 42 characters. 1 failed: "
+            + "it did not answer within 20 seconds. Text only; audio never leaves this Mac.")
+    }
+
+    /// The general form of the test above: a trace written today, with every key the
+    /// old shape did not have taken out, must still decode. A field added later that
+    /// is not optional fails here, before it empties the page on someone's Mac.
+    func testEveryFieldAddedSinceTheOldShapeIsOptional() throws {
+        let oldTraceKeys: Set = ["id", "askedAt", "heard", "asked", "stages", "decisions",
+                                 "connectorsAllowed", "toolsOffered", "calls", "answer",
+                                 "provenance", "createdSomething", "milliseconds"]
+        let oldCallKeys: Set = ["id", "tool", "arguments", "connectors", "ok", "result",
+                                "milliseconds"]
+        var trace = AssistantTrace()
+        trace.decisions = [TraceDecision(title: "Agent", detail: "Answered.", taken: true)]
+        trace.calls = [ToolCallTrace(tool: "send_message", approvalMilliseconds: 900,
+                                     authorization: .allowedOnce)]
+        trace.turns = [TraceTurn(role: "model", text: "{}")]
+        trace.endpoint = EndpointSendTrace(host: "api.example.com", requests: 2, spoken: 40)
+
+        let encoded = try JSONEncoder().encode(trace)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let calls = try XCTUnwrap(object["calls"] as? [[String: Any]])
+        object = object.filter { oldTraceKeys.contains($0.key) }
+        object["calls"] = calls.map { $0.filter { oldCallKeys.contains($0.key) } }
+
+        let stripped = try JSONSerialization.data(withJSONObject: object)
+        XCTAssertNoThrow(try JSONDecoder().decode(AssistantTrace.self, from: stripped))
     }
 
     func testAnAuthorizationBadgeSaysWhichOfTheFiveWaysItWasPermitted() {
