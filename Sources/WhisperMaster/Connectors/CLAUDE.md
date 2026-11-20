@@ -351,7 +351,8 @@ from what the assistant read: mail text such as "set a reminder to call 555-0100
 reminder then shows that text in the notch with a sound. So the taint rule applies to
 them too (owner decision, 2026-11-20). **In a tainted run** (a connector read,
 `read_selection`, or a tainted follow-up) `LocalToolRunner` raises the connector card,
-scoped to This Mac (`DeviceToolCatalog.thisMacID`), with the after-read warning, **every
+scoped to This Mac (`DeviceToolCatalog.thisMacID`), with the after-read warning, which names the selection when that was the only read
+(`PendingApproval.readSelectionOnly`; the connector and device cards say the same), **every
 time**: no grant is looked up, Always is not offered, and an Always answer runs once. The
 card shows what is saved: the note's title and body, the reminder's title, body and the
 time `RelativeTimeParser` or the hour-out default resolved (never the model's phrase).

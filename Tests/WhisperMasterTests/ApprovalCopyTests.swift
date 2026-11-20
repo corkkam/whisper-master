@@ -370,4 +370,23 @@ final class ApprovalCopyTests: XCTestCase {
         XCTAssertTrue(NotchApprovalBanner.hasMoreBelow(contentBottom: 70, visibleHeight: 56))
         XCTAssertFalse(NotchApprovalBanner.hasMoreBelow(contentBottom: 56.4, visibleHeight: 56))
     }
+
+    /// The warning names what was read: the selection when that was the only read,
+    /// the accounts otherwise. An untainted card carries neither.
+    func testTheWarningNamesWhatWasRead() {
+        func card(grantOffered: Bool, selectionOnly: Bool) -> PendingApproval {
+            PendingApproval(tool: "create_note", instanceID: DeviceToolCatalog.thisMacID,
+                            instanceLabel: DeviceToolCatalog.thisMacLabel,
+                            target: DeviceToolCatalog.thisMacLabel, arguments: ["body": "x"],
+                            grantOffered: grantOffered, grantable: false,
+                            readSelectionOnly: selectionOnly)
+        }
+        XCTAssertEqual(card(grantOffered: false, selectionOnly: true).readWarning,
+                       ApprovalCopy.selectionReadWarning)
+        XCTAssertEqual(card(grantOffered: false, selectionOnly: false).readWarning,
+                       ApprovalCopy.readWarning)
+        XCTAssertNil(card(grantOffered: true, selectionOnly: true).readWarning)
+        XCTAssertNil(card(grantOffered: true, selectionOnly: false).readWarning)
+        XCTAssertFalse(ApprovalCopy.selectionReadWarning.contains("accounts"))
+    }
 }

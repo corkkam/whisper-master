@@ -85,6 +85,9 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
     /// raises the after-reading warning, and an untainted link card has nothing to
     /// warn about.
     let grantable: Bool
+    /// The run's only read was the selection the chord captured
+    /// (`Taint.isSet && !Taint.outsideSelection`). It picks which warning line shows.
+    let readSelectionOnly: Bool
     let requestedAt: Date
 
     init(id: UUID = UUID(),
@@ -95,6 +98,7 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
          arguments: [String: String],
          grantOffered: Bool = true,
          grantable: Bool = true,
+         readSelectionOnly: Bool = false,
          requestedAt: Date = Date()) {
         self.id = id
         self.tool = tool
@@ -104,6 +108,7 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
         self.arguments = arguments
         self.grantOffered = grantOffered
         self.grantable = grantable
+        self.readSelectionOnly = readSelectionOnly
         self.requestedAt = requestedAt
     }
 
@@ -122,10 +127,13 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
         ApprovalCopy.detail(tool: tool, arguments: arguments)
     }
 
-    /// The card's warning line, present exactly when the run read connector text.
-    /// Derived from `grantOffered` so the two can never disagree.
+    /// The card's warning line, present exactly when the run read untrusted text (a
+    /// connector read, the selection, or a tainted follow-up). Derived from
+    /// `grantOffered` so the two can never disagree, and it names the selection when
+    /// that was the only read.
     var readWarning: String? {
-        grantOffered ? nil : ApprovalCopy.readWarning
+        guard !grantOffered else { return nil }
+        return readSelectionOnly ? ApprovalCopy.selectionReadWarning : ApprovalCopy.readWarning
     }
 
     /// Lines the payload may take. One, except a link, which wraps rather than

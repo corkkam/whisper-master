@@ -196,6 +196,8 @@ final class LocalToolApprovalTests: XCTestCase {
         _ = await router.run(reminder)
 
         XCTAssertEqual(recorder.cards.map(\.tool), ["create_reminder"])
+        XCTAssertEqual(recorder.cards.first?.readWarning, ApprovalCopy.selectionReadWarning,
+                       "only the selection was read, so the card does not name the accounts")
         XCTAssertTrue(notes.visibleReminders.isEmpty)
         XCTAssertEqual(router.executed, ["read_selection"], "a declined card is not having acted")
         XCTAssertFalse(router.didCreateSomething)
@@ -263,10 +265,20 @@ final class LocalToolApprovalTests: XCTestCase {
         approvals.timeout = 0.05
         let notes = notesStore()
 
+        var raised: PendingApproval?
+        let watching = Task { @MainActor in
+            for _ in 0..<1000 where approvals.pending == nil {
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+            raised = approvals.pending
+        }
         let tainted = await service(notes: notes, store: store, approvals: approvals,
                                     followUp: .init(question: "x", answer: "y", tainted: true))
             .run("save that", generate: ScriptedModel([Self.saveNote, #"{"answer":"Saved."}"#]).generate)
+        await watching.value
         XCTAssertEqual(tainted.calls.map(\.authorization), [.timedOut])
+        XCTAssertEqual(raised?.readWarning, ApprovalCopy.readWarning,
+                       "a follow-up's taint may come from an account, so the card names the accounts")
         XCTAssertTrue(notes.visibleNotes.isEmpty)
 
         let clean = await service(notes: notes, store: store, approvals: approvals,

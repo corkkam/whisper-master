@@ -26,6 +26,10 @@ enum ApprovalCopy {
     /// rather than a habitual Once.
     static let readWarning = "I wrote this after reading text from your accounts. Check it first."
 
+    /// The same line when the run's only read was the selection the chord captured,
+    /// so the card does not claim an account was read.
+    static let selectionReadWarning = "I wrote this after reading your selection. Check it first."
+
     /// Human verb for a tool name, so the card reads as a sentence rather than an
     /// identifier.
     static func verb(for tool: String) -> String {

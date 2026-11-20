@@ -113,6 +113,23 @@ final class DeviceToolRunnerTests: XCTestCase {
         XCTAssertEqual(store.grants.count, 1, "an Always in a tainted run stores nothing")
     }
 
+    /// A run whose only read was the selection says so on the card, rather than
+    /// claiming an account was read.
+    func testASelectionOnlyReadNamesTheSelectionOnTheCard() async {
+        let taint = Taint()
+        taint.isSet = true
+        let recorder = Recorder()
+        _ = await runner(recorder: recorder, taint: taint)
+            .run(call("open_url", ["url": "https://example.com/docs"]))
+        XCTAssertEqual(recorder.cards.first?.readWarning, ApprovalCopy.selectionReadWarning)
+
+        taint.outsideSelection = true
+        let after = Recorder()
+        _ = await runner(recorder: after, taint: taint)
+            .run(call("open_url", ["url": "https://example.com/docs"]))
+        XCTAssertEqual(after.cards.first?.readWarning, ApprovalCopy.readWarning)
+    }
+
     func testADeclinedCardOpensNothing() async {
         let recorder = Recorder()
         let (result, effect) = await runner(answer: .denied, recorder: recorder)

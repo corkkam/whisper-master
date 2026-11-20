@@ -236,7 +236,8 @@ struct LocalToolRunner {
             target: DeviceToolCatalog.thisMacLabel,
             arguments: arguments,
             grantOffered: false,
-            grantable: false)
+            grantable: false,
+            readSelectionOnly: !taint.outsideSelection)
         guard let requestApproval else {
             return .stop(.failure("This run read text from your accounts or your selection, and "
                 + "no approval card can be shown here, so nothing was saved."))
