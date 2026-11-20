@@ -1,6 +1,6 @@
 import Foundation
 
-/// Where usage rollups sync to. The web app at whisper.corkkam.com exposes
+/// Where usage rollups sync to. The web app at typing.sucks exposes
 /// `POST /api/usage`; this resolves that URL and the optional shared-secret
 /// fallback token. Overridable via Info.plist / env for dev without a rebuild.
 ///
@@ -15,7 +15,7 @@ enum UsageSyncConfig {
     private static var baseURLString: String {
         (Bundle.main.object(forInfoDictionaryKey: "UsageSyncBaseURL") as? String)
             ?? ProcessInfo.processInfo.environment["USAGE_SYNC_BASE_URL"]
-            ?? "https://whisper.corkkam.com"
+            ?? "https://typing.sucks"
     }
 
     /// The `/api/usage` upsert endpoint, or nil if the base URL is malformed.

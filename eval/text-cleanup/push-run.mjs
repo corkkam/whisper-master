@@ -7,7 +7,7 @@
 // account; it is now a route on the landing site, which is why this script
 // moved out of the retired dashboard app, which has since been deleted.
 //
-//   DASHBOARD_URL      where to post   (default: https://whisper.corkkam.com)
+//   DASHBOARD_URL      where to post   (default: https://typing.sucks)
 //   EVAL_VERSION       marketing version this run grades, e.g. 1.1.0-beta.9
 //   EVAL_CHANNEL       stable | beta | dev
 //                      Both are set by Scripts/release.sh. Without them the run
@@ -39,7 +39,7 @@ function ingestToken() {
   }
 }
 
-const base = (process.env.DASHBOARD_URL || "https://whisper.corkkam.com").replace(/\/+$/, "");
+const base = (process.env.DASHBOARD_URL || "https://typing.sucks").replace(/\/+$/, "");
 const token = ingestToken();
 const results = JSON.parse(readFileSync(resultsPath, "utf8"));
 const cases = casesPath ? readFileSync(casesPath, "utf8") : null;

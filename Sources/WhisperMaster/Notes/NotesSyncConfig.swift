@@ -1,6 +1,6 @@
 import Foundation
 
-/// Where notes & reminders sync to. The web app at whisper.corkkam.com exposes
+/// Where notes & reminders sync to. The web app at typing.sucks exposes
 /// `POST`/`GET /api/notes`; this resolves that URL and the optional shared-secret
 /// fallback token. Overridable via Info.plist / env for dev without a rebuild.
 /// Mirrors `UsageSyncConfig` — read the note there about the retired deploy.
@@ -8,7 +8,7 @@ enum NotesSyncConfig {
     private static var baseURLString: String {
         (Bundle.main.object(forInfoDictionaryKey: "UsageSyncBaseURL") as? String)
             ?? ProcessInfo.processInfo.environment["USAGE_SYNC_BASE_URL"]
-            ?? "https://whisper.corkkam.com"
+            ?? "https://typing.sucks"
     }
 
     /// The `/api/notes` endpoint, or nil if the base URL is malformed.
