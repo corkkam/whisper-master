@@ -220,7 +220,8 @@ struct ToolRouter {
                 instanceLabel: instance.displayLabel,
                 target: target,
                 arguments: arguments,
-                grantOffered: !taint.isSet)
+                grantOffered: !taint.isSet,
+                readSelectionOnly: taint.isSet && !taint.outsideSelection)
             let askedAt = now()
             let outcome = await requestApproval(approval)
             waited = Int(now().timeIntervalSince(askedAt) * 1000)

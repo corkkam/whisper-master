@@ -525,7 +525,8 @@ struct DeviceToolRunner {
             target: target,
             arguments: arguments,
             grantOffered: !taint.isSet,
-            grantable: grantable))
+            grantable: grantable,
+            readSelectionOnly: taint.isSet && !taint.outsideSelection))
         let waited = Int(now().timeIntervalSince(askedAt) * 1000)
         let authorization: ToolAuthorization
         switch outcome {
