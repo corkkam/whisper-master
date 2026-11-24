@@ -14,6 +14,9 @@ struct NotchAgentAskBanner: View {
     let approval: AgentApproval
     /// The repository the asking session is in.
     let repo: String
+    /// False for the Desk: a kunai Always is a session rule with no target, and a task
+    /// it runs may send something that cannot be undone.
+    var offersAlways = true
     let onResolve: (_ allow: Bool, _ always: Bool) -> Void
 
     var body: some View {
@@ -29,7 +32,7 @@ struct NotchAgentAskBanner: View {
             trailing: {
                 HStack(spacing: 6) {
                     choice("Once", allow: true, always: false)
-                    choice("Always", allow: true, always: true)
+                    if offersAlways { choice("Always", allow: true, always: true) }
                     choice("No", allow: false, always: false, isDestructive: true)
                 }
             })
@@ -38,7 +41,7 @@ struct NotchAgentAskBanner: View {
     /// VoiceOver gets the whole payload untruncated: a screen-reader user must not be
     /// asked to consent to something the layout abbreviated away.
     private var accessibilityText: String {
-        "\(approval.headline). In \(repo). Choose once, always, or no."
+        "\(approval.headline). In \(repo). Choose \(offersAlways ? "once, always, or no" : "once or no")."
     }
 
     private func choice(

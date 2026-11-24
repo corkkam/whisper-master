@@ -653,8 +653,9 @@ struct DictationPillContent: View {
                 ask: ask,
                 sessions: state.agents.sessions,
                 askingRepo: state.agents.askingRepo,
-                mode: state.agents.askingSession?.mode ?? .ask,
+                mode: state.agents.askIsFromDesk ? nil : (state.agents.askingSession?.mode ?? .ask),
                 now: now,
+                offersAlways: !state.agents.askIsFromDesk,
                 onResolve: { allow, always in
                     state.agents.resolve(ask, allow: allow, always: always)
                 },
