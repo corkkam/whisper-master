@@ -26,8 +26,9 @@ evaluation harness and public accuracy dashboard.
 
 Speech recognition is NVIDIA Parakeet through FluidAudio; the optional deeper
 cleanup is qwen2.5-3B through MLX. Both run on the user's own machine. With an
-endpoint the user sets, or the user's own Claude Code CLI, and the consent sheet for it
-(dev builds only), the assistant's text, never audio, can leave the Mac
+endpoint the user sets, the user's own Claude Code CLI, or a task handed to Claude Code
+through kunai, and the consent sheet for it (dev builds only), the assistant's text,
+never audio, can leave the Mac
 (`Connectors/CLAUDE.md`). Audio is
 captured to memory, transcribed, and discarded — it is never written to a socket
 and never written to disk on the normal dictation path. **Meeting notes are the

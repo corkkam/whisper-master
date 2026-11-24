@@ -374,10 +374,54 @@ deny the card, so they end the same way, and the words stay only in Traces. **Wi
 read, nothing changes**: no card, instant save. `swift test --filter
 LocalToolApprovalTests` is the lock.
 
+## Hand-off to Claude Code (`Tools/DelegateTools.swift`, `Agents/AgentDesk.swift`, dev builds only)
+
+The chord can hand a task to Claude Code on this Mac (plan Phase 4a and 4b, approved by
+the owner on 2026-11-17). Claude Code sends the task to the user's model provider, so
+**text leaves the Mac, never audio**. The app is a client only: it creates a kunai
+session, and it never ships, starts or supervises kunai or Shed.
+
+- **The Desk** is one kunai session on this Mac, in Ask mode, in the Project folder
+  (`agentDefaultDirectory`). No folder, or the home folder itself, means no Desk
+  (`AgentDesk.folder`). The app names it `AgentDesk.title` at create and finds it again by
+  that title and its folder, never by folder alone: a coding session in the same folder is
+  not the Desk. `handToDesk` sends to the Desk id only and never reads `promptTarget`, and
+  `promptTarget`'s "most recent" fallback skips the Desk. The hand-off is refused when the
+  Desk's raw mode (from its `hello`) is not `default` (Ask), and while the Desk is still
+  on a task. A Desk ask shows Once and No, hides `AgentModeControl`, and denies itself
+  after 60 s (`deskAskTimeout`). `setMode` refuses the Desk.
+- **`delegate_task(task)`** is `.write` on the This Mac route (`thisMacID`), `targetArg`
+  `task`, and a card on every call: no grant is ever looked up or stored. The card's
+  headline is the destination ("Send to Claude Code on this Mac, in <folder>"), and the
+  payload is the whole task in the scroll area a note uses (`ApprovalCopy.scrollsDetail`),
+  so no length is refused. A task with a character the card cannot show
+  (`AgentDraft.hasHiddenCharacters`) is refused before the card. On a Once, the task goes to the Desk and the result sets `ToolResult.endsTurn`: the loop
+  returns at once with the result as the answer, and the 30 s budget does not wait for
+  the coding agent. A failed hand-off is an ordinary failure, so the loop goes on and the
+  words still land. Only a hand-off that went counts as an action
+  (`CommandToolRouter.Effect.handOff`).
+- **Offered only when** (`DelegateToolCatalog.offered`): kunai answered (this client
+  has no route that starts a Shed session), the Project folder is set, the one-time
+  consent is given (`DeskHandOffRow`, `AppState.deskHandOffAllowed`, dropped at sign-out),
+  `FeatureFlags.agentEndpointAvailable`, and the capture may leave the Mac (not
+  `AgentEndpoint.staysLocal`).
+- **`list_coding_tasks`** is `.read` and lists the sessions the client already holds
+  (`AgentSurfaceController.heldSessions`, kunai's and Shed's, at most 10 rows). It opens no
+  socket. It sets the taint flag: titles and status come from another program.
+- **The Desk's answer** arrives on the reply band. The opening sentence is read aloud
+  (`onDeskReply`) only for a live result of the turn a hand-off started, never for a
+  reply kunai replays at attach and never for a coding session.
+- **The trace** keeps `AssistantTrace.handOff` (`HandOffTrace`): the destination and the
+  character count, never the text.
+- **Known gap:** an allow rule or a hook in the user's own Claude Code settings can run a
+  tool with no card. The consent sheet says so.
+- **Not built:** the warm start (4c), a reply-to-task tool, workflows, Codex, the Desk's
+  own `CLAUDE.md` brief, and the 12 hand-off cases for the tool bench.
+
 ## Verifying
 
 `swift test --filter "DeviceToolRunnerTests|AgentIntentMatcherTests|ApprovalCopyTests"`
-for the device tools.
+for the device tools. `swift test --filter AgentDeskTests` for the hand-off.
 `swift test --filter "MicrosoftConnectorTests|SlackProviderTests|Connector"`. No
 test reaches the live Graph or Slack APIs. The first real sign-in after the client
 id is set is the end-to-end check.
