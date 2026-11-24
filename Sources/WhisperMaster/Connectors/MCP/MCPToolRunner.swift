@@ -2,13 +2,14 @@ import Foundation
 
 extension FeatureFlags {
     /// True when the user may add an MCP server and the assistant may offer its tools.
-    /// Dev only: each call sends the model's arguments to a server the user named.
+    /// Dev and beta, not stable: each call sends the model's arguments to a server the
+    /// user named, and no live bench against a real server exists yet (owner, 2026-11-25).
     static var mcpServersAvailable: Bool {
         mcpServersAvailable(on: ReleaseChannel.current)
     }
 
     static func mcpServersAvailable(on channel: ReleaseChannel) -> Bool {
-        channel == .dev
+        channel != .stable
     }
 }
 
