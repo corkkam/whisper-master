@@ -21,6 +21,8 @@ enum MediaKey {
         case playPause = 16     // NX_KEYTYPE_PLAY
         case next = 17          // NX_KEYTYPE_NEXT
         case previous = 18      // NX_KEYTYPE_PREVIOUS
+        case soundUp = 0        // NX_KEYTYPE_SOUND_UP
+        case soundDown = 1      // NX_KEYTYPE_SOUND_DOWN
     }
 
     /// Press and release. A key-down with no key-up leaves some players waiting for

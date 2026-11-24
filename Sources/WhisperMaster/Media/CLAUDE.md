@@ -88,6 +88,10 @@ is bug 1.
   instead of a call at each of the finalize's four returns. It owns no timer and no
   watching task, which is the property that keeps a press out of the middle of a hold.
   Its `Environment` is injectable so the press-once rule is testable without a speaker.
+- **`VolumeCommandDetector` + `VolumeController`** — "volume up", "mute", "set the volume
+  to 30". Same rule as the detector below: legal only inside `routeCommandCapture`.
+  The volume keys are not the play/pause toggle, so the press rules below do not apply.
+  Details: `Connectors/CLAUDE.md`, "Files on this Mac, and the volume".
 - **`MediaCommandDetector` + `MediaController`** — the spoken "pause the music".
   **⚠️ The detector is legal only inside `routeCommandCapture`**, downstream of the
   assistant chord where the paste is already suppressed, for exactly the reason
