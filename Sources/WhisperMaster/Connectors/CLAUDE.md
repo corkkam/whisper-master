@@ -108,8 +108,8 @@ Phase 3 of the agent plan (owner approval 2026-11-17, Gmail send included): `sea
   opened item, the search words, and who a reply or a mail went to.
 - **The pack.** These add three published tools (five with send on). With every kind
   connected, a front app and a selection, a prompt can now pass `ToolPackRouter.limit`, and
-  the tools that share the fewest words with the command go first. Note that
-  `list_messages` shares no word with "reply to Sam in Slack".
+  the tools that share the fewest words with the command go first. A row tool keeps its
+  listing (`ToolPackRouter.needs`).
 - `swift test --filter ItemToolsTests` is the lock.
 
 ## What the assistant loop shows the model (`Agent/`)
@@ -130,6 +130,9 @@ Phase 3 of the agent plan (owner approval 2026-11-17, Gmail send included): `sea
   share the fewest words with the command go. Today's catalog is 18 connector tools
   (20 with Gmail send on), before the device, file, hand-off, memory and MCP tools, so a
   run that offers many of them drops the connector tools with the fewest shared words.
+  **A listing ranks with the row tools that need it** (`ToolPackRouter.needs`), so
+  "reply to Sam in Slack" keeps `list_messages` beside `reply_message`. The limit stays
+  16: the 24-tool sweep (2026-11-18) ran on Instruct-2507, not on the Thinking model.
 - **A follow-up window** (`FollowUpWindow`, owned by the view model). For 120 s after
   an answer, the next chord capture is given the last question and the storable
   answer (400 characters at most) as an earlier user and assistant turn
@@ -611,10 +614,11 @@ each call (plan section 8, Phase 6).
 - **Not built:** stdio, OAuth for MCP, resources, prompts, sampling, a full-schema view
   for the remote tiers, a session `DELETE`, re-`initialize` after a 404 (the call fails
   instead), and a live bench against a real server.
-- **Known limit, as for every new kind:** the connector file is shared by the dev and
-  stable builds on one Mac. A build without `.mcpServer` cannot decode a file that holds
-  one, so it shows no connections, and its next change to a connection overwrites the
-  file. Remove the MCP server in the dev build before you open an older build.
+- **The connector file is shared by the dev and stable builds**, and a build without a
+  kind cannot decode a file that holds it: it would show no connections and overwrite the
+  file on its next change. So an MCP server is kept in `<userId>.own.json` beside it
+  (`ConnectorInstanceStore.ownFileKinds`, `splitForDisk`). Add any later kind that an
+  older build cannot read to `ownFileKinds`.
 
 ## Hand-off to Claude Code (`Tools/DelegateTools.swift`, `Agents/AgentDesk.swift`, dev builds only)
 

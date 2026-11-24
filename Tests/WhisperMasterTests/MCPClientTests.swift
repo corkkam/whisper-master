@@ -477,3 +477,22 @@ final class FakeMCPServer: URLProtocol {
         return data
     }
 }
+
+/// Every build on a Mac reads the shared connector file, and one older than
+/// `.mcpServer` cannot decode a file that holds it, so an MCP server is kept in its own file.
+final class ConnectorOwnFileTests: XCTestCase {
+    func testAnMCPServerNeverGoesToTheSharedFile() {
+        let calendar = ConnectorInstance(kind: .appleCalendar, label: "Personal", identity: "local")
+        let server = ConnectorInstance(kind: .mcpServer, label: "Weather", identity: "mcp.test")
+        let split = ConnectorInstanceStore.splitForDisk([server, calendar])
+        XCTAssertEqual(split.shared.map(\.kind), [.appleCalendar])
+        XCTAssertEqual(split.own.map(\.kind), [.mcpServer])
+    }
+
+    func testTheOwnFileSitsBesideTheSharedOne() {
+        let shared = ConnectorInstanceStore.fileURL(forUserID: "user_1")
+        let own = ConnectorInstanceStore.ownFileURL(forUserID: "user_1")
+        XCTAssertEqual(own.deletingLastPathComponent(), shared.deletingLastPathComponent())
+        XCTAssertEqual(own.lastPathComponent, "user_1.own.json")
+    }
+}
