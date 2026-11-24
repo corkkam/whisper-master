@@ -21,6 +21,7 @@ struct AssistantSettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel("Assistant")
             assistantSection
+            AgentMemorySettingsSection(memory: state.agentMemory)
             if FeatureFlags.agentEndpointAvailable {
                 ConnectedToolSettingsSection(tool: $state.connectedTool)
                 AgentEndpointSettingsSection(endpoint: $state.agentEndpoint)

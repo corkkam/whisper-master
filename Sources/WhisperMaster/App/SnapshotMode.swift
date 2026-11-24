@@ -1576,6 +1576,11 @@ enum SnapshotMode {
         seedTraces(state.traces)
         seedUsage(state.usageStore)
         seedNotes(state.notesStore)
+        // Mock facts, in memory only: no per-account file is written under the renderer.
+        state.agentMemory.persistenceEnabled = false
+        state.agentMemory.activate(userID: "snapshot")
+        _ = state.agentMemory.add("My manager is Priya.")
+        _ = state.agentMemory.add("I work from Pune and join calls at 10 am IST.")
         // The quick-actions band's left column is the day, so it needs one — the
         // renderer never starts `NowStore`, so nothing would read EventKit anyway.
         state.now.seed(events: mockDay())

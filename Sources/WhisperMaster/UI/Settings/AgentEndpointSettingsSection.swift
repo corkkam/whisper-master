@@ -226,6 +226,7 @@ struct AgentEndpointConsentSheet: View {
         "What the assistant reads for you: calendar events, mail, messages, notes and reminders.",
         "What happens when it acts on this Mac: which app or link it opened, or that no such app is installed.",
         "Text the assistant writes for the app you are in, and whether you used it.",
+        "Facts you asked the assistant to remember, with each command.",
         "The assistant's instructions and the list of tools it can use.",
     ]
 
