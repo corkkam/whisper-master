@@ -65,13 +65,13 @@ enum LocalToolCatalog {
         targetArg: nil,
         parameters: [])
 
-    static let names: Set<String> = Set((all + [readSelection]).map(\.name))
+    static let names: Set<String> = Set((all + [readSelection]).map(\.name)).union(AgentMemoryCatalog.names)
 
     /// The tools that save the user's text. LocalToolRunner cards them after a read.
     static let saves: Set<String> = ["create_note", "create_reminder"]
 
     static func descriptor(named name: String) -> ToolDescriptor? {
-        (all + [readSelection]).first { $0.name == name }
+        (all + [readSelection]).first { $0.name == name } ?? AgentMemoryCatalog.descriptor(named: name)
     }
 }
 
@@ -130,6 +130,8 @@ struct LocalToolRunner {
     var requestApproval: ((PendingApproval) async -> ApprovalOutcome)?
 
     static let stoppedBeforeSave = "Stopped before it ran, so nothing was saved."
+    /// What the user asked the assistant to remember. Nil where a caller has none.
+    var memory: AgentMemoryStore?
 
     /// What a call actually did, for the confirmation the notch shows afterwards.
     /// The answer text comes from the model; this is the app's own record of the
@@ -138,6 +140,8 @@ struct LocalToolRunner {
         case noteCreated
         case reminderCreated(due: Date, wasTimeStated: Bool)
         case read
+        /// A fact was remembered or forgotten (`runMemory`).
+        case memoryChanged
     }
 
     func run(_ call: ToolCall) async -> (result: ToolResult, effect: Effect?) {
@@ -146,6 +150,7 @@ struct LocalToolRunner {
         case "create_reminder": return await createReminder(call)
         case "list_reminders": return (listReminders(), .read)
         case "read_selection": return readSelection()
+        case "remember", "forget": return runMemory(call)
         default:
             return (.failure("No such tool: \(call.tool)."), nil)
         }

@@ -157,7 +157,7 @@ final class CommandToolRouter: AgentToolRunning {
     var didCreateSomething: Bool {
         effects.contains { effect in
             switch effect {
-            case .local(.noteCreated), .local(.reminderCreated), .connectorWrite, .device: return true
+            case .local(.noteCreated), .local(.reminderCreated), .local(.memoryChanged), .connectorWrite, .device: return true
             case .local(.read): return false
             }
         }

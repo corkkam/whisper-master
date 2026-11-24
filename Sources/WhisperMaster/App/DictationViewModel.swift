@@ -1833,7 +1833,8 @@ final class DictationViewModel {
             takeNoteAudio: { [weak self] id in self?.takeNoteAudio(for: id) },
             selection: selection,
             followUp: followUp,
-            frontApp: keyDownApp)
+            frontApp: keyDownApp,
+            memory: state.agentMemory)
         // The orb shows the thinking figure while the loop runs — the paste is
         // suppressed, so without it the notch sits silent through a multi-second
         // tool call and reads as having dropped the command. `isPolishing` is what
