@@ -63,6 +63,55 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
   activity. `send_message` passes the spoken channel name straight to
   `chat.postMessage`, so a DM by person name does not resolve.
 
+## Rows, search, open and reply (`Tools/ItemTools.swift`, `Providers/ItemDepthProviders.swift`)
+
+Phase 3 of the agent plan (owner approval 2026-11-17, Gmail send included): `search_mail`,
+`read_item`, `reply_message` (Slack), and `send_mail` / `reply_mail` (Gmail, dormant).
+
+- **The model names an item by row number, never by id.** `list_mail`, `list_messages`
+  and `search_mail` write each row as "3. …"; `ItemHandles` (one per `ToolRouter`, so one
+  per run) maps the number to the real item and connection. Numbers run on across the
+  run's listings, so a number never means two items. A row the table does not hold (a
+  wrong number, or one from an earlier run in a follow-up) fails closed with
+  `ItemTools.unknownRow`, which tells the model to list or search first.
+  `ToolResultReducer` keeps whole lines, so a cut listing keeps its numbers.
+- **The router resolves the row before `WriteAuthorizer` and the card** (`ToolRouter`
+  `runItemTool`). The call that reaches `write` carries the real channel, thread and
+  address, never `row`, so no `Grant` and no card holds a row number. A row tool gets no
+  `connector` argument: the row decides the connection.
+- **`read_item`** opens through `ItemOpeningProvider` (Gmail `format=full`, Outlook with
+  `Prefer: outlook.body-content-type="text"`). A Slack or Teams row is answered from the
+  listing, which already holds the whole message. HTML is stripped with a plain tag strip
+  (`MailText.plain`, which drops style, script and head first). The text is cut at the
+  reducer's budget inside `ItemTools.render`, not by `reduce`, because body lines that end
+  in "]" would read as a listing. It sets the taint like any read. `search_mail` is an
+  ordinary read with at most 10 rows: Gmail's `q`, Outlook's `$search` (no `$orderby`,
+  which Graph refuses beside it).
+- **`reply_message` is Slack only**: `chat.postMessage` with `thread_ts` (a broadcast's
+  parent, from `ConnectorItem.threadID`). `chat:write` already covers it. The card says
+  "Reply in #launch on Work chat", then "to Sam" and the whole text; the grant target is
+  the channel name. A reply always follows a listing, so the run is always tainted: the
+  card shows every time and offers no Always. Teams has no reply path, on purpose.
+- **Gmail send is dormant.** `GoogleOAuthConfig.isGmailSendEnabled` (`GmailSendEnabled` in
+  `Info.plist`, false) gates the tools and the `gmail.send` scope in the sign-in, and
+  stays off until Google verification and a CASA assessment pass. With it on, a
+  connection whose grant lacks the scope (a pasted token records none) still gets neither
+  tool (`ItemTools.canSend`), and the provider checks again. The card shows the
+  recipients, the subject and the whole body, and never Always (`ItemTools.grantable`).
+- **`send_mail`'s `to` must be an address the user said** ("sam at acme dot com" counts)
+  **or one in a header this run read** (a row's From, or From, To, Cc and Reply-To of an
+  opened mail). An address in a mail's body never counts. A name must match exactly one
+  read address. Anything else is refused with what the model can do, never guessed
+  (`ItemHandles.recipients`). `reply_mail` takes the address from the row's Reply-To or
+  From, so the model never chooses it.
+- **The remote tiers send this text too**: the consent sheet names the whole text of an
+  opened item, the search words, and who a reply or a mail went to.
+- **The pack.** These add three published tools (five with send on). With every kind
+  connected, a front app and a selection, a prompt can now pass `ToolPackRouter.limit`, and
+  the tools that share the fewest words with the command go first. Note that
+  `list_messages` shares no word with "reply to Sam in Slack".
+- `swift test --filter ItemToolsTests` is the lock.
+
 ## What the assistant loop shows the model (`Agent/`)
 
 - **A tool result is reduced before the next turn** (`ToolResultReducer`, applied in
@@ -78,8 +127,8 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
   with its own stated cut. The trace keeps the full result (its own clamp).
 - **At most 16 tools per prompt** (`ToolPackRouter`, from the Phase 0 sweep: 16/16 at
   11 tools, 15/16 at 16). Local tools always stay. Past 16, the connector tools that
-  share the fewest words with the command go. Today's catalog is 12, so nothing is
-  dropped yet.
+  share the fewest words with the command go. Today's catalog is 15 before the device
+  tools (17 with Gmail send on), so a run with all of them can drop some.
 - **A follow-up window** (`FollowUpWindow`, owned by the view model). For 120 s after
   an answer, the next chord capture is given the last question and the storable
   answer (400 characters at most) as an earlier user and assistant turn
