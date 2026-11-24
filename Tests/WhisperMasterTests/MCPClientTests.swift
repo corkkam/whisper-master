@@ -303,9 +303,9 @@ final class MCPClientTests: XCTestCase {
         XCTAssertEqual(AnalyticsEvent.assistantToolRun(tool: "send_message", succeeded: true).parameters["tool"], "send_message")
     }
 
-    func testMCPServersAreOfferedOnTheDevChannelOnly() {
+    func testMCPServersAreOfferedOnDevAndBetaButNotStable() {
         XCTAssertTrue(FeatureFlags.mcpServersAvailable(on: .dev))
-        XCTAssertFalse(FeatureFlags.mcpServersAvailable(on: .beta))
+        XCTAssertTrue(FeatureFlags.mcpServersAvailable(on: .beta))
         XCTAssertFalse(FeatureFlags.mcpServersAvailable(on: .stable))
     }
 

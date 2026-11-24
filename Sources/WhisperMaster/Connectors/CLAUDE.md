@@ -559,7 +559,7 @@ target `event`), added from the VoiceOS calendar set.
   note. Not built: attendees, invitations, a series edit, Zoom. Not checked live: no
   test reaches EventKit, Google or Graph. `CalendarToolsTests` uses a stub provider.
 
-## MCP servers, HTTP only (`MCP/`, dev builds only)
+## MCP servers, HTTP only (`MCP/`, dev and beta builds)
 
 The user adds an MCP server on the Connectors page (kind `.mcpServer`, capability
 `.tools`), and the chord can call its tools. The owner approved this with a card for
@@ -568,7 +568,8 @@ each call (plan section 8, Phase 6).
 - **HTTP only. No stdio server.** A stdio server is a child process of this app, and
   macOS can give a child the app's Microphone, Accessibility and Calendar grants. It
   stays blocked until a device test proves that a child cannot open the microphone.
-- **Gates:** `FeatureFlags.mcpServersAvailable` (dev channel) for the catalog offer
+- **Gates:** `FeatureFlags.mcpServersAvailable` (dev and beta, not stable: owner, 2026-11-25,
+  until a live bench against a real server exists) for the catalog offer
   (`shippedKinds`) and for the run, the "use your connectors" switch, and the
   connection on and not in error (`store.readable(providing: .tools)`).
 - **The client is hand-written** (`MCPClient`): JSON-RPC 2.0 over Streamable HTTP,
