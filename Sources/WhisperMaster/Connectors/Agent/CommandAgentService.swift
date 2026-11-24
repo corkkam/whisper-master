@@ -150,7 +150,8 @@ struct CommandAgentService {
             ? nil
             : ToolRouter(store: store,
                          requestApproval: { [approvals] approval in await approvals.request(approval) },
-                         taint: taint)
+                         taint: taint,
+                         spoken: spoken)
         let router = CommandToolRouter(
             local: LocalToolRunner(
                 notes: notes, alertStyle: alertStyle, soundName: soundName, now: now,

@@ -21,10 +21,13 @@ struct ConnectorItem: Equatable, Sendable, Identifiable {
     /// it; the notch counts these for a tab's badge, so a provider that can't tell
     /// must leave it false rather than guess.
     let isUnread: Bool
+    /// The thread a reply goes into. Slack only: a broadcast reply carries its
+    /// parent's `thread_ts`, and replying under the broadcast's own `ts` is wrong.
+    let threadID: String?
 
     init(id: String, title: String, detail: String = "",
          timestamp: Date? = nil, url: String? = nil, instanceLabel: String = "",
-         isUnread: Bool = false) {
+         isUnread: Bool = false, threadID: String? = nil) {
         self.id = id
         self.title = title
         self.detail = detail
@@ -32,6 +35,7 @@ struct ConnectorItem: Equatable, Sendable, Identifiable {
         self.url = url
         self.instanceLabel = instanceLabel
         self.isUnread = isUnread
+        self.threadID = threadID
     }
 }
 

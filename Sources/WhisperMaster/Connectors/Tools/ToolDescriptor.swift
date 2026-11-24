@@ -171,7 +171,7 @@ enum ToolCatalog {
                 ToolParameter("duration_minutes", type: .integer, isRequired: false,
                               description: "How long, in minutes. Defaults to 30."),
             ]),
-    ]
+    ] + ItemTools.descriptors
 
     static func descriptor(named name: String) -> ToolDescriptor? {
         all.first { $0.name == name }
