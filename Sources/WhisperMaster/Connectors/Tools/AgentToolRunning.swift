@@ -38,12 +38,18 @@ final class CommandToolRouter: AgentToolRunning {
         /// A device tool that came back ok: an app or a link opened, or a draft put
         /// on the band.
         case device(DeviceToolRunner.Effect)
+        /// A task the Desk accepted (`delegate_task`).
+        case handOff(HandOffTrace)
     }
 
     private let local: LocalToolRunner
     private let connectors: (any AgentToolRunning)?
     /// The route for tools with no connector. Nil where a caller offers none.
     private let device: DeviceToolRunner?
+    /// The route for tools from the user's MCP servers. Nil when the run listed none.
+    private let mcp: MCPToolRunner?
+    /// The coding-agent tools. Nil where a caller offers none.
+    private let delegate: DelegateToolRunner?
     /// Injected so a call's duration is fixed under test rather than measured against
     /// the wall clock.
     private let now: () -> Date
@@ -84,10 +90,14 @@ final class CommandToolRouter: AgentToolRunning {
     init(local: LocalToolRunner,
          connectors: (any AgentToolRunning)?,
          device: DeviceToolRunner? = nil,
+         mcp: MCPToolRunner? = nil,
+         delegate: DelegateToolRunner? = nil,
          now: @escaping () -> Date = Date.init) {
         self.local = local
         self.connectors = connectors
         self.device = device
+        self.mcp = mcp
+        self.delegate = delegate
         self.now = now
     }
 
@@ -107,6 +117,20 @@ final class CommandToolRouter: AgentToolRunning {
                 result = outcome
             } else {
                 result = .failure("That can't be done on this Mac right now.")
+            }
+        } else if let mcp, mcp.handles(call.tool) {
+            result = await mcp.run(call)
+            // Approved on its card and run by the server: it may have changed something there.
+            if result.ok {
+                effects.append(.connectorWrite(tool: call.tool, instanceLabels: result.instanceLabels))
+            }
+        } else if DelegateToolCatalog.names.contains(call.tool) {
+            if let delegate {
+                let (outcome, handOff) = await delegate.run(call)
+                if let handOff { effects.append(.handOff(handOff)) }
+                result = outcome
+            } else {
+                result = .failure("No coding agent is running on this Mac.")
             }
         } else if let connectors {
             result = await connectors.run(call)
@@ -157,7 +181,9 @@ final class CommandToolRouter: AgentToolRunning {
     var didCreateSomething: Bool {
         effects.contains { effect in
             switch effect {
-            case .local(.noteCreated), .local(.reminderCreated), .connectorWrite, .device: return true
+            case .local(.noteCreated), .local(.reminderCreated), .local(.memoryChanged), .connectorWrite, .device,
+                 .handOff:
+                return true
             case .local(.read): return false
             }
         }
@@ -166,6 +192,12 @@ final class CommandToolRouter: AgentToolRunning {
     /// The last draft a call put on the band, if any. The newest wins, as on the band.
     var draft: AgentDraft? {
         for case .device(.draftStaged(let draft)) in effects.reversed() { return draft }
+        return nil
+    }
+
+    /// The task the Desk accepted, if any. A hand-off ends the turn, so there is one.
+    var handOff: HandOffTrace? {
+        for case .handOff(let handOff) in effects { return handOff }
         return nil
     }
 }

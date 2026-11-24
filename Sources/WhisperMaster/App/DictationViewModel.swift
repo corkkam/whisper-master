@@ -141,6 +141,15 @@ final class DictationViewModel {
         self.hotkeyUpdater = hotkeyUpdater
         self.transcriber = transcriber
         self.textInjector = textInjector
+        // The Desk's answer to a hand-off is read out like any assistant answer.
+        state.agents.onDeskReply = { [weak self] raw in self?.speakDeskReply(raw) }
+    }
+
+    /// Read out the opening sentence of the Desk's reply, the band's own headline.
+    private func speakDeskReply(_ raw: String) {
+        guard let headline = AgentReplyDocument.parse(raw).split().headline
+            ?? AgentReplyLine.compact(raw) else { return }
+        speakAnswer(headline: headline, detail: nil)
     }
 
     convenience init() {
@@ -1335,7 +1344,8 @@ final class DictationViewModel {
     /// note, the kind that needs nothing but words. Pasting "take a note buy milk"
     /// into the user's editor is the one outcome the key press rules out, so the last
     /// tier is what guarantees the words land somewhere even when the model is no
-    /// help.
+    /// help. The last tier does not file the words after the user refused that save
+    /// on its card (`refusedSave`).
     private func routeCommandCapture(_ text: String, spoken: SpokenCapture,
                                      selectionRead: Task<SelectionContext?, Never>?,
                                      keyDownApp: SelectionReader.FrontApp?,
@@ -1388,6 +1398,14 @@ final class DictationViewModel {
             return true
         }
 
+        // "Volume up", "mute", "set the volume to 30": the same shape, one more whole-capture
+        // match (`VolumeCommandDetector`), and no model.
+        if let command = VolumeCommandDetector.detect(text) {
+            perform(command, question: text, trace: &trace)
+            finish(trace, since: startedAt)
+            return true
+        }
+
         // "Open Figma" and "go to github.com", ahead of the model for the same reason:
         // exact, about this Mac, and not worth a model load. Only a whole capture in a
         // closed form matches (`AgentIntentMatcher`); anything else goes on below.
@@ -1399,18 +1417,44 @@ final class DictationViewModel {
 
         await requestCalendarAccessIfNeeded()
 
-        let attempt = await runCommandAgent(text, selectionRead: selectionRead, followUp: followUp,
+        var attempt = await runCommandAgent(text, selectionRead: selectionRead, followUp: followUp,
                                             keyDownApp: keyDownApp, pressStaysLocal: pressStaysLocal)
+        // A save the user refused on its card stays refused. The service's own
+        // decision says the words go on to be filed, which is no longer true.
+        let refused = Self.refusedSave(handled: attempt.handled, calls: attempt.calls)
+        if let refused {
+            attempt.decision = TraceDecision(
+                title: attempt.decision.title,
+                detail: refused.authorization == .timedOut
+                    ? "Nobody answered the card for this save, so nothing was saved and the words "
+                        + "were not filed another way."
+                    : "The card for this save was declined, so nothing was saved and the words "
+                        + "were not filed another way.",
+                taken: true)
+        }
         trace.decisions += attempt.priorDecisions + [attempt.decision]
         trace.connectorsAllowed = attempt.connectorsAllowed
         trace.toolsOffered = attempt.toolsOffered
         trace.calls = attempt.calls
         trace.turns = attempt.turns
         trace.endpoint = attempt.endpoint
+        trace.handOff = attempt.handOff
         if attempt.handled {
             trace.answer = attempt.answer
             trace.provenance = attempt.provenance
             trace.createdSomething = attempt.createdSomething
+            Analytics.shared.send(.assistantRouted(route: .agent))
+            finish(trace, since: startedAt)
+            return true
+        }
+        // No chime: nothing was delivered.
+        if let refused {
+            showCommandConfirmation(
+                "Nothing saved", icon: "xmark.circle",
+                detail: refused.authorization == .timedOut ? "Nobody answered the card" : "The card was declined",
+                window: AppState.commandConfirmationDuration, chime: false)
+            trace.answer = "Nothing saved."
+            trace.provenance = ""
             Analytics.shared.send(.assistantRouted(route: .agent))
             finish(trace, since: startedAt)
             return true
@@ -1504,6 +1548,24 @@ final class DictationViewModel {
         var priorDecisions: [TraceDecision] = []
         /// What went to the user's endpoint, or nil when nothing left the Mac.
         var endpoint: EndpointSendTrace?
+        /// The task handed to the Desk, or nil.
+        var handOff: HandOffTrace?
+    }
+
+    /// A spoken volume command, carried out with no model and no card. The words are the
+    /// consent, as they are for "pause the music".
+    private func perform(_ command: VolumeCommand, question: String, trace: inout AssistantTrace) {
+        let sent = VolumeController.perform(command)
+        let line = sent ? command.confirmation : "Couldn't change the volume"
+        presentQuickConfirmation(line, detail: "", question: question)
+        trace.decisions.append(TraceDecision(
+            title: line,
+            detail: "The words are a volume command, so it went straight to the system "
+                + "volume — no model, no card.",
+            taken: true))
+        trace.answer = line
+        trace.provenance = "Volume"
+        trace.createdSomething = sent
     }
 
     /// Carry out a fast-path intent. An app opens at once: the user's own words name
@@ -1736,6 +1798,14 @@ final class DictationViewModel {
             && !calls.contains { $0.authorization?.isRefusal == true }
     }
 
+    /// The note or reminder the user refused on its card (a No, a timeout, or an
+    /// Escape, which denies the card). The deterministic rung must not save it another
+    /// way.
+    static func refusedSave(handled: Bool, calls: [ToolCallTrace]) -> ToolCallTrace? {
+        guard !handled else { return nil }
+        return calls.last { LocalToolCatalog.saves.contains($0.tool) && $0.authorization?.isRefusal == true }
+    }
+
     /// Whether the endpoint copied before the selection wait may still take the
     /// capture: still on, and still agreed to for the same address and API.
     static func endpointMayStillSend(copied: AgentEndpoint, current: AgentEndpoint) -> Bool {
@@ -1799,7 +1869,13 @@ final class DictationViewModel {
             takeNoteAudio: { [weak self] id in self?.takeNoteAudio(for: id) },
             selection: selection,
             followUp: followUp,
-            frontApp: keyDownApp)
+            frontApp: keyDownApp,
+            memory: state.agentMemory,
+            // The hand-off sends text off the Mac, so it is behind the remote tiers'
+            // dev flag and its own consent, and never offered to a capture kept local.
+            coding: .live(agents: state.agents, folderSetting: state.agentDefaultDirectory,
+                          consented: FeatureFlags.agentEndpointAvailable && state.deskHandOffAllowed,
+                          staysLocal: keptLocal))
         // The orb shows the thinking figure while the loop runs — the paste is
         // suppressed, so without it the notch sits silent through a multi-second
         // tool call and reads as having dropped the command. `isPolishing` is what
@@ -1850,7 +1926,8 @@ final class DictationViewModel {
                 provenance: run.result?.detail ?? "",
                 createdSomething: run.result?.createdSomething ?? false,
                 budgetSpent: run.budgetSpent,
-                cancelled: cancelled)
+                cancelled: cancelled,
+                handOff: run.handOff)
         }
 
         guard let result = run.result else {
@@ -2013,14 +2090,15 @@ final class DictationViewModel {
         _ message: String,
         icon: String,
         detail: String = "Saved to Notes & Reminders",
-        window: TimeInterval
+        window: TimeInterval,
+        chime: Bool = true
     ) {
         state.commandConfirmation = message
         state.commandConfirmationDetail = detail
         state.commandConfirmationIcon = icon
         state.commandConfirmationWindow = window
         state.commandConfirmationAt = Date()
-        Feedback.delivered(soundEnabled: state.soundEnabled)
+        if chime { Feedback.delivered(soundEnabled: state.soundEnabled) }
     }
 
     private func createReminder(from intent: ClassifiedIntent, fallbackTitle: String) {
@@ -2284,6 +2362,7 @@ final class DictationViewModel {
         state.agentEndpoint.consentedTo = nil
         AgentEndpoint.setAPIKey(nil)
         state.connectedTool.consentedTo = nil
+        state.deskHandOffAllowed = false
     }
 
     func pasteLastTranscript() {

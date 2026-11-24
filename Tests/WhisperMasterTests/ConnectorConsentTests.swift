@@ -201,6 +201,24 @@ final class ConnectorConsentTests: XCTestCase {
         XCTAssertEqual(cards.map(\.grantOffered), [true, false])
     }
 
+    /// A run whose only read was the selection names the selection on a connector
+    /// card, and a connector read names the accounts.
+    func testTheCardNamesWhatTheRunRead() async {
+        var cards: [PendingApproval] = []
+        var router = ToolRouter(store: calendarAndSlack(grantOnOps: false),
+                                requestApproval: { approval in cards.append(approval); return .denied })
+        let taint = Taint()
+        taint.isSet = true
+        router.taint = taint
+
+        _ = await router.run(postToOps)
+        _ = await router.run(ToolCall(tool: "list_calendar_events", arguments: [:]))
+        _ = await router.run(postToOps)
+
+        XCTAssertEqual(cards.map(\.readWarning),
+                       [ApprovalCopy.selectionReadWarning, ApprovalCopy.readWarning])
+    }
+
     /// The card hides Always, and the router still refuses to store a grant if an
     /// `.allowedAlways` arrives anyway.
     func testAlwaysInATaintedRunRunsOnceAndStoresNoGrant() async {
@@ -401,8 +419,20 @@ final class ConnectorConsentTests: XCTestCase {
 
         for tool in ToolCatalog.all where tool.access == .write {
             XCTAssertNotNil(tool.targetArg, "\(tool.name) is a write with no targetArg")
+            // Mail send is dormant, and this store has no Gmail to send from.
+            if [ItemTools.sendMail, ItemTools.replyMail].contains(tool.name) {
+                XCTAssertNil(expanded[tool.name], "\(tool.name) is published")
+                continue
+            }
             guard let published = expanded[tool.name] else {
                 XCTFail("\(tool.name) isn't published for a store that can serve it")
+                continue
+            }
+            // A row tool's target comes from the row the router resolves, so the model
+            // is shown the row and never the target.
+            if ItemTools.takesRow(tool) {
+                XCTAssertFalse(published.parameters.contains { $0.name == tool.targetArg },
+                               "\(tool.name) lets the model name its own target")
                 continue
             }
             XCTAssertTrue(published.parameters.contains { $0.name == tool.targetArg },

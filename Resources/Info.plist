@@ -21,7 +21,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.3.0</string>
+	<string>1.4.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -46,7 +46,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1795161160</string>
+	<string>1795555554</string>
 	<key>ClerkPublishableKey</key>
 	<string>REPLACE_WITH_CLERK_PUBLISHABLE_KEY</string>
 	<key>GAAPISecret</key>
@@ -55,6 +55,10 @@
 	<string>$(GA_MEASUREMENT_ID)</string>
 	<key>GoogleGmailOAuthEnabled</key>
 	<true/>
+	<!-- Gmail send (send_mail, reply_mail, the gmail.send scope). Keep false until
+	     Google verification and a CASA assessment pass for gmail.send. -->
+	<key>GmailSendEnabled</key>
+	<false/>
 	<key>GoogleOAuthClientID</key>
 	<string>140047576864-ev40jmg8f2ju19j39qj1u761vse6ddhl.apps.googleusercontent.com</string>
 	<!-- Entra ID public-client application id for Outlook and Teams sign-in.

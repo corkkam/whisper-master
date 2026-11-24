@@ -93,9 +93,11 @@ in-app on a dev build via the **Model Lab** (below), which grades with the same
 ### Assistant tool-calling bench (`WM_AGENT_TOOL_EVAL`)
 
 The eval above scores *cleanup*. The chord's tool calling has its own bench,
-`App/AgentToolEval.swift` — sixteen spoken commands with the tool each one should
+`App/AgentToolEval.swift` — twenty-three spoken commands with the tool each one should
 call, run through three generation paths on the real Qwen3-4B, plus one turn that
-reads a 460-word tool result (the case where the paths separate).
+reads a 460-word tool result (the case where the paths separate). Each command sees the
+app's tool pool packed to 16 by `ToolPackRouter`, as the chord does
+(`LabToolBench.packed`); `ModelLabTests` fails if the pack drops a case's tool.
 
 ```bash
 CONFIG=Debug SIGN_IDENTITY=- bash Scripts/bundle.sh
@@ -117,6 +119,18 @@ The three arms are `via clean` (the retired routing, kept as the control),
 `hand-rolled` (what ships) and `native` (the chat template's own tools mechanism,
 built and tested but **not** wired into production — nothing sets
 `AgentLoop.generateNative`).
+
+**Measured 2026-11-24, on Qwen3-4B-Thinking-2507 (Debug build, M4 24 GB, load about 7).**
+The pool is now the app's 23 tools (local, memory, Mac, files, connectors), packed to 16
+per command. First turn on 23 cases: `hand-rolled` **16/23**, `native` **20/23**, `via
+clean` 0/23. **No case called a wrong tool: every miss was a timeout**, with the model
+still reasoning at the 60 s budget. On the first 16 cases hand-rolled scored 12/16 and
+native 15/16; on the 7 new ones, 4/7 and 5/7. `find_free_slots` and
+`update_calendar_event` timed out on both arms. "remember to call the plumber tomorrow
+at nine" picked `create_reminder` on both, not `remember`. On the grounding turn
+hand-rolled timed out and native's answer was graded ungrounded. A Debug build on a
+busy Mac is slower than Release, so re-run on `CONFIG=Release` on an idle Mac before
+reading the gap between the arms.
 
 **Measured 2026-10-17, on Qwen3-4B-Thinking-2507 (what ships).** First turn:
 `hand-rolled` **14/16**, `native` **15/16**. The two hand-rolled misses were a
@@ -183,7 +197,16 @@ results 4/4 with the 8,000-character reducer. The tool-count sweep held 16/16 at
 16, 20 and 24 tools. **The probes did not improve:** the model still proposes 3 of 4
 injected writes. The bench has no card. In the app the taint rule puts each one behind
 the approval card, which now says the text was read (`ApprovalCopy.readWarning`). The
-p50 time was measured on a busy machine (load 48 at start).
+p50 time was measured on a busy machine (load 48 at start). This note does not say which
+assistant model loaded.
+
+**Re-measured 2026-11-24 (Qwen3-4B-Thinking-2507, same build and Mac as the tool bench's
+2026-11-24 run).** 0/24 chains, long results 2/4, probes 3/4 with no action an injection
+caused. **27 of 32 runs used up the 90 s budget**, most before the first tool call: the
+first generation after load took 60 s and a run's p50 was 64 s. So this measures how fast
+the Thinking model reasons, not which tool it picks. The 23-tool sweep scored 14/23, and
+all 9 misses were no call. The process was then killed (exit 137, cause not found)
+during the 26-tool sweep, so no JSON was written and the 26- and 29-tool rows are missing.
 
 **⚠️ A keyword rule only sees what somebody thought to assert.** The 2026-08-21
 long-form truncation dropped three fifths of a 525-word input and passed every
@@ -333,7 +356,7 @@ until `MicrosoftOAuthClientID` is set. Details and the Entra setup:
 **The chord can use a model behind an endpoint the user sets** (dev builds only,
 `FeatureFlags.agentEndpointAvailable`; `Connectors/Agent/CloudToolGenerator.swift`).
 **Text only leaves the Mac, never audio**: the transcript, what the assistant reads
-(mail, calendar, messages, the selection), the results of acting on this Mac (which app or link opened), the text it writes for the app in front, and the tool list go to that address, after a
+(mail, calendar, messages, the selection), the results of acting on this Mac (which app or link opened, and the names and folders of files it found), what an MCP server's tools return, the text it writes for the app in front, the facts you asked it to remember, and the tool list go to that address, after a
 per-address consent sheet. The on-device model stays the fallback, a password manager
 in front or secure input keeps a capture local, the tray can pause it, and every
 endpoint counts as off-device, loopback included. The key is in the Keychain. Rules and

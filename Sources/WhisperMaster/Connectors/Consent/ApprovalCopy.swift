@@ -26,13 +26,26 @@ enum ApprovalCopy {
     /// rather than a habitual Once.
     static let readWarning = "I wrote this after reading text from your accounts. Check it first."
 
+    /// The same line when the run's only read was the selection the chord captured,
+    /// so the card does not claim an account was read.
+    static let selectionReadWarning = "I wrote this after reading your selection. Check it first."
+
     /// Human verb for a tool name, so the card reads as a sentence rather than an
     /// identifier.
     static func verb(for tool: String) -> String {
         switch tool {
         case "send_message": return "Post to"
         case "create_calendar_event": return "Add an event to"
-        case "open_app", "open_url": return "Open"
+        case "update_calendar_event": return "Change"
+        case "delete_calendar_event": return "Delete"
+        case "open_app", "open_url", "open_file": return "Open"
+        case "create_note": return "Save a note on"
+        case "create_reminder": return "Set a reminder on"
+        case "reply_message": return "Reply in"
+        case "send_mail": return "Send mail to"
+        case "reply_mail": return "Reply by mail to"
+        // The target is the server's own tool name: "Run get_forecast on Weather".
+        case _ where MCPToolMapping.isMCPTool(tool): return "Run"
         default: return "Run \(tool) on"
         }
     }
@@ -46,10 +59,62 @@ enum ApprovalCopy {
     /// these, which is the most the card reserves.
     static let linkCharactersPerLine = 50
 
-    /// Lines the payload may take: one, except a link, which wraps rather than being
-    /// cut, because the end of a link is where a planted address hides.
+    /// Tools whose payload is free text: a note, a reminder, a thread reply, a mail
+    /// and a task handed to Claude Code. Their card shows the whole text in a scroll area
+    /// (`NotchApprovalBanner`), so nothing the user approves is cut and no length is
+    /// refused.
+    static func scrollsDetail(tool: String) -> Bool {
+        ["create_note", "create_reminder", "reply_message", "send_mail", "reply_mail",
+         DelegateToolCatalog.delegateTask.name].contains(tool)
+    }
+
+    /// Lines a scrolling payload shows before it scrolls. Kept small so the band stays
+    /// a band: `NotchApprovalBanner.maxThickness` is charged for this many.
+    static let maxVisibleScrollLines = 4
+
+    /// Lines the text takes on the wide card, with each line break kept. An estimate,
+    /// rounded against the text. It sets only the height of the scroll area: the
+    /// card's fade is measured (`NotchApprovalBanner`), and a wrong estimate scrolls,
+    /// never cuts.
+    static func estimatedLines(_ detail: String) -> Int {
+        detail.components(separatedBy: .newlines).reduce(0) { total, paragraph in
+            let width = paragraph.reduce(0) { $0 + columns($1) }
+            return total + max(1, (width + linkCharactersPerLine - 1) / linkCharactersPerLine)
+        }
+    }
+
+    /// Columns a character takes in the estimate: two for an emoji and for an East
+    /// Asian wide or full-width character, one for any other. A CJK note counted as
+    /// one per character got a scroll area half its height.
+    static func columns(_ character: Character) -> Int {
+        let scalars = character.unicodeScalars
+        if scalars.contains(where: { $0.value == 0xFE0F || $0.properties.isEmojiPresentation }) {
+            return 2
+        }
+        guard let value = scalars.first?.value else { return 1 }
+        return wideRanges.contains { $0.contains(value) } ? 2 : 1
+    }
+
+    private static let wideRanges: [ClosedRange<UInt32>] = [
+        0x1100...0x115F,   // Hangul Jamo
+        0x2E80...0xA4CF,   // CJK radicals through Yi
+        0xAC00...0xD7A3,   // Hangul syllables
+        0xF900...0xFAFF,   // CJK compatibility ideographs
+        0xFE30...0xFE4F,   // CJK compatibility forms
+        0xFF00...0xFF60,   // full-width forms
+        0xFFE0...0xFFE6,   // full-width signs
+        0x20000...0x3FFFD, // CJK extensions B and later
+    ]
+
+    /// Lines the payload may take: one, except a link, which wraps onto three rather
+    /// than being cut because the end of a link is where a planted address hides (a
+    /// calendar edit wraps the same way, so "This occurrence only" is never cut), and
+    /// a note or a reminder, which shows up to `maxVisibleScrollLines` and scrolls.
     static func detailLines(tool: String, detail: String) -> Int {
-        guard tool == "open_url" else { return 1 }
+        if scrollsDetail(tool: tool) {
+            return min(maxVisibleScrollLines, max(1, estimatedLines(detail)))
+        }
+        guard tool == "open_url" || CalendarTools.editNames.contains(tool) else { return 1 }
         let lines = (detail.count + linkCharactersPerLine - 1) / linkCharactersPerLine
         return min(3, max(1, lines))
     }
@@ -71,6 +136,12 @@ enum ApprovalCopy {
             let host = URL(string: target)?.host() ?? target
             return DeviceToolCatalog.linkHeadline(host: host) ?? "Open \(host) in your browser"
         }
+        // The event's title is the target; its connection is the calendar label.
+        if CalendarTools.editNames.contains(tool) {
+            return "\(verb(for: tool)) \(quoted(target)) on \(instanceLabel)"
+        }
+        // The task is the target and the payload line; the headline is where it goes.
+        if tool == DelegateToolCatalog.delegateTask.name { return "Send to \(instanceLabel)" }
         let scope = target.compare(instanceLabel, options: .caseInsensitive) == .orderedSame
             ? instanceLabel
             : "\(target) on \(instanceLabel)"
@@ -84,6 +155,8 @@ enum ApprovalCopy {
                        arguments: [String: String],
                        calendar: Calendar = .current,
                        now: Date = Date()) -> String {
+        // Every argument goes to the server, one named `connector` too.
+        if MCPToolMapping.isMCPTool(tool) { return MCPToolMapping.cardDetail(arguments) }
         // Consumed as they're rendered; whatever is left over is unrecognised and
         // gets shown raw below.
         var remaining = arguments
@@ -109,6 +182,30 @@ enum ApprovalCopy {
                 parts.append(phrase)
             }
 
+        case "update_calendar_event", "delete_calendar_event":
+            // The title is in the headline; the ids are the router's, not the user's.
+            for key in [CalendarTools.eventArgument, CalendarEdit.Key.id, CalendarEdit.Key.calendar] {
+                remaining[key] = nil
+            }
+            let allDay = remaining.removeValue(forKey: CalendarEdit.Key.allDay) != nil
+            if let from = ConnectorHTTP.parseISO8601(remaining.removeValue(forKey: CalendarEdit.Key.start)) {
+                let fromEnd = ConnectorHTTP.parseISO8601(remaining.removeValue(forKey: CalendarEdit.Key.end))
+                var line = allDay
+                    ? "\(dayWord(for: from, calendar: calendar, now: now)) all day"
+                    : when(start: from, end: fromEnd, calendar: calendar, now: now)
+                if let to = ConnectorHTTP.parseISO8601(remaining.removeValue(forKey: "start")) {
+                    let toEnd = ConnectorHTTP.parseISO8601(remaining.removeValue(forKey: "end"))
+                    line += " \u{2192} " + when(start: to, end: toEnd, calendar: calendar, now: now)
+                }
+                parts.append(line)
+            }
+            if let title = remaining.removeValue(forKey: "title"), !title.isEmpty {
+                parts.append("Rename to \(quoted(title))")
+            }
+            if remaining.removeValue(forKey: CalendarEdit.Key.recurring) != nil {
+                parts.append("This occurrence only, not the series")
+            }
+
         case "send_message":
             // The channel is the target, so it's in the headline.
             remaining.removeValue(forKey: "channel")
@@ -116,14 +213,61 @@ enum ApprovalCopy {
                 parts.append(quoted(text))
             }
 
+        case "reply_message":
+            // The channel is in the headline. The ids say which thread, and "to" names
+            // whose message it answers, so the person is on the card too.
+            for key in ["channel", "channel_id", "thread_ts"] { remaining.removeValue(forKey: key) }
+            if let to = remaining.removeValue(forKey: "to"), !to.isEmpty { parts.append("to \(to)") }
+            if let text = remaining.removeValue(forKey: "text"), !text.isEmpty {
+                parts.append(quoted(text))
+            }
+
+        case "send_mail", "reply_mail":
+            // The recipients are the target, in the headline; the ids place a reply in
+            // its thread. The subject and the whole body are what is sent.
+            for key in ["to", "thread_id", "in_reply_to", "references"] { remaining.removeValue(forKey: key) }
+            if let subject = remaining.removeValue(forKey: "subject"), !subject.isEmpty {
+                parts.append("Subject: \(subject)")
+            }
+            if let body = remaining.removeValue(forKey: "body"), !body.isEmpty {
+                parts.append(quoted(body))
+            }
+
         case "open_app":
             remaining.removeValue(forKey: "app")
             parts.append(openAppDetail)
+
+        case "open_file":
+            // The file's name is the target, so it is in the headline: the folder is
+            // what tells two files of one name apart.
+            remaining.removeValue(forKey: "file")
+            if let folder = remaining.removeValue(forKey: "folder"), !folder.isEmpty {
+                parts.append("In the \(quoted(folder)) folder.")
+            }
 
         case "open_url":
             // Unquoted and whole: the address is the consent.
             if let url = remaining.removeValue(forKey: "url"), !url.isEmpty {
                 parts.append(url)
+            }
+
+        case "create_note", "create_reminder":
+            if let title = remaining.removeValue(forKey: "title"), !title.isEmpty {
+                parts.append(quoted(title))
+            }
+            // The time the app resolved, never the model's phrase.
+            if let due = ConnectorHTTP.parseISO8601(remaining["due"]) {
+                remaining.removeValue(forKey: "due")
+                parts.append(when(start: due, end: nil, calendar: calendar, now: now))
+            }
+            if let body = remaining.removeValue(forKey: "body"), !body.isEmpty {
+                parts.append(quoted(body))
+            }
+
+        case DelegateToolCatalog.delegateTask.name:
+            // Whole, in the scroll area: the task is what leaves this Mac.
+            if let task = remaining.removeValue(forKey: "task"), !task.isEmpty {
+                parts.append(quoted(task))
             }
 
         default:

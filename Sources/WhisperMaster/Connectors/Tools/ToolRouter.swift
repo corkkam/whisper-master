@@ -23,6 +23,10 @@ struct ToolResult: Equatable, Sendable {
     /// prose — "couldn't look" and "nothing scheduled" mean opposite things, and only
     /// one of them is safe to report as "Nothing to report".
     var unreadable: [String] = []
+    /// The loop stops after this result and takes its text as the answer. Set by a
+    /// call that started work which finishes elsewhere (`delegate_task`), so the 30 s
+    /// budget does not wait for it.
+    var endsTurn = false
 
     static func failure(_ text: String) -> ToolResult {
         ToolResult(ok: false, text: text, instanceLabels: [])
@@ -54,6 +58,16 @@ struct ToolRouter {
     var writeProvider: (ConnectorInstance) -> (any WriteCapableProvider)? = {
         ProviderRegistry.provider(for: $0) as? any WriteCapableProvider
     }
+    /// The rows this run's listings numbered (`ItemTools`). A box, like `taint`, and
+    /// one per router, which `CommandAgentService` builds once per run.
+    var handles = ItemHandles()
+    /// The spoken command: `send_mail` may send to an address the user said.
+    var spoken = ""
+    /// The provider that serves a listing, a search or an open. Injected so a test can
+    /// stand in for the network.
+    var itemProvider: (ConnectorInstance) -> (any ItemReadingProvider)? = {
+        ProviderRegistry.itemProvider(for: $0)
+    }
 
     /// What a write stopped by a cancel (Escape, sign-out) reports. Nothing was sent.
     static let stoppedBeforeWrite = "Stopped before it ran, so nothing was sent."
@@ -63,6 +77,7 @@ struct ToolRouter {
             return .failure("No such tool: \(call.tool).")
         }
         if call.tool == "list_connectors" { return listConnectors() }
+        if let result = await runItemTool(call, descriptor: descriptor) { return result }
 
         guard let capability = descriptor.capability else {
             return .failure("\(call.tool) isn't wired up.")
@@ -97,6 +112,9 @@ struct ToolRouter {
             return result
 
         case .write:
+            if CalendarTools.editNames.contains(call.tool) {
+                return await editEvent(call, descriptor: descriptor, named: named, candidates: candidates)
+            }
             // Unqualified writes use the kind default and say which one — never merge,
             // never guess silently.
             let instance = named
@@ -115,6 +133,9 @@ struct ToolRouter {
                       call: ToolCall) async -> ToolResult {
         switch capability {
         case .events:
+            if call.tool == CalendarTools.findFreeSlots.name {
+                return await freeSlots(call, from: instances, scopedTo: scopedTo)
+            }
             // The fan-out runs over exactly the instances resolved above. Passing the
             // store alone here is what made a *named* calendar read merge every
             // calendar while still reporting the one label the user said.
@@ -145,9 +166,21 @@ struct ToolRouter {
             var lines: [String] = []
             var served: [String] = []
             var unreadable: [String] = []
+            let numbered = ItemTools.numberedListings.contains(call.tool)
+            var found = 0
             for instance in instances {
-                guard let provider = ProviderRegistry.itemProvider(for: instance) else { continue }
-                let outcome = await provider.recentItems(for: instance, limit: 15)
+                guard let provider = itemProvider(instance) else { continue }
+                let outcome: ProviderReadOutcome<[ConnectorItem]>
+                if call.tool == ItemTools.searchMail {
+                    guard found < ItemTools.searchLimit else { break }
+                    outcome = await (provider as? any ItemSearchingProvider)?
+                        .searchItems(call.arguments["query"] ?? "", for: instance,
+                                     limit: ItemTools.searchLimit - found)
+                        ?? ProviderReadOutcome([])
+                } else {
+                    outcome = await provider.recentItems(for: instance, limit: 15)
+                }
+                found += outcome.value.count
                 // A read cut by a cancel says nothing about the connection, so it
                 // marks no error on it.
                 if let error = outcome.error {
@@ -163,20 +196,27 @@ struct ToolRouter {
                     let parts = (item.isUnread ? ["unread"] : [])
                         + (item.detail.isEmpty ? [] : [Self.oneLine(item.detail)])
                     let detail = parts.isEmpty ? "" : " (\(parts.joined(separator: " · ")))"
-                    return "\(Self.oneLine(item.title))\(detail) [\(instance.displayLabel)]"
+                    // The number the row tools take; the real ids stay in `handles`.
+                    let row = numbered
+                        ? "\(handles.add(item, instanceID: instance.id, capability: capability)). " : ""
+                    return "\(row)\(Self.oneLine(item.title))\(detail) [\(instance.displayLabel)]"
                 }
             }
             let text = lines.isEmpty ? "Nothing to report." : lines.joined(separator: "\n")
             return ToolResult(ok: true, text: text, instanceLabels: served,
                               unreadable: unreadable)
+
+        case .tools:
+            // No catalog tool reads this: an MCP server's tools run through `MCPToolRunner`.
+            return .failure("\(call.tool) doesn't run on an MCP server.")
         }
     }
 
     // MARK: - Writes
 
-    private func write(_ call: ToolCall,
-                       descriptor: ToolDescriptor,
-                       instance: ConnectorInstance) async -> ToolResult {
+    func write(_ call: ToolCall,
+               descriptor: ToolDescriptor,
+               instance: ConnectorInstance) async -> ToolResult {
         guard let provider = writeProvider(instance) else {
             return .failure("\(instance.displayLabel) can't be written to.")
         }
@@ -201,6 +241,7 @@ struct ToolRouter {
         /// The card's own wall time, kept out of the call's. Measured on the injected
         /// clock like every other duration here, so a test can wind it forward.
         var waited = 0
+        let grantable = CalendarTools.grantable(call.tool) && ItemTools.grantable(call.tool)
 
         switch WriteAuthorizer.authorize(tool: descriptor,
                                          instanceID: instance.id,
@@ -210,7 +251,7 @@ struct ToolRouter {
         case .refused(let reason):
             return .failure(reason)
 
-        case .needsApproval:
+        case .needsApproval, .granted where !grantable:
             guard let target else { return .failure("No target to approve.") }
             // A stopped run raises no card.
             guard !Task.isCancelled else { return .failure(Self.stoppedBeforeWrite) }
@@ -220,7 +261,9 @@ struct ToolRouter {
                 instanceLabel: instance.displayLabel,
                 target: target,
                 arguments: arguments,
-                grantOffered: !taint.isSet)
+                grantOffered: !taint.isSet,
+                grantable: grantable,
+                readSelectionOnly: taint.isSet && !taint.outsideSelection)
             let askedAt = now()
             let outcome = await requestApproval(approval)
             waited = Int(now().timeIntervalSince(askedAt) * 1000)
@@ -241,10 +284,11 @@ struct ToolRouter {
                                       + "so nothing was sent.",
                                   instanceLabels: [], authorization: .timedOut,
                                   approvalMilliseconds: waited)
-            case .allowedAlways where taint.isSet:
-                // The card hides Always in a tainted run, so only a caller that ignores
-                // `grantOffered` gets here. A grant would outlast the card for a target
+            case .allowedAlways where taint.isSet || !grantable:
+                // The card hides Always in a tainted run and for an edit, so only a
+                // caller that ignores `offersAlways` gets here. A grant would outlast the card for a target
                 // planted text may have chosen, so this runs once and stores nothing.
+                // Mail send hides Always too, and never stores a grant either.
                 authorization = .allowedOnce
             case .allowedAlways:
                 store.addGrant(Grant(tool: call.tool, instanceID: instance.id, target: target))
@@ -266,7 +310,11 @@ struct ToolRouter {
         // Its own task, so a cancel cannot cut a request already on the wire: the
         // server may have taken it, and the receipt must then say it was sent.
         let result = await Task {
-            await provider.performWrite(tool: call.tool, arguments: arguments, instance: instance)
+            if let edit = CalendarEdit(tool: call.tool, arguments: arguments),
+               let editor = provider as? any CalendarEditingProvider {
+                return await editor.performEdit(edit, instance: instance)
+            }
+            return await provider.performWrite(tool: call.tool, arguments: arguments, instance: instance)
         }.value
         return ToolResult(ok: result.ok, text: result.summary,
                           instanceLabels: [instance.displayLabel],
@@ -287,7 +335,8 @@ struct ToolRouter {
     /// worse than the model being told to try again.
     private func resolveWriteTimes(_ arguments: [String: String],
                                    descriptor: ToolDescriptor) -> ResolvedArguments {
-        guard descriptor.parameters.contains(where: { $0.name == "when" }) else {
+        // An optional `when` (`update_calendar_event`) is resolved by its own branch.
+        guard descriptor.parameters.contains(where: { $0.name == "when" && $0.isRequired }) else {
             return .success(arguments)
         }
         guard let phrase = arguments["when"], !phrase.isEmpty else {
@@ -345,7 +394,7 @@ struct ToolRouter {
     /// falls back to today rather than failing the call: the user asked about their
     /// calendar either way, and a wrong-day answer is worse than a today answer that
     /// says which day it is.
-    private func resolveDay(_ phrase: String?) -> ResolvedDay {
+    func resolveDay(_ phrase: String?) -> ResolvedDay {
         let today = now()
         guard let phrase, !phrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let parsed = RelativeTimeParser.parse(phrase, now: today)
@@ -355,7 +404,7 @@ struct ToolRouter {
 
     /// A day a read covers, with both the mid-sentence spelling ("tomorrow") and the
     /// heading spelling ("Tomorrow") — the result text uses each in a different slot.
-    private struct ResolvedDay {
+    struct ResolvedDay {
         let date: Date
         let label: String
         var heading: String { label.prefix(1).uppercased() + label.dropFirst() }
@@ -400,7 +449,7 @@ struct ToolRouter {
         text.components(separatedBy: .newlines).filter { !$0.isEmpty }.joined(separator: " ")
     }
 
-    private static let time: DateFormatter = {
+    static let time: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
         return formatter

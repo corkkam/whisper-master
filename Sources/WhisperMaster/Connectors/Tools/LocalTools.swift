@@ -65,10 +65,13 @@ enum LocalToolCatalog {
         targetArg: nil,
         parameters: [])
 
-    static let names: Set<String> = Set((all + [readSelection]).map(\.name))
+    static let names: Set<String> = Set((all + [readSelection]).map(\.name)).union(AgentMemoryCatalog.names)
+
+    /// The tools that save the user's text. LocalToolRunner cards them after a read.
+    static let saves: Set<String> = ["create_note", "create_reminder"]
 
     static func descriptor(named name: String) -> ToolDescriptor? {
-        (all + [readSelection]).first { $0.name == name }
+        (all + [readSelection]).first { $0.name == name } ?? AgentMemoryCatalog.descriptor(named: name)
     }
 }
 
@@ -121,6 +124,14 @@ struct LocalToolRunner {
     /// someone else's words, so reading it gates a later write the way a connector
     /// read does.
     var taint = Taint()
+    /// Raises the connector approval card. Asked only in a tainted run, before a note
+    /// or a reminder is saved. Nil where nobody can answer a card: a tainted save then
+    /// fails rather than goes through unasked.
+    var requestApproval: ((PendingApproval) async -> ApprovalOutcome)?
+
+    static let stoppedBeforeSave = "Stopped before it ran, so nothing was saved."
+    /// What the user asked the assistant to remember. Nil where a caller has none.
+    var memory: AgentMemoryStore?
 
     /// What a call actually did, for the confirmation the notch shows afterwards.
     /// The answer text comes from the model; this is the app's own record of the
@@ -129,14 +140,17 @@ struct LocalToolRunner {
         case noteCreated
         case reminderCreated(due: Date, wasTimeStated: Bool)
         case read
+        /// A fact was remembered or forgotten (`runMemory`).
+        case memoryChanged
     }
 
     func run(_ call: ToolCall) async -> (result: ToolResult, effect: Effect?) {
         switch call.tool {
-        case "create_note":   return createNote(call)
-        case "create_reminder": return createReminder(call)
+        case "create_note":   return await createNote(call)
+        case "create_reminder": return await createReminder(call)
         case "list_reminders": return (listReminders(), .read)
         case "read_selection": return readSelection()
+        case "remember", "forget": return runMemory(call)
         default:
             return (.failure("No such tool: \(call.tool)."), nil)
         }
@@ -144,12 +158,19 @@ struct LocalToolRunner {
 
     // MARK: - Writes
 
-    private func createNote(_ call: ToolCall) -> (ToolResult, Effect?) {
+    private func createNote(_ call: ToolCall) async -> (ToolResult, Effect?) {
         let body = (call.arguments["body"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else {
             return (.failure("create_note needs a non-empty body."), nil)
         }
         let title = (call.arguments["title"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var shown = ["body": body]
+        if !title.isEmpty { shown["title"] = title }
+        let authorization: ToolAuthorization?, waited: Int
+        switch await approveAfterRead(call.tool, arguments: shown) {
+        case .stop(let result): return (result, nil)
+        case .go(let granted, let wait): authorization = granted; waited = wait
+        }
         let id = UUID()
         let audio = voice?.takeAudio(id)
         notes.upsertNote(Note(
@@ -162,10 +183,12 @@ struct LocalToolRunner {
         // it apart from the deterministic gate is what shows how much of the
         // notes feature actually depends on the model being resident.
         Analytics.shared.send(.noteCreated(source: .agent, hasAudio: audio != nil))
-        return (ToolResult(ok: true, text: "Saved the note.", instanceLabels: []), .noteCreated)
+        return (ToolResult(ok: true, text: "Saved the note.", instanceLabels: [],
+                           authorization: authorization, approvalMilliseconds: waited),
+                .noteCreated)
     }
 
-    private func createReminder(_ call: ToolCall) -> (ToolResult, Effect?) {
+    private func createReminder(_ call: ToolCall) async -> (ToolResult, Effect?) {
         let title = (call.arguments["title"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else {
             return (.failure("create_reminder needs a non-empty title."), nil)
@@ -177,16 +200,76 @@ struct LocalToolRunner {
         // hour-out default the keyword path uses rather than guessing.
         let stated = call.arguments["when"].flatMap { RelativeTimeParser.parse($0, now: moment) }
         let due = stated ?? Self.defaultDue(now: moment)
+        let body = (call.arguments["body"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // The card shows the time the app resolved, never the model's phrase.
+        var shown = ["title": title, "due": ConnectorHTTP.iso8601(from: due)]
+        if !body.isEmpty { shown["body"] = body }
+        let authorization: ToolAuthorization?, waited: Int
+        switch await approveAfterRead(call.tool, arguments: shown) {
+        case .stop(let result): return (result, nil)
+        case .go(let granted, let wait): authorization = granted; waited = wait
+        }
         notes.upsertReminder(ReminderItem(
             title: title,
-            body: (call.arguments["body"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            body: body,
             dueDate: due,
             alertStyle: alertStyle,
             soundName: soundName))
         Analytics.shared.send(.reminderCreated(source: .agent, repeating: false))
         let text = "Reminder set for \(Self.stamp.string(from: due))."
-        return (ToolResult(ok: true, text: text, instanceLabels: []),
+        return (ToolResult(ok: true, text: text, instanceLabels: [],
+                           authorization: authorization, approvalMilliseconds: waited),
                 .reminderCreated(due: due, wasTimeStated: stated != nil))
+    }
+
+    private enum Gate {
+        /// Save. The authorization is nil when no card was needed.
+        case go(ToolAuthorization?, waited: Int)
+        case stop(ToolResult)
+    }
+
+    /// After a read, a note or a reminder raises the connector card, scoped to This Mac
+    /// like a device tool. The text it saves may come from what the run read, and a
+    /// reminder shows that text in the notch with a sound. No grant is looked up, the
+    /// card offers no Always, and an Always answer runs once. With no read, no card.
+    private func approveAfterRead(_ tool: String, arguments: [String: String]) async -> Gate {
+        guard taint.isSet else { return .go(nil, waited: 0) }
+        let approval = PendingApproval(
+            tool: tool,
+            instanceID: DeviceToolCatalog.thisMacID,
+            instanceLabel: DeviceToolCatalog.thisMacLabel,
+            target: DeviceToolCatalog.thisMacLabel,
+            arguments: arguments,
+            grantOffered: false,
+            grantable: false,
+            readSelectionOnly: !taint.outsideSelection)
+        guard let requestApproval else {
+            return .stop(.failure("This run read text from your accounts or your selection, and "
+                + "no approval card can be shown here, so nothing was saved."))
+        }
+        // A stopped run raises no card.
+        guard !Task.isCancelled else { return .stop(.failure(Self.stoppedBeforeSave)) }
+        let askedAt = now()
+        let outcome = await requestApproval(approval)
+        let waited = Int(now().timeIntervalSince(askedAt) * 1000)
+        switch outcome {
+        case .denied:
+            return .stop(ToolResult(ok: false, text: "The user declined that.", instanceLabels: [],
+                                    authorization: .denied, approvalMilliseconds: waited))
+        case .timedOut:
+            return .stop(ToolResult(ok: false,
+                                    text: "Nobody answered the approval card in time, so nothing was saved.",
+                                    instanceLabels: [], authorization: .timedOut,
+                                    approvalMilliseconds: waited))
+        case .allowedOnce, .allowedAlways:
+            break
+        }
+        // A cancel that arrived while the card waited stops the save.
+        guard !Task.isCancelled else {
+            return .stop(ToolResult(ok: false, text: Self.stoppedBeforeSave, instanceLabels: [],
+                                    approvalMilliseconds: waited))
+        }
+        return .go(.allowedOnce, waited: waited)
     }
 
     // MARK: - Reads

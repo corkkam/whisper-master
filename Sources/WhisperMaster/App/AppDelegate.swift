@@ -303,6 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.state.usageStore.activate(userID: user.id)
             viewModel.state.notesStore.activate(userID: user.id)
             viewModel.state.connectorStore.activate(userID: user.id)
+            viewModel.state.agentMemory.activate(userID: user.id)
             // Attach the account to analytics on the same reconcile that scopes the
             // stores, so the two can never disagree about who is signed in.
             // `identify` is idempotent, which it has to be — this runs twice a
@@ -328,6 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.state.usageStore.deactivate()
             viewModel.state.notesStore.deactivate()
             viewModel.state.connectorStore.deactivate()
+            viewModel.state.agentMemory.deactivate()
             // Drop the person too, or the next user of this Mac inherits the last
             // one's profile.
             Analytics.shared.resetIdentity()
@@ -464,6 +466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.state.usageStore.deactivate()
         viewModel.state.notesStore.deactivate()
         viewModel.state.connectorStore.deactivate()
+        viewModel.state.agentMemory.deactivate()
         // The assistant's run, card and last answer belong to that account too.
         viewModel.handleSignOut()
         // The day belongs to the account that was signed in — stop reading it and

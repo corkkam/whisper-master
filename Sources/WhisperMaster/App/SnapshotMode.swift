@@ -467,6 +467,42 @@ enum SnapshotMode {
                 grantOffered: false,
                 grantable: false))
         }
+        // A note filed after a read: a short one stays centred as plain text, a CJK
+        // one gets its real height, and a long one fades at the foot of its scroll area.
+        func noteCard(_ body: String, title: String? = nil) -> PendingApproval {
+            var arguments = ["body": body]
+            if let title { arguments["title"] = title }
+            return PendingApproval(
+                tool: "create_note",
+                instanceID: DeviceToolCatalog.thisMacID,
+                instanceLabel: DeviceToolCatalog.thisMacLabel,
+                target: DeviceToolCatalog.thisMacLabel,
+                arguments: arguments,
+                grantOffered: false,
+                grantable: false)
+        }
+        renderPill(dir, name: "pill-9h-approval-note-short") { s in
+            s.phase = .idle
+            s.approvals.seedPendingForSnapshot(noteCard("Call the vendor back", title: "Vendor"))
+        }
+        renderPill(dir, name: "pill-9i-approval-note-wide") { s in
+            s.phase = .idle
+            s.approvals.seedPendingForSnapshot(noteCard(
+                "\u{91D1}\u{66DC}\u{65E5}\u{307E}\u{3067}\u{306B}\u{898B}\u{7A4D}\u{3082}\u{308A}"
+                    + "\u{3092}\u{9001}\u{308B}\u{3002}"
+                    + String(repeating: "\u{65B0}\u{3057}\u{3044}\u{4FA1}\u{683C}\u{8868}\u{3092}"
+                        + "\u{78BA}\u{8A8D}\u{3059}\u{308B}\u{3002}", count: 6)))
+        }
+        renderPill(dir, name: "pill-9j-approval-note-long") { s in
+            s.phase = .idle
+            s.approvals.seedPendingForSnapshot(noteCard(
+                "Dana says the launch moved to Friday. The deck needs the new pricing slide, "
+                    + "the support rota changes next week, and legal wants the terms page "
+                    + "reviewed before anything goes out. Sam owns the press note and the "
+                    + "blog post. The demo video is still at the agency, due Thursday, and "
+                    + "the beta list closes on Wednesday night.",
+                title: "Launch"))
+        }
         // "Make this shorter": the rewrite on the band with its line breaks, and
         // nothing typed until Replace.
         renderPill(dir, name: "pill-14-draft-replace") { s in
@@ -1576,6 +1612,11 @@ enum SnapshotMode {
         seedTraces(state.traces)
         seedUsage(state.usageStore)
         seedNotes(state.notesStore)
+        // Mock facts, in memory only: no per-account file is written under the renderer.
+        state.agentMemory.persistenceEnabled = false
+        state.agentMemory.activate(userID: "snapshot")
+        _ = state.agentMemory.add("My manager is Priya.")
+        _ = state.agentMemory.add("I work from Pune and join calls at 10 am IST.")
         // The quick-actions band's left column is the day, so it needs one — the
         // renderer never starts `NowStore`, so nothing would read EventKit anyway.
         state.now.seed(events: mockDay())

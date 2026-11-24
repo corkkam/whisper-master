@@ -35,6 +35,8 @@ enum ConnectorCapability: String, Codable, Sendable, CaseIterable {
     case messages
     case tasks
     case files
+    /// Tools an MCP server offers. Read by no `ToolRouter` tool: `MCPToolRunner` lists them.
+    case tools
 }
 
 /// One credential input rendered by the add sheet. Mirrors openworker's `Field`:

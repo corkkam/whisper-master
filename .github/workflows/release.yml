@@ -206,12 +206,6 @@ jobs:
           # it too.
           EVAL_INGEST_TOKEN: ${{ secrets.EVAL_INGEST_TOKEN }}
           RUN_EVAL: ${{ github.ref_name == 'main' && '1' || '0' }}
-          # One-off for 1.3.0-dev.1 (dev) and 1.3.0 (stable): three pinned model
-          # archives (Qwen3-4B-Thinking-2507-4bit, kokoro-82m-coreml, kokoro) are
-          # not on R2 yet, and the exact zips the pins describe are not on the
-          # release Mac. Those models install from Hugging Face, as they do
-          # today. Remove this line once they are uploaded.
-          ALLOW_MISSING_MODELS: '1'
         run: bash Scripts/release.sh
 
       - name: Publish shareable DMG to R2

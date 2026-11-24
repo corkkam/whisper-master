@@ -279,4 +279,114 @@ final class ApprovalCopyTests: XCTestCase {
         let geometry = NotchGeometry(notchWidth: 200, notchHeight: 37.5, screenWidth: 1512)
         XCTAssertLessThanOrEqual(tall, layout.panelSize(for: geometry).height - geometry.notchHeight)
     }
+
+    // MARK: - A note or a reminder after a read
+
+    private func localCard(_ tool: String, _ arguments: [String: String]) -> PendingApproval {
+        PendingApproval(tool: tool, instanceID: DeviceToolCatalog.thisMacID,
+                        instanceLabel: DeviceToolCatalog.thisMacLabel,
+                        target: DeviceToolCatalog.thisMacLabel,
+                        arguments: arguments, grantOffered: false, grantable: false)
+    }
+
+    func testANoteCardShowsTheTitleAndTheWholeBody() {
+        let body = "Dana says the launch moved to Friday and the deck needs the new pricing slide"
+        let card = localCard("create_note", ["title": "Launch", "body": body])
+        XCTAssertEqual(card.headline, "Save a note on This Mac")
+        XCTAssertEqual(card.detail, "\u{201C}Launch\u{201D}  ·  \u{201C}\(body)\u{201D}")
+        XCTAssertEqual(card.readWarning, ApprovalCopy.readWarning)
+        XCTAssertFalse(card.offersAlways)
+    }
+
+    /// The card states the time the app resolved and will save, never the phrase.
+    func testAReminderCardShowsTheResolvedTimeNotThePhrase() {
+        let detail = ApprovalCopy.detail(
+            tool: "create_reminder",
+            arguments: ["title": "Call the bank", "due": ConnectorHTTP.iso8601(from: date(9, 9)),
+                        "body": "Ask about the fee"],
+            calendar: calendar,
+            now: date(8, 7))
+
+        XCTAssertTrue(detail.hasPrefix("\u{201C}Call the bank\u{201D}  ·  Tomorrow 9:00"), detail)
+        XCTAssertTrue(detail.hasSuffix("AM  ·  \u{201C}Ask about the fee\u{201D}"), detail)
+        XCTAssertFalse(detail.contains("due"), "the stamp is presented, not shown raw")
+        XCTAssertEqual(ApprovalCopy.headline(tool: "create_reminder", target: "This Mac",
+                                             instanceLabel: "This Mac"),
+                       "Set a reminder on This Mac")
+    }
+
+    /// A note of any length scrolls in at most `maxVisibleScrollLines`, and the
+    /// tallest card fits the panel, which is sized once.
+    func testALongNoteCardScrollsInsideThePanel() {
+        let short = localCard("create_note", ["body": "Buy milk"])
+        XCTAssertEqual(short.detailLines, 1)
+        XCTAssertFalse(short.detailOverflows)
+
+        let card = localCard("create_note", ["body": String(repeating: "word ", count: 400)])
+        XCTAssertTrue(card.scrollsDetail)
+        XCTAssertTrue(card.detailOverflows, "the foot fades to show more is below")
+        XCTAssertEqual(card.detailLines, ApprovalCopy.maxVisibleScrollLines)
+
+        let lines = localCard("create_note", ["body": "one\ntwo\nthree"])
+        XCTAssertEqual(lines.detailLines, 3, "each line break is a line")
+
+        let layout = NotchSurfaceLayout()
+        let tall = NotchApprovalBanner.thickness(for: card, banner: layout.bannerThickness)
+        XCTAssertEqual(tall, NotchApprovalBanner.maxThickness(banner: layout.bannerThickness))
+        let geometry = NotchGeometry(notchWidth: 200, notchHeight: 37.5, screenWidth: 1512)
+        XCTAssertLessThanOrEqual(tall, layout.panelSize(for: geometry).height - geometry.notchHeight)
+    }
+
+    /// A link still wraps onto three lines and does not scroll.
+    func testALinkCardDoesNotScroll() {
+        let link = PendingApproval(tool: "open_url", instanceID: DeviceToolCatalog.thisMacID,
+                                   instanceLabel: "This Mac", target: "example.com",
+                                   arguments: ["url": "https://example.com/" + String(repeating: "a", count: 120)],
+                                   grantOffered: true, grantable: false)
+        XCTAssertFalse(link.scrollsDetail)
+        XCTAssertLessThanOrEqual(link.detailLines, 3)
+    }
+
+    /// An East Asian wide character or an emoji takes two columns, so a CJK note gets a
+    /// scroll area its real height rather than half of it.
+    func testWideCharactersCountTwiceInTheEstimate() {
+        XCTAssertEqual(ApprovalCopy.estimatedLines(String(repeating: "\u{6F22}", count: 120)), 5)
+        XCTAssertEqual(ApprovalCopy.estimatedLines(String(repeating: "\u{1F600}", count: 30)), 2)
+        XCTAssertEqual(ApprovalCopy.estimatedLines(String(repeating: "a", count: 120)), 3)
+        XCTAssertEqual(ApprovalCopy.columns("\u{AC00}"), 2, "a Hangul syllable")
+        XCTAssertEqual(ApprovalCopy.columns("\u{2764}\u{FE0F}"), 2, "an emoji by its selector")
+        XCTAssertEqual(ApprovalCopy.columns("\u{E9}"), 1)
+
+        // 100 ideographs: 102 characters with the quotes, which the old count put on 3 lines.
+        let card = localCard("create_note", ["body": String(repeating: "\u{6F22}", count: 100)])
+        XCTAssertEqual(card.detailLines, ApprovalCopy.maxVisibleScrollLines)
+    }
+
+    /// The live card fades its foot only while text is below the visible area, with
+    /// half a point of slack for rounding.
+    func testTheFootFadesOnlyWhileTextIsBelow() {
+        XCTAssertFalse(NotchApprovalBanner.hasMoreBelow(contentBottom: 56, visibleHeight: 56))
+        XCTAssertFalse(NotchApprovalBanner.hasMoreBelow(contentBottom: 51, visibleHeight: 56))
+        XCTAssertTrue(NotchApprovalBanner.hasMoreBelow(contentBottom: 70, visibleHeight: 56))
+        XCTAssertFalse(NotchApprovalBanner.hasMoreBelow(contentBottom: 56.4, visibleHeight: 56))
+    }
+
+    /// The warning names what was read: the selection when that was the only read,
+    /// the accounts otherwise. An untainted card carries neither.
+    func testTheWarningNamesWhatWasRead() {
+        func card(grantOffered: Bool, selectionOnly: Bool) -> PendingApproval {
+            PendingApproval(tool: "create_note", instanceID: DeviceToolCatalog.thisMacID,
+                            instanceLabel: DeviceToolCatalog.thisMacLabel,
+                            target: DeviceToolCatalog.thisMacLabel, arguments: ["body": "x"],
+                            grantOffered: grantOffered, grantable: false,
+                            readSelectionOnly: selectionOnly)
+        }
+        XCTAssertEqual(card(grantOffered: false, selectionOnly: true).readWarning,
+                       ApprovalCopy.selectionReadWarning)
+        XCTAssertEqual(card(grantOffered: false, selectionOnly: false).readWarning,
+                       ApprovalCopy.readWarning)
+        XCTAssertNil(card(grantOffered: true, selectionOnly: true).readWarning)
+        XCTAssertNil(card(grantOffered: true, selectionOnly: false).readWarning)
+        XCTAssertFalse(ApprovalCopy.selectionReadWarning.contains("accounts"))
+    }
 }

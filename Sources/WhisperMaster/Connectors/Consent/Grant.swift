@@ -80,10 +80,14 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
     /// standing grant for it would outlast this one card.
     let grantOffered: Bool
     /// Whether the tool can ever have a standing grant. False for `open_url`, whose
-    /// card shows every time. Kept apart from `grantOffered` because that one also
+    /// card shows every time, and for a note or reminder, carded only after a read.
+    /// Kept apart from `grantOffered` because that one also
     /// raises the after-reading warning, and an untainted link card has nothing to
     /// warn about.
     let grantable: Bool
+    /// The run's only read was the selection the chord captured
+    /// (`Taint.isSet && !Taint.outsideSelection`). It picks which warning line shows.
+    let readSelectionOnly: Bool
     let requestedAt: Date
 
     init(id: UUID = UUID(),
@@ -94,6 +98,7 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
          arguments: [String: String],
          grantOffered: Bool = true,
          grantable: Bool = true,
+         readSelectionOnly: Bool = false,
          requestedAt: Date = Date()) {
         self.id = id
         self.tool = tool
@@ -103,6 +108,7 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
         self.arguments = arguments
         self.grantOffered = grantOffered
         self.grantable = grantable
+        self.readSelectionOnly = readSelectionOnly
         self.requestedAt = requestedAt
     }
 
@@ -121,16 +127,30 @@ struct PendingApproval: Equatable, Sendable, Identifiable {
         ApprovalCopy.detail(tool: tool, arguments: arguments)
     }
 
-    /// The card's warning line, present exactly when the run read connector text.
-    /// Derived from `grantOffered` so the two can never disagree.
+    /// The card's warning line, present exactly when the run read untrusted text (a
+    /// connector read, the selection, or a tainted follow-up). Derived from
+    /// `grantOffered` so the two can never disagree, and it names the selection when
+    /// that was the only read.
     var readWarning: String? {
-        grantOffered ? nil : ApprovalCopy.readWarning
+        guard !grantOffered else { return nil }
+        return readSelectionOnly ? ApprovalCopy.selectionReadWarning : ApprovalCopy.readWarning
     }
 
     /// Lines the payload may take. One, except a link, which wraps rather than
-    /// truncates so the whole address is on the card.
+    /// truncates so the whole address is on the card, and a note or a reminder,
+    /// which scrolls (`ApprovalCopy.detailLines`).
     var detailLines: Int {
         ApprovalCopy.detailLines(tool: tool, detail: detail)
+    }
+
+    /// The payload scrolls in place rather than wrapping to a fixed line count.
+    var scrollsDetail: Bool { ApprovalCopy.scrollsDetail(tool: tool) }
+
+    /// More text than the visible lines hold, by the estimate. The snapshot's fade
+    /// only: `ImageRenderer` draws one pass, so it cannot measure. The live card
+    /// measures its text and fades while more is below.
+    var detailOverflows: Bool {
+        scrollsDetail && ApprovalCopy.estimatedLines(detail) > ApprovalCopy.maxVisibleScrollLines
     }
 }
 

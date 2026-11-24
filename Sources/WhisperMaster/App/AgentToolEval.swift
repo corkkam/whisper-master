@@ -101,7 +101,7 @@ enum AgentToolEval {
     }
 
     static func run() async {
-        print("=== Assistant suite: tool calling on the real Qwen3-4B-Instruct-2507 ===")
+        print("=== Assistant suite: tool calling on the real assistant model ===")
         let cases = loadCases()
 
         // **The general model, not the cleanup slot.** This bench measures tool
@@ -118,13 +118,16 @@ enum AgentToolEval {
         }
         print("Model loaded from \(CleanupModel.General.directory.lastPathComponent)\n")
 
-        let tools = buildTools()
-        print("Tools offered (\(tools.count)): \(tools.map(\.name).joined(separator: ", "))\n")
-
-        let toolList = ToolRegistry.promptDescription(for: tools)
-        let handSystem = AgentPrompt.command(toolList: toolList)
+        let pool = buildTools()
+        print("Tool pool (\(pool.count)), packed to \(ToolPackRouter.limit) per command: "
+            + "\(pool.map(\.name).joined(separator: ", "))\n")
+        // The app packs the pool per command (`ToolPackRouter`), so each case does too.
+        func offered(_ spoken: String) -> (tools: [ToolDescriptor], hand: String, schemas: [String]) {
+            let tools = ToolPackRouter.pack(pool, spoken: spoken)
+            return (tools, AgentPrompt.command(toolList: ToolRegistry.promptDescription(for: tools)),
+                    ToolSchema.functionSchemas(for: tools))
+        }
         let nativeSystem = AgentPrompt.commandNative()
-        let schemas = ToolSchema.functionSchemas(for: tools)
 
         var wrappedParse = 0, wrappedCorrect = 0
         var handParse = 0, handCorrect = 0
@@ -132,6 +135,7 @@ enum AgentToolEval {
         var rows: [[String: Any]] = []
 
         for testCase in cases {
+            let (tools, handSystem, schemas) = offered(testCase.spoken)
             let wrapped = await cleanupWrapped(testCase.spoken, system: handSystem, tools: tools)
             let handStart = Date()
             let hand = await handRolled(testCase.spoken, system: handSystem, tools: tools)
@@ -175,8 +179,9 @@ enum AgentToolEval {
         }
         print("")
 
-        await runSecondTurn(tools: tools, handSystem: handSystem,
-                            nativeSystem: nativeSystem, schemas: schemas)
+        let second = offered("what's on my calendar today")
+        await runSecondTurn(tools: second.tools, handSystem: second.hand,
+                            nativeSystem: nativeSystem, schemas: second.schemas)
     }
 
     // MARK: - Results, in the shape the rest of the eval speaks

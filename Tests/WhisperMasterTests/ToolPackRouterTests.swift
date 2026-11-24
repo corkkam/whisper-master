@@ -49,9 +49,25 @@ final class ToolPackRouterTests: XCTestCase {
         XCTAssertFalse(ToolPackRouter.keywords("is it on").contains("is"), "short words carry nothing")
     }
 
-    /// Today's catalog never reaches the limit, so nothing is dropped from a real run.
-    func testTheShippedCatalogFitsUnderTheLimit() {
-        let everything = LocalToolCatalog.all + [LocalToolCatalog.readSelection] + ToolCatalog.all
-        XCTAssertLessThanOrEqual(everything.count, ToolPackRouter.limit)
+    /// The merged catalog is past the limit, so a row tool must not lose its listing:
+    /// `list_messages` shares no word with "reply to Sam in Slack".
+    func testARowToolKeepsTheListingItNeeds() {
+        let crowded = crowded + [
+            tool("list_messages", "List recent chat messages and conversations."),
+            tool(ItemTools.replyMessage, "Reply in the thread of one message from a listing, in Slack.",
+                 access: .write),
+        ]
+        let packed = ToolPackRouter.pack(crowded, spoken: "reply to Sam in Slack and say yes")
+        XCTAssertEqual(packed.count, ToolPackRouter.limit)
+        XCTAssertTrue(packed.contains { $0.name == ItemTools.replyMessage })
+        XCTAssertTrue(packed.contains { $0.name == "list_messages" })
+    }
+
+    func testEveryNamedNeedIsARealTool() {
+        let names = Set((ToolCatalog.all + DeviceToolCatalog.all + FileToolCatalog.all).map(\.name))
+        for (tool, listings) in ToolPackRouter.needs {
+            XCTAssertTrue(names.contains(tool), tool)
+            for listing in listings { XCTAssertTrue(names.contains(listing), listing) }
+        }
     }
 }
