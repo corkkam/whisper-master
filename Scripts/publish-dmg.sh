@@ -19,8 +19,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Release channel (stable|beta|dev) → CH_APP_NAME + CH_DMG_STABLE_NAME. Beta/dev
-# upload to WhisperMaster-beta.dmg / WhisperMaster-dev.dmg (the gated download
-# links), never the stable WhisperMaster.dmg. See channel.sh.
+# upload to WhisperMaster-beta.dmg / WhisperMaster-dev.dmg, never the stable
+# WhisperMaster.dmg. See channel.sh.
+#
+# ⚠️ The beta and dev DMGs are PUBLIC on purpose (COR-75, decided 2026-11-25). R2
+# sets public access per bucket, and the Sparkle beta archive sits in the same
+# public bucket, so hiding only the DMG link would protect nothing. The landing
+# page shows the beta link only to users with the Clerk `betaAccess` flag, but
+# that is display, not access control: the flag only picks the Sparkle update
+# track (BetaAccess.allowedChannels) and gates no feature.
 source "$(dirname "$0")/channel.sh"
 
 APP_NAME="$CH_APP_NAME"
