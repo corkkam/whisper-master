@@ -344,10 +344,48 @@ the connector branch, so a user with no connection still gets the card.
   of the model, and a model-route key press during a hold is the bug `Media/CLAUDE.md`
   forbids.
 
+## Memory: what the user asked it to remember (`Agent/AgentMemory.swift`)
+
+Two `.local` tools, `remember` and `forget`, and a list of facts on this Mac. Owner approved
+(plan Phase 7). VoiceOS extracts facts on its server after each turn; this app does not.
+
+- **A fact is written only because the user said so**: `remember` through the chord, or
+  nothing. No extraction, no sync, no `recall` tool (the facts are in the prompt).
+- **`AgentMemoryStore` is per account**, the `UsageStore` shape: one file at
+  `Application Support/WhisperMaster/Memory/<userId>.json`, `AppDelegate` activates it on
+  sign-in and deactivates it on sign-out, and **with no account active nothing can be
+  added**, so a run that outlives a sign-out cannot leave a fact for the next account.
+  An unreadable file stops all writes, so it is never replaced by an empty one.
+  `AgentMemoryFact`'s `Codable` is hand-written (`decodeIfPresent`, defaults), like `Note`'s.
+- **Limits: 50 facts, 200 characters each.** A longer fact is refused with a tool result,
+  never cut. A fact is stored as one line, and a repeat (any case) is not stored twice.
+- **A tainted run refuses both tools** (`LocalToolRunner.runMemory`). Memory feeds every
+  later prompt and the choice of recipient, so text from a mail or a selection must not be
+  able to plant a fact, or wipe one. This is the exception to "Taint does not block local
+  writes" in `Input/CLAUDE.md`. The refusal is `ok: false`, so it does not count as an action.
+- **`forget` is offered only when there is a fact**, and matches words: every word of three
+  letters or more in the call (`ToolPackRouter.keywords`) must be in the fact. It removes
+  every fact that matches and says which. `remember` is always offered.
+- **They are not in `LocalToolCatalog.all`**, which the tool benches share. The service adds
+  them when it has a store, so the 16-case bench is unchanged. **Not benched with them in.**
+  Run `WM_AGENT_TOOL_EVAL` before a release: "remember to call mom" must still pick
+  `create_reminder`, and the first-turn score must stay 16/16.
+- **The prompt**: `AgentMemoryStore.promptBlock` ("Things the user asked you to remember:"
+  and one `- fact` line each) goes after `AgentPrompt.command` and `commandNative` in
+  `CommandAgentService`, newest first, at most 1,500 characters. A fact that does not fit is
+  left out, not cut; Settings (`AgentMemorySettingsSection`) shows them all. The facts are
+  the user's own words and do not taint a run.
+- **A remote tier receives them.** The endpoint and the connected tool get the prompt, so the
+  consent sheet lists "Facts you asked the assistant to remember" (`AgentEndpointConsentSheet.
+  conversation`, shared by both). Their characters count under `instructions` in the send
+  record. A capture kept local never sends them.
+- **A trace keeps the call**, so a fact the user spoke is in `ToolCallTrace.arguments` and
+  `result` like a note's body. Analytics get the tool name only.
+
 ## Verifying
 
 `swift test --filter "DeviceToolRunnerTests|AgentIntentMatcherTests|ApprovalCopyTests"`
-for the device tools.
+for the device tools, `swift test --filter AgentMemoryTests` for memory.
 `swift test --filter "MicrosoftConnectorTests|SlackProviderTests|Connector"`. No
 test reaches the live Graph or Slack APIs. The first real sign-in after the client
 id is set is the end-to-end check.
