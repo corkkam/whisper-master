@@ -248,9 +248,10 @@ struct ToolCallTrace: Identifiable, Codable, Hashable, Sendable {
     var authorization: ToolAuthorization?
 
     /// A device tool acts (it opens something or stages text to type), so it is badged
-    /// as a write, never shown as a read.
+    /// as a write, never shown as a read. `find_files` only reads.
     var isWrite: Bool {
-        ToolCatalog.descriptor(named: tool)?.access == .write || isDevice
+        ToolCatalog.descriptor(named: tool)?.access == .write
+            || (isDevice && DeviceToolCatalog.descriptor(named: tool)?.access != .read)
     }
     var isLocal: Bool { LocalToolCatalog.names.contains(tool) }
     /// Served by this Mac, not by a connector.

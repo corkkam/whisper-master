@@ -597,6 +597,7 @@ final class DeviceToolRunnerTests: XCTestCase {
         XCTAssertTrue(DeviceToolCatalog.offered(selection: true, frontApp: true)
             .map(\.name).contains("replace_selection"))
         XCTAssertEqual(DeviceToolCatalog.offered(selection: true, frontApp: false).map(\.name),
-                       ["open_app", "open_url"], "no draft tools without an app to type into")
+                       ["open_app", "open_url", "find_files", "open_file"],
+                       "no draft tools without an app to type into")
     }
 }

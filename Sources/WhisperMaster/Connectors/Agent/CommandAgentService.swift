@@ -338,6 +338,7 @@ struct CommandAgentService {
                 return writeDestination(tool: tool, written: written)
             case .device(.openedApp): return "On \(DeviceToolCatalog.thisMacLabel)"
             case .device(.openedURL): return "In your browser"
+            case .device(.openedFile): return "On \(DeviceToolCatalog.thisMacLabel)"
             case .device(.draftStaged(let draft)): return "Draft for \(draft.app.name)"
             case .local(.read), .connectorWrite:
                 continue
@@ -359,6 +360,7 @@ struct CommandAgentService {
             case .connectorWrite(let tool, _): return Self.writeIcon(tool: tool)
             case .device(.openedApp): return "macwindow"
             case .device(.openedURL): return "safari"
+            case .device(.openedFile): return "doc"
             case .device(.draftStaged): return "text.cursor"
             }
         }
