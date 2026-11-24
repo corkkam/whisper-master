@@ -278,7 +278,7 @@ endpoint. **Text only leaves the Mac, never audio.**
 ## Device tools: acting on this Mac (`Tools/DeviceTools.swift`)
 
 Four tools with no connector behind them: `open_app`, `open_url`, `replace_selection`
-and `insert_text`. `CommandToolRouter` routes them to `DeviceToolRunner` **before**
+and `insert_text`, and two file tools (below). `CommandToolRouter` routes them to `DeviceToolRunner` **before**
 the connector branch, so a user with no connection still gets the card.
 
 - **The approval route.** `open_app` and `open_url` go through `WriteAuthorizer` and
@@ -343,6 +343,55 @@ the connector branch, so a user with no connection still gets the card.
 - **No `media_control` tool.** `MediaCommandDetector` already handles transport ahead
   of the model, and a model-route key press during a hold is the bug `Media/CLAUDE.md`
   forbids.
+
+## Files on this Mac, and the volume (`Tools/FileTools.swift`, `Tools/FileSearch.swift`, `Media/VolumeCommand.swift`)
+
+`find_files` and `open_file` are two more device tools. `DeviceToolRunner` runs them,
+so they use the same card, the same `thisMacID` and the same taint rule.
+
+- **`find_files` is the first device tool that only reads** (`.read`, no card). Optional
+  `query` (words in the file name, each one a plain substring, at most 5) and optional
+  `kind` (document, pdf, image, spreadsheet, presentation, folder). With no words it is
+  the files used in the last 30 days, newest first. `FileQuery` builds the Spotlight
+  predicate and decides what may be shown (`accepts`): inside the home folder only,
+  never `~/Library` (so iCloud Drive is not searched), never a hidden file or folder,
+  never an app bundle or a file inside one. `SpotlightFileSearch` runs an
+  `NSMetadataQuery` and stops it at 3 seconds, and the result then says the list may be
+  incomplete. At most 15 rows: number, name, kind, modified date and the parent
+  folder's name. **The model never sees a path.** A name is one line, cut in the middle
+  past 60 characters so the extension stays.
+- **A result with rows taints the run** (`Taint`, outside the selection): file names are
+  text the user did not write. A later write then shows the card with no Always, and
+  the card says the run read text from accounts, which is not exact for file names.
+- **`open_file` takes a row number, never a path.** `FileRowTable` holds the rows of the
+  latest `find_files` in this run, so the first search of a run must come before an
+  open, and a new search replaces the rows. It is `.write` with `targetArg` `row`, but
+  the grant target is the file name, not the row. **The card shows every time**
+  (`DeviceToolCatalog.grantable` is false), with the file name in the headline and the
+  folder name under it. A file that can run code is refused **before** the card
+  (`FileSafety`): an app or any package, an installer package, a disk image, an
+  executable, a script of any language, a shell command file, an Automator workflow, a
+  Terminal settings file, and a link file (it would open a page with no link card). The
+  check follows a symlink first. It uses `UTType` conformance on the type Launch Services
+  reads from the file, plus the `workflow` and `action` extensions, which it names only
+  for a bundle. `NSWorkspace.open` opens the rest in the app the user chose for it.
+- **Not built, on purpose:** move, copy, rename, trash, new folders, reading a file's
+  contents, searching outside the home folder.
+- **Volume is a fast path, not a tool.** `VolumeCommandDetector` matches a whole capture
+  ("volume up", "turn it down", "mute", "unmute", "set the volume to 30", "volume 50
+  percent") inside `routeCommandCapture`, after `MediaCommandDetector` and before
+  `AgentIntentMatcher`, and **legal nowhere else** (`VolumeCommandTests` scans the
+  source). A step presses the system volume key twice (`MediaKey`). Mute and an exact
+  level run `set volume …` through `NSAppleScript`: the scripting addition runs in
+  this process, sends no Apple Event to another app, and needs no automation
+  entitlement (checked with a hardened-runtime build). Mute does not use the mute key,
+  because that key is a toggle. The app sets no Core Audio property and names no device.
+- **What leaves the Mac in a remote tier:** the file names, kinds, dates and folder
+  names of up to 15 rows, and the result of an open. It is on the consent sheet list
+  (`AgentEndpointConsentSheet.conversation`). Never a path and never file contents.
+- **Not checked on a device:** a signed build may ask for Documents, Desktop or Downloads
+  access the first time a search reaches them, or Spotlight may leave those folders out
+  until it is granted. `NSMetadataQuery` is not run under `swift test`.
 
 ## Notes and reminders after a read (`Tools/LocalTools.swift`)
 
