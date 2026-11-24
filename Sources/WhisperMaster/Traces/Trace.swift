@@ -250,7 +250,7 @@ struct ToolCallTrace: Identifiable, Codable, Hashable, Sendable {
     /// A device tool acts (it opens something or stages text to type), so it is badged
     /// as a write, never shown as a read.
     var isWrite: Bool {
-        ToolCatalog.descriptor(named: tool)?.access == .write || isDevice
+        ToolCatalog.descriptor(named: tool)?.access == .write || isDevice || MCPToolMapping.isMCPTool(tool)
     }
     var isLocal: Bool { LocalToolCatalog.names.contains(tool) }
     /// Served by this Mac, not by a connector.

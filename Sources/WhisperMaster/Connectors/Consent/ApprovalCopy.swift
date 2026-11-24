@@ -33,6 +33,8 @@ enum ApprovalCopy {
         case "send_message": return "Post to"
         case "create_calendar_event": return "Add an event to"
         case "open_app", "open_url": return "Open"
+        // The target is the server's own tool name: "Run get_forecast on Weather".
+        case _ where MCPToolMapping.isMCPTool(tool): return "Run"
         default: return "Run \(tool) on"
         }
     }
@@ -84,6 +86,8 @@ enum ApprovalCopy {
                        arguments: [String: String],
                        calendar: Calendar = .current,
                        now: Date = Date()) -> String {
+        // Every argument goes to the server, one named `connector` too.
+        if MCPToolMapping.isMCPTool(tool) { return MCPToolMapping.cardDetail(arguments) }
         // Consumed as they're rendered; whatever is left over is unrecognised and
         // gets shown raw below.
         var remaining = arguments

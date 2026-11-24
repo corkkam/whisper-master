@@ -130,13 +130,21 @@ struct CommandAgentService {
         let connectorTools = connectorsAllowed
             ? ToolRegistry.available(store: store, includeWrites: true)
             : []
+        // The user's MCP servers, listed for this run (dev builds only).
+        let servers = connectorsAllowed && FeatureFlags.mcpServersAvailable
+            ? store.readable(providing: .tools)
+            : []
+        let mcp = servers.isEmpty ? nil : MCPToolRunner(
+            requestApproval: { [approvals] approval in await approvals.request(approval) })
+        await mcp?.load(servers, store: store)
         // Local first in the list: it's the fallback the prompt names, and a small
         // model biases toward what it read first.
         let tools = ToolPackRouter.pack(
             LocalToolCatalog.all
                 + (selection == nil ? [] : [LocalToolCatalog.readSelection])
                 + DeviceToolCatalog.offered(selection: selection != nil, frontApp: frontApp != nil)
-                + connectorTools,
+                + connectorTools
+                + (mcp?.tools ?? []),
             spoken: spoken)
 
         // One flag for the whole run: a connector read and a selection read both gate
@@ -146,6 +154,14 @@ struct CommandAgentService {
         let taint = Taint()
         taint.isSet = followUp?.tainted ?? false
         taint.outsideSelection = taint.isSet
+        // An MCP tool's name, summary and allowed values are the server's text, in the
+        // prompt from the first turn.
+        if tools.contains(where: { MCPToolMapping.isMCPTool($0.name) }) {
+            taint.isSet = true
+            taint.outsideSelection = true
+        }
+        mcp?.taint = taint
+        mcp?.now = now
         let connectorRouter = connectorTools.isEmpty
             ? nil
             : ToolRouter(store: store,
@@ -168,6 +184,7 @@ struct CommandAgentService {
                 frontApp: frontApp,
                 selection: selection,
                 now: now),
+            mcp: mcp,
             now: now)
 
         var loop = AgentLoop(tools: tools, router: router, generate: generate)
