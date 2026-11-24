@@ -639,6 +639,10 @@ final class AppState {
     /// `AppDelegate` (`notesStore.activate`) once auth resolves.
     let notesStore = NotesStore(load: false)
 
+    /// What the user asked the assistant to remember. Per-account like `notesStore`:
+    /// scoped to the signed-in account by `AppDelegate` (`agentMemory.activate`).
+    let agentMemory = AgentMemoryStore()
+
     /// Playback for the recordings behind spoken notes. One per app, so starting a
     /// second note's audio stops the first. Playback only — it never touches the
     /// capture graph (see `NoteAudioPlayer`).

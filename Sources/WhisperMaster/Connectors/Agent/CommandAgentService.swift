@@ -69,6 +69,9 @@ struct CommandAgentService {
     var frontApp: SelectionReader.FrontApp?
     /// What the device tools touch. Injected so a test opens and reads nothing real.
     var device: DeviceToolRunner.Environment = .live
+    /// What the user asked the assistant to remember. Set, the run offers `remember` (and
+    /// `forget` when there is a fact) and puts the facts in the prompt.
+    var memory: AgentMemoryStore?
 
     /// A run of the agent, result **and** the record of how it got there.
     ///
@@ -135,6 +138,7 @@ struct CommandAgentService {
         let tools = ToolPackRouter.pack(
             LocalToolCatalog.all
                 + (selection == nil ? [] : [LocalToolCatalog.readSelection])
+                + (memory.map { AgentMemoryCatalog.offered(hasFacts: $0.hasFacts) } ?? [])
                 + DeviceToolCatalog.offered(selection: selection != nil, frontApp: frontApp != nil)
                 + connectorTools,
             spoken: spoken)
@@ -158,7 +162,8 @@ struct CommandAgentService {
                 // what was actually said next to the model's rewrite of it.
                 voice: .init(transcript: spoken, takeAudio: takeNoteAudio),
                 selection: selection,
-                taint: taint),
+                taint: taint,
+                memory: memory),
             connectors: connectorRouter,
             device: DeviceToolRunner(
                 store: store,
@@ -177,12 +182,14 @@ struct CommandAgentService {
             ? AgentLoop.budget(thinks: CleanupModel.General.thinks)
             : AgentLoop.defaultBudget
         // The prompt names the selection; the text itself comes only through the tool.
+        // The user's own words, so the block does not taint the run.
+        let memoryBlock = memory?.promptBlock.map { "\n\n" + $0 } ?? ""
         loop.prompt = { [selection] toolList in
-            let prompt = AgentPrompt.command(toolList: toolList)
+            let prompt = AgentPrompt.command(toolList: toolList) + memoryBlock
             return selection.map { prompt + "\n\n" + $0.promptLine } ?? prompt
         }
         loop.nativePrompt = { [selection] in
-            let prompt = AgentPrompt.commandNative()
+            let prompt = AgentPrompt.commandNative() + memoryBlock
             return selection.map { prompt + "\n\n" + $0.promptLine } ?? prompt
         }
         loop.earlier = followUp.map { ($0.question, $0.answer) }
@@ -333,6 +340,7 @@ struct CommandAgentService {
             switch effect {
             case .local(.noteCreated), .local(.reminderCreated):
                 return "Saved to Notes & Reminders"
+            case .local(.memoryChanged): return "Assistant memory on this Mac"
             case .connectorWrite(let tool, let written) where !written.isEmpty:
                 return writeDestination(tool: tool, written: written)
             case .device(.openedApp): return "On \(DeviceToolCatalog.thisMacLabel)"
@@ -354,6 +362,7 @@ struct CommandAgentService {
             switch effect {
             case .local(.reminderCreated): return "bell.badge.fill"
             case .local(.noteCreated): return "note.text"
+            case .local(.memoryChanged): return "brain.head.profile"
             case .local(.read): continue
             case .connectorWrite(let tool, _): return Self.writeIcon(tool: tool)
             case .device(.openedApp): return "macwindow"
