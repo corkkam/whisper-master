@@ -90,6 +90,17 @@ final class ModelLabTests: XCTestCase {
 
     // MARK: - Suites
 
+    /// A case whose tool the pack drops can never pass, and the chord would drop it too.
+    func testEveryToolCaseKeepsItsToolThroughThePack() {
+        let setup = LabToolBench.setup()
+        XCTAssertGreaterThan(setup.tools.count, ToolPackRouter.limit, "the pack is not exercised")
+        for (spoken, expected) in LabSuiteLoader.toolCases {
+            let offered = LabToolBench.packed(setup, for: spoken).tools
+            XCTAssertLessThanOrEqual(offered.count, ToolPackRouter.limit)
+            XCTAssertTrue(offered.contains { $0.name == expected }, "\(expected) is dropped for \"\(spoken)\"")
+        }
+    }
+
     func testToolSuiteLoadsWithoutACheckoutBecauseItsCasesAreInSwift() throws {
         let loaded = try LabSuiteLoader.load(.tools, repoRoot: nil)
         XCTAssertEqual(loaded.cases.count, LabSuiteLoader.toolCases.count)

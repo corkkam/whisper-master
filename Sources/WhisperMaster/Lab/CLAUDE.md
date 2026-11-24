@@ -198,7 +198,7 @@ row of its own, so it can sit beside the shipped assistant in one run.
 
 `cleanup` and `polish` (the same `cases.jsonl` through the two shipped prompts),
 `destinations` (`flow-cases.jsonl`, one row per declared target — the target joins
-the id, or three rows collide), `tools` (16 spoken commands, native tool schemas,
+the id, or three rows collide), `tools` (23 spoken commands, native tool schemas,
 first turn only, **assistant-role models only**), `audio` (the committed
 recordings through the real streaming transcriber, scored on WER), and
 `disfluency` (`disfluency-cases.jsonl`, 250 public DisfluencySpeech turns through

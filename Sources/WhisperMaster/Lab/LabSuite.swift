@@ -21,7 +21,7 @@ enum LabSuite: String, CaseIterable, Identifiable, Codable, Sendable {
     /// DisfluencySpeech test split, each graded on word error against its
     /// fluent transcript. The one suite here nobody at this company wrote.
     case disfluency
-    /// The 16 spoken commands from `AgentToolEval`, scored on whether the model
+    /// The spoken commands from `AgentToolEval`, scored on whether the model
     /// emitted a parseable call to the right tool.
     case tools
     /// The committed recordings, replayed through the real streaming ASR, scored
@@ -158,7 +158,7 @@ enum LabSuiteLoader {
         }
     }
 
-    /// The 16 spoken commands the tool-calling bench runs. **The one source of
+    /// The spoken commands the tool-calling bench runs. **The one source of
     /// truth** — `AgentToolEval` reads this list too, so the terminal bench and
     /// the in-app one can never measure different things.
     static let toolCases: [(spoken: String, expectedTool: String)] = [
@@ -181,6 +181,15 @@ enum LabSuiteLoader {
         ("message the design channel no wait the ops channel and tell them the deploy is done", "send_message"),
         ("book thirty minutes with the personal calendar for a review tomorrow at four", "create_calendar_event"),
         ("just jot down that I should follow up with the vendor about pricing", "create_note"),
+        // The VoiceOS-parity tools. The second one is the collision a new tool can
+        // cause: "remember to" asks for a reminder, not a stored fact.
+        ("remember that my sister's birthday is march third", "remember"),
+        ("remember to call the plumber tomorrow at nine", "create_reminder"),
+        ("find the lease pdf I downloaded last week", "find_files"),
+        ("when am I free tomorrow afternoon", "find_free_slots"),
+        ("move my dentist appointment on friday to four", "update_calendar_event"),
+        ("cancel the team lunch on thursday", "delete_calendar_event"),
+        ("search my email for the flight confirmation", "search_mail"),
     ]
 
     static func load(_ suite: LabSuite, repoRoot: URL?) throws -> LabSuiteCases {

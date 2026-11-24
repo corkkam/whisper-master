@@ -231,7 +231,7 @@ Your endpoint): an OpenAI-compatible chat endpoint or the Anthropic Messages API
 - **What was sent** is `AssistantTrace.endpoint` (`EndpointSendTrace`): request count and
   the character counts of the last request by kind, never the content.
 - **Not checked live.** No test calls a paid API. `AgentEndpointLiveTests` is the bench
-  arm (16 first-turn cases); it skips unless `WM_ENDPOINT_URL` and `WM_ENDPOINT_MODEL` are
+  arm (the first-turn tool cases); it skips unless `WM_ENDPOINT_URL` and `WM_ENDPOINT_MODEL` are
   set.
 
 ## The connected tool tier (`Agent/ConnectedTool.swift`, dev builds only)
@@ -498,10 +498,11 @@ Two `.local` tools, `remember` and `forget`, and a list of facts on this Mac. Ow
 - **`forget` is offered only when there is a fact**, and matches words: every word of three
   letters or more in the call (`ToolPackRouter.keywords`) must be in the fact. It removes
   every fact that matches and says which. `remember` is always offered.
-- **They are not in `LocalToolCatalog.all`**, which the tool benches share. The service adds
-  them when it has a store, so the 16-case bench is unchanged. **Not benched with them in.**
-  Run `WM_AGENT_TOOL_EVAL` before a release: "remember to call mom" must still pick
-  `create_reminder`, and the first-turn score must stay 16/16.
+- **They are not in `LocalToolCatalog.all`.** The service adds them when it has a store, and
+  the tool benches add them the same way (`LabToolBench.buildTools` follows the service's
+  order). Measured 2026-11-24 on Thinking: "remember to call mom" and "remember to call the
+  plumber" picked `create_reminder`, and "remember that my sister's birthday…" picked
+  `remember`. Keep both cases passing.
 - **The prompt**: `AgentMemoryStore.promptBlock` ("Things the user asked you to remember:"
   and one `- fact` line each) goes after `AgentPrompt.command` and `commandNative` in
   `CommandAgentService`, newest first, at most 1,500 characters. A fact that does not fit is

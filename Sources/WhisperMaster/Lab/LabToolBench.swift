@@ -29,7 +29,17 @@ enum LabToolBench {
         store.add(ConnectorInstance(kind: .gmail, label: "Gmail", identity: "sam@gmail.com"))
         store.add(ConnectorInstance(kind: .googleDrive, label: "Drive", identity: "sam@gmail.com"))
         store.add(ConnectorInstance(kind: .linear, label: "Linear", identity: "Acme"))
-        return LocalToolCatalog.all + ToolRegistry.available(store: store, includeWrites: true)
+        // `CommandAgentService`'s order, with no selection and an app in front. The pool
+        // is past `ToolPackRouter.limit`, so a case sees `packed(_:for:)`, as the app does.
+        return LocalToolCatalog.all + AgentMemoryCatalog.offered(hasFacts: false)
+            + DeviceToolCatalog.offered(selection: false, frontApp: true)
+            + ToolRegistry.available(store: store, includeWrites: true)
+    }
+
+    /// The tools one command sees: the app packs the pool per command.
+    static func packed(_ setup: Setup, for spoken: String) -> Setup {
+        let tools = ToolPackRouter.pack(setup.tools, spoken: spoken)
+        return Setup(tools: tools, schemas: ToolSchema.functionSchemas(for: tools), system: setup.system)
     }
 
     /// Everything a run needs, built once per bench rather than per case.

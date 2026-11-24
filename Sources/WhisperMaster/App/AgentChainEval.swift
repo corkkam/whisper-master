@@ -525,9 +525,9 @@ enum AgentChainEval {
 
     // MARK: - The tool-count sweep
 
-    /// The tools the build plan adds, in the order its phases add them. Offered beside
-    /// the shipped set to see whether the first-turn 16/16 survives a longer list;
-    /// nothing here is wired to anything.
+    /// Tools the bench pool does not hold: two need a selection, `delegate_task` needs
+    /// kunai, and three are not built. Offered beside the pool, unpacked, to see whether
+    /// first-turn choice survives a longer list; nothing here is wired to anything.
     static let plannedTools: [ToolDescriptor] = {
         func tool(_ name: String, _ summary: String, _ access: ToolAccess,
                   _ parameters: [ToolParameter] = []) -> ToolDescriptor {
@@ -545,18 +545,10 @@ enum AgentChainEval {
             tool("read_selection", "Read the text the user has selected in the front app.", .local),
             tool("replace_selection", "Replace the selected text with a rewrite.", .local,
                  [text("text", "The new text.")]),
-            tool("insert_text", "Type text at the cursor in the front app.", .local,
-                 [text("text", "The text to type.")]),
-            tool("open_app", "Open an installed app by name.", .local,
-                 [text("name", "The app's name.")]),
-            tool("open_url", "Open a web address in the browser.", .write,
-                 [text("url", "The address to open.")]),
             // search_mail, read_item and reply_message ship since Phase 3
             // (`ItemTools`), so they are in the base set and no longer planned here.
             tool("draft_mail", "Draft an email for the user to review.", .write,
                  [connector("Gmail"), text("to", "Who it is for."), text("body", "The email text.")]),
-            tool("remember", "Remember a fact about the user for later.", .local,
-                 [text("fact", "The fact, in one sentence.")]),
             tool("delegate_task", "Hand an open-ended coding or research task to the coding agent.",
                  .write, [text("task", "The task, in the user's words.")]),
             tool("find_tools", "Look for more tools when none of these fit.", .local,
@@ -565,7 +557,7 @@ enum AgentChainEval {
         ]
     }()
 
-    static let sweepSizes = [0, 5, 6, 10]
+    static let sweepSizes = [0, 3, 6]
     /// A planned tool that is a defensible choice for a case written before it
     /// existed. Reported apart from a miss: the sweep is about the length of the
     /// list, and this is about two tools meaning nearly the same thing.
@@ -589,6 +581,8 @@ enum AgentChainEval {
     }
 
     private static func runCase(_ testCase: Case, tools: [ToolDescriptor], native: Bool) async -> Row {
+        // The app packs the pool per command, so a chain sees what the chord would.
+        let tools = ToolPackRouter.pack(tools, spoken: testCase.spoken)
         let router = ScriptedRouter(fixtures(for: testCase))
         var loop = AgentLoop(tools: tools, router: router, generate: AgentLoop.liveGenerator())
         loop.prompt = AgentPrompt.command(toolList:)
@@ -710,7 +704,7 @@ enum AgentChainEval {
         }
     }
 
-    /// First-turn tool choice on the sixteen shared cases, with the planned tools
+    /// First-turn tool choice on the shared cases, with the planned tools
     /// added in phase order. Same generator and parser as the chord's first turn.
     private static func runSweep(baseTools: [ToolDescriptor]) async -> [[String: Any]] {
         let cases = LabSuiteLoader.toolCases
