@@ -426,6 +426,10 @@ struct AgentLoop {
                 Analytics.shared.send(.assistantToolRun(tool: call.tool, succeeded: result.ok))
                 labels.append(contentsOf: result.instanceLabels)
                 turns.append(AgentTurn(role: .tool, text: result.text))
+                if result.endsTurn {
+                    return AgentOutcome(answer: result.text, instanceLabels: labels,
+                                        turns: turns, exhausted: false)
+                }
                 messages.append(.init(role: .tool, text: Self.shown(result.text, tool: call.tool),
                                       tool: call.tool))
                 // Nudge toward finishing: without it a 3B will often keep exploring

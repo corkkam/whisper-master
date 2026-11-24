@@ -23,6 +23,10 @@ struct ToolResult: Equatable, Sendable {
     /// prose — "couldn't look" and "nothing scheduled" mean opposite things, and only
     /// one of them is safe to report as "Nothing to report".
     var unreadable: [String] = []
+    /// The loop stops after this result and takes its text as the answer. Set by a
+    /// call that started work which finishes elsewhere (`delegate_task`), so the 30 s
+    /// budget does not wait for it.
+    var endsTurn = false
 
     static func failure(_ text: String) -> ToolResult {
         ToolResult(ok: false, text: text, instanceLabels: [])
