@@ -513,6 +513,7 @@ struct ConnectorsSettingsView: View {
                 case .messages: return "Messages"
                 case .tasks: return "Tasks"
                 case .files: return "Files"
+                case .tools: return "Tools, each call approved on its card"
                 }
             }
         return words.isEmpty ? "Nothing yet" : words.joined(separator: " \u{00B7} ")

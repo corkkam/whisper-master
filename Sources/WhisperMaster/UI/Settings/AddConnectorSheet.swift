@@ -720,7 +720,8 @@ private struct CredentialConnectStep: View {
                 PrimaryButton(title: "Add connector", icon: "checkmark") { save() }
                     .disabled(label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } else {
-                PrimaryButton(title: isValidating ? "Checking\u{2026}" : "Check credentials") { validate() }
+                PrimaryButton(title: isValidating ? "Checking\u{2026}"
+                              : kind == .mcpServer ? "Test" : "Check credentials") { validate() }
                     .disabled(isValidating || !requiredFieldsFilled)
             }
         }
@@ -757,7 +758,8 @@ private struct CredentialConnectStep: View {
                 identity = result.identity
                 discoveredConfig = result.config ?? .empty
                 validated = true
-                if label.isEmpty { label = result.identity }
+                // An MCP server's identity is a tool count, not a name to say aloud.
+                if label.isEmpty, kind != .mcpServer { label = result.identity }
             } else {
                 failure = result.failure ?? "Those credentials were rejected."
             }

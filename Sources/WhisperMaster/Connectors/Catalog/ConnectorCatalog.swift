@@ -235,6 +235,27 @@ enum ConnectorCatalog {
             ],
             aliases: ["tasks", "projects", "todo", "due"],
             supportsManagedOAuth: false),
+
+        // HTTP only. A stdio server would be a child process of this app, and stays
+        // out until a device test proves a child cannot open the microphone.
+        ConnectorDescriptor(
+            kind: .mcpServer,
+            authKind: .staticSecret,
+            capabilities: [.tools],
+            fields: [
+                CredentialField(MCPServerProvider.urlKey, "Server address", isSecret: false,
+                                help: "https, or http on this Mac (localhost). No user name, password, query or fragment.",
+                                placeholder: "https://example.com/mcp"),
+                CredentialField(MCPServerProvider.tokenKey, "Bearer token", isRequired: false,
+                                help: "Optional. Sent to this server only, as Authorization: Bearer."),
+            ],
+            instructions: [
+                "Paste the address of a Streamable HTTP MCP server.",
+                "Test lists its tools. A tool with more than six inputs, or inputs that are not text, numbers or yes/no, is skipped.",
+                "The assistant asks you before every call, and shows what it sends.",
+            ],
+            aliases: ["mcp", "tools", "server", "model context protocol"],
+            supportsManagedOAuth: false),
     ]
 
     private static let byKind: [ConnectorKind: ConnectorDescriptor] =
