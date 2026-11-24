@@ -36,7 +36,7 @@ enum ApprovalCopy {
         switch tool {
         case "send_message": return "Post to"
         case "create_calendar_event": return "Add an event to"
-        case "open_app", "open_url": return "Open"
+        case "open_app", "open_url", "open_file": return "Open"
         case "create_note": return "Save a note on"
         case "create_reminder": return "Set a reminder on"
         default: return "Run \(tool) on"
@@ -174,6 +174,14 @@ enum ApprovalCopy {
         case "open_app":
             remaining.removeValue(forKey: "app")
             parts.append(openAppDetail)
+
+        case "open_file":
+            // The file's name is the target, so it is in the headline: the folder is
+            // what tells two files of one name apart.
+            remaining.removeValue(forKey: "file")
+            if let folder = remaining.removeValue(forKey: "folder"), !folder.isEmpty {
+                parts.append("In the \(quoted(folder)) folder.")
+            }
 
         case "open_url":
             // Unquoted and whole: the address is the consent.

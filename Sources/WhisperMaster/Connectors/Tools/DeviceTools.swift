@@ -115,7 +115,7 @@ enum DeviceToolCatalog {
             ToolParameter("text", isRequired: true, description: "The text to type."),
         ])
 
-    static let all = [openApp, openURL, replaceSelection, insertText]
+    static let all = [openApp, openURL, replaceSelection, insertText] + FileToolCatalog.all
     static let names: Set<String> = Set(all.map(\.name))
 
     static func descriptor(named name: String) -> ToolDescriptor? {
@@ -125,14 +125,17 @@ enum DeviceToolCatalog {
     /// The tools one run offers. The draft tools need the app that was in front at
     /// key-down, and `replace_selection` also needs a selection to replace.
     static func offered(selection: Bool, frontApp: Bool) -> [ToolDescriptor] {
-        guard frontApp else { return [openApp, openURL] }
-        return [openApp, openURL] + (selection ? [replaceSelection] : []) + [insertText]
+        let files = FileToolCatalog.all
+        guard frontApp else { return [openApp, openURL] + files }
+        return [openApp, openURL] + files + (selection ? [replaceSelection] : []) + [insertText]
     }
 
     /// Whether a standing grant may cover the tool. A link is shown on the card
-    /// every time: the address is the whole of the risk, and it changes per call.
+    /// every time: the address is the whole of the risk, and it changes per call. A
+    /// file is the same: a grant would have to bind to a name, and the next file of
+    /// that name is another file.
     static func grantable(_ tool: String) -> Bool {
-        tool != openURL.name
+        tool != openURL.name && tool != FileToolCatalog.openFile.name
     }
 
     // MARK: - What a trace keeps
@@ -403,18 +406,23 @@ struct DeviceToolRunner {
         var openApp: @MainActor (URL) -> Bool
         var openURL: @MainActor (URL) -> Bool
         var frontApp: @MainActor () -> SelectionReader.FrontApp?
+        var findFiles: @MainActor (FileQuery) async -> FileSearchOutcome = { _ in FileSearchOutcome() }
+        var openFile: @MainActor (URL) -> Bool = { _ in false }
 
         @MainActor static let live = Environment(
             installedApp: { InstalledApps.find($0) },
             openApp: { NSWorkspace.shared.open($0) },
             openURL: { NSWorkspace.shared.open($0) },
-            frontApp: { SelectionReader.FrontApp.current() })
+            frontApp: { SelectionReader.FrontApp.current() },
+            findFiles: { await SpotlightFileSearch.search($0) },
+            openFile: { NSWorkspace.shared.open($0) })
     }
 
     /// What a call did.
     enum Effect: Equatable, Sendable {
         case openedApp(name: String)
         case openedURL(host: String)
+        case openedFile(name: String)
         case draftStaged(AgentDraft)
     }
 
@@ -423,6 +431,8 @@ struct DeviceToolRunner {
     var environment: Environment = .live
     /// Shared with the run's other routers, as `LocalToolRunner` shares it.
     var taint = Taint()
+    /// The rows of this run's latest `find_files`, the only files `open_file` may open.
+    var fileRows = FileRowTable()
     /// The app in front at key-down, or nil: no draft tool then.
     var frontApp: SelectionReader.FrontApp?
     /// What the user had selected at key-down, or nil.
@@ -435,6 +445,8 @@ struct DeviceToolRunner {
         switch call.tool {
         case DeviceToolCatalog.openApp.name: return await openApp(call)
         case DeviceToolCatalog.openURL.name: return await openURL(call)
+        case FileToolCatalog.findFiles.name: return await findFiles(call)
+        case FileToolCatalog.openFile.name: return await openFile(call)
         case DeviceToolCatalog.replaceSelection.name: return stage(.replaceSelection, call)
         case DeviceToolCatalog.insertText.name: return stage(.insertText, call)
         default: return (.failure("No such tool: \(call.tool)."), nil)
@@ -493,16 +505,16 @@ struct DeviceToolRunner {
         }
     }
 
-    private enum Gate {
+    enum Gate {
         case go(ToolAuthorization, waited: Int)
         case stop(ToolResult)
     }
 
     /// The card, scoped to This Mac. Mirrors `ToolRouter.write`'s handling of each
     /// answer, so a device call and a connector write read the same in a trace.
-    private func authorize(_ descriptor: ToolDescriptor,
-                           target: String,
-                           arguments: [String: String]) async -> Gate {
+    func authorize(_ descriptor: ToolDescriptor,
+                   target: String,
+                   arguments: [String: String]) async -> Gate {
         let grantable = DeviceToolCatalog.grantable(descriptor.name)
         switch WriteAuthorizer.authorize(tool: descriptor,
                                          instanceID: DeviceToolCatalog.thisMacID,

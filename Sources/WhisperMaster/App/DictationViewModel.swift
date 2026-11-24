@@ -1389,6 +1389,14 @@ final class DictationViewModel {
             return true
         }
 
+        // "Volume up", "mute", "set the volume to 30": the same shape, one more whole-capture
+        // match (`VolumeCommandDetector`), and no model.
+        if let command = VolumeCommandDetector.detect(text) {
+            perform(command, question: text, trace: &trace)
+            finish(trace, since: startedAt)
+            return true
+        }
+
         // "Open Figma" and "go to github.com", ahead of the model for the same reason:
         // exact, about this Mac, and not worth a model load. Only a whole capture in a
         // closed form matches (`AgentIntentMatcher`); anything else goes on below.
@@ -1530,6 +1538,22 @@ final class DictationViewModel {
         var priorDecisions: [TraceDecision] = []
         /// What went to the user's endpoint, or nil when nothing left the Mac.
         var endpoint: EndpointSendTrace?
+    }
+
+    /// A spoken volume command, carried out with no model and no card. The words are the
+    /// consent, as they are for "pause the music".
+    private func perform(_ command: VolumeCommand, question: String, trace: inout AssistantTrace) {
+        let sent = VolumeController.perform(command)
+        let line = sent ? command.confirmation : "Couldn't change the volume"
+        presentQuickConfirmation(line, detail: "", question: question)
+        trace.decisions.append(TraceDecision(
+            title: line,
+            detail: "The words are a volume command, so it went straight to the system "
+                + "volume — no model, no card.",
+            taken: true))
+        trace.answer = line
+        trace.provenance = "Volume"
+        trace.createdSomething = sent
     }
 
     /// Carry out a fast-path intent. An app opens at once: the user's own words name

@@ -333,7 +333,7 @@ until `MicrosoftOAuthClientID` is set. Details and the Entra setup:
 **The chord can use a model behind an endpoint the user sets** (dev builds only,
 `FeatureFlags.agentEndpointAvailable`; `Connectors/Agent/CloudToolGenerator.swift`).
 **Text only leaves the Mac, never audio**: the transcript, what the assistant reads
-(mail, calendar, messages, the selection), the results of acting on this Mac (which app or link opened), the text it writes for the app in front, the facts you asked it to remember, and the tool list go to that address, after a
+(mail, calendar, messages, the selection), the results of acting on this Mac (which app or link opened, and the names and folders of files it found), the text it writes for the app in front, the facts you asked it to remember, and the tool list go to that address, after a
 per-address consent sheet. The on-device model stays the fallback, a password manager
 in front or secure input keeps a capture local, the tray can pause it, and every
 endpoint counts as off-device, loopback included. The key is in the Keychain. Rules and
