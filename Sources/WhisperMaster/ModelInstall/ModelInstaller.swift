@@ -7,7 +7,8 @@ import Foundation
 /// faster, free-egress transfers than FluidAudio's HuggingFace default.
 ///
 /// On any failure (offline, archive missing) `installIfNeeded` throws and the
-/// caller falls back to FluidAudio's own HuggingFace download.
+/// caller falls back to FluidAudio's own HuggingFace download. An archive in
+/// `ModelChecksums.huggingFaceOnly` throws before any mirror request.
 enum ModelInstaller {
     /// Public R2 base holding `<archiveName>.zip` for each model.
     ///
@@ -39,6 +40,15 @@ enum ModelInstaller {
         /// step that was skipped, and installing it anyway is how an unsigned
         /// bucket write becomes CoreML/MLX code on a user's Mac.
         case unpinnedArchive
+        /// The archive is in `ModelChecksums.huggingFaceOnly`, so the mirror does not
+        /// have it. Thrown before any request, so the caller goes to Hugging Face at
+        /// once instead of after two 404s.
+        case huggingFaceOnly
+    }
+
+    /// Whether `installIfNeeded` asks the mirror for this archive at all.
+    static func usesMirror(_ archiveName: String) -> Bool {
+        !ModelChecksums.huggingFaceOnly.contains(archiveName)
     }
 
     /// The pure verification decision for a downloaded archive, factored out so it
@@ -96,6 +106,7 @@ enum ModelInstaller {
         onProgress: @escaping @Sendable (Progress) -> Void = { _ in }
     ) async throws -> Bool {
         guard !isInstalled() else { return false }
+        guard usesMirror(archiveName) else { throw InstallError.huggingFaceOnly }
 
         let archiveURL = mirrorBaseURL.appendingPathComponent("\(archiveName).zip")
 

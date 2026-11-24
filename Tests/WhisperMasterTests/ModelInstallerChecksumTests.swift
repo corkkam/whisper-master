@@ -102,6 +102,58 @@ final class ModelInstallerChecksumTests: XCTestCase {
         }
     }
 
+    // MARK: Hugging Face only
+
+    /// Owner decision, 2026-11-24: these three are not uploaded to R2. `Scripts/release.sh`
+    /// skips the same list, so a name added here also leaves the release check.
+    func testTheHuggingFaceOnlyArchivesAreTheAssistantAndTheNaturalVoice() {
+        XCTAssertEqual(
+            ModelChecksums.huggingFaceOnly,
+            Set([CleanupModel.General.archiveName] + NaturalVoiceInstaller.archiveNames))
+        XCTAssertEqual(
+            ModelChecksums.huggingFaceOnly,
+            ["Qwen3-4B-Thinking-2507-4bit", "kokoro-82m-coreml", "kokoro"])
+        for name in ModelChecksums.huggingFaceOnly {
+            XCTAssertFalse(ModelInstaller.usesMirror(name), "\(name) still asks the mirror")
+        }
+    }
+
+    /// Every other pinned archive is on the mirror and must still be fetched from it first.
+    func testEveryOtherArchiveStillTriesTheMirrorFirst() {
+        let others = Set(ModelChecksums.sha256.keys).subtracting(ModelChecksums.huggingFaceOnly)
+        XCTAssertFalse(others.isEmpty)
+        for name in others {
+            XCTAssertTrue(ModelInstaller.usesMirror(name), "\(name) skips the mirror")
+        }
+        for name in [TranscriberEngine.slidingWindow.cacheDirectoryName,
+                     CleanupModel.archiveName,
+                     CleanupModel.General.previousArchiveName] {
+            XCTAssertTrue(ModelInstaller.usesMirror(name), "\(name) skips the mirror")
+        }
+    }
+
+    /// The installer reads the list: it throws before any request, so the caller goes to
+    /// Hugging Face at once. An archive already on disk still returns without throwing.
+    func testInstallThrowsForAHuggingFaceOnlyArchiveBeforeAnyRequest() async throws {
+        for name in ModelChecksums.huggingFaceOnly {
+            do {
+                try await ModelInstaller.installIfNeeded(
+                    archiveName: name, destinationRoot: root, label: "test",
+                    isInstalled: { false })
+                XCTFail("\(name) reached the mirror download")
+            } catch ModelInstaller.InstallError.huggingFaceOnly {
+            } catch {
+                XCTFail("\(name) threw \(error), not huggingFaceOnly")
+            }
+            let installed = try await ModelInstaller.installIfNeeded(
+                archiveName: name, destinationRoot: root, label: "test",
+                isInstalled: { true })
+            XCTAssertFalse(installed)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent(".downloads").path))
+    }
+
     /// End-to-end of the pure path: hash a real file, then run the verdict the
     /// installer runs — a match passes, a one-byte change is rejected.
     func testHashThenVerify() throws {

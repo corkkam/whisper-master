@@ -67,10 +67,20 @@ fi
 # 404s on the mirror and takes the slow Hugging Face path, and for the 2.3 GB
 # assistant that path was the one that failed outright. So a pin is a promise
 # the release has to keep. HEAD each one before building anything.
+#
+# The one exception is ModelChecksums.huggingFaceOnly: pinned archives kept off
+# the mirror on purpose, which ModelInstaller never asks the mirror for. The list
+# is read from that Swift file (one quoted name per line), so the installer and
+# this check cannot disagree. If the parse finds nothing, nothing is skipped and
+# those archives fail the check below, so a broken parse cannot pass a release.
 _mirror="https://${_app_host:-pub-98e94ebcf8904c07b38b85605ad49284.r2.dev}/models"
+_hf_only="$(sed -n '/static let huggingFaceOnly/,/^ *]/s|^ *"\([^"]*\)",*$|\1|p' \
+    Sources/WhisperMaster/ModelInstall/ModelChecksums.swift)"
+[[ -n "$_hf_only" ]] && echo ">> Not on the mirror by design (Hugging Face only): ${_hf_only//$'\n'/ }"
 _missing=()
 _unchecked=()
 while read -r _archive; do
+    grep -qxF "$_archive" <<<"$_hf_only" && continue
     _url="$_mirror/$_archive.zip"
     _code="$(curl -s -o /dev/null -I -w '%{http_code}' "$_url" || true)"
     # One retry: a dropped connection (000) or a 5xx says nothing about the file.
@@ -97,6 +107,7 @@ if (( ${#_missing[@]} )); then
         echo "error: pinned model archives are missing on the mirror ($_mirror):"
         printf '  %s\n' "${_missing[@]}"
         echo "Upload the exact zips the pins describe (see ModelChecksums.swift), then re-run."
+        echo "A model that installs from Hugging Face only goes in ModelChecksums.huggingFaceOnly."
         echo "Override for a deliberate one-off with ALLOW_MISSING_MODELS=1."
     } >&2
     [[ "${ALLOW_MISSING_MODELS:-0}" == "1" ]] || exit 1
