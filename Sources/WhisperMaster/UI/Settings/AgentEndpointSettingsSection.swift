@@ -223,7 +223,9 @@ struct AgentEndpointConsentSheet: View {
         "For two minutes after an answer: your last question and that answer.",
         "The name of the app in front and how much text you selected. The selected "
             + "text and the window title when the assistant reads them.",
-        "What the assistant reads for you: calendar events, mail, messages, notes and reminders.",
+        "What the assistant reads for you: calendar events, mail, messages, notes and reminders. "
+            + "The whole text of a mail or message it opens, and what it searches your mail for.",
+        "Who a reply or a mail it writes for you goes to, and whether it was sent.",
         "What happens when it acts on this Mac: which app or link it opened, or that no such app is installed.",
         "When it looks for files on this Mac: the names, kinds, dates and folder names of up to 15 matches, never the files themselves.",
         "Text the assistant writes for the app you are in, and whether you used it.",

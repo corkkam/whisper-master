@@ -58,6 +58,16 @@ struct ToolRouter {
     var writeProvider: (ConnectorInstance) -> (any WriteCapableProvider)? = {
         ProviderRegistry.provider(for: $0) as? any WriteCapableProvider
     }
+    /// The rows this run's listings numbered (`ItemTools`). A box, like `taint`, and
+    /// one per router, which `CommandAgentService` builds once per run.
+    var handles = ItemHandles()
+    /// The spoken command: `send_mail` may send to an address the user said.
+    var spoken = ""
+    /// The provider that serves a listing, a search or an open. Injected so a test can
+    /// stand in for the network.
+    var itemProvider: (ConnectorInstance) -> (any ItemReadingProvider)? = {
+        ProviderRegistry.itemProvider(for: $0)
+    }
 
     /// What a write stopped by a cancel (Escape, sign-out) reports. Nothing was sent.
     static let stoppedBeforeWrite = "Stopped before it ran, so nothing was sent."
@@ -67,6 +77,7 @@ struct ToolRouter {
             return .failure("No such tool: \(call.tool).")
         }
         if call.tool == "list_connectors" { return listConnectors() }
+        if let result = await runItemTool(call, descriptor: descriptor) { return result }
 
         guard let capability = descriptor.capability else {
             return .failure("\(call.tool) isn't wired up.")
@@ -155,9 +166,21 @@ struct ToolRouter {
             var lines: [String] = []
             var served: [String] = []
             var unreadable: [String] = []
+            let numbered = ItemTools.numberedListings.contains(call.tool)
+            var found = 0
             for instance in instances {
-                guard let provider = ProviderRegistry.itemProvider(for: instance) else { continue }
-                let outcome = await provider.recentItems(for: instance, limit: 15)
+                guard let provider = itemProvider(instance) else { continue }
+                let outcome: ProviderReadOutcome<[ConnectorItem]>
+                if call.tool == ItemTools.searchMail {
+                    guard found < ItemTools.searchLimit else { break }
+                    outcome = await (provider as? any ItemSearchingProvider)?
+                        .searchItems(call.arguments["query"] ?? "", for: instance,
+                                     limit: ItemTools.searchLimit - found)
+                        ?? ProviderReadOutcome([])
+                } else {
+                    outcome = await provider.recentItems(for: instance, limit: 15)
+                }
+                found += outcome.value.count
                 // A read cut by a cancel says nothing about the connection, so it
                 // marks no error on it.
                 if let error = outcome.error {
@@ -173,7 +196,10 @@ struct ToolRouter {
                     let parts = (item.isUnread ? ["unread"] : [])
                         + (item.detail.isEmpty ? [] : [Self.oneLine(item.detail)])
                     let detail = parts.isEmpty ? "" : " (\(parts.joined(separator: " · ")))"
-                    return "\(Self.oneLine(item.title))\(detail) [\(instance.displayLabel)]"
+                    // The number the row tools take; the real ids stay in `handles`.
+                    let row = numbered
+                        ? "\(handles.add(item, instanceID: instance.id, capability: capability)). " : ""
+                    return "\(row)\(Self.oneLine(item.title))\(detail) [\(instance.displayLabel)]"
                 }
             }
             let text = lines.isEmpty ? "Nothing to report." : lines.joined(separator: "\n")
@@ -215,7 +241,7 @@ struct ToolRouter {
         /// The card's own wall time, kept out of the call's. Measured on the injected
         /// clock like every other duration here, so a test can wind it forward.
         var waited = 0
-        let grantable = CalendarTools.grantable(call.tool)
+        let grantable = CalendarTools.grantable(call.tool) && ItemTools.grantable(call.tool)
 
         switch WriteAuthorizer.authorize(tool: descriptor,
                                          instanceID: instance.id,
@@ -262,6 +288,7 @@ struct ToolRouter {
                 // The card hides Always in a tainted run and for an edit, so only a
                 // caller that ignores `offersAlways` gets here. A grant would outlast the card for a target
                 // planted text may have chosen, so this runs once and stores nothing.
+                // Mail send hides Always too, and never stores a grant either.
                 authorization = .allowedOnce
             case .allowedAlways:
                 store.addGrant(Grant(tool: call.tool, instanceID: instance.id, target: target))

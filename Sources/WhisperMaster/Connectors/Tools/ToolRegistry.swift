@@ -22,14 +22,17 @@ enum ToolRegistry {
                 // blanket permission, so it is never published. Fail closed.
                 guard descriptor.targetArg != nil else { return nil }
             }
-            guard let capability = descriptor.capability else {
+            guard descriptor.capability != nil || descriptor.name == ItemTools.readItem else {
                 return descriptor       // `list_connectors` needs no connection
             }
-            let labels = store.readable(providing: capability)
+            let labels = ItemTools.servable(descriptor, store: store)
                 .filter { CalendarTools.canServe(descriptor.name, $0) }
                 .map(\.displayLabel)
             guard !labels.isEmpty else { return nil }
-            return withInstanceArgument(descriptor, labels: labels)
+            // A row tool's row picks the connection, so it is offered no `connector`.
+            return ItemTools.takesRow(descriptor)
+                ? descriptor
+                : withInstanceArgument(descriptor, labels: labels)
         }
     }
 

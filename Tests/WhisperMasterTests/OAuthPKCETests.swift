@@ -172,19 +172,31 @@ final class OAuthPKCETests: XCTestCase {
     }
 
     /// The Gmail sign-in asks for the mailbox read and the address to label it with,
-    /// and nothing else. A typo here doesn't fail until Google answers `invalid_scope`
-    /// *after* the browser has opened, and a wider scope would be a broader grant than
-    /// the card promises — the app never sends mail.
-    func testGmailScopesAreTheReadOnlyPair() {
+    /// and `gmail.send` only while the send gate is on (it is off in every release
+    /// until Google verification and a CASA assessment pass). A typo here doesn't fail
+    /// until Google answers `invalid_scope` *after* the browser has opened, and a wider
+    /// scope would be a broader grant than the card promises.
+    func testGmailScopesAreTheReadOnlyPairPlusSendBehindTheGate() {
         XCTAssertEqual(GoogleOAuthConfig.Scope.gmailReadonly,
                        "https://www.googleapis.com/auth/gmail.readonly")
+        XCTAssertEqual(GoogleOAuthConfig.Scope.gmailSend,
+                       "https://www.googleapis.com/auth/gmail.send")
+        let send = GoogleOAuthConfig.isGmailSendEnabled ? [GoogleOAuthConfig.Scope.gmailSend] : []
         XCTAssertEqual(GoogleOAuthConfig.Scope.gmailConnect,
                        [GoogleOAuthConfig.Scope.gmailReadonly,
-                        GoogleOAuthConfig.Scope.userinfoEmail])
+                        GoogleOAuthConfig.Scope.userinfoEmail] + send)
         XCTAssertFalse(GoogleOAuthConfig.Scope.gmailConnect.contains {
-            $0.contains("gmail.send") || $0.contains("gmail.modify")
-                || $0.contains("gmail.compose") || $0 == "https://mail.google.com/"
+            $0.contains("gmail.modify") || $0.contains("gmail.compose")
+                || $0 == "https://mail.google.com/"
         })
+    }
+
+    /// The gate ships off: no build asks for `gmail.send` until a release turns it on.
+    func testGmailSendShipsOff() throws {
+        try XCTSkipIf(ProcessInfo.processInfo.environment["GOOGLE_GMAIL_SEND"] != nil,
+                      "a dev shell set the override")
+        XCTAssertFalse(GoogleOAuthConfig.isGmailSendEnabled)
+        XCTAssertFalse(GoogleOAuthConfig.Scope.gmailConnect.contains(GoogleOAuthConfig.Scope.gmailSend))
     }
 }
 

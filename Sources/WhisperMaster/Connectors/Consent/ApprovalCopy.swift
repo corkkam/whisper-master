@@ -41,6 +41,9 @@ enum ApprovalCopy {
         case "open_app", "open_url", "open_file": return "Open"
         case "create_note": return "Save a note on"
         case "create_reminder": return "Set a reminder on"
+        case "reply_message": return "Reply in"
+        case "send_mail": return "Send mail to"
+        case "reply_mail": return "Reply by mail to"
         // The target is the server's own tool name: "Run get_forecast on Weather".
         case _ where MCPToolMapping.isMCPTool(tool): return "Run"
         default: return "Run \(tool) on"
@@ -56,13 +59,13 @@ enum ApprovalCopy {
     /// these, which is the most the card reserves.
     static let linkCharactersPerLine = 50
 
-    /// Tools whose payload is free text: a note, a reminder, and a task handed to
-    /// Claude Code. Their card shows the whole text in a scroll area
+    /// Tools whose payload is free text: a note, a reminder, a thread reply, a mail
+    /// and a task handed to Claude Code. Their card shows the whole text in a scroll area
     /// (`NotchApprovalBanner`), so nothing the user approves is cut and no length is
     /// refused.
     static func scrollsDetail(tool: String) -> Bool {
-        tool == "create_note" || tool == "create_reminder"
-            || tool == DelegateToolCatalog.delegateTask.name
+        ["create_note", "create_reminder", "reply_message", "send_mail", "reply_mail",
+         DelegateToolCatalog.delegateTask.name].contains(tool)
     }
 
     /// Lines a scrolling payload shows before it scrolls. Kept small so the band stays
@@ -208,6 +211,26 @@ enum ApprovalCopy {
             remaining.removeValue(forKey: "channel")
             if let text = remaining.removeValue(forKey: "text"), !text.isEmpty {
                 parts.append(quoted(text))
+            }
+
+        case "reply_message":
+            // The channel is in the headline. The ids say which thread, and "to" names
+            // whose message it answers, so the person is on the card too.
+            for key in ["channel", "channel_id", "thread_ts"] { remaining.removeValue(forKey: key) }
+            if let to = remaining.removeValue(forKey: "to"), !to.isEmpty { parts.append("to \(to)") }
+            if let text = remaining.removeValue(forKey: "text"), !text.isEmpty {
+                parts.append(quoted(text))
+            }
+
+        case "send_mail", "reply_mail":
+            // The recipients are the target, in the headline; the ids place a reply in
+            // its thread. The subject and the whole body are what is sent.
+            for key in ["to", "thread_id", "in_reply_to", "references"] { remaining.removeValue(forKey: key) }
+            if let subject = remaining.removeValue(forKey: "subject"), !subject.isEmpty {
+                parts.append("Subject: \(subject)")
+            }
+            if let body = remaining.removeValue(forKey: "body"), !body.isEmpty {
+                parts.append(quoted(body))
             }
 
         case "open_app":

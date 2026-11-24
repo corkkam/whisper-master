@@ -50,8 +50,10 @@ final class ToolPackRouterTests: XCTestCase {
     }
 
     /// Today's catalog never reaches the limit, so nothing is dropped from a real run.
+    /// The dormant mail-send tools are left out: no build publishes them yet.
     func testTheShippedCatalogFitsUnderTheLimit() {
-        let everything = LocalToolCatalog.all + [LocalToolCatalog.readSelection] + ToolCatalog.all
+        let everything = LocalToolCatalog.all + [LocalToolCatalog.readSelection]
+            + ToolCatalog.all.filter { ![ItemTools.sendMail, ItemTools.replyMail].contains($0.name) }
         XCTAssertLessThanOrEqual(everything.count, ToolPackRouter.limit)
     }
 }

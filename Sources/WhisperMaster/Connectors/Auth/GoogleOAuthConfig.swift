@@ -42,10 +42,26 @@ enum GoogleOAuthConfig {
     /// Flip `GoogleGmailOAuthEnabled` in `Info.plist` on the day verification lands —
     /// no other code changes.
     static var isGmailOAuthEnabled: Bool {
-        if let env = ProcessInfo.processInfo.environment["GOOGLE_GMAIL_OAUTH"] {
-            return isAffirmative(env)
+        flag(env: "GOOGLE_GMAIL_OAUTH", plist: "GoogleGmailOAuthEnabled")
+    }
+
+    /// Whether Gmail **send** is switched on: `send_mail` and `reply_mail`, and the
+    /// `gmail.send` scope in the Gmail sign-in. **Off by default, and it must stay off
+    /// in every release until Google brand verification and a CASA assessment pass for
+    /// `gmail.send`** (a restricted scope; owner decision 2026-11-17, plan section 12).
+    /// While it is off, `ToolRegistry` publishes neither tool and the sign-in asks for
+    /// no send scope. On, a connection whose grant lacks the scope still gets neither
+    /// tool (`ItemTools.canSend`). `GmailSendEnabled` in `Info.plist`, or
+    /// `GOOGLE_GMAIL_SEND` in a dev shell.
+    static var isGmailSendEnabled: Bool {
+        flag(env: "GOOGLE_GMAIL_SEND", plist: "GmailSendEnabled")
+    }
+
+    private static func flag(env: String, plist key: String) -> Bool {
+        if let value = ProcessInfo.processInfo.environment[env] {
+            return isAffirmative(value)
         }
-        if let plist = Bundle.main.object(forInfoDictionaryKey: "GoogleGmailOAuthEnabled") {
+        if let plist = Bundle.main.object(forInfoDictionaryKey: key) {
             if let flag = plist as? Bool { return flag }
             if let text = plist as? String { return isAffirmative(text) }
         }
@@ -97,14 +113,20 @@ enum GoogleOAuthConfig {
         static let calendarConnect = [calendarReadonly, calendarEvents, userinfoEmail]
 
         /// Read the mailbox. **Restricted** — see `isGmailOAuthEnabled`. Deliberately
-        /// `gmail.readonly` and nothing wider: every Gmail scope that can read a message
-        /// is restricted anyway, so a narrower one buys no easier review, and this app
-        /// never sends mail.
+        /// `gmail.readonly` and nothing wider for reading: every Gmail scope that can
+        /// read a message is restricted anyway, so a narrower one buys no easier review.
         static let gmailReadonly = "https://www.googleapis.com/auth/gmail.readonly"
 
-        /// What the Gmail sign-in asks for: read the mail, and learn the address so the
-        /// instance can be labelled and deduped.
-        static let gmailConnect = [gmailReadonly, userinfoEmail]
+        /// Send mail, and nothing else: no drafts, no labels, no deletes. Requested only
+        /// while `isGmailSendEnabled` is on. The app sends mail only after the user
+        /// approves the card that shows the recipients, the subject and the whole body.
+        static let gmailSend = "https://www.googleapis.com/auth/gmail.send"
+
+        /// What the Gmail sign-in asks for: read the mail, learn the address so the
+        /// instance can be labelled and deduped, and send only behind the gate.
+        static var gmailConnect: [String] {
+            [gmailReadonly, userinfoEmail] + (isGmailSendEnabled ? [gmailSend] : [])
+        }
     }
 
     private static func isAffirmative(_ value: String) -> Bool {
