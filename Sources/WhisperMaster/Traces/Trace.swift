@@ -252,6 +252,7 @@ struct ToolCallTrace: Identifiable, Codable, Hashable, Sendable {
     var isWrite: Bool {
         ToolCatalog.descriptor(named: tool)?.access == .write
             || (isDevice && DeviceToolCatalog.descriptor(named: tool)?.access != .read)
+            || MCPToolMapping.isMCPTool(tool)
     }
     var isLocal: Bool { LocalToolCatalog.names.contains(tool) }
     /// Served by this Mac, not by a connector.

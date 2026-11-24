@@ -228,6 +228,8 @@ struct AgentEndpointConsentSheet: View {
         "When it looks for files on this Mac: the names, kinds, dates and folder names of up to 15 matches, never the files themselves.",
         "Text the assistant writes for the app you are in, and whether you used it.",
         "Facts you asked the assistant to remember, with each command.",
+        "What an MCP server you added returns when one of its tools runs.",
+        "The arguments the assistant writes for an MCP tool. After you approve the call, they also go to that server.",
         "The assistant's instructions and the list of tools it can use.",
     ]
 

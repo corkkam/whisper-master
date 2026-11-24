@@ -175,6 +175,10 @@ struct ToolRouter {
             let text = lines.isEmpty ? "Nothing to report." : lines.joined(separator: "\n")
             return ToolResult(ok: true, text: text, instanceLabels: served,
                               unreadable: unreadable)
+
+        case .tools:
+            // No catalog tool reads this: an MCP server's tools run through `MCPToolRunner`.
+            return .failure("\(call.tool) doesn't run on an MCP server.")
         }
     }
 

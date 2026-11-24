@@ -44,6 +44,8 @@ final class CommandToolRouter: AgentToolRunning {
     private let connectors: (any AgentToolRunning)?
     /// The route for tools with no connector. Nil where a caller offers none.
     private let device: DeviceToolRunner?
+    /// The route for tools from the user's MCP servers. Nil when the run listed none.
+    private let mcp: MCPToolRunner?
     /// Injected so a call's duration is fixed under test rather than measured against
     /// the wall clock.
     private let now: () -> Date
@@ -84,10 +86,12 @@ final class CommandToolRouter: AgentToolRunning {
     init(local: LocalToolRunner,
          connectors: (any AgentToolRunning)?,
          device: DeviceToolRunner? = nil,
+         mcp: MCPToolRunner? = nil,
          now: @escaping () -> Date = Date.init) {
         self.local = local
         self.connectors = connectors
         self.device = device
+        self.mcp = mcp
         self.now = now
     }
 
@@ -107,6 +111,12 @@ final class CommandToolRouter: AgentToolRunning {
                 result = outcome
             } else {
                 result = .failure("That can't be done on this Mac right now.")
+            }
+        } else if let mcp, mcp.handles(call.tool) {
+            result = await mcp.run(call)
+            // Approved on its card and run by the server: it may have changed something there.
+            if result.ok {
+                effects.append(.connectorWrite(tool: call.tool, instanceLabels: result.instanceLabels))
             }
         } else if let connectors {
             result = await connectors.run(call)
