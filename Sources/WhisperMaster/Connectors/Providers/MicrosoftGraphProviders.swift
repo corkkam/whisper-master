@@ -217,7 +217,7 @@ struct OutlookGraphProvider: ItemReadingProvider, EventReadingProvider, AsyncEve
             ("endDateTime", iso.string(from: dayEnd)),
             ("$orderby", "start/dateTime"),
             ("$top", "50"),
-            ("$select", "id,subject,start,end,isAllDay,isCancelled,location,onlineMeeting,webLink"),
+            ("$select", "id,subject,start,end,isAllDay,isCancelled,location,onlineMeeting,webLink,type"),
         ]) else { return ProviderReadOutcome([]) }
         do {
             let json = try await ConnectorHTTP.getJSON(url, token: token, headers: MicrosoftGraph.utcPreference)
@@ -241,7 +241,7 @@ struct OutlookGraphProvider: ItemReadingProvider, EventReadingProvider, AsyncEve
             else { return nil }
             let location = (item["location"] as? [String: Any])?["displayName"] as? String
             let joinURL = (item["onlineMeeting"] as? [String: Any])?["joinUrl"] as? String
-            return DayEvent(
+            var event = DayEvent(
                 id: "outlook-\(item["id"] as? String ?? UUID().uuidString)",
                 title: (item["subject"] as? String ?? "Untitled").trimmingCharacters(in: .whitespacesAndNewlines),
                 start: start,
@@ -251,6 +251,10 @@ struct OutlookGraphProvider: ItemReadingProvider, EventReadingProvider, AsyncEve
                 sourceTitle: "Outlook",
                 instanceLabel: instanceLabel,
                 joinURL: ConferenceLink.find(url: joinURL, location: location))
+            // `calendarView` expands a series into occurrences and exceptions, each
+            // with its own id.
+            event.isRecurring = ["occurrence", "exception"].contains(item["type"] as? String ?? "")
+            return event
         }
         .sorted { $0.start < $1.start }
     }

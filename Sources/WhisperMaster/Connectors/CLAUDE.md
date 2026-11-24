@@ -78,8 +78,9 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
   with its own stated cut. The trace keeps the full result (its own clamp).
 - **At most 16 tools per prompt** (`ToolPackRouter`, from the Phase 0 sweep: 16/16 at
   11 tools, 15/16 at 16). Local tools always stay. Past 16, the connector tools that
-  share the fewest words with the command go. Today's catalog is 12, so nothing is
-  dropped yet.
+  share the fewest words with the command go. Today's catalog is 15, and 19 with the
+  four device tools, so a run that offers every tool drops the 3 connector tools
+  with the fewest shared words.
 - **A follow-up window** (`FollowUpWindow`, owned by the view model). For 120 s after
   an answer, the next chord capture is given the last question and the storable
   answer (400 characters at most) as an earlier user and assistant turn
@@ -461,10 +462,55 @@ Two `.local` tools, `remember` and `forget`, and a list of facts on this Mac. Ow
 - **A trace keeps the call**, so a fact the user spoke is in `ToolCallTrace.arguments` and
   `result` like a note's body. Analytics get the tool name only.
 
+## Calendar depth: free time, move, delete (`Tools/CalendarTools.swift`)
+
+`find_free_slots` (read), `update_calendar_event` and `delete_calendar_event` (write,
+target `event`), added from the VoiceOS calendar set.
+
+- **Free time** reads the day like `list_calendar_events` and, with no connector,
+  merges every calendar: a slot must be free on all of them. `FreeSlotFinder` is
+  pure. It returns at most 8 gaps of at least `duration_minutes` (30) inside
+  `between` (09:00 to 18:00), earliest first. All-day events are not busy, and the
+  result says so. An event across the window edge or midnight blocks only the part
+  inside. Today starts at the next quarter hour after now. A calendar that could not
+  be read is named ("its events are not counted"). An unreadable `between` fails.
+- **The model names an event by title and `day`, never by an id.**
+  `ToolRouter.editEvent` reads that day on each calendar whose provider can edit
+  (`CalendarEditingProvider.eventsToEdit`) and resolves the title
+  (`CalendarEventMatcher`: an exact title wins, else every spoken word except filler
+  must be in the title). Zero or several matches fail closed: nothing changes, and
+  the result lists the day's events. Then the ordinary `write`: `WriteAuthorizer`,
+  the card, the provider. The router stamps the event's id, calendar and times into
+  the write's arguments (`CalendarEdit.Key`). The parser refuses those keys from the
+  model, and the card shows none of them.
+- An update needs `when`, `title` or both, checked before any read. `when` is read by
+  `RelativeTimeParser` against now, as for create, and a move keeps the event's
+  length. An all-day event is not moved to a time.
+- **No Always for an edit** (`CalendarTools.grantable`, the `open_url` flag
+  `PendingApproval.grantable`): a grant would bind to a title that any invitation can
+  carry. A stored grant does not answer for an edit either. The card names the title
+  and the calendar label, then the old time with the new time or title, and "This
+  occurrence only, not the series" for a repeating event. Its detail wraps like a link.
+- **One occurrence only.** EventKit saves and removes with span `.thisEvent`, and finds
+  the occurrence by identifier and start. Google and Graph PATCH or DELETE the
+  occurrence's own id (`singleEvents=true`, `calendarView`). There is no series edit.
+- **Taint:** event titles are other people's text. Once the edit branch has read an
+  event, the run is tainted, after this call's own card. The free-time read taints
+  like every connector read.
+- **Providers:** EventKit; Google Calendar (the sign-in scope `calendar.events`
+  allows PATCH and DELETE, and a pasted token with a narrower scope fails with
+  Google's refusal); Outlook over Graph, dormant until the client id is set. Zoom never
+  gets the edit tools (`CalendarTools.canServe`).
+- **Known limits:** two events with the same title on one day cannot be told apart,
+  so the model can only ask, and a question with no tool run files the words as a
+  note. Not built: attendees, invitations, a series edit, Zoom. Not checked live: no
+  test reaches EventKit, Google or Graph. `CalendarToolsTests` uses a stub provider.
+
 ## Verifying
 
 `swift test --filter "DeviceToolRunnerTests|AgentIntentMatcherTests|ApprovalCopyTests"`
-for the device tools, `swift test --filter AgentMemoryTests` for memory.
+for the device tools, `swift test --filter AgentMemoryTests` for memory,
+`swift test --filter CalendarToolsTests` for the calendar tools.
 `swift test --filter "MicrosoftConnectorTests|SlackProviderTests|Connector"`. No
 test reaches the live Graph or Slack APIs. The first real sign-in after the client
 id is set is the end-to-end check.
