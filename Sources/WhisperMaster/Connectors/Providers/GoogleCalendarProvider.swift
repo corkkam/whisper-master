@@ -99,7 +99,12 @@ struct GoogleCalendarProvider: EventReadingProvider, AsyncEventReadingProvider {
             guard let url = components.url else { continue }
             do {
                 let json = try await ConnectorHTTP.getJSON(url, token: token)
-                events += Self.parseEvents(json, instanceLabel: instance.displayLabel)
+                // An edit addresses the event inside the calendar it came from.
+                events += Self.parseEvents(json, instanceLabel: instance.displayLabel).map {
+                    var event = $0
+                    event.calendarID = calendarID
+                    return event
+                }
             } catch let error as ConnectorHTTP.Failure {
                 failedCount += 1
                 failure = failure ?? error.connectorError
@@ -166,7 +171,7 @@ struct GoogleCalendarProvider: EventReadingProvider, AsyncEventReadingProvider {
             // `date` (not `dateTime`) is how the API marks an all-day event.
             let isAllDay = start["date"] != nil
             guard let startDate = Self.parseSlot(start), let endDate = Self.parseSlot(end) else { return nil }
-            return DayEvent(
+            var event = DayEvent(
                 id: (item["id"] as? String) ?? UUID().uuidString,
                 title: ((item["summary"] as? String) ?? "Untitled")
                     .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -176,6 +181,10 @@ struct GoogleCalendarProvider: EventReadingProvider, AsyncEventReadingProvider {
                 calendarTitle: (item["organizer"] as? [String: Any])?["displayName"] as? String ?? "",
                 sourceTitle: "Google",
                 instanceLabel: instanceLabel)
+            // `singleEvents=true` lists each occurrence under its own id, and that id
+            // changes only that occurrence.
+            event.isRecurring = item["recurringEventId"] != nil
+            return event
         }
     }
 

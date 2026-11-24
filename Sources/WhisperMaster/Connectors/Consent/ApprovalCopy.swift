@@ -36,6 +36,8 @@ enum ApprovalCopy {
         switch tool {
         case "send_message": return "Post to"
         case "create_calendar_event": return "Add an event to"
+        case "update_calendar_event": return "Change"
+        case "delete_calendar_event": return "Delete"
         case "open_app", "open_url": return "Open"
         case "create_note": return "Save a note on"
         case "create_reminder": return "Set a reminder on"
@@ -98,13 +100,14 @@ enum ApprovalCopy {
     ]
 
     /// Lines the payload may take: one, except a link, which wraps onto three rather
-    /// than being cut because the end of a link is where a planted address hides, and
+    /// than being cut because the end of a link is where a planted address hides (a
+    /// calendar edit wraps the same way, so "This occurrence only" is never cut), and
     /// a note or a reminder, which shows up to `maxVisibleScrollLines` and scrolls.
     static func detailLines(tool: String, detail: String) -> Int {
         if scrollsDetail(tool: tool) {
             return min(maxVisibleScrollLines, max(1, estimatedLines(detail)))
         }
-        guard tool == "open_url" else { return 1 }
+        guard tool == "open_url" || CalendarTools.editNames.contains(tool) else { return 1 }
         let lines = (detail.count + linkCharactersPerLine - 1) / linkCharactersPerLine
         return min(3, max(1, lines))
     }
@@ -125,6 +128,10 @@ enum ApprovalCopy {
         if tool == "open_url" {
             let host = URL(string: target)?.host() ?? target
             return DeviceToolCatalog.linkHeadline(host: host) ?? "Open \(host) in your browser"
+        }
+        // The event's title is the target; its connection is the calendar label.
+        if CalendarTools.editNames.contains(tool) {
+            return "\(verb(for: tool)) \(quoted(target)) on \(instanceLabel)"
         }
         let scope = target.compare(instanceLabel, options: .caseInsensitive) == .orderedSame
             ? instanceLabel
@@ -162,6 +169,30 @@ enum ApprovalCopy {
                 // Times not stamped yet (or unparseable) — the user's own words are
                 // the honest thing to show, never a guessed date.
                 parts.append(phrase)
+            }
+
+        case "update_calendar_event", "delete_calendar_event":
+            // The title is in the headline; the ids are the router's, not the user's.
+            for key in [CalendarTools.eventArgument, CalendarEdit.Key.id, CalendarEdit.Key.calendar] {
+                remaining[key] = nil
+            }
+            let allDay = remaining.removeValue(forKey: CalendarEdit.Key.allDay) != nil
+            if let from = ConnectorHTTP.parseISO8601(remaining.removeValue(forKey: CalendarEdit.Key.start)) {
+                let fromEnd = ConnectorHTTP.parseISO8601(remaining.removeValue(forKey: CalendarEdit.Key.end))
+                var line = allDay
+                    ? "\(dayWord(for: from, calendar: calendar, now: now)) all day"
+                    : when(start: from, end: fromEnd, calendar: calendar, now: now)
+                if let to = ConnectorHTTP.parseISO8601(remaining.removeValue(forKey: "start")) {
+                    let toEnd = ConnectorHTTP.parseISO8601(remaining.removeValue(forKey: "end"))
+                    line += " \u{2192} " + when(start: to, end: toEnd, calendar: calendar, now: now)
+                }
+                parts.append(line)
+            }
+            if let title = remaining.removeValue(forKey: "title"), !title.isEmpty {
+                parts.append("Rename to \(quoted(title))")
+            }
+            if remaining.removeValue(forKey: CalendarEdit.Key.recurring) != nil {
+                parts.append("This occurrence only, not the series")
             }
 
         case "send_message":

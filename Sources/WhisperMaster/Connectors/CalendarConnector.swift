@@ -28,6 +28,12 @@ struct DayEvent: Equatable, Sendable, Identifiable {
     /// nobody asked for. `nil` is the common case, and it means no Join affordance
     /// is drawn at all — a button that opens nothing is worse than no button.
     let joinURL: URL?
+    /// One occurrence of a repeating event. An edit then changes this occurrence
+    /// only, and the approval card says so.
+    var isRecurring = false
+    /// The provider's calendar that holds the event, where an edit needs it to
+    /// address the event (Google). Nil for EventKit and Outlook.
+    var calendarID: String?
 
     init(id: String,
          title: String,
@@ -225,7 +231,7 @@ final class CalendarConnector {
         return store.events(matching: predicate)
             .sorted { $0.startDate < $1.startDate }
             .map {
-                DayEvent(
+                var event = DayEvent(
                     id: $0.eventIdentifier ?? UUID().uuidString,
                     title: ($0.title ?? "Untitled").trimmingCharacters(in: .whitespacesAndNewlines),
                     start: $0.startDate,
@@ -238,6 +244,10 @@ final class CalendarConnector {
                         url: $0.url?.absoluteString,
                         location: $0.location,
                         notes: $0.notes))
+                // A moved occurrence is detached and can lose its rules, but is still
+                // one of a series.
+                event.isRecurring = $0.hasRecurrenceRules || $0.isDetached
+                return event
             }
     }
 
@@ -274,6 +284,40 @@ final class CalendarConnector {
         return calendar.title
     }
 
+    /// Change the title or the time of one event occurrence, or delete it.
+    ///
+    /// `eventIdentifier` is shared by every occurrence of a repeating event, so the
+    /// occurrence is found by its identifier and its start, and the span is always
+    /// `.thisEvent`: the rest of the series is never touched. Returns the calendar's
+    /// title for the receipt.
+    func edit(eventID: String, start: Date, change: CalendarEdit.Change) throws -> String {
+        guard isAuthorized else { throw CalendarWriteError.notAuthorized }
+        let cal = Calendar.current
+        let dayStart = cal.startOfDay(for: start)
+        guard let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) else {
+            throw CalendarWriteError.eventMissing
+        }
+        let predicate = store.predicateForEvents(withStart: dayStart, end: dayEnd, calendars: nil)
+        guard let event = store.events(matching: predicate).first(where: {
+            $0.eventIdentifier == eventID && abs($0.startDate.timeIntervalSince(start)) < 1
+        }) else { throw CalendarWriteError.eventMissing }
+        guard event.calendar?.allowsContentModifications == true else {
+            throw CalendarWriteError.readOnlyEvent
+        }
+        switch change {
+        case .update(let title, let newStart, let newEnd):
+            if let title { event.title = title }
+            if let newStart, let newEnd {
+                event.startDate = newStart
+                event.endDate = newEnd
+            }
+            try store.save(event, span: .thisEvent, commit: true)
+        case .delete:
+            try store.remove(event, span: .thisEvent, commit: true)
+        }
+        return event.calendar?.title ?? ""
+    }
+
     /// The calendar a write lands on: the first bound one that allows modification,
     /// else the store's default, else any writable calendar.
     private func writableCalendar(among identifiers: [String]) -> EKCalendar? {
@@ -299,6 +343,8 @@ final class CalendarConnector {
 enum CalendarWriteError: Error {
     case notAuthorized
     case noWritableCalendar
+    case eventMissing
+    case readOnlyEvent
 
     var message: String {
         switch self {
@@ -306,6 +352,10 @@ enum CalendarWriteError: Error {
             return "Calendar access isn't granted yet."
         case .noWritableCalendar:
             return "That connection's calendars are read-only, so nothing can be added to them."
+        case .eventMissing:
+            return "That event is no longer on the calendar."
+        case .readOnlyEvent:
+            return "That event is on a read-only calendar, so it can't be changed."
         }
     }
 }

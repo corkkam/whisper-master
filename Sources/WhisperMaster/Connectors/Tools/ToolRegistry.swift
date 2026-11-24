@@ -25,7 +25,9 @@ enum ToolRegistry {
             guard let capability = descriptor.capability else {
                 return descriptor       // `list_connectors` needs no connection
             }
-            let labels = store.readable(providing: capability).map(\.displayLabel)
+            let labels = store.readable(providing: capability)
+                .filter { CalendarTools.canServe(descriptor.name, $0) }
+                .map(\.displayLabel)
             guard !labels.isEmpty else { return nil }
             return withInstanceArgument(descriptor, labels: labels)
         }
