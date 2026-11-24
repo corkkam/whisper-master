@@ -73,14 +73,19 @@ struct GmailSignInStep: View {
                 Text("Sign in to Google")
                     .font(Typography.sans(13.5, .semibold))
                     .foregroundStyle(Theme.textPrimary)
-                Text("Reads your recent and unread mail so you can ask about it out loud. The sign-in happens in your browser and the token is kept in your Mac's Keychain \u{2014} it never goes anywhere else, and nothing here can send mail.")
+                Text("Reads your recent and unread mail so you can ask about it out loud. The sign-in happens in your browser and the token is kept in your Mac's Keychain \u{2014} it never goes anywhere else, and "
+                     + (GoogleOAuthConfig.isGmailSendEnabled
+                        ? "it sends a mail only after you approve that mail on its card."
+                        : "nothing here can send mail."))
                     .font(Typography.subheadline)
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            // Read-only is the whole grant, and it's worth saying on the screen before
-            // the browser opens rather than leaving it to Google's own scope wording.
-            Text("We ask for read access only.")
+            // The grant, said on the screen before the browser opens rather than left to
+            // Google's own scope wording. Send is asked for only behind its gate.
+            Text(GoogleOAuthConfig.isGmailSendEnabled
+                 ? "We ask to read your mail and to send the mail you approve."
+                 : "We ask for read access only.")
                 .font(Typography.caption)
                 .foregroundStyle(Theme.textTertiary)
             if phase == .authorizing {

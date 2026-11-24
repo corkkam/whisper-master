@@ -69,6 +69,12 @@ struct CommandAgentService {
     var frontApp: SelectionReader.FrontApp?
     /// What the device tools touch. Injected so a test opens and reads nothing real.
     var device: DeviceToolRunner.Environment = .live
+    /// What the user asked the assistant to remember. Set, the run offers `remember` (and
+    /// `forget` when there is a fact) and puts the facts in the prompt.
+    var memory: AgentMemoryStore?
+    /// The coding-agent tools this capture offers, and what they reach. The default
+    /// offers none.
+    var coding = DelegateToolRunner.Environment()
 
     /// A run of the agent, result **and** the record of how it got there.
     ///
@@ -106,6 +112,8 @@ struct CommandAgentService {
         var tier: AgentTier = .onDevice
         /// Text the model wrote for the front app, for the band. Never stored.
         var draft: AgentDraft?
+        /// The task the Desk accepted, as the trace keeps it.
+        var handOff: HandOffTrace?
     }
 
     /// - Parameter onStep: called as the loop moves, so the band can name the
@@ -130,13 +138,23 @@ struct CommandAgentService {
         let connectorTools = connectorsAllowed
             ? ToolRegistry.available(store: store, includeWrites: true)
             : []
+        // The user's MCP servers, listed for this run (dev builds only).
+        let servers = connectorsAllowed && FeatureFlags.mcpServersAvailable
+            ? store.readable(providing: .tools)
+            : []
+        let mcp = servers.isEmpty ? nil : MCPToolRunner(
+            requestApproval: { [approvals] approval in await approvals.request(approval) })
+        await mcp?.load(servers, store: store)
         // Local first in the list: it's the fallback the prompt names, and a small
         // model biases toward what it read first.
         let tools = ToolPackRouter.pack(
             LocalToolCatalog.all
                 + (selection == nil ? [] : [LocalToolCatalog.readSelection])
+                + (memory.map { AgentMemoryCatalog.offered(hasFacts: $0.hasFacts) } ?? [])
                 + DeviceToolCatalog.offered(selection: selection != nil, frontApp: frontApp != nil)
-                + connectorTools,
+                + connectorTools
+                + (mcp?.tools ?? [])
+                + coding.tools,
             spoken: spoken)
 
         // One flag for the whole run: a connector read and a selection read both gate
@@ -146,11 +164,20 @@ struct CommandAgentService {
         let taint = Taint()
         taint.isSet = followUp?.tainted ?? false
         taint.outsideSelection = taint.isSet
+        // An MCP tool's name, summary and allowed values are the server's text, in the
+        // prompt from the first turn.
+        if tools.contains(where: { MCPToolMapping.isMCPTool($0.name) }) {
+            taint.isSet = true
+            taint.outsideSelection = true
+        }
+        mcp?.taint = taint
+        mcp?.now = now
         let connectorRouter = connectorTools.isEmpty
             ? nil
             : ToolRouter(store: store,
                          requestApproval: { [approvals] approval in await approvals.request(approval) },
-                         taint: taint)
+                         taint: taint,
+                         spoken: spoken)
         let router = CommandToolRouter(
             local: LocalToolRunner(
                 notes: notes, alertStyle: alertStyle, soundName: soundName, now: now,
@@ -159,7 +186,8 @@ struct CommandAgentService {
                 voice: .init(transcript: spoken, takeAudio: takeNoteAudio),
                 selection: selection,
                 taint: taint,
-                requestApproval: { [approvals] approval in await approvals.request(approval) }),
+                requestApproval: { [approvals] approval in await approvals.request(approval) },
+                memory: memory),
             connectors: connectorRouter,
             device: DeviceToolRunner(
                 store: store,
@@ -168,6 +196,12 @@ struct CommandAgentService {
                 taint: taint,
                 frontApp: frontApp,
                 selection: selection,
+                now: now),
+            mcp: mcp,
+            delegate: DelegateToolRunner(
+                environment: coding,
+                requestApproval: { [approvals] approval in await approvals.request(approval) },
+                taint: taint,
                 now: now),
             now: now)
 
@@ -178,12 +212,14 @@ struct CommandAgentService {
             ? AgentLoop.budget(thinks: CleanupModel.General.thinks)
             : AgentLoop.defaultBudget
         // The prompt names the selection; the text itself comes only through the tool.
+        // The user's own words, so the block does not taint the run.
+        let memoryBlock = memory?.promptBlock.map { "\n\n" + $0 } ?? ""
         loop.prompt = { [selection] toolList in
-            let prompt = AgentPrompt.command(toolList: toolList)
+            let prompt = AgentPrompt.command(toolList: toolList) + memoryBlock
             return selection.map { prompt + "\n\n" + $0.promptLine } ?? prompt
         }
         loop.nativePrompt = { [selection] in
-            let prompt = AgentPrompt.commandNative()
+            let prompt = AgentPrompt.commandNative() + memoryBlock
             return selection.map { prompt + "\n\n" + $0.promptLine } ?? prompt
         }
         loop.earlier = followUp.map { ($0.question, $0.answer) }
@@ -215,7 +251,8 @@ struct CommandAgentService {
                        storableAnswer: storable,
                        tainted: taint.isSet,
                        tier: tier,
-                       draft: router.draft)
+                       draft: router.draft,
+                       handOff: router.handOff)
         }
 
         // Escape stopped the loop. Something a tool already created stands, and is
@@ -334,11 +371,14 @@ struct CommandAgentService {
             switch effect {
             case .local(.noteCreated), .local(.reminderCreated):
                 return "Saved to Notes & Reminders"
+            case .local(.memoryChanged): return "Assistant memory on this Mac"
             case .connectorWrite(let tool, let written) where !written.isEmpty:
                 return writeDestination(tool: tool, written: written)
             case .device(.openedApp): return "On \(DeviceToolCatalog.thisMacLabel)"
             case .device(.openedURL): return "In your browser"
+            case .device(.openedFile): return "On \(DeviceToolCatalog.thisMacLabel)"
             case .device(.draftStaged(let draft)): return "Draft for \(draft.app.name)"
+            case .handOff(let handOff): return "Sent to \(handOff.destination)"
             case .local(.read), .connectorWrite:
                 continue
             }
@@ -355,11 +395,14 @@ struct CommandAgentService {
             switch effect {
             case .local(.reminderCreated): return "bell.badge.fill"
             case .local(.noteCreated): return "note.text"
+            case .local(.memoryChanged): return "brain.head.profile"
             case .local(.read): continue
             case .connectorWrite(let tool, _): return Self.writeIcon(tool: tool)
             case .device(.openedApp): return "macwindow"
             case .device(.openedURL): return "safari"
+            case .device(.openedFile): return "doc"
             case .device(.draftStaged): return "text.cursor"
+            case .handOff: return "terminal"
             }
         }
         return "sparkles"

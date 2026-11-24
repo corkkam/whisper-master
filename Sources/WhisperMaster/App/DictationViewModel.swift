@@ -141,6 +141,15 @@ final class DictationViewModel {
         self.hotkeyUpdater = hotkeyUpdater
         self.transcriber = transcriber
         self.textInjector = textInjector
+        // The Desk's answer to a hand-off is read out like any assistant answer.
+        state.agents.onDeskReply = { [weak self] raw in self?.speakDeskReply(raw) }
+    }
+
+    /// Read out the opening sentence of the Desk's reply, the band's own headline.
+    private func speakDeskReply(_ raw: String) {
+        guard let headline = AgentReplyDocument.parse(raw).split().headline
+            ?? AgentReplyLine.compact(raw) else { return }
+        speakAnswer(headline: headline, detail: nil)
     }
 
     convenience init() {
@@ -1389,6 +1398,14 @@ final class DictationViewModel {
             return true
         }
 
+        // "Volume up", "mute", "set the volume to 30": the same shape, one more whole-capture
+        // match (`VolumeCommandDetector`), and no model.
+        if let command = VolumeCommandDetector.detect(text) {
+            perform(command, question: text, trace: &trace)
+            finish(trace, since: startedAt)
+            return true
+        }
+
         // "Open Figma" and "go to github.com", ahead of the model for the same reason:
         // exact, about this Mac, and not worth a model load. Only a whole capture in a
         // closed form matches (`AgentIntentMatcher`); anything else goes on below.
@@ -1421,6 +1438,7 @@ final class DictationViewModel {
         trace.calls = attempt.calls
         trace.turns = attempt.turns
         trace.endpoint = attempt.endpoint
+        trace.handOff = attempt.handOff
         if attempt.handled {
             trace.answer = attempt.answer
             trace.provenance = attempt.provenance
@@ -1530,6 +1548,24 @@ final class DictationViewModel {
         var priorDecisions: [TraceDecision] = []
         /// What went to the user's endpoint, or nil when nothing left the Mac.
         var endpoint: EndpointSendTrace?
+        /// The task handed to the Desk, or nil.
+        var handOff: HandOffTrace?
+    }
+
+    /// A spoken volume command, carried out with no model and no card. The words are the
+    /// consent, as they are for "pause the music".
+    private func perform(_ command: VolumeCommand, question: String, trace: inout AssistantTrace) {
+        let sent = VolumeController.perform(command)
+        let line = sent ? command.confirmation : "Couldn't change the volume"
+        presentQuickConfirmation(line, detail: "", question: question)
+        trace.decisions.append(TraceDecision(
+            title: line,
+            detail: "The words are a volume command, so it went straight to the system "
+                + "volume — no model, no card.",
+            taken: true))
+        trace.answer = line
+        trace.provenance = "Volume"
+        trace.createdSomething = sent
     }
 
     /// Carry out a fast-path intent. An app opens at once: the user's own words name
@@ -1833,7 +1869,13 @@ final class DictationViewModel {
             takeNoteAudio: { [weak self] id in self?.takeNoteAudio(for: id) },
             selection: selection,
             followUp: followUp,
-            frontApp: keyDownApp)
+            frontApp: keyDownApp,
+            memory: state.agentMemory,
+            // The hand-off sends text off the Mac, so it is behind the remote tiers'
+            // dev flag and its own consent, and never offered to a capture kept local.
+            coding: .live(agents: state.agents, folderSetting: state.agentDefaultDirectory,
+                          consented: FeatureFlags.agentEndpointAvailable && state.deskHandOffAllowed,
+                          staysLocal: keptLocal))
         // The orb shows the thinking figure while the loop runs — the paste is
         // suppressed, so without it the notch sits silent through a multi-second
         // tool call and reads as having dropped the command. `isPolishing` is what
@@ -1884,7 +1926,8 @@ final class DictationViewModel {
                 provenance: run.result?.detail ?? "",
                 createdSomething: run.result?.createdSomething ?? false,
                 budgetSpent: run.budgetSpent,
-                cancelled: cancelled)
+                cancelled: cancelled,
+                handOff: run.handOff)
         }
 
         guard let result = run.result else {
@@ -2319,6 +2362,7 @@ final class DictationViewModel {
         state.agentEndpoint.consentedTo = nil
         AgentEndpoint.setAPIKey(nil)
         state.connectedTool.consentedTo = nil
+        state.deskHandOffAllowed = false
     }
 
     func pasteLastTranscript() {

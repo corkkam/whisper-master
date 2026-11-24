@@ -142,8 +142,11 @@ final class NotchQuickActionsTabsTests: XCTestCase {
         XCTAssertFalse(NotchConnectorLinks.isOpenable(URL(string: "slack://open")!))
     }
 
+    /// An MCP server is the one exception: it has no web app of its own, so its tab
+    /// offers no Open button.
     func testEveryKindHasAnOpenableHome() {
-        for kind in ConnectorKind.allCases {
+        XCTAssertNil(NotchConnectorLinks.home(for: ConnectorInstance(kind: .mcpServer, label: "Tools", identity: "x")))
+        for kind in ConnectorKind.allCases where kind != .mcpServer {
             let instance = ConnectorInstance(kind: kind, label: kind.displayName, identity: "x", config: .empty)
             guard let home = NotchConnectorLinks.home(for: instance) else {
                 return XCTFail("\(kind) has no home")

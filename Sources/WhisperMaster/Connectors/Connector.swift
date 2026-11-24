@@ -46,6 +46,8 @@ enum ConnectorKind: String, CaseIterable, Identifiable, Codable, Sendable {
     case github
     case zoom
     case asana
+    /// An MCP server the user added by address (dev builds only, `Connectors/MCP/`).
+    case mcpServer
 
     var id: String { rawValue }
 
@@ -63,6 +65,7 @@ enum ConnectorKind: String, CaseIterable, Identifiable, Codable, Sendable {
         case .github: return "GitHub"
         case .zoom: return "Zoom"
         case .asana: return "Asana"
+        case .mcpServer: return "MCP server"
         }
     }
 
@@ -81,6 +84,7 @@ enum ConnectorKind: String, CaseIterable, Identifiable, Codable, Sendable {
         case .github: return "Open issues and PRs assigned to you."
         case .zoom: return "Today’s meetings from a server-to-server Zoom app."
         case .asana: return "Open tasks assigned to you."
+        case .mcpServer: return "Tools from a server you add by address. Each call asks you first."
         }
     }
 
@@ -99,6 +103,7 @@ enum ConnectorKind: String, CaseIterable, Identifiable, Codable, Sendable {
         case .github: return "chevron.left.forwardslash.chevron.right"
         case .zoom: return "video"
         case .asana: return "checklist"
+        case .mcpServer: return "server.rack"
         }
     }
 
@@ -108,7 +113,7 @@ enum ConnectorKind: String, CaseIterable, Identifiable, Codable, Sendable {
         case .gmail: return .mail
         case .outlook: return .mail          // Outlook straddles mail + calendar
         case .slack, .teams: return .messaging
-        case .notion, .linear, .googleDrive, .github, .zoom, .asana: return .productivity
+        case .notion, .linear, .googleDrive, .github, .zoom, .asana, .mcpServer: return .productivity
         }
     }
 

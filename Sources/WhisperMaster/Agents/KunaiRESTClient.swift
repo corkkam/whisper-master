@@ -110,7 +110,10 @@ actor KunaiRESTClient {
         return machines
     }
 
-    func createSession(cwd: String, mode: KunaiWire.PermissionMode) async -> String? {
+    /// - Parameter title: kunai keeps it for the life of the session. The Desk is found
+    ///   again by it (`AgentDesk.title`).
+    func createSession(cwd: String, mode: KunaiWire.PermissionMode,
+                       title: String? = nil) async -> String? {
         guard let endpoint = active ?? candidates.first,
               let url = endpoint.api("api/sessions")
         else { return nil }
@@ -119,8 +122,9 @@ actor KunaiRESTClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.timeoutInterval = 50  // kunai allows itself 45s for the handshake
-        request.httpBody = try? JSONSerialization.data(
-            withJSONObject: ["cwd": cwd, "mode": mode.rawValue])
+        var body = ["cwd": cwd, "mode": mode.rawValue]
+        body["title"] = title
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
             let (data, response) = try await session.data(for: request)

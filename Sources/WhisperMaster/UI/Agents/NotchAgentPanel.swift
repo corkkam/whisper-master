@@ -14,8 +14,11 @@ struct NotchAgentPanel: View {
     let ask: AgentAsk
     let sessions: [AgentSession]
     let askingRepo: String
-    let mode: KunaiWire.PermissionMode
+    /// The asking session's mode control, or nil to hide it (the Desk stays in Ask).
+    let mode: KunaiWire.PermissionMode?
     let now: Date
+    /// False for a Desk card (`AgentSurfaceController.askIsFromDesk`).
+    var offersAlways = true
 
     let onResolve: (_ allow: Bool, _ always: Bool) -> Void
     let onAnswer: (_ question: AgentChoice.Question, _ selected: [String]) -> Void
@@ -58,7 +61,8 @@ struct NotchAgentPanel: View {
     private var question: some View {
         switch ask {
         case .approval(let approval):
-            NotchAgentAskBanner(approval: approval, repo: askingRepo, onResolve: onResolve)
+            NotchAgentAskBanner(approval: approval, repo: askingRepo, offersAlways: offersAlways,
+                                onResolve: onResolve)
                 .frame(maxHeight: .infinity)
 
         case .choice(let choice):

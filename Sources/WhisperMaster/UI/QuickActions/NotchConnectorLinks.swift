@@ -39,6 +39,8 @@ enum NotchConnectorLinks {
         case .zoom: string = "https://zoom.us/"
         case .asana: string = "https://app.asana.com/"
         case .teams: string = "https://teams.microsoft.com/"
+        // A server has no web app of its own, so its tab offers no Open button.
+        case .mcpServer: return nil
         }
         return URL(string: string)
     }

@@ -29,13 +29,15 @@ final class ConnectorProviderRegistryTests: XCTestCase {
     /// The offer is narrowed, deliberately — see `ProviderRegistry.shippedKinds`.
     /// The rest keep their providers; they are just not offered yet. Teams is shipped
     /// but sign-in only, so it is offered only by a build carrying a Microsoft client.
+    /// An MCP server is offered on the dev channel only.
     func testOnlyTheShippedKindsCanBeConnected() {
+        let mcp: Set<ConnectorKind> = FeatureFlags.mcpServersAvailable ? [.mcpServer] : []
         XCTAssertEqual(
             Set(ConnectorKind.allCases.filter { ProviderRegistry.isConnectable($0, microsoftConfigured: true) }),
-            [.appleCalendar, .googleCalendar, .gmail, .slack, .outlook, .teams])
+            Set<ConnectorKind>([.appleCalendar, .googleCalendar, .gmail, .slack, .outlook, .teams]).union(mcp))
         XCTAssertEqual(
             Set(ConnectorKind.allCases.filter { ProviderRegistry.isConnectable($0, microsoftConfigured: false) }),
-            [.appleCalendar, .googleCalendar, .gmail, .slack, .outlook])
+            Set<ConnectorKind>([.appleCalendar, .googleCalendar, .gmail, .slack, .outlook]).union(mcp))
         for kind in ConnectorKind.allCases where !ProviderRegistry.shippedKinds.contains(kind) {
             XCTAssertFalse(
                 ProviderRegistry.isConnectable(kind),

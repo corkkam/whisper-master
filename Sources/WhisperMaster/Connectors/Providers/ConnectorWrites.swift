@@ -65,6 +65,7 @@ extension SlackProvider: WriteCapableProvider {
     func performWrite(tool: String,
                       arguments: [String: String],
                       instance: ConnectorInstance) async -> WriteResult {
+        if tool == ItemTools.replyMessage { return await reply(arguments: arguments, instance: instance) }
         guard tool == "send_message" else { return .failed("Slack can't do \(tool).") }
         guard let channel = arguments["channel"], let text = arguments["text"] else {
             return .failed("Missing channel or text.")

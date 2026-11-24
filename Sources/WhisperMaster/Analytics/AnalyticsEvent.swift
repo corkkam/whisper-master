@@ -384,7 +384,7 @@ enum AnalyticsEvent {
         case let .assistantRouted(route):
             return ["route": route.rawValue]
         case let .assistantToolRun(tool, succeeded):
-            return ["tool": tool, "succeeded": succeeded ? "true" : "false"]
+            return ["tool": MCPToolMapping.analyticsName(tool), "succeeded": succeeded ? "true" : "false"]
         case let .assistantFailed(reason):
             return ["reason": reason.rawValue]
         case let .noteCreated(source, hasAudio):
@@ -398,7 +398,7 @@ enum AnalyticsEvent {
         case let .connectorLinked(provider, linked):
             return ["provider": provider, "linked": linked ? "true" : "false"]
         case let .approvalDecided(tool, decision):
-            return ["tool": tool, "decision": decision.rawValue]
+            return ["tool": MCPToolMapping.analyticsName(tool), "decision": decision.rawValue]
         case let .answerSpoken(voice):
             return ["voice": voice.rawValue]
         case let .settingToggled(setting, enabled):

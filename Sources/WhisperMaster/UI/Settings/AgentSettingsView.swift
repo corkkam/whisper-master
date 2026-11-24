@@ -48,6 +48,10 @@ struct AgentSettingsView: View {
             ) {
                 agentDirectoryField
             }
+            if FeatureFlags.agentEndpointAvailable {
+                RowDivider()
+                DeskHandOffRow(state: state)
+            }
         }
         SectionLabel("Shed")
         shedCard

@@ -107,7 +107,8 @@ struct SlackProvider: ItemReadingProvider {
                         title: text,
                         detail: "\(channelName) · \(author)",
                         timestamp: Self.slackTimestamp(ts),
-                        instanceLabel: instance.displayLabel))
+                        instanceLabel: instance.displayLabel,
+                        threadID: message["thread_ts"] as? String))
                 }
             }
             // Fallback: if history was empty everywhere (no *:history scope), still
@@ -601,14 +602,19 @@ struct GmailProvider: ItemReadingProvider {
         }
     }
 
-    private static func listMessages(token: String, query: String, limit: Int,
-                                     instanceLabel: String) async throws -> [ConnectorItem] {
+    /// `users.messages.list` for a Gmail search query (`search_mail` passes the model's).
+    static func listURL(query: String, limit: Int) -> URL? {
         var components = URLComponents(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages")!
         components.queryItems = [
             .init(name: "q", value: query),
             .init(name: "maxResults", value: "\(limit)"),
         ]
-        guard let listURL = components.url else { return [] }
+        return components.url
+    }
+
+    static func listMessages(token: String, query: String, limit: Int,
+                             instanceLabel: String) async throws -> [ConnectorItem] {
+        guard let listURL = listURL(query: query, limit: limit) else { return [] }
         let listJSON = try await ConnectorHTTP.getJSON(listURL, token: token)
         let stubs = listJSON["messages"] as? [[String: Any]] ?? []
         var items: [ConnectorItem] = []
@@ -924,11 +930,20 @@ extension ItemReadingProvider {
         _ instance: ConnectorInstance,
         _ body: (String) async throws -> [ConnectorItem]
     ) async -> ProviderReadOutcome<[ConnectorItem]> {
+        await withResolvedToken(instance, empty: [], body)
+    }
+
+    /// The same for any value: `empty` is what a failure returns beside its error.
+    func withResolvedToken<Value: Sendable>(
+        _ instance: ConnectorInstance,
+        empty: Value,
+        _ body: (String) async throws -> Value
+    ) async -> ProviderReadOutcome<Value> {
         let resolved: CredentialStrategy.Resolved
         do {
             resolved = try await CredentialStrategy.resolve(for: instance)
         } catch {
-            return ProviderReadOutcome([], error: CredentialStrategy.connectorError(for: error))
+            return ProviderReadOutcome(empty, error: CredentialStrategy.connectorError(for: error))
         }
         if let updated = resolved.updatedCredential {
             _ = ConnectorCredentials.save(updated, for: instance.id)
@@ -936,9 +951,9 @@ extension ItemReadingProvider {
         do {
             return ProviderReadOutcome(try await body(resolved.token))
         } catch let failure as ConnectorHTTP.Failure {
-            return ProviderReadOutcome([], error: failure.connectorError)
+            return ProviderReadOutcome(empty, error: failure.connectorError)
         } catch {
-            return ProviderReadOutcome([], error: .credentialInvalid)
+            return ProviderReadOutcome(empty, error: .credentialInvalid)
         }
     }
 }

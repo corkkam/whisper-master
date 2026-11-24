@@ -354,13 +354,14 @@ final class LabBenchRunner {
                 modelOutput: "", finalOutput: "", guardAccepted: false, passed: false,
                 reasons: ["tool set unavailable"], latencyMs: 0, expectedTool: expectedTool)
         }
+        let offered = LabToolBench.packed(setup, for: spoken)
         let started = Date()
         let (raw, cost) = await service.generateWithToolsMeasured(
-            messages: LabToolBench.messages(for: spoken, setup: setup),
-            toolSchemasJSON: setup.schemas, thinking: thinking)
+            messages: LabToolBench.messages(for: spoken, setup: offered),
+            toolSchemasJSON: offered.schemas, thinking: thinking)
         let latencyMs = Int(Date().timeIntervalSince(started) * 1000)
         let output = raw ?? ""
-        let called = LabToolBench.calledTool(in: output, setup: setup)
+        let called = LabToolBench.calledTool(in: output, setup: offered)
         let passed = called == expectedTool
         var reasons: [String] = []
         if thinking, raw == nil, cost.generatedTokens > 0 {

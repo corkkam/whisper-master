@@ -355,17 +355,38 @@ final class ConnectorInstanceStore {
 
     private var fileURL: URL { Self.fileURL(forUserID: userID) }
 
+    /// Kinds kept in their own file beside the shared one. Every build on this Mac reads
+    /// the shared file, and a build older than a kind cannot decode a file that holds it:
+    /// it shows no connections and overwrites the file on its next change.
+    nonisolated static let ownFileKinds: Set<ConnectorKind> = [.mcpServer]
+
+    /// `…/Connectors/<userId>.own.json`, beside `fileURL(forUserID:)`.
+    nonisolated static func ownFileURL(forUserID userID: String?) -> URL {
+        fileURL(forUserID: userID).deletingPathExtension().appendingPathExtension("own.json")
+    }
+
+    /// The instances that belong in the shared file, and the ones that do not.
+    nonisolated static func splitForDisk(_ instances: [ConnectorInstance])
+        -> (shared: [ConnectorInstance], own: [ConnectorInstance]) {
+        (instances.filter { !ownFileKinds.contains($0.kind) },
+         instances.filter { ownFileKinds.contains($0.kind) })
+    }
+
     private func loadFromDisk() {
         diskLoadCount += 1
         instances = []
         defaultsByKind = [:]
         grants = []
         notchPins = []
-        guard persistenceEnabled,
-              let data = try? Data(contentsOf: fileURL),
+        guard persistenceEnabled else { return }
+        if let data = try? Data(contentsOf: Self.ownFileURL(forUserID: userID)),
+           let own = try? JSONDecoder().decode(Payload.self, from: data) {
+            instances = Self.splitForDisk(own.instances).own
+        }
+        guard let data = try? Data(contentsOf: fileURL),
               let payload = try? JSONDecoder().decode(Payload.self, from: data)
         else { return }
-        instances = payload.instances
+        instances = Self.splitForDisk(payload.instances).shared + instances
         grants = payload.grants ?? []
         notchPins = (payload.notchPins ?? []).compactMap(UUID.init(uuidString:))
         defaultsByKind = Dictionary(uniqueKeysWithValues: payload.defaults.compactMap { key, value in
@@ -376,14 +397,22 @@ final class ConnectorInstanceStore {
 
     private func persist() {
         guard persistenceEnabled else { return }
+        let (shared, own) = Self.splitForDisk(instances)
         let payload = Payload(
-            instances: instances,
+            instances: shared,
             defaults: Dictionary(uniqueKeysWithValues: defaultsByKind.map { ($0.key.rawValue, $0.value.uuidString) }),
             grants: grants,
             notchPins: notchPins.map(\.uuidString))
         guard let data = try? JSONEncoder().encode(payload) else { return }
         try? FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
         try? data.write(to: fileURL, options: .atomic)
+        let ownURL = Self.ownFileURL(forUserID: userID)
+        if own.isEmpty {
+            try? FileManager.default.removeItem(at: ownURL)
+        } else if let ownData = try? JSONEncoder().encode(
+            Payload(instances: own, defaults: [:], grants: nil, notchPins: nil)) {
+            try? ownData.write(to: ownURL, options: .atomic)
+        }
     }
 
     // MARK: - Legacy migration

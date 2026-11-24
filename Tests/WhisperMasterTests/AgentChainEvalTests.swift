@@ -288,8 +288,10 @@ final class AgentChainEvalTests: XCTestCase {
         XCTAssertEqual(Set(planned).count, planned.count)
         XCTAssertTrue(shipped.isDisjoint(with: planned))
         XCTAssertEqual(Bench.sweepSizes.max(), planned.count)
+        // An alternative may be a planned tool or one that has shipped since
+        // (`search_mail`, Phase 3).
         for alternatives in Bench.sweepAlternatives.values {
-            XCTAssertTrue(alternatives.isSubset(of: planned))
+            XCTAssertTrue(alternatives.isSubset(of: shipped.union(planned)))
         }
     }
 }

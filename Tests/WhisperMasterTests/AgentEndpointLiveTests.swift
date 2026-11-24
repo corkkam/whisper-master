@@ -4,7 +4,7 @@ import XCTest
 
 /// A bench arm for the endpoint tier, in the style of `KunaiLiveTests`: it talks to a
 /// real server and **skips rather than fails** when none is set, so CI and a fresh
-/// clone stay green. It runs the 16 first-turn tool cases (`LabSuiteLoader.toolCases`)
+/// clone stay green. It runs the first-turn tool cases (`LabSuiteLoader.toolCases`)
 /// through `CloudToolGenerator` and prints the score.
 ///
 /// Two arms, one per kind of server:
@@ -48,7 +48,7 @@ final class AgentEndpointLiveTests: XCTestCase {
         XCTAssertEqual(sent.snapshot.failures, 0, "the server failed requests; the score is not a model score")
     }
 
-    /// The connected tool arm: the same 16 cases through the user's own CLI, on their
+    /// The connected tool arm: the same cases through the user's own CLI, on their
     /// plan. It runs the Settings Test first, so a tool that loads anything of its own
     /// fails before a case is sent.
     ///

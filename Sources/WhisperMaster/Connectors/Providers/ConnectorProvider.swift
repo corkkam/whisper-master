@@ -124,6 +124,7 @@ enum ProviderRegistry {
     private static let zoom = ZoomProvider()
     private static let outlookGraph = OutlookGraphProvider()
     private static let teams = TeamsProvider()
+    private static let mcpServer = MCPServerProvider()
 
     /// Providers keyed by kind.
     ///
@@ -143,6 +144,7 @@ enum ProviderRegistry {
         case .googleDrive: return googleDrive
         case .zoom: return zoom
         case .teams: return teams
+        case .mcpServer: return mcpServer
         }
     }
 
@@ -201,7 +203,7 @@ enum ProviderRegistry {
     }
 
     /// The kinds this build offers to connect: **Apple Calendar, Google Calendar,
-    /// Gmail, Slack, Outlook, Teams**, and nothing else for now.
+    /// Gmail, Slack, Outlook, Teams**, and an MCP server on dev builds only.
     ///
     /// Every other catalogued kind keeps its descriptor, its provider and its tests —
     /// it is the *offer* that is narrowed, not the code deleted. Four connectors that
@@ -212,9 +214,9 @@ enum ProviderRegistry {
     /// This gate governs **new** connections only. `provider(for instance:)`
     /// deliberately does not consult it, so a connection a beta user already made
     /// keeps reading instead of going quietly dead.
-    static let shippedKinds: Set<ConnectorKind> = [
+    static let shippedKinds: Set<ConnectorKind> = Set<ConnectorKind>([
         .appleCalendar, .googleCalendar, .gmail, .slack, .outlook, .teams,
-    ]
+    ]).union(FeatureFlags.mcpServersAvailable ? [.mcpServer] : [])
 
     /// Whether the catalog may offer this kind today — it has a working provider,
     /// it is in the shipped set, **and** this build has a way to connect it. That
