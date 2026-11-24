@@ -69,6 +69,9 @@ struct CommandAgentService {
     var frontApp: SelectionReader.FrontApp?
     /// What the device tools touch. Injected so a test opens and reads nothing real.
     var device: DeviceToolRunner.Environment = .live
+    /// The coding-agent tools this capture offers, and what they reach. The default
+    /// offers none.
+    var coding = DelegateToolRunner.Environment()
 
     /// A run of the agent, result **and** the record of how it got there.
     ///
@@ -106,6 +109,8 @@ struct CommandAgentService {
         var tier: AgentTier = .onDevice
         /// Text the model wrote for the front app, for the band. Never stored.
         var draft: AgentDraft?
+        /// The task the Desk accepted, as the trace keeps it.
+        var handOff: HandOffTrace?
     }
 
     /// - Parameter onStep: called as the loop moves, so the band can name the
@@ -136,7 +141,8 @@ struct CommandAgentService {
             LocalToolCatalog.all
                 + (selection == nil ? [] : [LocalToolCatalog.readSelection])
                 + DeviceToolCatalog.offered(selection: selection != nil, frontApp: frontApp != nil)
-                + connectorTools,
+                + connectorTools
+                + coding.tools,
             spoken: spoken)
 
         // One flag for the whole run: a connector read and a selection read both gate
@@ -168,6 +174,11 @@ struct CommandAgentService {
                 taint: taint,
                 frontApp: frontApp,
                 selection: selection,
+                now: now),
+            delegate: DelegateToolRunner(
+                environment: coding,
+                requestApproval: { [approvals] approval in await approvals.request(approval) },
+                taint: taint,
                 now: now),
             now: now)
 
@@ -215,7 +226,8 @@ struct CommandAgentService {
                        storableAnswer: storable,
                        tainted: taint.isSet,
                        tier: tier,
-                       draft: router.draft)
+                       draft: router.draft,
+                       handOff: router.handOff)
         }
 
         // Escape stopped the loop. Something a tool already created stands, and is
@@ -339,6 +351,7 @@ struct CommandAgentService {
             case .device(.openedApp): return "On \(DeviceToolCatalog.thisMacLabel)"
             case .device(.openedURL): return "In your browser"
             case .device(.draftStaged(let draft)): return "Draft for \(draft.app.name)"
+            case .handOff(let handOff): return "Sent to \(handOff.destination)"
             case .local(.read), .connectorWrite:
                 continue
             }
@@ -360,6 +373,7 @@ struct CommandAgentService {
             case .device(.openedApp): return "macwindow"
             case .device(.openedURL): return "safari"
             case .device(.draftStaged): return "text.cursor"
+            case .handOff: return "terminal"
             }
         }
         return "sparkles"

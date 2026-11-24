@@ -52,11 +52,13 @@ enum ApprovalCopy {
     /// these, which is the most the card reserves.
     static let linkCharactersPerLine = 50
 
-    /// Tools whose payload is text to be saved: a note and a reminder. Their card
-    /// shows the whole text in a scroll area (`NotchApprovalBanner`), so nothing the
-    /// user approves is cut and no length is refused.
+    /// Tools whose payload is free text: a note, a reminder, and a task handed to
+    /// Claude Code. Their card shows the whole text in a scroll area
+    /// (`NotchApprovalBanner`), so nothing the user approves is cut and no length is
+    /// refused.
     static func scrollsDetail(tool: String) -> Bool {
         tool == "create_note" || tool == "create_reminder"
+            || tool == DelegateToolCatalog.delegateTask.name
     }
 
     /// Lines a scrolling payload shows before it scrolls. Kept small so the band stays
@@ -126,6 +128,8 @@ enum ApprovalCopy {
             let host = URL(string: target)?.host() ?? target
             return DeviceToolCatalog.linkHeadline(host: host) ?? "Open \(host) in your browser"
         }
+        // The task is the target and the payload line; the headline is where it goes.
+        if tool == DelegateToolCatalog.delegateTask.name { return "Send to \(instanceLabel)" }
         let scope = target.compare(instanceLabel, options: .caseInsensitive) == .orderedSame
             ? instanceLabel
             : "\(target) on \(instanceLabel)"
@@ -192,6 +196,12 @@ enum ApprovalCopy {
             }
             if let body = remaining.removeValue(forKey: "body"), !body.isEmpty {
                 parts.append(quoted(body))
+            }
+
+        case DelegateToolCatalog.delegateTask.name:
+            // Whole, in the scroll area: the task is what leaves this Mac.
+            if let task = remaining.removeValue(forKey: "task"), !task.isEmpty {
+                parts.append(quoted(task))
             }
 
         default:
