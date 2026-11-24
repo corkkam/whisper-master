@@ -552,6 +552,7 @@ final class AgentSurfaceController {
         let stream = KunaiEventStream(endpoint: endpoint, sessionID: sessionID)
         self.stream = stream
         attachedSessionID = sessionID
+        attachedModeWire = nil
         liveSince = 0
         log.reset()
         changeSet = AgentChangeSet()
@@ -581,6 +582,7 @@ final class AgentSurfaceController {
             // The session respawned: everything we hold describes a dead process,
             // including the history/live boundary — the replacement numbers from 1.
             liveSince = 0
+            attachedModeWire = nil
             log.reset()
             ask = nil
             changeSet = AgentChangeSet()
@@ -616,6 +618,7 @@ final class AgentSurfaceController {
         switch event.kind {
         case .hello:
             liveSince = event.highSeq ?? 0
+            attachedModeWire = event.mode ?? ""
             if let mode = event.mode { updateMode(KunaiWire.PermissionMode(wire: mode)) }
             // `pending` carries the asks still outstanding at attach — genuinely
             // waiting, however old their sequence numbers are.
@@ -623,6 +626,7 @@ final class AgentSurfaceController {
 
         case .mode:
             guard isLive else { return }
+            attachedModeWire = event.mode ?? ""
             updateMode(KunaiWire.PermissionMode(wire: event.mode))
 
         case .permission:
@@ -678,6 +682,12 @@ final class AgentSurfaceController {
             }
             if lastReply == nil { lastReply = "Finished" }
             lastReplyAt = Date()
+            // Live only (the guard above), so a reply kunai replays at attach is never
+            // spoken, and only for the Desk turn a hand-off started.
+            if deskTurnPending, attachedSessionID.map(isDesk(id:)) == true {
+                deskTurnPending = false
+                if let raw = lastReplyRaw { onDeskReply?(raw) }
+            }
             // The Settings default: the full reply, without the extra click. Not
             // pinned, so the longer hold still retracts it.
             if expandRepliesByDefault { replyExpanded = true }
@@ -717,6 +727,17 @@ final class AgentSurfaceController {
         guard ask == nil else { return }
         ask = built
         askOwner = from
+        if let from, isDesk(id: from) { armDeskAskDeny(built.requestID) }
+    }
+
+    /// A Desk ask denies itself after `deskAskTimeout`, the connector card's clock:
+    /// silence is not consent, and the user may not be watching the notch.
+    private func armDeskAskDeny(_ requestID: String) {
+        Task { [weak self, deskAskTimeout] in
+            try? await Task.sleep(for: deskAskTimeout)
+            guard let self, let ask = self.ask, ask.requestID == requestID else { return }
+            self.resolve(ask, allow: false)
+        }
     }
 
     /// The caption the working row shows: what the agent is doing, learned from its
@@ -772,6 +793,8 @@ final class AgentSurfaceController {
 
     /// Answer an approval card.
     func resolve(_ ask: AgentAsk, allow: Bool, always: Bool = false) {
+        // The Desk card shows no Always; refused here too, for a caller that ignores it.
+        let always = always && !askIsFromDesk
         sendToAskOwner(.permission(requestID: ask.requestID, allow: allow, always: always))
         self.ask = nil
         askOwner = nil
@@ -828,6 +851,8 @@ final class AgentSurfaceController {
     func deliver(prompt text: String, startingIn newSessionDirectory: String?) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, isAvailable else { return false }
+        // A prompt the user speaks to the Desk is not a hand-off; its reply is not read out.
+        deskTurnPending = false
 
         if let target = promptTarget {
             if attachedSessionID != target.id {
@@ -862,13 +887,14 @@ final class AgentSurfaceController {
     /// Which session a spoken prompt belongs to: the one being read, else the one
     /// asking, else the most recently active. "Most recently active" beats "first in
     /// the list" because the list is ranked for *reading* — waiting first — and the
-    /// session you last worked in is the one you mean when you start talking.
+    /// session you last worked in is the one you mean when you start talking. The
+    /// fallback never picks the Desk: the agent key means a coding session.
     var promptTarget: AgentSession? {
         if let openSessionID, let open = sessions.first(where: { $0.id == openSessionID }) {
             return open
         }
         if let asking = askingSession { return asking }
-        return sessions.max { a, b in
+        return sessions.filter { !AgentDesk.isDesk($0, rememberedID: deskSessionID) }.max { a, b in
             (a.turnStartedAt ?? 0, a.id) < (b.turnStartedAt ?? 0, b.id)
         }
     }
@@ -889,6 +915,114 @@ final class AgentSurfaceController {
         }
     }
 
+    // MARK: The Desk
+
+    /// The Desk this app created, kept so a second hand-off finds it before the next
+    /// poll lists it. After a relaunch its title finds it (`AgentDesk`).
+    private(set) var deskSessionID: String?
+    /// The attached session's permission mode as kunai sent it, nil until its `hello`.
+    /// Raw, because `PermissionMode(wire:)` reads an unknown mode as Ask, and the Desk
+    /// gate must not.
+    private var attachedModeWire: String?
+    /// Set when a hand-off sent a task to the Desk, cleared by that turn's live result.
+    /// Internal so the replay gating of the spoken reply is testable.
+    var deskTurnPending = false
+    /// Called with the raw reply of the Desk turn a hand-off started: never for a reply
+    /// kunai replays at attach, never for a coding session.
+    var onDeskReply: ((String) -> Void)?
+    /// How long a Desk ask waits before it denies itself.
+    var deskAskTimeout: Duration = .seconds(60)
+
+    func isDesk(id: String) -> Bool {
+        id == deskSessionID
+            || sessions.contains { $0.id == id && AgentDesk.isDesk($0, rememberedID: deskSessionID) }
+    }
+
+    /// Whether the kunai card on screen came from the Desk. That card shows Once and
+    /// No, and no mode control.
+    var askIsFromDesk: Bool {
+        guard ask != nil, let askOwner else { return false }
+        return isDesk(id: askOwner)
+    }
+
+    /// Every session the client already holds, kunai's and Shed's, the Desk named as
+    /// itself. Read by `list_coding_tasks`; opens no socket.
+    var heldSessions: [AgentSession] {
+        sessions.map { session in
+            var session = session
+            if AgentDesk.isDesk(session, rememberedID: deskSessionID) { session.agentName = "Desk" }
+            return session
+        } + shed.sessions
+    }
+
+    /// Find or create the Desk: one session on this Mac, in Ask mode, in `folder`. Nil
+    /// with no folder (never the home folder), with no kunai, or when kunai refused.
+    func ensureDesk(in folder: String?) async -> AgentSession? {
+        guard isAvailable, let folder = AgentDesk.folder(folder) else { return nil }
+        if let desk = AgentDesk.find(in: sessions, folder: folder, rememberedID: deskSessionID) {
+            return desk
+        }
+        // `rest` creates on this Mac's kunai (discovery), never on a fleet peer.
+        guard let id = await rest.createSession(cwd: folder, mode: .ask, title: AgentDesk.title)
+        else { return nil }
+        deskSessionID = id
+        await refresh()
+        return sessions.first { $0.id == id }
+            ?? AgentSession(id: id, repo: AgentSession.repoName(fromPath: folder),
+                            title: AgentDesk.title, state: .starting)
+    }
+
+    /// Send a task to the Desk, and only to the Desk. This never reads `promptTarget`,
+    /// so an open coding session never gets a Desk task. Nil when the task went;
+    /// otherwise the sentence the model reads.
+    func handToDesk(_ task: String, folder: String?) async -> String? {
+        let trimmed = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "The task is empty." }
+        guard isAvailable else { return "No coding agent is running on this Mac." }
+        guard let desk = await ensureDesk(in: folder) else {
+            return "Claude Code couldn't start a session on this Mac, so the task wasn't sent."
+        }
+        // A busy Desk would answer the last task first, and that reply would be read
+        // out as this one's.
+        guard desk.state != .running, desk.state != .awaitingPermission else {
+            return "Claude Code is still on the last task, so this one wasn't sent."
+        }
+        let previous = openSessionID
+        openSessionID = desk.id
+        reconcileAttachment()
+        await waitForAttachment()
+        await waitForHello()
+        // Checked after the waits, with none before the send: a tap on the glance can
+        // move the socket to another session meanwhile.
+        let failure: String?
+        if attachedSessionID != desk.id || stream == nil {
+            failure = "Couldn't reach Claude Code on this Mac, so the task wasn't sent."
+        } else if attachedModeWire != KunaiWire.PermissionMode.ask.rawValue {
+            failure = "Claude Code on this Mac isn't in Ask mode, so the task wasn't sent."
+        } else {
+            failure = nil
+        }
+        guard failure == nil else {
+            if openSessionID == desk.id {
+                openSessionID = previous
+                reconcileAttachment()
+            }
+            return failure
+        }
+        deskTurnPending = true
+        sendPrompt(trimmed)
+        reveal(sessionID: desk.id)
+        return nil
+    }
+
+    /// Wait for the attached session's `hello`, which carries its mode.
+    private func waitForHello(timeout: Duration = .milliseconds(1500)) async {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline, stream != nil, attachedModeWire == nil {
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+    }
+
     /// Stop the running turn — kunai's interrupt, the same thing Esc does in the
     /// CLI. The band's working row carries the button, because the moment you want
     /// an agent to stop is the moment you are watching it work.
@@ -897,6 +1031,8 @@ final class AgentSurfaceController {
     }
 
     func setMode(_ mode: KunaiWire.PermissionMode) {
+        // The Desk stays in Ask: its card hides the mode control.
+        guard !(attachedSessionID.map(isDesk(id:)) ?? false) else { return }
         send(.setMode(mode))
         updateMode(mode)
     }

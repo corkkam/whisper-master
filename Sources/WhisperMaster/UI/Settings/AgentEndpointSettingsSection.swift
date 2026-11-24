@@ -230,6 +230,8 @@ struct AgentEndpointConsentSheet: View {
         "Facts you asked the assistant to remember, with each command.",
         "What an MCP server you added returns when one of its tools runs.",
         "The arguments the assistant writes for an MCP tool. After you approve the call, they also go to that server.",
+        "Your coding agent sessions when it lists them: their names, machines and status, "
+            + "and the folder a task goes to.",
         "The assistant's instructions and the list of tools it can use.",
     ]
 

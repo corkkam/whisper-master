@@ -802,6 +802,14 @@ final class AppState {
 
     static let agentNudgesDefaultsKey = "WhisperMaster.agentNudges.v1"
 
+    /// The one-time consent for `delegate_task` (`DeskConsentSheet`). Off until the
+    /// user agrees, and sign-out drops it, like the endpoint's consent.
+    var deskHandOffAllowed: Bool = false {
+        didSet { UserDefaults.standard.set(deskHandOffAllowed, forKey: Self.deskHandOffDefaultsKey) }
+    }
+
+    static let deskHandOffDefaultsKey = "WhisperMaster.deskHandOff.v1"
+
     /// Show Shed's Claude Code and Codex agents in the notch. On unless turned off;
     /// with no Shed running there is simply nothing to show.
     var shedEnabled: Bool = true {
@@ -919,6 +927,7 @@ final class AppState {
         // is dark for everyone who has never opened Settings.
         agentNudgesEnabled =
             UserDefaults.standard.object(forKey: Self.agentNudgesDefaultsKey) as? Bool ?? true
+        deskHandOffAllowed = UserDefaults.standard.bool(forKey: Self.deskHandOffDefaultsKey)
         shedEnabled = UserDefaults.standard.object(forKey: Self.shedEnabledDefaultsKey) as? Bool ?? true
         shedURL = UserDefaults.standard.string(forKey: Self.shedURLDefaultsKey) ?? ""
         // Opt-out: on unless the user has explicitly turned it off.

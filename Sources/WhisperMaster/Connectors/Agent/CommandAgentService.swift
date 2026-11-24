@@ -72,6 +72,9 @@ struct CommandAgentService {
     /// What the user asked the assistant to remember. Set, the run offers `remember` (and
     /// `forget` when there is a fact) and puts the facts in the prompt.
     var memory: AgentMemoryStore?
+    /// The coding-agent tools this capture offers, and what they reach. The default
+    /// offers none.
+    var coding = DelegateToolRunner.Environment()
 
     /// A run of the agent, result **and** the record of how it got there.
     ///
@@ -109,6 +112,8 @@ struct CommandAgentService {
         var tier: AgentTier = .onDevice
         /// Text the model wrote for the front app, for the band. Never stored.
         var draft: AgentDraft?
+        /// The task the Desk accepted, as the trace keeps it.
+        var handOff: HandOffTrace?
     }
 
     /// - Parameter onStep: called as the loop moves, so the band can name the
@@ -148,7 +153,8 @@ struct CommandAgentService {
                 + (memory.map { AgentMemoryCatalog.offered(hasFacts: $0.hasFacts) } ?? [])
                 + DeviceToolCatalog.offered(selection: selection != nil, frontApp: frontApp != nil)
                 + connectorTools
-                + (mcp?.tools ?? []),
+                + (mcp?.tools ?? [])
+                + coding.tools,
             spoken: spoken)
 
         // One flag for the whole run: a connector read and a selection read both gate
@@ -191,6 +197,11 @@ struct CommandAgentService {
                 selection: selection,
                 now: now),
             mcp: mcp,
+            delegate: DelegateToolRunner(
+                environment: coding,
+                requestApproval: { [approvals] approval in await approvals.request(approval) },
+                taint: taint,
+                now: now),
             now: now)
 
         var loop = AgentLoop(tools: tools, router: router, generate: generate)
@@ -239,7 +250,8 @@ struct CommandAgentService {
                        storableAnswer: storable,
                        tainted: taint.isSet,
                        tier: tier,
-                       draft: router.draft)
+                       draft: router.draft,
+                       handOff: router.handOff)
         }
 
         // Escape stopped the loop. Something a tool already created stands, and is
@@ -365,6 +377,7 @@ struct CommandAgentService {
             case .device(.openedURL): return "In your browser"
             case .device(.openedFile): return "On \(DeviceToolCatalog.thisMacLabel)"
             case .device(.draftStaged(let draft)): return "Draft for \(draft.app.name)"
+            case .handOff(let handOff): return "Sent to \(handOff.destination)"
             case .local(.read), .connectorWrite:
                 continue
             }
@@ -388,6 +401,7 @@ struct CommandAgentService {
             case .device(.openedURL): return "safari"
             case .device(.openedFile): return "doc"
             case .device(.draftStaged): return "text.cursor"
+            case .handOff: return "terminal"
             }
         }
         return "sparkles"

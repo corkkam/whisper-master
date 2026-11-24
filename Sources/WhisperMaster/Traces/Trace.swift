@@ -253,6 +253,7 @@ struct ToolCallTrace: Identifiable, Codable, Hashable, Sendable {
         ToolCatalog.descriptor(named: tool)?.access == .write
             || (isDevice && DeviceToolCatalog.descriptor(named: tool)?.access != .read)
             || MCPToolMapping.isMCPTool(tool)
+            || tool == DelegateToolCatalog.delegateTask.name
     }
     var isLocal: Bool { LocalToolCatalog.names.contains(tool) }
     /// Served by this Mac, not by a connector.
@@ -338,6 +339,9 @@ struct AssistantTrace: Identifiable, Codable, Hashable, Sendable {
     /// What went to the user's endpoint, or nil when nothing left the Mac. Optional
     /// for the reason on `ToolCallTrace.approvalMilliseconds`.
     var endpoint: EndpointSendTrace?
+    /// The task handed to the Desk (`delegate_task`): where it went and its length,
+    /// never its text. Optional for the reason on `ToolCallTrace.approvalMilliseconds`.
+    var handOff: HandOffTrace?
 
     /// The rung that handled it, for the row's badge.
     var takenDecision: TraceDecision? { decisions.first { $0.taken } }
