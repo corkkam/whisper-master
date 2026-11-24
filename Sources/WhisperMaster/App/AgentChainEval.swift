@@ -551,16 +551,8 @@ enum AgentChainEval {
                  [text("name", "The app's name.")]),
             tool("open_url", "Open a web address in the browser.", .write,
                  [text("url", "The address to open.")]),
-            tool("search_mail", "Search the mailbox for a sender or a subject.", .read,
-                 [connector("Gmail"), text("query", "What to search for.")]),
-            tool("read_item", "Read one item from the last list in full.", .read,
-                 [ToolParameter("number", type: .integer, isRequired: true,
-                                description: "The item's row number.")]),
-            tool("reply_message", "Reply inside an existing chat thread.", .write,
-                 [connector("Work chat"),
-                  ToolParameter("number", type: .integer, isRequired: true,
-                                description: "The row number of the message to reply to."),
-                  text("text", "The reply.")]),
+            // search_mail, read_item and reply_message ship since Phase 3
+            // (`ItemTools`), so they are in the base set and no longer planned here.
             tool("draft_mail", "Draft an email for the user to review.", .write,
                  [connector("Gmail"), text("to", "Who it is for."), text("body", "The email text.")]),
             tool("remember", "Remember a fact about the user for later.", .local,
@@ -573,7 +565,7 @@ enum AgentChainEval {
         ]
     }()
 
-    static let sweepSizes = [0, 5, 9, 13]
+    static let sweepSizes = [0, 5, 6, 10]
     /// A planned tool that is a defensible choice for a case written before it
     /// existed. Reported apart from a miss: the sweep is about the length of the
     /// list, and this is about two tools meaning nearly the same thing.
