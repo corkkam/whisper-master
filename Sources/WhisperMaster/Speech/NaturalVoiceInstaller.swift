@@ -11,6 +11,9 @@ import Foundation
 /// **loud, not silent** (the mirror-first rules in `Transcription/CLAUDE.md`): it is
 /// logged at `.error` and the progress line says "downloading from backup source".
 ///
+/// **Today both archives are Hugging Face only** (`ModelChecksums.huggingFaceOnly`,
+/// owner decision 2026-11-24), so the mirror step makes no request.
+///
 /// ## ⚠️ Where the files must land
 ///
 /// `~/.cache/fluidaudio/Models/`, **not** the app's `Application Support/FluidAudio/
@@ -118,10 +121,10 @@ enum NaturalVoiceInstaller {
     /// same `~/.cache/fluidaudio/Models/` paths `isInstalled` checks.
     ///
     /// The fallback exists because the natural voice is the default answer voice, and
-    /// both archives are pinned in `ModelChecksums` but not uploaded to the mirror yet
-    /// (`kokoro-82m-coreml` and `kokoro` both 404). Until they are, every install takes
-    /// the Hugging Face path. If that fails too, this throws and the caller stays on
-    /// the system voice: silence is never an outcome.
+    /// both archives are in `ModelChecksums.huggingFaceOnly` (owner decision,
+    /// 2026-11-24: not uploaded to R2). So the mirror step throws before any request
+    /// and every install takes the Hugging Face path. If that fails too, this throws
+    /// and the caller stays on the system voice: silence is never an outcome.
     static func install(onProgress: @escaping @Sendable (ModelInstaller.Progress) -> Void) async throws {
         do {
             try await installFromMirror(onProgress: onProgress)

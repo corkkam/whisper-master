@@ -70,8 +70,9 @@ enum CleanupModel {
 
         /// **The assistant before 2026-10-17** (Qwen3-4B-Instruct-2507, non-thinking).
         /// Every install that used the chord before the switch has it on disk, and the
-        /// Thinking archive is not on the mirror yet, so ignoring it would mean an update
-        /// leaves the assistant on the keyword gate while 2.3 GB downloads, or for good
+        /// Thinking archive is not on the mirror (Hugging Face only), so ignoring it
+        /// would mean an update leaves the assistant on the keyword gate while 2.3 GB
+        /// downloads, or for good
         /// if that download fails. It answers until the shipped model has arrived; the
         /// bytes are left in place afterwards, like every other model.
         static let previousArchiveName = "Qwen3-4B-Instruct-2507-4bit"
