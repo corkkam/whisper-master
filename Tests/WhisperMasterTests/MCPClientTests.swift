@@ -223,6 +223,37 @@ final class MCPClientTests: XCTestCase {
         XCTAssertEqual(sent["days"] as? Int, 3, "an integer goes back as a number")
     }
 
+    /// The card is the consent. A long first value must not hide a later argument, and
+    /// a long tool name must not push the server's label off the one-line headline.
+    func testTheCardCutsNoArgumentAndKeepsTheServerLabel() {
+        let card = PendingApproval(
+            tool: "mcp_Weather_lookup", instanceID: UUID(), instanceLabel: "Weather",
+            target: String(repeating: "x", count: 200),
+            arguments: ["a_query": String(repeating: "word ", count: 100), "z_context": "the mail text"],
+            grantOffered: false, grantable: false)
+
+        XCTAssertTrue(card.scrollsDetail, "the arguments scroll, none is cut")
+        XCTAssertTrue(card.detailOverflows, "the foot fades to show more is below")
+        XCTAssertTrue(card.detail.hasSuffix("z_context: the mail text"), card.detail)
+        XCTAssertTrue(card.headline.hasSuffix(" on Weather"), card.headline)
+        XCTAssertEqual(card.headline.count, "Run  on Weather".count + MCPToolMapping.maxCardNameLength)
+    }
+
+    /// A line break in a value is a mark, not a line: blank lines moved the later
+    /// arguments out of the four visible lines, and a break faked one more argument.
+    func testALineBreakInAValueTakesNoLine() {
+        let card = PendingApproval(
+            tool: "mcp_Weather_lookup", instanceID: UUID(), instanceLabel: "Weather", target: "lookup",
+            arguments: ["a_note": "one\r\ntwo", "b_pad": String(repeating: "\n", count: 30), "z_context": "real"],
+            grantOffered: false, grantable: false)
+
+        XCTAssertTrue(card.detail.hasPrefix("Sends a_note: one \u{21B5} two  \u{00B7}  b_pad: "), card.detail)
+        XCTAssertTrue(card.detail.hasSuffix("  \u{00B7}  z_context: real"), card.detail)
+        XCTAssertFalse(card.detail.contains(where: \.isNewline))
+        XCTAssertLessThanOrEqual(card.detailLines, ApprovalCopy.maxVisibleScrollLines)
+        XCTAssertLessThan(ApprovalCopy.estimatedLines(card.detail), 30)
+    }
+
     func testADeclinedCardSendsNothing() async throws {
         let (store, server) = Self.store()
         let approvals = ApprovalRecorder(answer: .denied)
