@@ -45,6 +45,8 @@ out="$(cd "$(dirname "$out")" && pwd)/$(basename "$out")"
 
 [ -f "$cases" ] || { echo "✗ cases file not found: $cases" >&2; exit 1; }
 [ -d "$app" ]   || { echo "✗ app not found: $app  (build it: bash Scripts/bundle.sh)" >&2; exit 1; }
+# `open -a` takes a relative path as an app *name*; release.sh passes build/<name>.app.
+app="$(cd "$(dirname "$app")" && pwd)/$(basename "$app")"
 
 echo "▶ cases : $cases"
 echo "▶ app   : $app"

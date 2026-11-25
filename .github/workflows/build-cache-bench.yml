@@ -1,0 +1,37 @@
+# TEMPORARY: measures two ways to cache the Release build. Delete before merge.
+name: build-cache-bench
+
+on:
+  push:
+    branches: [feature/release-build-cache]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [incremental, compcache]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install build tools
+        run: brew install xcodegen
+
+      - name: Restore DerivedData
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/DerivedData
+          key: bench-${{ matrix.mode }}-${{ hashFiles('project.yml') }}
+
+      - name: Build
+        env:
+          CONFIG: Release
+          SIGN_IDENTITY: '-'
+          CLEAN: ${{ matrix.mode == 'incremental' && '0' || '1' }}
+          COMPILATION_CACHE: ${{ matrix.mode == 'compcache' && '1' || '0' }}
+        run: bash Scripts/bundle.sh
