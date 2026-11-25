@@ -66,7 +66,7 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
 ## Rows, search, open and reply (`Tools/ItemTools.swift`, `Providers/ItemDepthProviders.swift`)
 
 Phase 3 of the agent plan (owner approval 2026-11-17, Gmail send included): `search_mail`,
-`read_item`, `reply_message` (Slack), and `send_mail` / `reply_mail` (Gmail, dormant).
+`read_item`, `reply_message` (Slack), and `send_mail` / `reply_mail` (Gmail).
 
 - **The model names an item by row number, never by id.** `list_mail`, `list_messages`
   and `search_mail` write each row as "3. …"; `ItemHandles` (one per `ToolRouter`, so one
@@ -92,14 +92,18 @@ Phase 3 of the agent plan (owner approval 2026-11-17, Gmail send included): `sea
   "Reply in #launch on Work chat", then "to Sam" and the whole text; the grant target is
   the channel name. A reply always follows a listing, so the run is always tainted: the
   card shows every time and offers no Always. Teams has no reply path, on purpose.
-- **Gmail send is dormant.** `GoogleOAuthConfig.isGmailSendEnabled` (`GmailSendEnabled` in
-  `Info.plist`, false) gates the tools and the `gmail.send` scope in the sign-in, and
-  stays off until Google verification and a CASA assessment pass. With it on, a
-  connection whose grant lacks the scope (a pasted token records none) still gets neither
-  tool (`ItemTools.canSend`), and the provider checks again. The card never offers Always
-  (`ItemTools.grantable`). Its headline names the account ("Send mail from Gmail"). The
-  recipients, the subject and the whole body are in the scroll area, the recipients first
-  as "To: …": the headline's one line cut a long address or list at its tail.
+- **Gmail send is on since 2026-11-25.** `GoogleOAuthConfig.isGmailSendEnabled`
+  (`GmailSendEnabled` in `Info.plist`, true) gates the tools and the `gmail.send` scope in
+  the sign-in. It replaced the 2026-11-17 hold. Google has to verify `gmail.send` for this
+  client: until it does, the Gmail sign-in can stop at the "app not verified" screen for
+  an account that is not a test user, and that stops the read grant too. A connection
+  whose grant lacks the scope (one made before the gate, or a pasted token, which records
+  none) gets neither tool (`ItemTools.canSend`) until "Sign in again", and the provider
+  checks again. A `swift test` run has no app plist, so the gate reads off there. The card
+  never offers Always (`ItemTools.grantable`). Its headline names the account ("Send mail
+  from Gmail"). The recipients, the subject and the whole body are in the scroll area, the
+  recipients first as "To: …": the headline's one line cut a long address or list at its
+  tail.
 - **`send_mail`'s `to` must be an address the user said** ("sam at acme dot com" counts)
   **or one in a header this run read** (a row's From, or From, To, Cc and Reply-To of an
   opened mail). An address in a mail's body never counts. A name must match exactly one

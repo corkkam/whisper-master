@@ -55,10 +55,11 @@
 	<string>$(GA_MEASUREMENT_ID)</string>
 	<key>GoogleGmailOAuthEnabled</key>
 	<true/>
-	<!-- Gmail send (send_mail, reply_mail, the gmail.send scope). Keep false until
-	     Google verification and a CASA assessment pass for gmail.send. -->
+	<!-- Gmail send (send_mail, reply_mail, the gmail.send scope). On since 2026-11-25.
+	     Until Google verifies gmail.send for this client, the Gmail sign-in can stop
+	     at the "app not verified" screen. Set false to ask for read access only. -->
 	<key>GmailSendEnabled</key>
-	<false/>
+	<true/>
 	<key>GoogleOAuthClientID</key>
 	<string>140047576864-ev40jmg8f2ju19j39qj1u761vse6ddhl.apps.googleusercontent.com</string>
 	<!-- Entra ID public-client application id for Outlook and Teams sign-in.

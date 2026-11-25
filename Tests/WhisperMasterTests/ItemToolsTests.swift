@@ -186,10 +186,10 @@ final class ItemToolsTests: XCTestCase {
         XCTAssertEqual(body as? [String: String], ["channel": "C1", "thread_ts": "1700.1", "text": "yes"])
     }
 
-    // MARK: - Gmail send, dormant
+    // MARK: - Gmail send
 
     func testTheSendGateOffHidesBothSendTools() {
-        XCTAssertFalse(GoogleOAuthConfig.isGmailSendEnabled, "the gate ships off")
+        XCTAssertFalse(GoogleOAuthConfig.isGmailSendEnabled, "a test bundle has no app plist")
         let names = ToolRegistry.available(store: store).map(\.name)
         XCTAssertFalse(names.contains("send_mail"))
         XCTAssertFalse(names.contains("reply_mail"))

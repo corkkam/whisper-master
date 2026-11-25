@@ -172,8 +172,7 @@ final class OAuthPKCETests: XCTestCase {
     }
 
     /// The Gmail sign-in asks for the mailbox read and the address to label it with,
-    /// and `gmail.send` only while the send gate is on (it is off in every release
-    /// until Google verification and a CASA assessment pass). A typo here doesn't fail
+    /// and `gmail.send` only while the send gate is on. A typo here doesn't fail
     /// until Google answers `invalid_scope` *after* the browser has opened, and a wider
     /// scope would be a broader grant than the card promises.
     func testGmailScopesAreTheReadOnlyPairPlusSendBehindTheGate() {
@@ -191,8 +190,16 @@ final class OAuthPKCETests: XCTestCase {
         })
     }
 
-    /// The gate ships off: no build asks for `gmail.send` until a release turns it on.
-    func testGmailSendShipsOff() throws {
+    /// The gate ships on (2026-11-25), from the app's `Info.plist`. A test bundle has
+    /// no app plist, so the gate reads off here and no test run asks for `gmail.send`.
+    func testGmailSendShipsOnAndReadsOffWithNoPlist() throws {
+        let plistURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/Info.plist")
+        let plist = try PropertyListSerialization.propertyList(
+            from: Data(contentsOf: plistURL), format: nil) as? [String: Any]
+        XCTAssertEqual(plist?["GmailSendEnabled"] as? Bool, true)
+
         try XCTSkipIf(ProcessInfo.processInfo.environment["GOOGLE_GMAIL_SEND"] != nil,
                       "a dev shell set the override")
         XCTAssertFalse(GoogleOAuthConfig.isGmailSendEnabled)
