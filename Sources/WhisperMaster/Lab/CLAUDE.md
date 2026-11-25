@@ -154,11 +154,15 @@ row of its own, so it can sit beside the shipped assistant in one run.
   shipped paths cannot reason and an `.always` model would time out on every turn
   of a dev build's assistant. Making the assistant reason is a change to
   `CommandAgentService`'s budget and prompt, not a lab toggle. **That change was
-  made on 2026-10-17**: the shipped assistant is now Qwen3-4B-Thinking-2507 (the
-  `.shippingAssistant` row) and the assistant paths reason when the resident model
-  does (`MlxCleanupService.loadedThinks`, recorded at load). The override rule still
-  holds: a dev build can point the slot at a non-thinking model, never at another
-  reasoning row, because only the shipped directories are recognised as reasoning.
+  made on 2026-10-17**: the shipped assistant became Qwen3-4B-Thinking-2507 and the
+  assistant paths reason when the resident model does (`MlxCleanupService.loadedThinks`,
+  recorded at load). **It was reversed on 2026-11-25** (COR-74): the shipped assistant
+  (the `.shippingAssistant` row) is Qwen3-4B-Instruct-2507 again, and the Thinking row is
+  `.retired`. The reasoning paths stay, because a Mac with only the Thinking model on
+  disk still runs it. The override rule still
+  holds: a dev build can point the slot at a non-thinking model, never at a reasoning
+  row, because only the two Thinking directories are recognised as reasoning
+  (`CleanupModel.General.thinks(loadedFrom:)`).
 - Reasoning tokens per case are kept (`LabCaseResult.reasoningTokens`) and the
   median goes in the run log. Latency already carries the cost in time.
 - **Measured 2026-10-04 (M5, 24 GB, tool suite, 16 cases, run 5).** The shipped

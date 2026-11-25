@@ -154,8 +154,8 @@ enum LabCatalog {
             parameters: "4B",
             quantization: "4-bit",
             roles: [.assistant, .cleanup],
-            provenance: .candidate,
-            note: "The assistant until 2026-10-17. Non-thinking: 16/16 tools at 3.9 s p50."),
+            provenance: .shippingAssistant,
+            note: "The shipped assistant since 2026-11-25 (and until 2026-10-17). Non-thinking: 16/16 tools at 3.9 s p50."),
         LabModel(
             id: "qwen2.5-3b-instruct-4bit",
             name: "Qwen2.5-3B-Instruct",
@@ -200,8 +200,8 @@ enum LabCatalog {
             parameters: "4B",
             quantization: "4-bit",
             roles: [.assistant],
-            provenance: .shippingAssistant,
-            note: "The shipped assistant since 2026-10-17. Always thinks first.",
+            provenance: .retired,
+            note: "The assistant from 2026-10-17 to 2026-11-25. Always thinks first.",
             reasoning: .always,
             thinks: true),
         LabModel(

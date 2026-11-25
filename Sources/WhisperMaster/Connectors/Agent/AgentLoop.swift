@@ -276,8 +276,9 @@ struct AgentLoop {
     /// up before the user does.
     var maxIterations: Int = 8
     var budget: TimeInterval = AgentLoop.defaultBudget
-    /// The wall clock when the assistant reasons first (`CleanupModel.General.thinks`).
-    /// One reasoning turn alone runs ~11 s typical and up to a minute, so 30 s would
+    /// The wall clock when the assistant reasons first (`CleanupModel.General.thinks`):
+    /// today only the previous assistant, Qwen3-4B-Thinking-2507, when it is the one on
+    /// disk. One reasoning turn alone runs ~11 s typical and up to a minute, so 30 s would
     /// abandon most two-step chains half way. Ninety covers a read and a reply at the
     /// typical cost; a slow turn still ends in the deterministic fallback.
     static let reasoningBudget: TimeInterval = 90

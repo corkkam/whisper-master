@@ -6,7 +6,7 @@ import Tokenizers
 
 /// On-device transcript cleanup via MLX. Two instances, two models: `shared` is
 /// S1-mini on the dictation hot path, `general` is the assistant
-/// (`CleanupModel.General`: Qwen3-4B-Thinking-2507) for the callers that need to
+/// (`CleanupModel.General`: Qwen3-4B-Instruct-2507) for the callers that need to
 /// tool-call.
 ///
 /// An `actor` so the (large, single) model loads once and is shared without
