@@ -259,10 +259,18 @@ final class ItemToolsTests: XCTestCase {
                                    target: "priya@acme.com",
                                    arguments: ["to": "priya@acme.com", "subject": "Notes", "body": body],
                                    grantable: false)
-        XCTAssertEqual(card.headline, "Send mail to priya@acme.com on Gmail")
-        XCTAssertEqual(card.detail, "Subject: Notes  ·  \u{201C}\(body)\u{201D}")
+        XCTAssertEqual(card.headline, "Send mail from Gmail", "the recipients show one time, below")
+        XCTAssertEqual(card.detail, "To: priya@acme.com  ·  Subject: Notes  ·  \u{201C}\(body)\u{201D}")
         XCTAssertTrue(card.scrollsDetail, "the body scrolls, it is never cut")
         XCTAssertFalse(card.offersAlways)
+
+        // The scroll area has every recipient, whole: a long first address must not
+        // hide the one after it, as it did on the headline's one line.
+        let many = "a.very.long.local.part.for.the.accounts.team@acme.com, evil@attacker.com"
+        let wide = PendingApproval(tool: "reply_mail", instanceID: gmail.id, instanceLabel: "Gmail",
+                                   target: many, arguments: ["to": many, "body": "ok"], grantable: false)
+        XCTAssertEqual(wide.headline, "Reply by mail from Gmail")
+        XCTAssertEqual(wide.detail, "To: \(many)  ·  \u{201C}ok\u{201D}")
     }
 
     // MARK: - Request shapes

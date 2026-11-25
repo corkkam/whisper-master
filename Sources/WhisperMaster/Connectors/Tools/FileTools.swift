@@ -34,13 +34,16 @@ enum FileToolCatalog {
     static let all = [findFiles, openFile]
 
     /// A file name the model reads and the card shows: one line, and cut in the middle
-    /// past `maxNameLength`, so the extension stays visible.
+    /// past `limit`, so the extension stays visible. Bidi embeddings, overrides and
+    /// isolates are removed: U+202E made `fdp.html` show as `lmth.pdf`.
     static let maxNameLength = 60
 
-    static func displayName(_ name: String) -> String {
-        let line = ToolRouter.oneLine(name)
-        guard line.count > maxNameLength else { return line }
-        let keep = maxNameLength - 1
+    static func displayName(_ name: String, limit: Int = maxNameLength) -> String {
+        let line = String(String.UnicodeScalarView(ToolRouter.oneLine(name).unicodeScalars.filter {
+            !(0x202A...0x202E).contains($0.value) && !(0x2066...0x2069).contains($0.value)
+        }))
+        guard line.count > limit else { return line }
+        let keep = limit - 1
         return line.prefix(keep / 2) + "\u{2026}" + line.suffix(keep - keep / 2)
     }
 }

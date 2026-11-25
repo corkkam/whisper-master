@@ -167,9 +167,19 @@ enum MCPToolMapping {
         return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 
-    /// The card's payload line: every argument, and that it goes to the server.
+    /// Characters of the server's tool name the card's headline shows, so "on <server>"
+    /// after it stays on the line.
+    static let maxCardNameLength = 32
+
+    /// The card's payload: every argument, and that it goes to the server. It scrolls
+    /// (`ApprovalCopy.scrollsDetail`), so a long first value hides no later one. A line
+    /// break shows as "↵" and takes no line: a value of blank lines moved the later
+    /// arguments out of view, and a break before "key: value" read as one more argument.
     static func cardDetail(_ arguments: [String: String]) -> String {
-        let sent = arguments.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }
+        let sent = arguments.sorted { $0.key < $1.key }.map {
+            "\($0.key): \($0.value)".split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+                .joined(separator: " \u{21B5} ")
+        }
         return sent.isEmpty
             ? "Sends no arguments to the server."
             : "Sends " + sent.joined(separator: "  \u{00B7}  ")

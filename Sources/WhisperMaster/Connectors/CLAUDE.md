@@ -96,8 +96,10 @@ Phase 3 of the agent plan (owner approval 2026-11-17, Gmail send included): `sea
   `Info.plist`, false) gates the tools and the `gmail.send` scope in the sign-in, and
   stays off until Google verification and a CASA assessment pass. With it on, a
   connection whose grant lacks the scope (a pasted token records none) still gets neither
-  tool (`ItemTools.canSend`), and the provider checks again. The card shows the
-  recipients, the subject and the whole body, and never Always (`ItemTools.grantable`).
+  tool (`ItemTools.canSend`), and the provider checks again. The card never offers Always
+  (`ItemTools.grantable`). Its headline names the account ("Send mail from Gmail"). The
+  recipients, the subject and the whole body are in the scroll area, the recipients first
+  as "To: …": the headline's one line cut a long address or list at its tail.
 - **`send_mail`'s `to` must be an address the user said** ("sam at acme dot com" counts)
   **or one in a header this run read** (a row's From, or From, To, Cc and Reply-To of an
   opened mail). An address in a mail's body never counts. A name must match exactly one
@@ -412,7 +414,9 @@ so they use the same card, the same `thisMacID` and the same taint rule.
   `NSMetadataQuery` and stops it at 3 seconds, and the result then says the list may be
   incomplete. At most 15 rows: number, name, kind, modified date and the parent
   folder's name. **The model never sees a path.** A name is one line, cut in the middle
-  past 60 characters so the extension stays.
+  past 60 characters so the extension stays, and shown without bidi embeddings,
+  overrides and isolates (`FileToolCatalog.displayName`): U+202E made `fdp.html` show
+  as `lmth.pdf` on the card.
 - **A result with rows taints the run** (`Taint`, outside the selection): file names are
   text the user did not write. A later write then shows the card with no Always, and
   the card says the run read text from accounts, which is not exact for file names.
@@ -597,7 +601,11 @@ each call (plan section 8, Phase 6).
   - Each call raises a card with Once and No only (`PendingApproval.grantable` false).
     No grant is stored, also for a tool that says `readOnlyHint`: the server says that
     about itself. The card names the tool and the server, and lists every argument as
-    "Sends …" (`MCPToolMapping.cardDetail`).
+    "Sends …" (`MCPToolMapping.cardDetail`) in the scroll area a note uses
+    (`ApprovalCopy.scrollsDetail`): on one line, a long first value hid the arguments
+    after it. A line break in a value shows as "↵" and takes no line: blank lines moved
+    the later arguments out of view. A tool name past 32 characters is cut in its middle, so "on <server>"
+    stays in the headline.
   - After the card, `tools/list` runs again. If the tool's definition hash
     (SHA-256 of the sorted JSON) is not the one the run offered, the call is refused.
   - The result is text content only ("[image]" and similar for the rest), cut by
