@@ -14,10 +14,11 @@ import Foundation
 ///   **S1-mini** — 335 MB, ~100 ms, and better than the 3B it replaced on
 ///   `eval/text-cleanup/cases.jsonl`.
 /// - **Tool calling, intent and meeting notes** (`CleanupModel.General`) is
-///   **Qwen3-4B-Thinking-2507** since 2026-10-17 (Qwen3-4B-Instruct-2507 before
-///   that, which is still used where it is the only assistant on disk). It reasons
-///   before answering, so its `<think>` block is stripped by `MlxCleanupService`
-///   before anything parses the output.
+///   **Qwen3-4B-Instruct-2507** again since 2026-11-25 (Qwen3-4B-Thinking-2507 from
+///   2026-10-17 to then, which is still used where it is the only assistant on
+///   disk). Instruct does not reason, so it runs on the ordinary budget; the
+///   Thinking model, when it is the one loaded, has its `<think>` block stripped by
+///   `MlxCleanupService` before anything parses the output.
 ///
 /// Any change to either re-runs `eval/text-cleanup/run-eval.sh` and re-checks
 /// `CleanupFaithfulnessGuard`, which is tuned to a model's failure modes.
@@ -55,27 +56,30 @@ enum CleanupModel {
     /// from Settings, so a new install is not made to fetch 2.3 GB for a feature it
     /// may never touch.
     enum General {
-        /// **Qwen3-4B-Thinking-2507** since 2026-10-17, chosen as the best reasoning
-        /// model that loads on the pinned mlx-swift-examples 2.29.1 (Qwen3.5 needs
-        /// 2.31.3+). It always reasons before answering, so every call to it goes
-        /// through the reasoning budget (`MlxCleanupService.reasoningMaxTokens` /
-        /// `reasoningTimeoutSeconds`) and the agent loop gets `AgentLoop.reasoningBudget`.
-        /// The cost, measured in the Lab on 2026-10-04 (16 tool cases, M5): 15/16 at
-        /// 10.7 s p50 / 64 s p95, against Instruct-2507's 16/16 at 3.9 s. To go back,
-        /// swap these ids with `previousArchiveName` and restore the
-        /// `.shippingAssistant` badge in `LabCatalog`; `thinks` follows from the directory.
-        static let archiveName = "Qwen3-4B-Thinking-2507-4bit"
-        static let huggingFaceId = "mlx-community/Qwen3-4B-Thinking-2507-4bit"
+        /// **Qwen3-4B-Instruct-2507** again since 2026-11-25 (owner decision, COR-74). It
+        /// does not reason, so a generation takes the ordinary budget
+        /// (`MlxCleanupService.timeoutSeconds`, `AgentLoop.defaultBudget`) and
+        /// `thinks` is false for it. Why it went back: on a Release build the Thinking
+        /// model passed 4 of 24 chains and used up its 90 s budget on 19, against 18 of
+        /// 24 and a 15.6 s p50 for Instruct; first turn was 16/23 against 19/23
+        /// (2026-11-25, both bench sections of the root `CLAUDE.md`). To go forward to a
+        /// reasoning model again, swap these ids with `previousArchiveName` and the
+        /// badge in `LabCatalog`; `thinks` follows from the directory.
+        static let archiveName = "Qwen3-4B-Instruct-2507-4bit"
+        static let huggingFaceId = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
         static let label = "assistant model"
 
-        /// **The assistant before 2026-10-17** (Qwen3-4B-Instruct-2507, non-thinking).
-        /// Every install that used the chord before the switch has it on disk, and the
-        /// Thinking archive is not on the mirror (Hugging Face only), so ignoring it
-        /// would mean an update leaves the assistant on the keyword gate while 2.3 GB
-        /// downloads, or for good
-        /// if that download fails. It answers until the shipped model has arrived; the
-        /// bytes are left in place afterwards, like every other model.
-        static let previousArchiveName = "Qwen3-4B-Instruct-2507-4bit"
+        /// **The assistant from 2026-10-17 to 2026-11-25** (Qwen3-4B-Thinking-2507,
+        /// always reasons). Every install that used the chord in that window has it on
+        /// disk, and a Thinking-only Mac must keep answering until the shipped model has
+        /// arrived: ignoring it would leave the chord on the keyword gate while 2.3 GB
+        /// downloads, or for good if that download fails. It was never on the mirror
+        /// (Hugging Face only), so it lives in one of two places: the models folder
+        /// (`previousDirectory`, where a hand copy puts it) or MLX's hub cache
+        /// (`previousHubCacheDirectory`, where the app's own fallback download put it).
+        /// The bytes are left in place afterwards, like every other model.
+        static let previousArchiveName = "Qwen3-4B-Thinking-2507-4bit"
+        static let previousHuggingFaceId = "mlx-community/Qwen3-4B-Thinking-2507-4bit"
 
         /// The model the assistant loads: a **dev build's** Model Lab choice when it has
         /// one (`LabModelOverride`, which refuses on every other channel and falls back
@@ -101,9 +105,13 @@ enum CleanupModel {
             CleanupModel.modelsRoot.appendingPathComponent(previousArchiveName, isDirectory: true)
         }
 
+        static var previousHubCacheDirectory: URL {
+            LabPaths.huggingFaceCacheDirectory(for: previousHuggingFaceId)
+        }
+
         /// The shipped model from the mirror, else from Hugging Face, else the previous
-        /// assistant, else the mirror path (so a fresh install still writes where it
-        /// always has).
+        /// assistant (either place it can be), else the mirror path (so a fresh install
+        /// still writes where it always has).
         static var installedDirectory: URL {
             resolveInstalledDirectory { LabPaths.isInstalled(at: $0) }
         }
@@ -111,8 +119,8 @@ enum CleanupModel {
         /// `installedDirectory`'s order, with the filesystem check injected so the order
         /// is tested without a 2 GB model on disk.
         static func resolveInstalledDirectory(isInstalled: (URL) -> Bool) -> URL {
-            [shippedDirectory, hubCacheDirectory, previousDirectory].first(where: isInstalled)
-                ?? shippedDirectory
+            [shippedDirectory, hubCacheDirectory, previousDirectory, previousHubCacheDirectory]
+                .first(where: isInstalled) ?? shippedDirectory
         }
 
         /// Something loadable is on disk: the shipped model, the previous one, or a dev
@@ -128,13 +136,13 @@ enum CleanupModel {
                 && !LabPaths.isInstalled(at: hubCacheDirectory)
         }
 
-        /// Whether the model in `directory` reasons before answering. Only the shipped
-        /// model does: the previous assistant is non-thinking, and `LabModelOverride`
-        /// never hands the slot a reasoning row.
+        /// Whether the model in `directory` reasons before answering. Only the previous
+        /// assistant does: the shipped Instruct model is non-thinking, and
+        /// `LabModelOverride` never hands the slot a reasoning row.
         static func thinks(loadedFrom directory: URL) -> Bool {
             let path = directory.standardizedFileURL.path
-            return path == shippedDirectory.standardizedFileURL.path
-                || path == hubCacheDirectory.standardizedFileURL.path
+            return path == previousDirectory.standardizedFileURL.path
+                || path == previousHubCacheDirectory.standardizedFileURL.path
         }
 
         /// Whether the assistant will reason, judged from the directory it would load

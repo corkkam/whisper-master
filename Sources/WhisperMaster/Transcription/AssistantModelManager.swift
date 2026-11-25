@@ -162,9 +162,8 @@ final class AssistantModelManager {
 
     /// R2 mirror first (real byte counts, resumable, checksum-pinned), Hugging
     /// Face as the loud fallback — the same order and the same honesty as every
-    /// other model in the app. The shipped archive is in
-    /// `ModelChecksums.huggingFaceOnly`, so today the mirror step throws before any
-    /// request and Hugging Face is the source.
+    /// other model in the app. The shipped archive is on the mirror and pinned in
+    /// `ModelChecksums`; a mirror failure is the only way to Hugging Face.
     ///
     /// The fallback **downloads, then loads**, never `prepare(id:)`: a load is capped
     /// at `MlxCleanupService.loadTimeoutSeconds` (60 s), and a load that has to fetch

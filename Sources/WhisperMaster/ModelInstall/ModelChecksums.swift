@@ -18,7 +18,7 @@ import Foundation
 /// model is already on disk and answers are read by the system voice.
 ///
 /// **Hugging Face only (owner decision, 2026-11-24):** `Qwen3-4B-Thinking-2507-4bit`
-/// (the assistant), `kokoro-82m-coreml` and `kokoro` (the natural voice) are not
+/// (the previous assistant), `kokoro-82m-coreml` and `kokoro` (the natural voice) are not
 /// uploaded to R2. They are listed in `huggingFaceOnly`, so `ModelInstaller` makes no
 /// mirror request for them and `Scripts/release.sh` does not check them. Their pins
 /// stay: the zips they describe are kept outside the repository in

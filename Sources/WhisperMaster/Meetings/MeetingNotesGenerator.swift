@@ -9,7 +9,8 @@ import Foundation
 /// not fatal — notes from most of a meeting beat no notes.
 ///
 /// **Each call's ceiling is the model's, not this type's.** 12 s on a
-/// non-reasoning model; on the shipped reasoning assistant, up to
+/// non-reasoning model (the shipped Instruct assistant); on a reasoning assistant
+/// (the Thinking model, when it is the only one on disk), up to
 /// `MlxCleanupService.reasoningTimeoutSeconds` (60 s) per call, so a one-hour
 /// meeting (~13 calls) can take minutes to write up. That cost has not been
 /// measured on a real meeting yet.

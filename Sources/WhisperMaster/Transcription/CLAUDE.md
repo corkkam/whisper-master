@@ -18,37 +18,46 @@ Loaded when Claude works under this directory. Moved verbatim out of the root
 **Two models, because these are two jobs.** Cleanup runs **S1-mini by Superwhisper**
 (`MlxCleanupService.shared`) — a 0.6B text normalizer fine-tuned from Qwen3-0.6B,
 converted here to 4-bit: 335 MB on disk, ~100 ms. Tool calling, intent and meeting
-notes run **Qwen3-4B-Thinking-2507** (`CleanupModel.General`, `MlxCleanupService.general`)
-since 2026-10-17, the best reasoning model the pinned mlx-swift-examples 2.29.1 can
-load (Qwen3.5-4B and Gemma 4 need a newer mlx-swift-lm). **It always reasons first**,
-so it gets the reasoning budget (2048 extra tokens, 60 s), `splitReasoning` to drop the
-`<think>` block, nil when the budget runs out mid-reasoning, and
-`AgentLoop.reasoningBudget` (90 s) on the chord. **Whether a call reasons is read off
+notes run **Qwen3-4B-Instruct-2507** (`CleanupModel.General`, `MlxCleanupService.general`)
+since 2026-11-25 (owner decision, COR-74), which reverses the 2026-10-17 switch to
+Qwen3-4B-Thinking-2507. **Instruct does not reason**, so a call takes the ordinary
+budget (`MlxCleanupService.timeoutSeconds` 12 s a generation, `AgentLoop.defaultBudget`
+30 s on the chord) and `loadedThinks` is false. The reasoning machinery stays, for the
+previous assistant: when the Thinking model is the one loaded it gets the reasoning budget
+(2048 extra tokens, 60 s), `splitReasoning` to drop the `<think>` block, nil when the
+budget runs out mid-reasoning, and `AgentLoop.reasoningBudget` (90 s) on the chord.
+**Whether a call reasons is read off
 the resident model** (`MlxCleanupService.loadedThinks`, recorded at load from
 `CleanupModel.General.thinks(loadedFrom:)`), never from the live setting: a Lab override
 or a finished download changes the setting before the resident model changes, and
 running a model the wrong way round either feeds reasoning to the parser or discards
-every answer. `prepareAssistant` reloads when the resolved directory changes.
-The trade was made knowingly: the Lab measured it 15/16 at 10.7 s p50 against
-Instruct-2507's 16/16 at 3.9 s (see `Lab/CLAUDE.md`). Going back is swapping the ids in
+every answer. `thinks(loadedFrom:)` is true for the two Thinking directories and for
+nothing else. `prepareAssistant` reloads when the resolved directory changes.
+Why it was moved back, with the numbers: the root `CLAUDE.md`, "Measured 2026-11-25 on
+Instruct-2507". To go forward to a reasoning model again, swap the ids in
 `CleanupModel.General` with `previousArchiveName`, plus the badge in `LabCatalog`.
-- **⚠️ An update must not take the assistant away.** Every install that used the chord
-  before 2026-10-17 has Instruct-2507 on disk (`General.previousDirectory`), and
-  `installedDirectory` falls back to it (non-thinking) until the Thinking model has
-  arrived; the first chord use starts that download in the background
-  (`General.needsShippedModel`). Ignoring the old model meant every existing user's
-  assistant went to the keyword gate on update.
-- **The thinking archive is not on the R2 mirror, by owner decision (2026-11-24)**.
-  It is in `ModelChecksums.huggingFaceOnly`, so `ModelInstaller` makes no mirror
-  request for it and installs take the Hugging Face path: `LabHuggingFace.download`
-  into MLX's hub cache (`LabPaths.huggingFaceCacheDirectory`, under `~/Library/Caches`), found there by
+- **⚠️ A switch must not take the assistant away, in either direction.** The order is
+  the shipped model from the mirror, the shipped model from Hugging Face's hub cache,
+  then the previous assistant in the models folder, then the previous assistant in the
+  hub cache (`General.resolveInstalledDirectory`). A Mac that has only the Thinking
+  model, from the 2026-10-17 to 2026-11-25 builds (its own download put it in the hub
+  cache), keeps answering with it, reasoning budget included, while the first chord use
+  fetches Instruct in the background (`General.needsShippedModel`). Ignoring the old
+  model meant every existing user's assistant went to the keyword gate on update, which
+  is what the 2026-10-17 switch did until `0f62016`.
+- **Instruct is on the R2 mirror and pinned** (`ModelChecksums.sha256`), so the install
+  is mirror first and Hugging Face second: `LabHuggingFace.download` into MLX's hub cache
+  (`LabPaths.huggingFaceCacheDirectory`, under `~/Library/Caches`), found there by
   `General.installedDirectory`, **then** a load from that directory. Loading by id
   instead (`prepare(id:)`) put a 2.3 GB fetch inside the 60 s `loadTimeoutSeconds` and
   skipped the `chat_template.jinja` a 2507 model keeps its template in.
+- **The Thinking archive stays off the mirror, by owner decision (2026-11-24).** It is
+  still in `ModelChecksums.huggingFaceOnly` and still pinned, so a Mac that wants it
+  back installs it from Hugging Face only. Nothing in the app fetches it any more.
 
-**Measured after the switch (2026-10-17, `WM_AGENT_TOOL_EVAL`, 16 commands):**
-hand-rolled (the shipped arm) 14/16 correct tool, native 15/16, against Instruct-2507's
-16/16 in August. The two hand-rolled misses: `create_reminder` with `body` instead of
+**Measured after the 2026-10-17 switch (`WM_AGENT_TOOL_EVAL`, 16 commands), Thinking:**
+hand-rolled 14/16 correct tool, native 15/16, against Instruct-2507's 16/16 in August.
+The two hand-rolled misses: `create_reminder` with `body` instead of
 `title` (the parser correctly refuses a call missing a required argument), and "message
 design and ops" still reasoning at the 60 s budget. The grounding turn answered from
 both calendars correctly. The 49 generations took ~15 min on this Mac, ~18 s each.

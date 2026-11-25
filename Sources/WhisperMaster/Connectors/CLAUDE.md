@@ -138,7 +138,8 @@ Phase 3 of the agent plan (owner approval 2026-11-17, Gmail send included): `sea
   run that offers many of them drops the connector tools with the fewest shared words.
   **A listing ranks with the row tools that need it** (`ToolPackRouter.needs`), so
   "reply to Sam in Slack" keeps `list_messages` beside `reply_message`. The limit stays
-  16: the 24-tool sweep (2026-11-18) ran on Instruct-2507, not on the Thinking model.
+  16: the 24-tool sweep (2026-11-18) ran on Instruct-2507, which ships again since
+  2026-11-25 (it was not measured on the Thinking model that shipped in between).
 - **A follow-up window** (`FollowUpWindow`, owned by the view model). For 120 s after
   an answer, the next chord capture is given the last question and the storable
   answer (400 characters at most) as an earlier user and assistant turn
