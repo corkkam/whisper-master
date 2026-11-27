@@ -49,3 +49,13 @@ jobs:
 
       - name: Test
         run: swift test
+
+      - name: Crew kit tests
+        # Python standard library only, so the kit has no build or install step.
+        # Some tests make throwaway git repos, which need an identity.
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.invalid
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.invalid
+        run: python3 -m unittest discover -s crew-kit/tests -t crew-kit
