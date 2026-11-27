@@ -54,7 +54,7 @@ Read in this order, and stop as soon as you have what you need.
    |---|---|
    | `Analytics/` | the vendor seam, the content-free event taxonomy, crash capture |
    | `Audio/` | the capture graph, Bluetooth call mode, engine-rebuild recovery |
-   | `Auth/` | the Clerk sign-in gate, the OAuth redirect allowlist per build |
+   | `Auth/` | the account gate (sync, assistant, beta track), the sign-in window, the OAuth redirect allowlist per build |
    | `Diagnostics/` | the developer-only session tracer (`DIAGNOSTICS` builds only) |
    | `Input/` | push-to-talk gestures, the fn+control assistant chord, paste routing |
    | `Meetings/` | call detection, the call-audio process tap, meeting notes |
@@ -146,8 +146,15 @@ These hold even when the file that explains them is not loaded.
    and the default `redundantType` rule strips a load-bearing annotation in
    `DictationViewModel.enqueueAudioBuffer` and breaks the build. Hand-match the
    surrounding style.
-9. **Never weaken the Clerk sign-in gate.** An `authBypass`-style flag is a bug,
-   in every channel including dev.
+9. **Sign-in gates sync, the assistant and the beta track. It does not gate
+   dictation** (owner decision D2, 2026-11-27: "A user can dictate before
+   sign-in. Sign-in is still required for sync, the assistant and the beta
+   track."). Never weaken that gate: `AccountFeature` is the one table, and an
+   `authBypass`-style flag is a bug, in every channel including dev. Never
+   re-gate dictation either. Sign-in itself stays real Clerk sign-in, and no
+   build may open sync, the assistant or the beta track without a Clerk session.
+   This replaces "Never weaken the Clerk sign-in gate", which covered dictation
+   too.
 10. **A new field on a persisted model must survive an old payload that lacks
     it.** Swift's *synthesized* `init(from:)` calls `decode`, not
     `decodeIfPresent`, for any non-optional property — a default value is used by
@@ -366,8 +373,10 @@ arrive as "whisper mash" or "visible master".
 
 ### Infrastructure and modes
 
-- **Clerk gate** — launch sign-in gate. It blocks every build; a bypass flag
-  is a bug (prohibition §4.9).
+- **Clerk gate** — the account gate (`Auth/AccountGate.swift`, `AccountFeature`).
+  Signed out, a user dictates, and sync, the assistant and the beta track stay
+  closed. Since D2 (2026-11-27) it no longer blocks launch or dictation. A bypass
+  flag is a bug (prohibition §4.9).
 - **Sparkle / appcast / channel** — auto-update. Channels are stable, beta
   (`-beta.N`), dev (`-dev.N`); the appcast and archives live on R2.
 - **R2 mirror** — the Cloudflare bucket that also mirrors ASR models

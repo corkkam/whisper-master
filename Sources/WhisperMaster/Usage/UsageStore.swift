@@ -133,9 +133,10 @@ final class UsageStore {
         // `owner == currentUserID` would be nil == nil and the record would land in
         // the legacy device-wide file this store never adopts. Nobody was signed in
         // when the session started, so there is no account to credit — drop it
-        // loudly rather than misattribute it.
+        // rather than misattribute it. Signed-out dictation is normal since D2
+        // (2026-11-27), so this is a notice, not an error.
         guard let owner else {
-            Log.usage.error("usage record dropped: session started with no signed-in account")
+            Log.usage.notice("usage record skipped: session started with no signed-in account")
             return
         }
         if owner == currentUserID {

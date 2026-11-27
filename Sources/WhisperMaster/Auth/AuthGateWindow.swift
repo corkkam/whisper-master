@@ -2,11 +2,10 @@ import AppKit
 import ClerkKit
 import SwiftUI
 
-/// The blocking sign-in window. Modeled on `OnboardingWindow`, but with **no
-/// close button** — the app is gated, so the only way past it is to sign in
-/// (Cmd-Q from the app menu still quits). The `AppDelegate` shows it at launch
-/// and whenever the session goes signed-out, and closes it once a user is
-/// authenticated.
+/// The sign-in window. Modeled on `OnboardingWindow`. It opens when the person
+/// asks to sign in (the tray, Settings, the notch prompt), and they can close it
+/// and keep dictating: since owner decision D2 (2026-11-27) the app is not gated
+/// behind it. The `AppDelegate` closes it once a user is authenticated.
 @MainActor
 final class AuthGateWindow {
     private let window: NSWindow
@@ -22,11 +21,11 @@ final class AuthGateWindow {
         let host = NSHostingController(rootView: root)
         window = NSWindow(contentViewController: host)
         window.title = "Sign in to Whisper Master"
-        window.styleMask = [.titled, .fullSizeContentView]
+        window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        // No close/minimize/zoom: the gate can't be dismissed, only completed.
-        window.standardWindowButton(.closeButton)?.isHidden = true
+        // Close stays (the person may decide against it); minimize and zoom do not
+        // mean anything for a one-purpose sign-in card.
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
         window.setContentSize(NSSize(width: 520, height: 680))

@@ -289,7 +289,7 @@ Declared in **both** `project.yml` (source of truth for the app target) and `Pac
 - **Sparkle** ≥ 2.6 (resolves 2.9.x) — auto-update. Xcode embeds/signs the framework automatically; replicating that by hand is the main reason the project moved off the old SwiftPM-only bundle onto an Xcode app target.
 - **PostHog** (`posthog-ios`) ≥ 3.0 — opt-in, account-linked product analytics (see **Analytics** below). Replaced TelemetryDeck (free-tier too limited).
 - **mlx-swift-examples** (`MLXLLM`/`MLXLMCommon`) pinned exact 2.29.1 — on-device qwen cleanup (the `ChatSession`/`MLXLMCommon` API churns between minors).
-- **Clerk** (`clerk-ios`) ≥ 1.3.0 — auth for the launch sign-in gate (see Authentication below). Two products: `ClerkKit` (core + observable state) and `ClerkKitUI` (prebuilt `AuthView`). Pulls transitive deps (PhoneNumberKit, Nuke, swift-collections). Native macOS 14+ support, so no Catalyst shim.
+- **Clerk** (`clerk-ios`) ≥ 1.3.0 — auth for sync, the assistant and the beta track (see Authentication below). Two products: `ClerkKit` (core + observable state) and `ClerkKitUI` (prebuilt `AuthView`). Pulls transitive deps (PhoneNumberKit, Nuke, swift-collections). Native macOS 14+ support, so no Catalyst shim.
 
 ### Release safety rules (mechanics live in the `releasing` skill)
 
@@ -337,7 +337,7 @@ is not loaded:
 - `applicationShouldTerminateAfterLastWindowClosed → false`: closing the settings window must NOT quit the app — the tray is the persistent surface. The `NSStatusItem` uses `autosaveName` so users can drag its position and it sticks across launches.
 - A 0.5s `Timer` in `AppDelegate.startStatusRefreshLoop` polls `PrototypeAppState` and rebuilds the tray icon symbol, tooltip, header line, and history submenu. There's no `@Observable` bridge to AppKit — the timer is the bridge. **Every AppKit write on this path is change-guarded** (`appliedTrayIconKey` / `appliedTrayTooltip` / `appliedTrayHeader`, `renderedHistoryIDs`, and the `ignoresMouseEvents` check inside `DictationPillWindow.setInteractive`): the answer is identical on nearly every tick, and writing anyway meant allocating a fresh `NSImage` and pushing a status-item update through the menu-bar server twice a second for the life of the process. Keep new per-tick writes guarded the same way — an unguarded `button.image = …` here is a permanent background cost, not a one-off.
 
-### Authentication — Clerk sign-in gate (`Auth/`)
+### Authentication — Clerk sign-in, the account gate (`Auth/`)
 
 **Beta is not a separate app.** Stable and beta ship as one bundle
 (`app.whispermaster.mac`) and are told apart only by the `-beta.N` version marker
@@ -348,11 +348,15 @@ into its own bundle id "so it installs side by side" — that is what made the
 tracks un-updatable, and `Scripts/bundle.sh` now re-badges `dev` only. Details:
 **`.claude/skills/releasing/SKILL.md`**.
 
-The app is **gated behind Clerk sign-in at launch**: dictation won't start until a
-user is authenticated. Transcription itself still runs entirely on-device — only
-the *gate* talks to Clerk's cloud. Details (config, gate window, the OAuth
-redirect allowlist each build needs, the bridging timer, enforcement points):
-**`Sources/WhisperMaster/Auth/CLAUDE.md`**.
+**A user can dictate before sign-in** (owner decision D2, 2026-11-27). Sign-in is
+still required for **sync, the assistant and the beta track**, and `AccountFeature`
+(`Auth/AccountGate.swift`) is the one table that says so. Transcription runs
+entirely on-device; only sign-in itself and the account's sync talk to the cloud.
+Signed out, the fn + control chord shows a sign-in prompt on the notch instead of
+running the assistant, and the pages made of an account (Notes & Reminders,
+Connectors, Insights) show a sign-in panel. Details (config, the sign-in window,
+the OAuth redirect allowlist each build needs, the bridging timer, enforcement
+points): **`Sources/WhisperMaster/Auth/CLAUDE.md`**.
 
 ### State (`PrototypeAppState`)
 

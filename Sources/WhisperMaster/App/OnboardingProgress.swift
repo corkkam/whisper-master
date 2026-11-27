@@ -4,10 +4,16 @@ import Foundation
 /// so the first-run wizard opens **once per user**.
 ///
 /// Persisted in `UserDefaults` as a `userId → [stepID]` map (steps are keyed by
-/// `OnboardingStep.id`, a stable string). Usage is per-account because the Clerk
-/// gate lets several people sign into one Mac — the same rationale as `UsageStore`.
+/// `OnboardingStep.id`, a stable string). Usage is per-account because Clerk
+/// lets several people sign into one Mac — the same rationale as `UsageStore`.
 enum OnboardingProgress {
     private static let key = "WhisperMaster.onboardingSeenSteps.v1"
+
+    /// The scope for a person who is not signed in. Setup needs no account (owner
+    /// decision D2, 2026-11-27), so a signed-out person finishes it and is not shown
+    /// it again at every launch. Clerk user ids start with `user_`, so this cannot
+    /// be one.
+    static let signedOutScope = "signed-out"
 
     /// Legacy step ids from earlier multi-step wizards. Any of these patterns
     /// means the account already finished onboarding and should not be re-shown
