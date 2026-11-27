@@ -1,0 +1,15 @@
+{
+  "session_id": "<sid>",
+  "transcript_path": "<path>",
+  "cwd": "<proj>",
+  "prompt_id": "ff65ae48-0000",
+  "agent_type": "lead",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "No, the app ...",
+  "background_tasks": [],
+  "session_crons": []
+}

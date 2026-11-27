@@ -1,0 +1,15 @@
+{
+  "session_id": "<sid>",
+  "transcript_path": "<path>",
+  "cwd": "<proj>",
+  "prompt_id": "ff65ae48-0000",
+  "permission_mode": "auto",
+  "agent_type": "lead",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git status",
+    "description": "Show status"
+  },
+  "tool_use_id": "toolu_01AA"
+}

@@ -1,0 +1,13 @@
+{
+  "session_id": "<sid>",
+  "transcript_path": "<path>",
+  "cwd": "<proj>",
+  "prompt_id": "ff65ae48-0000",
+  "agent_type": "lead",
+  "hook_event_name": "MessageDisplay",
+  "turn_id": "9067",
+  "message_id": "9233",
+  "index": 0,
+  "final": true,
+  "delta": "No, the app should not support dark mode for now."
+}

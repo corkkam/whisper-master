@@ -1,0 +1,6 @@
+ledger.jsonl
+ledger.lock
+STOP
+tasks/
+inbox/
+*.tmp

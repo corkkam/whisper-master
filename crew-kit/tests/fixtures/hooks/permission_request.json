@@ -1,0 +1,8 @@
+{
+  "session_id": "<sid>",
+  "transcript_path": "<path>",
+  "cwd": "<proj>",
+  "agent_type": "lead",
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "Bash"
+}

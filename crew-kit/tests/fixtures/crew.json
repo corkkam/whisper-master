@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "project": {"name": "notes-app", "public_paths": []},
+  "lead": "nova",
+  "agents": [
+    {"id": "nova", "role": "lead", "name": "Nova", "model": "opus", "effort": "high", "max_budget_usd": 3.0},
+    {"id": "pm", "role": "pm", "name": "Paige", "consult_on": ["user-facing", "pricing", "release", "public-api", "irreversible"]},
+    {"id": "qa", "role": "qa", "name": "Quinn", "consult_on": ["data-format", "release", "security", "irreversible"], "paths": ["server/tests/", "web/tests/"]},
+    {"id": "design", "role": "design", "name": "Iris", "consult_on": ["user-facing"]},
+    {"id": "marketing", "role": "marketing", "name": "Max", "consult_on": ["user-facing", "pricing", "release", "launch"]},
+    {"id": "user", "role": "user", "name": "Uma", "consult_on": ["user-facing", "pricing", "launch"]},
+    {"id": "architect", "role": "architect", "name": "Archie", "consult_on": ["data-format", "public-api", "security", "privacy", "irreversible"]},
+    {"id": "scout", "role": "helper", "name": "Scout", "model": "haiku", "effort": "low"},
+    {"id": "c-api", "role": "component", "name": "Api", "component_dir": "server/api", "paths": ["server/api/", "server/tests/api_*"]},
+    {"id": "c-web", "role": "component", "name": "Web", "component_dir": "web/src", "paths": ["web/src/", "web/tests/"]}
+  ],
+  "gates": {
+    "tags": ["data-format", "public-api", "privacy", "security", "user-facing", "pricing", "release", "irreversible", "launch"],
+    "rules": [
+      {"tag": "user-facing", "paths": ["web/src/"]},
+      {"tag": "data-format", "paths": ["server/api/schema/"]},
+      {"tag": "security", "paths": ["server/api/auth/"]}
+    ]
+  },
+  "routing": [
+    {"when": {"type": "qa"}, "assign": "qa", "consult": ["pm"]},
+    {"when": {"type": "copy"}, "assign": "marketing", "gates": ["user-facing"]}
+  ],
+  "huddle": {"max_advisers": 3, "max_subjects": 3, "priority": ["pm", "user", "design", "marketing", "qa", "architect"], "max_words": 300,
+             "hard_block_tags": ["privacy", "security", "irreversible", "pricing", "release"],
+             "owner_tags": ["privacy", "security", "pricing", "release", "irreversible"]},
+  "budget": {"per_task_usd": 3.0, "per_day_usd": 10.0, "per_loop_usd": 5.0, "call_reserve_usd": {"opus": 1.0, "default": 0.3},
+             "cap_headroom": 1.0, "five_hour_max_pct": 70, "seven_day_max_pct": 80, "snapshot_max_age_s": 600,
+             "snapshot_max_age_auto_s": 120, "allow_unknown_window": false, "overage_guard_verified": false, "account": null},
+  "autonomy": {"level": "L3", "set_at": "2026-11-27T19:00:00+05:30", "expires_at": null, "set_by": "owner"},
+  "guard": {"protected": [], "deny_bash": []},
+  "eval": {"commands": ["npm test", "\"$HOME\"/.crew/bin/crew doctor"], "timeout_s": 1800},
+  "doctor": {"deny_words": [], "interface_max_age_days": 60},
+  "context": {"max_turns": 8}
+}
