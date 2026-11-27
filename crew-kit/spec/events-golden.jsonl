@@ -1,0 +1,10 @@
+{"v":1,"ts":"2026-11-27T14:00:00.000Z","src":"crew","event":"run.start","session":"s1","agent":"juno","project":"/tmp/crew-golden","tool":null,"kind":null,"note":null,"agents":[]}
+{"v":1,"ts":"2026-11-27T14:00:01.000Z","src":"claude","event":"session.start","session":"s1","agent":"juno","project":"/tmp/crew-golden","tool":null,"kind":null,"note":null,"agents":[]}
+{"v":1,"ts":"2026-11-27T14:00:05.000Z","src":"crew","event":"huddle.start","session":"s1","agent":"juno","project":"/tmp/crew-golden","tool":null,"kind":null,"note":null,"agents":["pm","c-input"]}
+{"v":1,"ts":"2026-11-27T14:00:06.000Z","src":"claude","event":"agent.start","session":"s1","agent":"pm","project":"/tmp/crew-golden","tool":null,"kind":null,"note":null,"agents":[]}
+{"v":1,"ts":"2026-11-27T14:00:20.000Z","src":"claude","event":"agent.stop","session":"s1","agent":"pm","project":"/tmp/crew-golden","tool":null,"kind":null,"note":null,"agents":[]}
+{"v":1,"ts":"2026-11-27T14:00:30.000Z","src":"crew","event":"huddle.end","session":"s1","agent":"juno","project":"/tmp/crew-golden","tool":null,"kind":null,"note":null,"agents":["pm","c-input"]}
+{"v":1,"ts":"2026-11-27T14:00:31.000Z","src":"claude","event":"agent.start","session":"s1","agent":"qa","project":"/tmp/crew-golden","tool":null,"kind":null,"note":null,"agents":[]}
+{"v":1,"ts":"2026-11-27T14:00:40.000Z","src":"claude","event":"agent.stop","session":"s1","agent":"qa","project":"/tmp/crew-golden","tool":null,"kind":null,"note":null,"agents":[]}
+{"v":1,"ts":"2026-11-27T14:00:41.000Z","src":"claude","event":"agent.start","session":"s1","agent":"c-input","project":"/tmp/crew-golden","tool":null,"kind":null,"note":null,"agents":[]}
+{"v":1,"ts":"2026-11-27T14:00:42.000Z","src":"claude","event":"tool.start","session":"s1","agent":"c-input","project":"/tmp/crew-golden","tool":"Bash","kind":"test","note":null,"agents":[]}

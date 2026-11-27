@@ -1,0 +1,169 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook session-start",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook event",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook session-start",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook event",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook session-start",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook event",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook guard",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook event",
+            "timeout": 10,
+            "async": true
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook event",
+            "timeout": 10,
+            "async": true
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook event",
+            "timeout": 10,
+            "async": true
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook event",
+            "timeout": 10,
+            "async": true
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook event",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook event",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook event",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook event",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.crew/bin/crew hook event",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

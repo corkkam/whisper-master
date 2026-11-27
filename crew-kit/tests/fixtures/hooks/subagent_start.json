@@ -1,0 +1,9 @@
+{
+  "session_id": "<sid>",
+  "transcript_path": "<path>",
+  "cwd": "<proj>",
+  "prompt_id": "ff65ae48-0000",
+  "agent_id": "a11efba4977f86058",
+  "agent_type": "pm",
+  "hook_event_name": "SubagentStart"
+}

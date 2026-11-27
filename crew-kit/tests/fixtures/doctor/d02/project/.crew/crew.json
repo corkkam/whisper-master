@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "project": {
+    "name": "fixture",
+    "public_paths": [
+      "pub/"
+    ]
+  },
+  "lead": "pm",
+  "agents": [
+    {
+      "id": "lead",
+      "role": "lead",
+      "name": "Atlas",
+      "model": "opus",
+      "effort": "high"
+    },
+    {
+      "id": "pm",
+      "role": "pm",
+      "name": "Maya",
+      "consult_on": [
+        "user-facing"
+      ]
+    },
+    {
+      "id": "c-core",
+      "role": "component",
+      "name": "Core",
+      "component_dir": "pub/core",
+      "paths": [
+        "pub/core/"
+      ]
+    }
+  ],
+  "gates": {
+    "rules": [
+      {
+        "tag": "user-facing",
+        "paths": [
+          "web/"
+        ]
+      }
+    ]
+  },
+  "routing": [
+    {
+      "when": {
+        "type": "copy"
+      },
+      "assign": "pm",
+      "gates": [
+        "user-facing"
+      ]
+    }
+  ],
+  "huddle": {
+    "priority": [
+      "pm"
+    ]
+  },
+  "autonomy": {
+    "level": "L2",
+    "set_at": "2026-11-27T19:00:00+05:30"
+  }
+}

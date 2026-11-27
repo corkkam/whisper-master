@@ -1,0 +1,9 @@
+{
+  "session_id": "<sid>",
+  "transcript_path": "<path>",
+  "cwd": "<proj>",
+  "prompt_id": "ff65ae48-0000",
+  "agent_type": "lead",
+  "hook_event_name": "SessionEnd",
+  "reason": "other"
+}
