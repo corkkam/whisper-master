@@ -18,7 +18,7 @@ The route JSON gives the list: `advisers` (at most `huddle.max_advisers`) and `s
 5. If no answer has `"verdict": "block"`, go to step 8.
 6. Round 2, only after a block. Revise the plan. Send the revised plan to every participant, with the blocking concerns and the `suggestion` line of every other opinion (not their concerns). Each answers once more with `"round": 2`. Run `crew emit huddle.round --agent <lead> --agents <all participants> --task <task_id> --note "round 2"`.
 7. There is never a round 3.
-8. Decide. Write `## Decision` in `huddle.md`: the choice, the reason and each dissent. A block that remains after round 2, on a gate tag in `huddle.hard_block_tags`: do not execute. End with `blocked`. The owner decides. Any other remaining block: you decide and record the dissent. When `owner_gate` is true and the header says `approved=false`, end with `needs_approval`, whatever the verdicts.
+8. Decide. Write `## Decision` in `huddle.md`: the choice, the reason and each dissent. A block that remains after round 2, on a gate tag in `huddle.hard_block_tags`: do not execute. End with `blocked`. The owner decides. Any other remaining block: you decide and record the dissent. When `owner_gate` is true and the header says `approved=false`, end with `needs_approval`, whatever the verdicts. Until approval only `.crew/tasks/<task_id>/` takes writes: `DECISIONS.md`, the session record and `.crew/STATE.md` wait for the approved run.
 9. Run `crew emit huddle.end --agent <lead> --agents <same list as start> --task <task_id>`.
 10. A lasting choice also goes into a decision entry.
 
