@@ -74,6 +74,17 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         self != .lab || FeatureFlags.modelLabAvailable
     }
 
+    /// Whether this page is made of an account's own data: the per-account notes,
+    /// connectors and usage stores. Signed out it shows `SignInRequiredPanel`
+    /// instead (owner decision D2, 2026-11-27). Every other page, dictation's
+    /// own settings included, opens without an account.
+    var requiresAccount: Bool {
+        switch self {
+        case .notes, .connectors, .insights: return true
+        default: return false
+        }
+    }
+
     /// The sidebar item that should read as selected for this section (a
     /// secondary page highlights its parent, Settings).
     var sidebarParent: SettingsSection { isPrimary ? self : .settings }
@@ -175,6 +186,9 @@ struct SettingsView: View {
     var startSetup: () -> Void = {}
     var cancelSetup: () -> Void = {}
     var signOut: () -> Void = {}
+    /// Opens sign-in. Offered wherever a signed-out person meets something that
+    /// needs an account.
+    var signIn: () -> Void = {}
     /// The mic cards' Start. The App layer runs the sign-in and setup capture
     /// gates first, as it does for the tray's Start Dictation.
     var startDictation: () -> Void = {}
@@ -204,6 +218,7 @@ struct SettingsView: View {
         startSetup: @escaping () -> Void = {},
         cancelSetup: @escaping () -> Void = {},
         signOut: @escaping () -> Void = {},
+        signIn: @escaping () -> Void = {},
         startDictation: @escaping () -> Void = {},
         initialSection: SettingsSection = .today
     ) {
@@ -214,6 +229,7 @@ struct SettingsView: View {
         self.startSetup = startSetup
         self.cancelSetup = cancelSetup
         self.signOut = signOut
+        self.signIn = signIn
         self.startDictation = startDictation
         self.initialSection = initialSection
         _selection = State(initialValue: initialSection.isAvailable ? initialSection : .today)
@@ -308,8 +324,10 @@ struct SettingsView: View {
                 SidebarMicCard(state: state, viewModel: viewModel, start: startDictation)
                 SidebarAccountRow(
                     isSnapshot: isSnapshot,
+                    snapshotSignedIn: state.accountSignedIn,
                     updateVersion: state.availableUpdateVersion,
                     signOut: signOut,
+                    signIn: signIn,
                     checkForUpdates: checkForUpdates
                 )
             }
@@ -545,6 +563,15 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var panelContent: some View {
+        if selection.requiresAccount && !state.accountSignedIn {
+            SignInRequiredPanel(section: selection, signIn: signIn)
+        } else {
+            accountPanelContent
+        }
+    }
+
+    @ViewBuilder
+    private var accountPanelContent: some View {
         switch selection {
         case .today:
             TodayView(
@@ -788,8 +815,11 @@ private struct SidebarMicCard: View {
 /// stable stand-in.
 private struct SidebarAccountRow: View {
     let isSnapshot: Bool
+    /// What the snapshot stand-in shows. The live row reads Clerk instead.
+    var snapshotSignedIn = true
     var updateVersion: String?
     var signOut: () -> Void = {}
+    var signIn: () -> Void = {}
     var checkForUpdates: () -> Void = {}
 
     @State private var showAccount = false
@@ -801,6 +831,12 @@ private struct SidebarAccountRow: View {
                 AccountPopover(
                     updateVersion: updateVersion,
                     signOut: signOut,
+                    signIn: {
+                        // The sign-in window is a window of its own: close the
+                        // popover so it isn't left floating over it.
+                        showAccount = false
+                        signIn()
+                    },
                     checkForUpdates: {
                         // Sparkle's window is app-modal-ish and this popover sits
                         // above it, so close ours before handing over.
@@ -813,7 +849,16 @@ private struct SidebarAccountRow: View {
 
     @ViewBuilder
     private var row: some View {
-        if isSnapshot {
+        if isSnapshot, !snapshotSignedIn {
+            AccountRowContent(
+                name: "Not signed in",
+                subtitle: "Sign in to sync",
+                imageURL: nil,
+                isOpen: showAccount,
+                open: { showAccount = true },
+                hint: "Shows how to sign in"
+            )
+        } else if isSnapshot {
             AccountRowContent(
                 name: "Alex Rivera",
                 subtitle: "on-device",
@@ -848,10 +893,11 @@ private struct LiveSidebarAccountRow: View {
         } else {
             AccountRowContent(
                 name: "Not signed in",
-                subtitle: "Sign in to dictate",
+                subtitle: "Sign in to sync",
                 imageURL: nil,
                 isOpen: isOpen,
-                open: open
+                open: open,
+                hint: "Shows how to sign in"
             )
         }
     }
@@ -863,6 +909,7 @@ private struct AccountRowContent: View {
     var imageURL: URL?
     var isOpen: Bool
     var open: () -> Void
+    var hint = "Shows your email, account ID, and sign out"
 
     @State private var hovering = false
 
@@ -914,7 +961,7 @@ private struct AccountRowContent: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .accessibilityLabel("Account: \(name)")
-        .accessibilityHint("Shows your email, account ID, and sign out")
+        .accessibilityHint(hint)
         .pointerCursor()
     }
 

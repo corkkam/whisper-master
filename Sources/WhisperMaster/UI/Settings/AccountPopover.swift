@@ -17,6 +17,7 @@ struct AccountPopover: View {
     /// and the card can never disagree about whether something is waiting.
     var updateVersion: String?
     var signOut: () -> Void = {}
+    var signIn: () -> Void = {}
     var checkForUpdates: () -> Void = {}
 
     @Environment(\.isSnapshot) private var isSnapshot
@@ -40,6 +41,7 @@ struct AccountPopover: View {
             LiveAccountPopover(
                 updateVersion: updateVersion,
                 signOut: signOut,
+                signIn: signIn,
                 checkForUpdates: checkForUpdates
             )
         }
@@ -52,6 +54,7 @@ struct AccountPopover: View {
 private struct LiveAccountPopover: View {
     var updateVersion: String?
     var signOut: () -> Void
+    var signIn: () -> Void
     var checkForUpdates: () -> Void
     @Environment(Clerk.self) private var clerk
 
@@ -68,10 +71,9 @@ private struct LiveAccountPopover: View {
                 checkForUpdates: checkForUpdates
             )
         } else {
-            // No live Clerk user. The sign-in gate always holds until a real
-            // session loads (there is no bypass in any build), so this popup is
-            // out of reach without an account — defensive fallback only.
-            NotSignedInPopover()
+            // No live Clerk user: the ordinary signed-out state. Dictation works
+            // here (owner decision D2, 2026-11-27); this is the way into sign-in.
+            AccountSignedOutCard(signIn: signIn, updateVersion: updateVersion, checkForUpdates: checkForUpdates)
         }
     }
 }
@@ -113,19 +115,56 @@ enum AccountIdentity {
     }
 }
 
-/// Defensive fallback shown on the live path when there is no Clerk user.
-private struct NotSignedInPopover: View {
+/// The popup for a person who is not signed in: what an account adds, and the way
+/// to one. Takes plain values, like `AccountPopoverCard`, so the snapshot renderer
+/// can draw it without a Clerk environment.
+struct AccountSignedOutCard: View {
+    var signIn: () -> Void = {}
+    /// Same pair as the signed-in card's: the build's own update check is not an
+    /// account feature, so it is here too.
+    var updateVersion: String?
+    var checkForUpdates: () -> Void = {}
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Not signed in")
-                .font(Typography.sans(14, .bold))
-                .foregroundStyle(Theme.textPrimary)
-            Text("Sign in to use Whisper Master.")
-                .font(Typography.caption)
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Not signed in")
+                    .font(Typography.sans(14.5, .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                Text("Dictation works without an account. Sign in to sync notes and usage, use the assistant and join the beta.")
+                    .font(Typography.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button("Sign in", action: signIn)
+                .primaryButton(isFullWidth: true)
+
+            Divider().overlay(Theme.stroke)
+
+            Button(action: checkForUpdates) {
+                HStack(spacing: 8) {
+                    Image(systemName: updateVersion == nil ? "arrow.triangle.2.circlepath" : "arrow.down.circle")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(updateVersion == nil ? "Check for updates" : "Install update")
+                        .font(Typography.sans(12.5, .medium))
+                    Spacer(minLength: 6)
+                    if let updateVersion {
+                        Text(updateVersion)
+                            .font(Typography.monoSmall)
+                            .lineLimit(1)
+                    }
+                }
                 .foregroundStyle(Theme.textSecondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
         }
         .padding(16)
-        .frame(width: 260, alignment: .leading)
+        .frame(width: 272, alignment: .leading)
     }
 }
 

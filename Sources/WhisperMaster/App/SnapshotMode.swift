@@ -116,6 +116,7 @@ enum SnapshotMode {
             render(accountPopover, to: dir.appendingPathComponent("\(name).png"))
         }
 
+        renderSignedOut(dir, viewModel: viewModel)
         renderAgentEndpoint(dir)
         renderConnectedTool(dir)
 
@@ -228,6 +229,22 @@ enum SnapshotMode {
             s.phase = .idle
             s.readyNoticeAt = Date()
             s.readyNoticeTypingOn = false
+        }
+        // The assistant chord (or the agent key) pressed with no account: the sign-in
+        // prompt, and the same band once the words were held instead of typed.
+        renderPill(dir, name: "pill-15-sign-in-prompt") { s in
+            s.phase = .idle
+            s.commandConfirmation = "Sign in to use the assistant"
+            s.commandConfirmationDetail = "Tap to sign in. Dictation works without an account."
+            s.commandConfirmationIcon = "person.crop.circle.badge.exclamationmark"
+            s.commandConfirmationAt = Date()
+        }
+        renderPill(dir, name: "pill-15b-sign-in-prompt-words-held") { s in
+            s.phase = .idle
+            s.commandConfirmation = "Sign in to use the assistant"
+            s.commandConfirmationDetail = "Your words are copied. Tap to sign in."
+            s.commandConfirmationIcon = "person.crop.circle.badge.exclamationmark"
+            s.commandConfirmationAt = Date()
         }
         renderPill(dir, name: "pill-4-failed") { s in
             s.phase = .failed("The network appears to be offline")
@@ -1309,6 +1326,38 @@ enum SnapshotMode {
     /// The endpoint section before and after consent, and the consent sheet. Drawn from
     /// a constant binding, so no mock endpoint is written into this process's defaults;
     /// the mock key goes to the in-memory store `seedMockData` switched to.
+    /// What a person who is not signed in meets (owner decision D2, 2026-11-27): the
+    /// account popup's signed-out card, the account pages' sign-in panel on its
+    /// own and inside the window, and the window's sidebar row.
+    private static func renderSignedOut(_ dir: URL, viewModel: DictationViewModel) {
+        let card = AccountSignedOutCard(updateVersion: nil)
+            .background(Theme.surface)
+            .padding(20)
+            .background(Color(white: 0.9))
+        render(card, to: dir.appendingPathComponent("panel-account-popover-signed-out.png"))
+
+        for section in [SettingsSection.notes, .connectors, .insights] {
+            render(
+                detailContainer(section: section, viewModel: viewModel, state: viewModel.state, signedOut: true),
+                to: dir.appendingPathComponent("panel-signed-out-\(section.rawValue).png"))
+        }
+
+        // The window itself, on a state that is not signed in, so the sidebar row
+        // and the panel are seen together.
+        let signedOut = AppState()
+        seedMockData(signedOut)
+        signedOut.accountSignedIn = false
+        render(
+            SettingsView(viewModel: viewModel, state: signedOut, initialSection: .notes)
+                .frame(width: 1100, height: 700),
+            to: dir.appendingPathComponent("window-signed-out-notes.png"))
+        // Dictation's own settings open with no account.
+        render(
+            SettingsView(viewModel: viewModel, state: signedOut, initialSection: .settings)
+                .frame(width: 900, height: 700),
+            to: dir.appendingPathComponent("window-signed-out-settings.png"))
+    }
+
     private static func renderAgentEndpoint(_ dir: URL) {
         var endpoint = AgentEndpoint(api: .anthropic,
                                      url: "https://api.anthropic.com/v1/messages",
@@ -1446,7 +1495,8 @@ enum SnapshotMode {
         section: SettingsSection,
         viewModel: DictationViewModel,
         state: AppState,
-        notesTab: NotesTab = .overview
+        notesTab: NotesTab = .overview,
+        signedOut: Bool = false
     ) -> some View {
         // The notes canvas is laid out against the wider measure the real window
         // gives it (`SettingsView.contentMaxWidth`), so rendering it at the 680pt
@@ -1460,7 +1510,11 @@ enum SnapshotMode {
                 Text(section.title).font(Typography.largeTitle).tracking(Typography.largeTitleTracking).foregroundStyle(Theme.textPrimary)
                 Text(section.subtitle).font(Typography.body).foregroundStyle(Theme.textSecondary)
             }
-            sectionView(section, viewModel: viewModel, state: state, notesTab: notesTab)
+            if signedOut {
+                SignInRequiredPanel(section: section)
+            } else {
+                sectionView(section, viewModel: viewModel, state: state, notesTab: notesTab)
+            }
         }
         .frame(width: width, alignment: .leading)
         .padding(.horizontal, 44)
@@ -1577,6 +1631,9 @@ enum SnapshotMode {
     private static func seedMockData(_ state: AppState) {
         state.phase = .idle
         state.audioLevel = 0
+        // Signed in, so the account's pages render as data. The signed-out
+        // renders (`renderSignedOut`) turn it off on their own state.
+        state.accountSignedIn = true
         // Mock, so the sidebar's update card is in every window render. On a real
         // build this is nil until Sparkle's silent check finds something, and the
         // card is absent — the snapshots deliberately show the loud state, which
