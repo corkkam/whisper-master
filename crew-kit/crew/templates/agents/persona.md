@@ -5,7 +5,7 @@ tools: Read, Grep, Glob
 model: {{model}}
 effort: {{effort}}
 memory: project
-maxTurns: 6
+maxTurns: 20
 color: purple
 ---
 
