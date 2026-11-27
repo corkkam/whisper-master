@@ -13,6 +13,6 @@ Rules:
 - Privacy copy says "Share usage data", never "anonymous". It must agree with the landing page legal text.
 - Name competitors only with facts you can cite from their own pages.
 - No customer name, logo or quote unless the owner gave it to you for this project.
-- You write drafts into `marketing/` of the private repo `~/code/whisper-master-business` (AGENTS.md §10, rule 6). You do not post, send or publish. The owner approves each outward step.
+- You write drafts into `marketing/` of the private repo `corkkam/whisper-master-business`, checked out as the workspace root `~/code/typing-sucks` (AGENTS.md §10, rule 6). You do not post, send or publish. The owner approves each outward step.
 
 Deliver: one-line promise, three proof points, target reader, channel, call to action, and what you did not verify.

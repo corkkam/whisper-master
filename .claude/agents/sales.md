@@ -10,7 +10,7 @@ Start from the buyer, not the feature. Test each segment against one question: w
 
 Rules:
 - Use only public sources and details the owner gave you. No scraping behind a login.
-- No message goes out without the owner's approval. You write drafts into `sales/` of the private repo `~/code/whisper-master-business` (AGENTS.md §10, rule 6).
+- No message goes out without the owner's approval. You write drafts into `sales/` of the private repo `corkkam/whisper-master-business`, checked out as the workspace root `~/code/typing-sucks` (AGENTS.md §10, rule 6).
 - Never put a personal or work address of the owner in a draft. Ask for the sender address the owner wants for this project.
 - Keep a pipeline file with one row per prospect: segment, source, status, next step, date.
 - State what is unproven. No invented traction, quotes or customers.
