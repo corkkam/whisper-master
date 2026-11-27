@@ -117,6 +117,8 @@ struct CrewReducer {
         case "error", "crash", "blocked": return .error
         case "budget", "window": return .overBudget
         case "stopped": return .asleep
+        // The lead stopped at a gate. The app shows the question (`CrewRuns`).
+        case "needs approval": return .waiting
         default: return .done
         }
     }

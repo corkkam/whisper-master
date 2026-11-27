@@ -36,12 +36,16 @@ enum DelegateToolCatalog {
     /// The tools one run offers.
     ///
     /// - `list_coding_tasks` needs a kunai or a Shed that answered.
-    /// - `delegate_task` needs kunai (this client has no route that starts a Shed
-    ///   session), the Desk folder, the consent, and a capture that may leave this Mac
-    ///   (`AgentEndpoint.staysLocal`).
+    /// - `delegate_task` needs a capture that may leave this Mac
+    ///   (`AgentEndpoint.staysLocal`) and one route: kunai with the Desk folder and its
+    ///   consent (this client has no route that starts a Shed session), or a Crew
+    ///   project with the Crew consent.
     static func offered(kunai: Bool, shed: Bool, deskFolder: String?,
-                        consented: Bool, staysLocal: Bool) -> [ToolDescriptor] {
-        let delegate = kunai && deskFolder != nil && consented && !staysLocal
+                        consented: Bool, staysLocal: Bool,
+                        crewProject: String? = nil, crewConsented: Bool = false) -> [ToolDescriptor] {
+        let desk = kunai && deskFolder != nil && consented
+        let crew = crewProject != nil && crewConsented
+        let delegate = (desk || crew) && !staysLocal
         return (delegate ? [delegateTask] : []) + (kunai || shed ? [listCodingTasks] : [])
     }
 }
@@ -61,8 +65,10 @@ struct DelegateToolRunner {
     struct Environment {
         /// The tools this run offers (`DelegateToolCatalog.offered`).
         var tools: [ToolDescriptor] = []
-        /// The folder the Desk opens in (`AgentDesk.folder`).
+        /// The folder the task runs in: the Desk's (`AgentDesk.folder`) or the Crew project.
         var deskFolder: String?
+        /// What the card and the result call the receiver. Nil means the Desk.
+        var destination: String?
         /// Send the task to the Desk. Nil when it went, else why not.
         var handOff: @MainActor (_ task: String, _ folder: String) async -> String? = { _, _ in
             "No coding agent is running on this Mac."
@@ -71,16 +77,26 @@ struct DelegateToolRunner {
         var sessions: @MainActor () -> [AgentSession] = { [] }
 
         /// The environment for one chord capture.
+        /// kunai's Desk wins when both routes are open; the Crew takes the task otherwise.
         @MainActor static func live(agents: AgentSurfaceController, folderSetting: String,
-                         consented: Bool, staysLocal: Bool) -> Environment {
+                         consented: Bool, staysLocal: Bool,
+                         crewConsented: Bool = false) -> Environment {
             let folder = AgentDesk.folder(folderSetting)
+            let desk = agents.isAvailable && folder != nil && consented
+            let crewProject = crewConsented ? agents.crew.project : nil
+            let toCrew = !desk && crewProject != nil
             return Environment(
                 tools: DelegateToolCatalog.offered(
                     kunai: agents.isAvailable, shed: agents.shed.isAvailable,
-                    deskFolder: folder, consented: consented, staysLocal: staysLocal),
-                deskFolder: folder,
+                    deskFolder: folder, consented: consented, staysLocal: staysLocal,
+                    crewProject: crewProject, crewConsented: crewConsented),
+                deskFolder: toCrew ? crewProject : folder,
+                destination: toCrew ? crewProject.map(CrewRuns.destination(project:)) : nil,
                 handOff: { [weak agents] task, folder in
-                    await agents?.handToDesk(task, folder: folder) ?? "No coding agent is running on this Mac."
+                    guard let agents else { return "No coding agent is running on this Mac." }
+                    return toCrew
+                        ? agents.crewRuns.start(task, project: folder)
+                        : await agents.handToDesk(task, folder: folder)
                 },
                 sessions: { [weak agents] in agents?.heldSessions ?? [] })
         }
@@ -113,7 +129,7 @@ struct DelegateToolRunner {
         guard !AgentDraft.hasHiddenCharacters(task) else {
             return (.failure("The task has characters the card can't show, so it wasn't handed off."), nil)
         }
-        let destination = AgentDesk.destination(folder: folder)
+        let destination = environment.destination ?? AgentDesk.destination(folder: folder)
         // No grants are passed: a hand-off asks every time, so a grant can never answer.
         if case .refused(let reason) = WriteAuthorizer.authorize(
             tool: DelegateToolCatalog.delegateTask, instanceID: DeviceToolCatalog.thisMacID,

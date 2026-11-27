@@ -148,6 +148,10 @@ final class DictationViewModel {
         self.textInjector = textInjector
         // The Desk's answer to a hand-off is read out like any assistant answer.
         state.agents.onDeskReply = { [weak self] raw in self?.speakDeskReply(raw) }
+        // A Crew run's final text lands like any assistant answer: notch, log, voice.
+        state.agents.crewRuns.onResult = { [weak self] task, text, from in
+            self?.presentAnswer(question: task, answer: text, provenance: from)
+        }
     }
 
     /// Read out the opening sentence of the Desk's reply, the band's own headline.
@@ -1955,7 +1959,10 @@ final class DictationViewModel {
             // dev flag and its own consent, and never offered to a capture kept local.
             coding: .live(agents: state.agents, folderSetting: state.agentDefaultDirectory,
                           consented: FeatureFlags.agentEndpointAvailable && state.deskHandOffAllowed,
-                          staysLocal: keptLocal))
+                          staysLocal: keptLocal,
+                          // The Crew project comes from the rail's feed, so the faces must be on.
+                          crewConsented: FeatureFlags.crewAvailable && state.crewFacesEnabled
+                            && state.crewHandOffAllowed))
         // The orb shows the thinking figure while the loop runs — the paste is
         // suppressed, so without it the notch sits silent through a multi-second
         // tool call and reads as having dropped the command. `isPolishing` is what
@@ -2444,6 +2451,7 @@ final class DictationViewModel {
         AgentEndpoint.setAPIKey(nil)
         state.connectedTool.consentedTo = nil
         state.deskHandOffAllowed = false
+        state.crewHandOffAllowed = false
     }
 
     func pasteLastTranscript() {

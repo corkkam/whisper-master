@@ -81,11 +81,14 @@ struct AgentSettingsView: View {
                 ThemeToggle(isOn: $state.crewFacesAlwaysShow, label: "Keep the lead on screen")
             }
             RowDivider()
+            CrewHandOffRow(state: state)
+            RowDivider()
             SettingsRow(
                 "Stop all Crew runs",
                 subtitle: "Creates ~/.crew/STOP. Run crew resume --global to undo."
             ) {
                 Button("Stop") { state.agents.crew.stopAll() }
+                    .secondaryButton()
                     .disabled(isSnapshot)
             }
         }

@@ -653,7 +653,8 @@ struct DictationPillContent: View {
                 ask: ask,
                 sessions: state.agents.sessions,
                 askingRepo: state.agents.askingRepo,
-                mode: state.agents.askIsFromDesk ? nil : (state.agents.askingSession?.mode ?? .ask),
+                mode: state.agents.askIsFromDesk || state.agents.askIsFromCrew
+                    ? nil : (state.agents.askingSession?.mode ?? .ask),
                 now: now,
                 offersAlways: !state.agents.askIsFromDesk,
                 onResolve: { allow, always in
@@ -664,7 +665,7 @@ struct DictationPillContent: View {
                     state.agents.answer(choice, question: question, selected: selected)
                 },
                 onSelectMode: { state.agents.setMode($0) },
-                onOpenShed: ask.isShedChoice
+                onOpenShed: ask.isShedChoice && !state.agents.askIsFromCrew
                     ? { state.agents.shed.openFullSession(ask.requestID) } : nil)
         } else if showDraft, let draft = state.agentDraft {
             NotchDraftBanner(draft: draft, bodyWidth: draftBodyWidth, onAction: onDraft)

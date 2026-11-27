@@ -588,7 +588,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if crew.showLeadWhenIdle != state.crewFacesAlwaysShow { crew.showLeadWhenIdle = state.crewFacesAlwaysShow }
         let items = want ? crew.items : []
         guard items != appliedCrewItems else { return }
-        if crewRail == nil && !items.isEmpty { crewRail = AgentRailPanel() }
+        if crewRail == nil && !items.isEmpty {
+            // A click on a face shows the question that waits, else the last result.
+            crewRail = AgentRailPanel { [weak self] _ in self?.viewModel.state.agents.crewRuns.showLast() }
+        }
         crewRail?.update(items: items)
         appliedCrewItems = items
     }

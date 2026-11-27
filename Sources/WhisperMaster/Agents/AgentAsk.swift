@@ -127,8 +127,8 @@ struct AgentChoice: Sendable, Equatable {
     var questions: [Question]
     /// The session this came from, for the card's second line.
     var context: String
-    /// True for a question read off Shed's terminal. The notch shows those in full
-    /// (`NotchShedChoiceCard`) instead of deferring long ones.
+    /// True for a question read off Shed's terminal, or a Crew question (`CrewRuns`).
+    /// The notch shows those in full (`NotchShedChoiceCard`) instead of deferring long ones.
     var isShed = false
 
     /// The notch answers one question at a time. Claude almost always asks one, and

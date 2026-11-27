@@ -20,6 +20,9 @@ final class CrewAgents {
     private(set) var isActive = false
     /// Any agent is waiting or in error.
     private(set) var needsYou = false
+    /// The Crew project with the newest event, where the app starts a task
+    /// (`CrewRuns`). A project in a temporary folder is a kit test and is skipped.
+    private(set) var project: String?
     /// The `crewFacesAlwaysShow` setting: keep the leads on screen after the active time.
     var showLeadWhenIdle = false {
         didSet { if oldValue != showLeadWhenIdle { publish() } }
@@ -115,7 +118,17 @@ final class CrewAgents {
         if active != isActive { isActive = active }
         if pass.available != isAvailable { isAvailable = pass.available }
         if needs != needsYou { needsYou = needs }
+        let newest = reducer.entries.values
+            .filter { rosters[$0.project]?.leadID != nil && !Self.isScratch($0.project) }
+            .max { $0.lastEventAt < $1.lastEventAt }?.project
+        if newest != project { project = newest }
         publish()
+    }
+
+    /// shortcut: a path test for the kit's smoke projects; add a project setting if a
+    /// real crew ever lives in a temporary folder.
+    nonisolated static func isScratch(_ path: String) -> Bool {
+        ["/private/var/folders/", "/var/folders/", "/tmp/", "/private/tmp/"].contains { path.hasPrefix($0) }
     }
 
     /// Spec 12.4: each project with any key shows its lead. A lead with no key of

@@ -456,6 +456,12 @@ struct AgentRailItem: Identifiable, Hashable, Sendable {
         self.contextClearedAt = contextClearedAt
     }
 
+    /// The last part of the project folder, from the id (project + "/" + agent).
+    var projectName: String {
+        guard let slash = id.lastIndex(of: "/") else { return "" }
+        return AgentSession.repoName(fromPath: String(id[..<slash]))
+    }
+
     var hoverText: String {
         var text = "\(identity.name) \u{00B7} \(identity.roleWords.capitalizedFirst) \u{00B7} \(state.words)"
         if state == .working, let detail, !detail.isEmpty { text += ", \(detail)" }

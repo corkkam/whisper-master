@@ -118,7 +118,9 @@ struct AgentRailView: View {
             Text(item.identity.name)
                 .font(Typography.sans(12, .semibold))
                 .foregroundStyle(Theme.AgentFace.ink(dark: dark))
-            Text("\(item.identity.roleWords.prefix(1).uppercased())\(item.identity.roleWords.dropFirst()) \u{00B7} \(item.accessibilityValue)")
+            Text("\(item.identity.roleWords.prefix(1).uppercased())\(item.identity.roleWords.dropFirst()) \u{00B7} \(item.accessibilityValue)"
+                 // Two projects can each have an "Atlas"; say which one this is.
+                 + (Set(items.map(\.projectName)).count > 1 ? " \u{00B7} \(item.projectName)" : ""))
                 .font(Typography.sans(11))
                 .foregroundStyle(Theme.AgentFace.secondaryInk(dark: dark))
         }

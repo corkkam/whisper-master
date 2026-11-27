@@ -666,6 +666,13 @@ session, and it never ships, starts or supervises kunai or Shed.
   consent is given (`DeskHandOffRow`, `AppState.deskHandOffAllowed`, dropped at sign-out),
   `FeatureFlags.agentEndpointAvailable`, and the capture may leave the Mac (not
   `AgentEndpoint.staysLocal`).
+- **The Crew route** (owner, 2026-11-27): with no Desk route, `delegate_task` starts a Crew
+  task instead (`CrewRuns.start`, `crew run --file` in the project `CrewAgents.project` names,
+  never a project in a temporary folder). It needs `FeatureFlags.crewAvailable`, Show Crew faces,
+  its own consent (`CrewHandOffRow`, `AppState.crewHandOffAllowed`, dropped at sign-out) and a
+  capture that may leave the Mac. The card names "the Crew in <project>". While a Crew task waits
+  on a question, the next hand-off is its answer. The child gets an allowlisted environment
+  (`CrewRuns.environment`). `swift test --filter CrewRunsTests` is the lock.
 - **`list_coding_tasks`** is `.read` and lists the sessions the client already holds
   (`AgentSurfaceController.heldSessions`, kunai's and Shed's, at most 10 rows). It opens no
   socket. It sets the taint flag: titles and status come from another program.

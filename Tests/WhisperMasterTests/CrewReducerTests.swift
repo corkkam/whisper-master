@@ -126,7 +126,7 @@ final class CrewReducerTests: XCTestCase {
 
     func testRunEndNotes() {
         let expected: [String: AgentFaceState] = [
-            "ok": .done, "changed": .done, "no change": .done, "needs approval": .done,
+            "ok": .done, "changed": .done, "no change": .done, "needs approval": .waiting,
             "error": .error, "crash": .error, "blocked": .error,
             "budget": .overBudget, "window": .overBudget, "stopped": .asleep,
         ]

@@ -15,7 +15,7 @@ The app is a client of two coding-agent servers, kunai and Shed. This folder fin
 
 ## Entry points
 
-- `AgentSurfaceController` (`@MainActor @Observable`) is the one state object. Lifecycle: `start()`, `stop()`, `refresh()`. It owns `shed` (`ShedAgents`) and `crew` (`CrewAgents`).
+- `AgentSurfaceController` (`@MainActor @Observable`) is the one state object. Lifecycle: `start()`, `stop()`, `refresh()`. It owns `shed` (`ShedAgents`), `crew` (`CrewAgents`) and `crewRuns` (`CrewRuns`).
 - Glance and reveal: `reveal(sessionID:adoptExistingReply:)`, `toggleGlance()`, `closeGlance()`, `focus(sessionID:)`, `open(sessionID:)`, `revealHasExpired(now:)`.
 - Answers: `resolve(_:allow:always:)` for an approval card, `answer(_:question:selected:)` for a choice card. `activeAsk` is the kunai ask, else the Shed ask.
 - Prompts: `deliver(prompt:startingIn:)` returns false when nothing took the words. Also `sendPrompt`, `interrupt()`, `setMode(_:)`.
@@ -54,7 +54,7 @@ The app is a client of two coding-agent servers, kunai and Shed. This folder fin
 - `apply(_:)` is internal so tests can feed frames. Keep it callable.
 - `AgentFleet.isPushing` is true once a stream object exists, not once a frame arrives. It sets the poll cadence.
 - Shed agents stay out of `sessions`, because those rows attach to kunai sockets by id.
-- Crew sessions also stay out of `sessions`. `CrewAgents` reads `~/.crew/events.jsonl` and the `.crew/crew.json` of each project that the events name, and writes only `~/.crew/STOP`.
+- Crew sessions also stay out of `sessions`. `CrewAgents` reads `~/.crew/events.jsonl` and the `.crew/crew.json` of each project that the events name, and writes only `~/.crew/STOP`. `CrewRuns` starts `crew run` and holds its question.
 - `AgentChangeSet.revert` nil means "not asked". Never show it as safe.
 
 ## Do not

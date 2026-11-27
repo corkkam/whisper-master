@@ -224,12 +224,21 @@ final class AgentSurfaceController {
     /// The Crew faces. Dormant until the app delegate starts it (dev builds only).
     let crew = CrewAgents()
 
-    /// The question on the notch: kunai's, else Shed's. kunai wins a tie because its
-    /// card has a caller suspended behind it.
-    var activeAsk: AgentAsk? { ask ?? shed.ask }
+    /// The Crew tasks this app starts, and the question a run stopped on.
+    let crewRuns = CrewRuns()
+
+    /// The question on the notch: kunai's, else Shed's, else the Crew's. kunai wins a
+    /// tie because its card has a caller suspended behind it.
+    var activeAsk: AgentAsk? { ask ?? shed.ask ?? crewRuns.ask }
+
+    /// The card on screen is the Crew's: no mode control, no Open in Shed.
+    var askIsFromCrew: Bool { ask == nil && shed.ask == nil && crewRuns.ask != nil }
 
     /// Which project or agent the card on screen is from.
-    var askingRepo: String { ask != nil ? (askingSession?.repo ?? "") : shed.askingLabel }
+    var askingRepo: String {
+        if ask != nil { return askingSession?.repo ?? "" }
+        return askIsFromCrew ? "Crew" : shed.askingLabel
+    }
 
     // MARK: Collaborators
 
@@ -810,6 +819,10 @@ final class AgentSurfaceController {
         // A Shed card answers over Shed's REST route, not a kunai socket.
         if ask == nil, choice.requestID == shed.ask?.requestID {
             Task { await shed.answer(choice, selected: selected) }
+            return
+        }
+        if askIsFromCrew, choice.requestID == crewRuns.ask?.requestID {
+            crewRuns.answer(choice, selected: selected)
             return
         }
         guard !selected.isEmpty else {
