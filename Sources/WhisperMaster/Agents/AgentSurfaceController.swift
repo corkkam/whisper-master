@@ -221,6 +221,9 @@ final class AgentSurfaceController {
     /// attached to kunai sockets by id, and a Shed id has no socket to attach to.
     let shed = ShedAgents()
 
+    /// The Crew faces. Dormant until the app delegate starts it (dev builds only).
+    let crew = CrewAgents()
+
     /// The question on the notch: kunai's, else Shed's. kunai wins a tie because its
     /// card has a caller suspended behind it.
     var activeAsk: AgentAsk? { ask ?? shed.ask }
@@ -294,6 +297,7 @@ final class AgentSurfaceController {
 
     func stop() {
         shed.stop()
+        crew.stop()
         pollTask?.cancel()
         pollTask = nil
         fleet.stop()

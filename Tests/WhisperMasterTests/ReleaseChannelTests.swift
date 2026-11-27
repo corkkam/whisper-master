@@ -54,6 +54,15 @@ final class ReleaseChannelTests: XCTestCase {
         XCTAssertEqual(ReleaseChannel.channel(forVersion: "1.1.0-rc1", bundleID: shipping), .stable)
     }
 
+    // MARK: The Crew rail
+
+    /// Crew is unfinished: only the dev channel shows the rail and its Settings rows.
+    func testCrewIsDevOnly() {
+        XCTAssertFalse(FeatureFlags.crewAvailable(on: .stable))
+        XCTAssertFalse(FeatureFlags.crewAvailable(on: .beta))
+        XCTAssertTrue(FeatureFlags.crewAvailable(on: .dev))
+    }
+
     // MARK: The connectors / notes gate
 
     /// The staged rollout is over: stable sees the same surfaces beta and dev

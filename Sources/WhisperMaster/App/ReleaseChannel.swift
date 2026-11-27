@@ -127,4 +127,13 @@ enum FeatureFlags {
     static func connectedCodexAvailable(on channel: ReleaseChannel) -> Bool {
         false
     }
+
+    /// The Crew rail and its Settings rows. Dev only: the feature is unfinished.
+    static var crewAvailable: Bool {
+        crewAvailable(on: ReleaseChannel.current)
+    }
+
+    static func crewAvailable(on channel: ReleaseChannel) -> Bool {
+        channel == .dev
+    }
 }
