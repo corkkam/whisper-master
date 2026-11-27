@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Builds the distributable .app via the Xcode project (generated from
-# project.yml by XcodeGen) and stages it at build/Whisper Master.app, the path
+# project.yml by XcodeGen) and stages it at build/Typing.sucks.app, the path
 # that make-dmg.sh and install.sh consume.
 
 cd "$(dirname "$0")/.."
@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 # Release channel (stable|beta|dev) → CH_APP_NAME, CH_BUNDLE_ID, CH_SU_FEED_URL.
 source "$(dirname "$0")/channel.sh"
 
-APP_NAME="$CH_APP_NAME"            # distribution .app filename (with space)
+APP_NAME="$CH_APP_NAME"            # distribution .app filename (the channel's display name)
 SCHEME="WhisperMaster"             # Xcode scheme / product name (no space)
 CONFIG="${CONFIG:-Release}"        # Release | Debug
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}" # keychain identity; pass "-" for ad-hoc

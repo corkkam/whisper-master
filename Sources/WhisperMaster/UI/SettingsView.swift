@@ -112,15 +112,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .today: return "Here's the shape of your day. Talk to me any time."
         case .notes: return "Jot notes and set reminders that follow you across your Macs."
-        case .connectors: return "Link your calendar so Whisper can brief you and act on what you say."
+        case .connectors: return "Link your calendar so Typing.sucks can brief you and act on what you say."
         case .coding: return "Your Claude Code and Codex sessions on this Mac, through Shed."
         case .settings: return "Everything you can tune, in one warm place."
         case .insights: return "Your dictation at a glance — words, speed, and streaks."
         case .engine: return "Everything runs on-device. Your audio never leaves this Mac."
         case .agents: return "Dictate straight to a Claude Code session on this Mac."
         case .traces: return "What actually happened to the last few things you said."
-        case .permissions: return "Whisper Master only asks for what it needs to work."
-        case .mesh: return "Other Macs running Whisper Master on this Wi-Fi."
+        case .permissions: return "Typing.sucks only asks for what it needs to work."
+        case .mesh: return "Other Macs running Typing.sucks on this Wi-Fi."
         case .lab: return "Bench open-source models against the real suites, on this Mac."
         case .about: return "Voice dictation that stays on your Mac."
         }
@@ -140,7 +140,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .permissions: return "Privacy"
         case .mesh: return "Mesh"
         case .lab: return "Dev build"
-        case .about: return "Whisper Master"
+        case .about: return "Typing.sucks"
         }
     }
 
@@ -273,7 +273,7 @@ struct SettingsView: View {
             // Brand lockup — padded down to clear the native traffic-light buttons.
             HStack(spacing: 11) {
                 BrandLogo(size: 34, cornerRadius: 11)
-                Text("Whisper\nMaster")
+                Text("Typing.sucks")
                     .font(Typography.heading(17, relativeTo: .title3))
                     .foregroundStyle(Theme.textPrimary)
             }

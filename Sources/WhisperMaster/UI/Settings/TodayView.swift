@@ -162,7 +162,7 @@ struct TodayView: View {
     private var connectCalendarPrompt: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(calendarUndetermined
-                 ? "Connect your calendar and Whisper can show your day here."
+                 ? "Connect your calendar and Typing.sucks can show your day here."
                  : "Calendar access is off. Turn it on in System Settings → Privacy → Calendars.")
                 .font(Typography.subheadline)
                 .foregroundStyle(Theme.textSecondary)

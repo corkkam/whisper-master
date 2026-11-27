@@ -5,7 +5,7 @@ import Foundation
 ///
 /// ```
 /// WM_LAB_BENCH=cleanup WM_LAB_MODELS=s1-mini-4bit,qwen3-4b-instruct-2507-4bit \
-///   open -a "/Applications/Whisper Master Dev.app"
+///   open -a "/Applications/Typing.sucks Dev.app"
 /// ```
 ///
 /// **Why this exists rather than "open the page and press Run".** MLX inference

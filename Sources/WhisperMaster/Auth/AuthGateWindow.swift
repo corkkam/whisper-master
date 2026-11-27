@@ -21,7 +21,7 @@ final class AuthGateWindow {
             .environment(Clerk.shared)
         let host = NSHostingController(rootView: root)
         window = NSWindow(contentViewController: host)
-        window.title = "Sign in to Whisper Master"
+        window.title = "Sign in to Typing.sucks"
         window.styleMask = [.titled, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden

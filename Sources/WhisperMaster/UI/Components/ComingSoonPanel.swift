@@ -35,11 +35,11 @@ struct ComingSoonPanel: View {
     private static func blurb(for section: SettingsSection) -> String {
         switch section {
         case .connectors:
-            return "Linking your calendar and other services so Whisper can brief you on your day and act on what you say. It's in testing now and will arrive in a future update."
+            return "Linking your calendar and other services so Typing.sucks can brief you on your day and act on what you say. It's in testing now and will arrive in a future update."
         case .notes:
             return "Capturing notes and reminders by voice, kept on your Mac and synced across the ones you own. It's in testing now and will arrive in a future update."
         case .mesh:
-            return "Finding the other Macs you use Whisper Master on, so one of them can do the transcribing for another. It's in testing now and will arrive in a future update."
+            return "Finding the other Macs you use Typing.sucks on, so one of them can do the transcribing for another. It's in testing now and will arrive in a future update."
         default:
             return "This one's still in testing and will arrive in a future update."
         }

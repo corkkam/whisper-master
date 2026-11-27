@@ -28,7 +28,7 @@ extension NSColor {
     }
 }
 
-/// The Whisper Master design system — **"Recording room, lights on"**.
+/// The Typing.sucks design system — **"Recording room, lights on"**.
 ///
 /// Warm human speech going into a cool private machine: that contrast is the
 /// product argument, and it is what the palette encodes. The app is

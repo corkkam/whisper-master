@@ -1,6 +1,6 @@
 # Security policy
 
-Whisper Master is a macOS dictation app whose core promise is that audio never
+Typing.sucks is a macOS dictation app whose core promise is that audio never
 leaves the Mac. A bug that breaks that promise is a security bug.
 
 ## Report a vulnerability

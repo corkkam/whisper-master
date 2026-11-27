@@ -9,7 +9,7 @@ import CoreBluetooth
 // to the Bonjour-discovered peer by id prefix.
 
 enum MeshBluetooth {
-    /// Private service UUID identifying a Whisper Master proximity beacon.
+    /// Private service UUID identifying a Typing.sucks proximity beacon.
     static let serviceUUID = CBUUID(string: "B6F8D4C2-9E3A-4F1B-8C7D-2A5E9F0B1C3D")
 
     /// Short token advertised over BLE and used to match a beacon to a peer id.

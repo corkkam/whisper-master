@@ -1,4 +1,4 @@
-# AGENTS.md — Whisper Master (macOS app)
+# AGENTS.md — Typing.sucks (macOS app)
 
 The entry point for any AI agent working in this repository. It overrides the
 machine-level `~/AGENTS.md` where the two disagree.
@@ -274,8 +274,9 @@ we" are read-only.
 ## 9. Glossary
 
 The words this repo uses, so an agent reads a prompt or a file the way the code
-means it. Product copy calls the app **Whisper Master**; voice prompts often
-arrive as "whisper mash" or "visible master".
+means it. Product copy calls the app **Typing.sucks** (it was Whisper Master until
+2026-11-27, and the code, the bundle id and the repo keep that name); voice
+prompts often arrive as "whisper mash" or "visible master".
 
 ### Surfaces (what the user sees)
 
@@ -373,7 +374,7 @@ arrive as "whisper mash" or "visible master".
 - **R2 mirror** — the Cloudflare bucket that also mirrors ASR models
   (`ModelInstaller.mirrorBaseURL`); an empty `models/` prefix silently
   degrades installs to the slow HuggingFace path.
-- **Mesh** (`Mesh/`) — discovery of other Macs running Whisper Master
+- **Mesh** (`Mesh/`) — discovery of other Macs running Typing.sucks
   (Bonjour + Tailscale addresses + Bluetooth proximity), with per-peer load
   and latency, written into `AppState` by `MeshCoordinator`. **On hold**: the
   Nearby Macs page is closed on every channel (`SettingsSection.isAvailable`)

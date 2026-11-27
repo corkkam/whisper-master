@@ -117,7 +117,7 @@ def post_text(ver: str) -> str:
     if body:
         return esc(body)
     bullets = release_notes_bullets()
-    lines = [f"<b>🚀 Whisper Master {esc(ver)}</b>", ""]
+    lines = [f"<b>🚀 Typing.sucks {esc(ver)}</b>", ""]
     if bullets:
         lines += [f"• {esc(b)}" for b in bullets]
     return "\n".join(lines).strip()

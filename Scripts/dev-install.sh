@@ -4,8 +4,8 @@ set -euo pipefail
 # ── Local dev install — side-by-side with the production app ──────────────────
 #
 # Problem this solves: `bundle.sh` + `install.sh` build the *real* app
-# (bundle id `app.whispermaster.mac`, name "Whisper Master") and install it to
-# `/Applications/Whisper Master.app` — the same identity your testers run. If you
+# (bundle id `app.whispermaster.mac`, name "Typing.sucks") and install it to
+# `/Applications/Typing.sucks.app` — the same identity your testers run. If you
 # install that locally you clobber the production copy on your own Mac, and its
 # Sparkle updater will happily pull a newer production build right back over your
 # local test build.
@@ -17,8 +17,8 @@ set -euo pipefail
 #     (macOS, TCC/permissions, UserDefaults and Sparkle all key on bundle id, so
 #      the dev app gets its OWN mic/accessibility grants, settings, and history —
 #      full isolation from the app your testers use)
-#   • name        "Whisper Master"       ->  "Whisper Master Dev"
-#     (installs to /Applications/Whisper Master Dev.app; shows separately in the
+#   • name        "Typing.sucks"         ->  "Typing.sucks Dev"
+#     (installs to /Applications/Typing.sucks Dev.app; shows separately in the
 #      Dock / app switcher)
 #   • executable  WhisperMaster          ->  WhisperMasterDev
 #     (so quitting/relaunching the dev app never touches the running prod one)
@@ -40,7 +40,7 @@ set -euo pipefail
 #   DEV_SUFFIX="Beta" bash Scripts/dev-install.sh  # -> app.whispermaster.mac.beta / "…Beta"
 # ──────────────────────────────────────────────────────────────────────────────
 
-PROD_NAME="Whisper Master"          # what bundle.sh stages
+PROD_NAME="Typing.sucks"            # what bundle.sh stages
 PROD_BIN="WhisperMaster"
 PROD_ID="app.whispermaster.mac"
 
@@ -58,6 +58,11 @@ REBUILD="${REBUILD:-1}"
 SRC_APP="build/${PROD_NAME}.app"        # produced by bundle.sh (ad-hoc)
 STAGE_APP="build/${DEV_NAME}.app"       # patched dev copy we install from
 DST_APP="/Applications/${DEV_NAME}.app"
+# Until 2026-11-27 the product was "Whisper Master", so an earlier dev-install left
+# "Whisper Master Dev.app". Same bundle id, so it is the same dev app under its old
+# file name: it is quit and removed below. The production copy is a different app
+# and is never touched here.
+LEGACY_APP="/Applications/Whisper Master ${DEV_SUFFIX}.app"
 
 PLB=/usr/libexec/PlistBuddy
 
@@ -126,10 +131,12 @@ codesign --force --sign "$DEV_SIGN_IDENTITY" \
 codesign --verify --strict "$STAGE_APP"
 
 # 4. Quit only the DEV instance (matched by its own executable name), replace,
-#    relaunch. The production app — if running — is untouched.
+#    relaunch. The production app — if running — is untouched. Quitting goes by
+#    bundle id, so it reaches the dev app whether it runs from the new or the
+#    pre-rename file name.
 if pgrep -x "$DEV_BIN" >/dev/null 2>&1; then
     echo ">> Quitting running ${DEV_NAME}"
-    osascript -e "tell application \"${DEV_NAME}\" to quit" >/dev/null 2>&1 || true
+    osascript -e "tell application id \"${DEV_ID}\" to quit" >/dev/null 2>&1 || true
     sleep 0.6
     if pgrep -x "$DEV_BIN" >/dev/null 2>&1; then
         pkill -x "$DEV_BIN" || true
@@ -137,12 +144,28 @@ if pgrep -x "$DEV_BIN" >/dev/null 2>&1; then
     fi
 fi
 
+remove_app() {
+    if [[ -w "/Applications" && -w "$1" ]]; then
+        rm -rf "$1"
+    else
+        sudo rm -rf "$1"
+    fi
+}
+
 if [[ -d "$DST_APP" ]]; then
     echo ">> Removing existing ${DST_APP}"
-    if [[ -w "/Applications" && -w "$DST_APP" ]]; then
-        rm -rf "$DST_APP"
+    remove_app "$DST_APP"
+fi
+
+# Remove the pre-rename dev copy, but only when it really is the dev app. The bundle
+# id check keeps an unrelated app that happens to carry that name safe.
+if [[ -d "$LEGACY_APP" ]]; then
+    legacy_id="$($PLB -c "Print :CFBundleIdentifier" "$LEGACY_APP/Contents/Info.plist" 2>/dev/null || true)"
+    if [[ "$legacy_id" == "$DEV_ID" ]]; then
+        echo ">> Removing the pre-rename copy ${LEGACY_APP}"
+        remove_app "$LEGACY_APP"
     else
-        sudo rm -rf "$DST_APP"
+        echo ">> Leaving ${LEGACY_APP} alone (bundle id '${legacy_id}', not ${DEV_ID})"
     fi
 fi
 

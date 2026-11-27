@@ -97,6 +97,6 @@ struct SetupBanner: View {
         if preparing {
             return state.download?.detail ?? "Preparing on-device model. This only happens once."
         }
-        return "One-time download of the on-device model. Whisper Master can't transcribe until this finishes."
+        return "One-time download of the on-device model. Typing.sucks can't transcribe until this finishes."
     }
 }

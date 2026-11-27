@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The mesh panel: this Mac plus other Macs running Whisper Master on the
+/// The mesh panel: this Mac plus other Macs running Typing.sucks on the
 /// network, with privacy-safe generic names and each Mac's current load.
 /// Latency and Bluetooth proximity arrive in later steps.
 struct MeshSettingsView: View {

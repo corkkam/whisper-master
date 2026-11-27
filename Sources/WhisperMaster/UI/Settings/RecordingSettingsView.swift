@@ -72,7 +72,7 @@ struct RecordingSettingsView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.success)
             VStack(alignment: .leading, spacing: 8) {
-                Text("The Globe key is yours alone — Whisper Master turned off "
+                Text("The Globe key is yours alone — Typing.sucks turned off "
                     + "\(FnKeyBehavior.claimDescription) so it can't fire on the "
                     + "double-tap that latches hands-free.")
                     .font(Typography.subheadline)

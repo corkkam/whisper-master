@@ -14,7 +14,7 @@ struct AboutSettingsView: View {
                 BrandLogo(size: 58, cornerRadius: 14)
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: Theme.Space.sm) {
-                        Text("Whisper Master")
+                        Text("Typing.sucks")
                             .font(Typography.sans(23, .bold))
                             .foregroundStyle(Theme.textPrimary)
                         // Only a non-shipping build wears a badge; stable says

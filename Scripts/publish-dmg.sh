@@ -4,7 +4,7 @@ set -euo pipefail
 # Publishes a notarized, shareable .dmg to R2 so there's always an up-to-date
 # direct-download link (no Sparkle, no App Store — just "here, grab this").
 #
-# Assumes the signed app already exists at build/Whisper Master.app (i.e. run
+# Assumes the signed app already exists at build/Typing.sucks.app (i.e. run
 # AFTER release.sh / bundle.sh). It:
 #   1. builds + notarizes + staples the DMG via make-dmg.sh (REBUILD=0 reuses the
 #      app release.sh already built + stapled; notarize.sh skips the app since
