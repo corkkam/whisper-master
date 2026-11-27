@@ -1,4 +1,4 @@
-# Whisper Master — Features
+# Typing.sucks — Features
 
 > Source of truth for the marketing website. Everything below reflects what actually ships in the code as of Mac app **v1.0.2** and the iPhone companion **v0.1 (beta)**. "On the roadmap" items are called out separately — don't present them as available.
 
@@ -6,18 +6,18 @@
 
 ## What it is
 
-**Whisper Master is local-first voice dictation for Apple Silicon Macs.** You hold a key, talk, and your words appear wherever your cursor is — transcribed on-device by NVIDIA Parakeet, never sent to the cloud. It lives in your menu bar and stays out of the way.
+**Typing.sucks is local-first voice dictation for Apple Silicon Macs.** You hold a key, talk, and your words appear wherever your cursor is — transcribed on-device by NVIDIA Parakeet, never sent to the cloud. It lives in your menu bar and stays out of the way.
 
 There are two apps:
 
-- **Whisper Master for Mac** — the core dictation app and the transcription engine.
-- **Whisper Master for iPhone** — a companion that turns your phone into a wireless mic and a dictation keyboard, powered by your Mac over your local network.
+- **Typing.sucks for Mac** — the core dictation app and the transcription engine.
+- **Typing.sucks for iPhone** — a companion that turns your phone into a wireless mic and a dictation keyboard, powered by your Mac over your local network.
 
 The through-line for both: **your voice never leaves your devices.** No cloud transcription, no accounts, no audio uploads.
 
 ---
 
-## Whisper Master for Mac
+## Typing.sucks for Mac
 
 ### Dictate anywhere, instantly
 - **Hold-to-talk from any app.** Press and hold your hotkey, speak, release. The text lands right at your cursor.
@@ -41,7 +41,7 @@ The through-line for both: **your voice never leaves your devices.** No cloud tr
 ### Controls that get out of your way
 - **Configurable push-to-talk key** — Right Option (default), Left Option, Right Command, or Right Control.
 - **Hold-to-talk or toggle.** Hold while you speak, or tap once to start and once to stop.
-- **Works everywhere** — the hotkey is global, so it fires in any app whether or not Whisper Master is focused.
+- **Works everywhere** — the hotkey is global, so it fires in any app whether or not Typing.sucks is focused.
 - **Auto-paste at your cursor**, with a **clipboard fallback** — if Accessibility isn't granted, your text is still copied so nothing is ever lost.
 
 ### A calm, glanceable interface
@@ -52,14 +52,14 @@ The through-line for both: **your voice never leaves your devices.** No cloud tr
 - **Gentle idle reminders** (off by default) — an optional, quiet nudge in the notch if you haven't dictated in a while. Capped and unobtrusive.
 
 ### Handles your mic intelligently
-- **Bluetooth quality guard.** Bluetooth headsets drop to low-quality "call mode" the moment any app uses their mic. Whisper Master detects this and offers a **one-tap switch to your built-in mic** — so your earbuds stay hi-fi and your dictation stays crisp. It never changes your devices behind your back.
+- **Bluetooth quality guard.** Bluetooth headsets drop to low-quality "call mode" the moment any app uses their mic. Typing.sucks detects this and offers a **one-tap switch to your built-in mic** — so your earbuds stay hi-fi and your dictation stays crisp. It never changes your devices behind your back.
 
 ### Turn your iPhone into a wireless mic
 - **Local-network dictation server.** Your Mac quietly advertises itself on your Wi-Fi so the iPhone app can stream audio to it and use the Mac's engine — all over your local network, never the cloud.
 - **Keep-awake for phone dictation** (optional) — let the iPhone reach your Mac even after it's been sitting idle and locked.
 
 ### See your other Macs (mesh)
-- If you run Whisper Master on more than one Mac, each sees the others on the network — with live load, round-trip latency, and rough physical proximity — laying the groundwork for multi-Mac dictation. Names are generic; nothing personal is shared.
+- If you run Typing.sucks on more than one Mac, each sees the others on the network — with live load, round-trip latency, and rough physical proximity — laying the groundwork for multi-Mac dictation. Names are generic; nothing personal is shared.
 
 ### Private by design
 - **Everything runs on-device** — transcription, formatting, and vocabulary biasing all happen locally. Your audio and text never leave your Mac.
@@ -73,7 +73,7 @@ The through-line for both: **your voice never leaves your devices.** No cloud tr
 
 ---
 
-## Whisper Master for iPhone *(companion, beta)*
+## Typing.sucks for iPhone *(companion, beta)*
 
 A companion to the Mac app. It doesn't transcribe on its own — it captures your voice and streams it to your paired Mac, which does the work and sends the words back. Same privacy promise: **audio stays on your local network.**
 
@@ -81,13 +81,13 @@ A companion to the Mac app. It doesn't transcribe on its own — it captures you
 - **Tap the mic, speak, watch it transcribe.** The phone's mic streams to your Mac over Wi-Fi and the transcript comes back live into the app's editor.
 - **No cloud, no accounts** — it talks only to Macs on your local network.
 
-### Dictate into *any* app: the Whisper Master keyboard
+### Dictate into *any* app: the Typing.sucks keyboard
 - A **hand-built dictation keyboard** you can switch to in any iOS app. Tap its mic button and speak, and your words are inserted right at the cursor — messages, notes, email, anywhere you type.
-- **Live activity in the Dynamic Island** shows when Whisper Master is listening.
+- **Live activity in the Dynamic Island** shows when Typing.sucks is listening.
 - Because iOS keyboards can't record audio themselves, the main app briefly holds the mic in the background while you dictate, then hands the text to the keyboard — you just keep typing.
 
 ### Finds your Mac automatically
-- **Zero-config discovery** over the local network — the app finds Macs running Whisper Master and connects to the best-available one, with the option to pin a specific Mac.
+- **Zero-config discovery** over the local network — the app finds Macs running Typing.sucks and connects to the best-available one, with the option to pin a specific Mac.
 - **Multiple Macs supported** — it load-balances toward whichever has headroom.
 
 ### Matches the Mac, by design

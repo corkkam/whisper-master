@@ -434,7 +434,7 @@ final class OnboardingCopyTests: XCTestCase {
 
         var paused = beat2
         paused.pausedWhileInactive = true
-        XCTAssertEqual(copy.topBarLine(paused)?.text, "Switch back to Whisper Master to go on.")
+        XCTAssertEqual(copy.topBarLine(paused)?.text, "Switch back to Typing.sucks to go on.")
     }
 
     func testTheReadyMicNudgeFollowsTheMicStatusAlsoWhileLoading() {
@@ -536,7 +536,7 @@ final class OnboardingCopyTests: XCTestCase {
 
     func testTheFirstAnnouncementCarriesThePrivacyLine() {
         XCTAssertTrue(OnboardingCopy.firstAnnouncement.contains("Your voice stays on this Mac."))
-        XCTAssertTrue(OnboardingCopy.inactiveAnnouncement.contains("Switch to Whisper Master"))
+        XCTAssertTrue(OnboardingCopy.inactiveAnnouncement.contains("Switch to Typing.sucks"))
     }
 
     func testReadyNotice() {

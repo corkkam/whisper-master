@@ -89,7 +89,7 @@ struct ConnectedToolSettingsSection: View {
                              onCancel: @escaping () -> Void) -> AgentEndpointConsentSheet {
         AgentEndpointConsentSheet(
             host: kind.name,
-            intro: "When you hold fn + control, Whisper Master starts \(kind.name) on this Mac"
+            intro: "When you hold fn + control, Typing.sucks starts \(kind.name) on this Mac"
                 + (program.map { " (\(ConnectedTool.displayPath($0)))" } ?? "") + " and "
                 + "gives it the assistant's conversation. \(kind.name) sends it to \(kind.vendor), "
                 + "under your own account, and \(kind.vendor)'s terms and retention apply. "

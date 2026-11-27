@@ -49,7 +49,7 @@ struct GeneralSettingsView: View {
             SectionLabel("Startup")
             SettingsCard {
                 SettingsRow("Open at login",
-                            subtitle: "Start Whisper Master automatically when you log in or restart your Mac. You can turn this off anytime — also in System Settings → General → Login Items.") {
+                            subtitle: "Start Typing.sucks automatically when you log in or restart your Mac. You can turn this off anytime — also in System Settings → General → Login Items.") {
                     ThemeToggle(
                         isOn: Binding(
                             get: { LaunchAtLogin.shared.isEnabled },

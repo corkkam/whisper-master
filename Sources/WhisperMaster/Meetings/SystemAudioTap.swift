@@ -89,7 +89,7 @@ final class SystemAudioTap: @unchecked Sendable {
         description.uuid = UUID()
         description.isPrivate = true
         description.muteBehavior = .unmuted
-        description.name = "Whisper Master meeting notes"
+        description.name = "Typing.sucks meeting notes"
 
         var tap = AudioObjectID(kAudioObjectUnknown)
         let tapStatus = AudioHardwareCreateProcessTap(description, &tap)
@@ -127,7 +127,7 @@ final class SystemAudioTap: @unchecked Sendable {
 
     private func createAggregate(tapUUID: UUID) throws {
         var description: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "Whisper Master meeting tap",
+            kAudioAggregateDeviceNameKey: "Typing.sucks meeting tap",
             kAudioAggregateDeviceUIDKey: "app.whispermaster.meeting-tap.\(UUID().uuidString)",
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,

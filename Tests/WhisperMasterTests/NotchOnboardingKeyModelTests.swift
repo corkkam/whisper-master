@@ -218,13 +218,13 @@ final class NotchOnboardingKeyModelTests: XCTestCase {
         permissions.trusted = true
         model.refresh()
         XCTAssertEqual(model.bandState, .typingGranted(.paused))
-        XCTAssertEqual(topBar(model), "Switch back to Whisper Master to go on.")
+        XCTAssertEqual(topBar(model), "Switch back to Typing.sucks to go on.")
         await elapse(OnboardingAutoAdvance.floorWithoutPointer + 1)
         XCTAssertEqual(model.step, .accessibility)
 
         system.active = true
         model.appDidBecomeActive()
-        XCTAssertNotEqual(topBar(model), "Switch back to Whisper Master to go on.")
+        XCTAssertNotEqual(topBar(model), "Switch back to Typing.sucks to go on.")
         XCTAssertTrue(model.currentRow.buttons.contains(.continue))
         await elapse(OnboardingAutoAdvance.floorWithoutPointer + 1)
         XCTAssertEqual(model.step, .accessibility)

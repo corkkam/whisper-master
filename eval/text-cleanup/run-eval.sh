@@ -9,7 +9,7 @@
 # Destination suite: bash run-eval.sh ./flow-cases.jsonl "flow destinations"
 #
 # Env overrides:
-#   APP            path to the built .app   (default: /Applications/Whisper Master.app)
+#   APP            path to the built .app   (default: /Applications/Typing.sucks.app)
 #   OUT            results.json output path (default: ./.eval-scratch/results.json)
 #   DASHBOARD_URL  where to POST the run    (default: https://typing.sucks)
 #   TIMEOUT        seconds to wait for the run to finish (default: 1200)
@@ -33,7 +33,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cases_in="${1:-$here/cases.jsonl}"
 label="${2:-eval $(date '+%Y-%m-%d %H:%M')}"
-app="${APP:-/Applications/Whisper Master.app}"
+app="${APP:-/Applications/Typing.sucks.app}"
 out="${OUT:-$here/.eval-scratch/results.json}"
 timeout="${TIMEOUT:-1200}"
 dashboard_url="${DASHBOARD_URL:-https://typing.sucks}"
@@ -61,8 +61,8 @@ fi
 
 # The runner reads env at launch, so quit any running instance and start clean.
 # Quit the bundle we are about to launch, by its own name — a beta or dev build
-# is "Whisper Master Beta" / "Whisper Master Dev" and side-by-side with stable,
-# so a hardcoded "Whisper Master" here quit the wrong app and left the one being
+# is "Typing.sucks Dev" and side-by-side with stable,
+# so a hardcoded "Typing.sucks" here quit the wrong app and left the one being
 # graded running with stale env.
 app_name="$(basename "$app" .app)"
 osascript -e "quit app \"$app_name\"" 2>/dev/null || true
