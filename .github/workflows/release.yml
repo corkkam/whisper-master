@@ -6,8 +6,8 @@ name: Release to R2
 #   push to main → CHANNEL=stable → appcast.xml     + WhisperMaster.dmg
 # (Beta is a separate MANUAL flow: CHANNEL=beta bash Scripts/release.sh.)
 # Ordinary pushes (code, fixes, docs) only run the cheap Ubuntu gate below and
-# cost ~nothing — the macOS runner (billed ~10x, made longer by the Apple notary
-# wait) is reserved for actual releases. Force a release without a version change
+# cost ~nothing — the macOS runner (free on this public repo, but ~25 min with
+# the Apple notary wait) is reserved for actual releases. Force a release without a version change
 # via the manual "Run workflow" button. Put [skip release] in the commit message
 # to skip even a version-bump push.
 on:
@@ -91,7 +91,10 @@ jobs:
           fetch-tags: true
 
       - name: Show toolchain
-        run: xcodebuild -version
+        id: toolchain
+        run: |
+          xcodebuild -version
+          echo "xcode=$(xcodebuild -version | tr -s ' \n' '-')" >> "$GITHUB_OUTPUT"
 
       - name: Install build tools
         run: brew install xcodegen rclone
@@ -167,8 +170,48 @@ jobs:
             echo "POSTHOG_CLI_API_KEY unset — skipping CLI install; dSYMs will not be uploaded."
           fi
 
+      - name: Restore the Xcode compilation cache
+        # bundle.sh builds with COMPILATION_CACHE=1 (below): Xcode's content-addressed
+        # compile cache, which survives its `clean`. Measured 2026-11-25 on macos-26:
+        # the Release build took 21 min cold and 3 min 45 s warm. A release still
+        # compiles its own changed sources (about 2.5 min); MLX and the other packages
+        # are hits. Build/ is left out because `clean` deletes it anyway.
+        # Keyed on the Xcode build and project.yml, so a toolchain or dependency
+        # change starts cold once. Only push runs on dev and main can write this
+        # key; a pull request's cache stays in its own scope.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build/DerivedData
+            !build/DerivedData/Build
+            !build/DerivedData/Logs
+            !build/DerivedData/Index.noindex
+          key: xcode-cas-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('project.yml') }}
+
+      - name: Read the cleanup model checksum
+        # The stable eval loads the cleanup model, which the app would otherwise
+        # download (~2 GB) on every fresh runner. The key is the checksum the app
+        # verifies, so a model bump starts a new cache.
+        if: github.ref_name == 'main'
+        id: model
+        run: |
+          set -euo pipefail
+          name=$(grep -m1 'static let archiveName' Sources/WhisperMaster/Transcription/CleanupModel.swift | sed -E 's/.*"([^"]+)".*/\1/')
+          sum=$(grep "\"$name\":" Sources/WhisperMaster/ModelInstall/ModelChecksums.swift | sed -E 's/.*: *"([a-f0-9]{64})".*/\1/')
+          [ -n "$name" ] && [ -n "$sum" ] || { echo "could not read the cleanup model checksum" >&2; exit 1; }
+          echo "key=mlx-$name-$sum" >> "$GITHUB_OUTPUT"
+          echo "$name $sum"
+
+      - name: Restore the cleanup model
+        if: github.ref_name == 'main'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Application Support/FluidAudio/Models
+          key: ${{ steps.model.outputs.key }}
+
       - name: Build, sign, notarize, generate appcast, upload to R2
         env:
+          COMPILATION_CACHE: '1'
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
@@ -198,15 +241,25 @@ jobs:
           # and never lets it fail the release, so a missing or wrong token
           # costs the score for this version and nothing else.
           #
-          # STABLE ONLY, and it is not free: the eval launches the built app,
-          # which downloads the ~2 GB cleanup model onto a fresh runner and then
-          # runs 89 cases twice. Reckon on ten extra macOS-runner minutes per
-          # release, billed at 10x. release.sh already defaults the dev channel
-          # off; RUN_EVAL below is the switch if stable should stop paying for
-          # it too.
+          # STABLE ONLY, and it costs time: the eval launches the built app,
+          # loads the cleanup model (cached above) and runs 89 cases twice.
+          # Reckon on about ten extra minutes per release. release.sh already
+          # defaults the dev channel off; RUN_EVAL below is the switch if stable
+          # should stop running it too.
           EVAL_INGEST_TOKEN: ${{ secrets.EVAL_INGEST_TOKEN }}
           RUN_EVAL: ${{ github.ref_name == 'main' && '1' || '0' }}
         run: bash Scripts/release.sh
+
+      - name: Keep the eval results
+        # The score survives a failed push to /eval (for example a Worker without
+        # its ingest token): push it later with eval/text-cleanup/push-run.mjs.
+        if: github.ref_name == 'main' && !cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: eval-results
+          path: eval/text-cleanup/.eval-scratch/results.json
+          if-no-files-found: ignore
+          retention-days: 90
 
       - name: Publish shareable DMG to R2
         # Reuses the app release.sh already built + notarized + stapled, wraps it

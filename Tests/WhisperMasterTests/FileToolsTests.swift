@@ -211,6 +211,13 @@ final class FileToolsTests: XCTestCase {
         XCTAssertEqual(shown.count, FileToolCatalog.maxNameLength)
     }
 
+    /// U+202E reverses what follows it on screen, so `fdp.html` showed as `lmth.pdf`
+    /// on the card. The name is shown without the bidi controls, in its real order.
+    func testANameShowsItsRealExtension() {
+        XCTAssertEqual(FileToolCatalog.displayName("Q3 plan\u{202E}fdp.html"), "Q3 planfdp.html")
+        XCTAssertEqual(FileToolCatalog.displayName("a\u{2066}b\u{2069}.pdf"), "ab.pdf")
+    }
+
     /// File names are text the user did not write, so a result with rows taints the run
     /// as a connector read does. A search that found nothing read nothing.
     func testFileNamesTaintTheRun() async {

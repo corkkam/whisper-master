@@ -42,8 +42,8 @@ enum ApprovalCopy {
         case "create_note": return "Save a note on"
         case "create_reminder": return "Set a reminder on"
         case "reply_message": return "Reply in"
-        case "send_mail": return "Send mail to"
-        case "reply_mail": return "Reply by mail to"
+        case "send_mail": return "Send mail from"
+        case "reply_mail": return "Reply by mail from"
         // The target is the server's own tool name: "Run get_forecast on Weather".
         case _ where MCPToolMapping.isMCPTool(tool): return "Run"
         default: return "Run \(tool) on"
@@ -59,13 +59,14 @@ enum ApprovalCopy {
     /// these, which is the most the card reserves.
     static let linkCharactersPerLine = 50
 
-    /// Tools whose payload is free text: a note, a reminder, a thread reply, a mail
-    /// and a task handed to Claude Code. Their card shows the whole text in a scroll area
-    /// (`NotchApprovalBanner`), so nothing the user approves is cut and no length is
-    /// refused.
+    /// Tools whose payload is free text: a note, a reminder, a thread reply, a mail,
+    /// a task handed to Claude Code and the arguments of an MCP call. Their card shows
+    /// the whole text in a scroll area (`NotchApprovalBanner`), so nothing the user
+    /// approves is cut and no length is refused.
     static func scrollsDetail(tool: String) -> Bool {
-        ["create_note", "create_reminder", "reply_message", "send_mail", "reply_mail",
-         DelegateToolCatalog.delegateTask.name].contains(tool)
+        MCPToolMapping.isMCPTool(tool)
+            || ["create_note", "create_reminder", "reply_message", "send_mail", "reply_mail",
+                DelegateToolCatalog.delegateTask.name].contains(tool)
     }
 
     /// Lines a scrolling payload shows before it scrolls. Kept small so the band stays
@@ -142,6 +143,15 @@ enum ApprovalCopy {
         }
         // The task is the target and the payload line; the headline is where it goes.
         if tool == DelegateToolCatalog.delegateTask.name { return "Send to \(instanceLabel)" }
+        // The server's tool name has no length limit, and a long one pushed the
+        // server's label off the line: cut in the middle, so the label stays.
+        if MCPToolMapping.isMCPTool(tool) {
+            let name = FileToolCatalog.displayName(target, limit: MCPToolMapping.maxCardNameLength)
+            return "Run \(name) on \(instanceLabel)"
+        }
+        // The recipients are whole in the scroll area. This one line cut a long address
+        // or list at its tail, so it names the account the mail leaves from.
+        if tool == "send_mail" || tool == "reply_mail" { return "\(verb(for: tool)) \(instanceLabel)" }
         let scope = target.compare(instanceLabel, options: .caseInsensitive) == .orderedSame
             ? instanceLabel
             : "\(target) on \(instanceLabel)"
@@ -223,9 +233,11 @@ enum ApprovalCopy {
             }
 
         case "send_mail", "reply_mail":
-            // The recipients are the target, in the headline; the ids place a reply in
-            // its thread. The subject and the whole body are what is sent.
-            for key in ["to", "thread_id", "in_reply_to", "references"] { remaining.removeValue(forKey: key) }
+            // The recipients are the target, and they are here, whole, not in the
+            // headline, whose one line cut a long address or list at its tail. The ids
+            // place a reply in its thread. The subject and the whole body are what is sent.
+            for key in ["thread_id", "in_reply_to", "references"] { remaining.removeValue(forKey: key) }
+            if let to = remaining.removeValue(forKey: "to"), !to.isEmpty { parts.append("To: \(to)") }
             if let subject = remaining.removeValue(forKey: "subject"), !subject.isEmpty {
                 parts.append("Subject: \(subject)")
             }

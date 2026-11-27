@@ -106,10 +106,10 @@ final class ModelInstallerChecksumTests: XCTestCase {
 
     /// Owner decision, 2026-11-24: these three are not uploaded to R2. `Scripts/release.sh`
     /// skips the same list, so a name added here also leaves the release check.
-    func testTheHuggingFaceOnlyArchivesAreTheAssistantAndTheNaturalVoice() {
+    func testTheHuggingFaceOnlyArchivesAreThePreviousAssistantAndTheNaturalVoice() {
         XCTAssertEqual(
             ModelChecksums.huggingFaceOnly,
-            Set([CleanupModel.General.archiveName] + NaturalVoiceInstaller.archiveNames))
+            Set([CleanupModel.General.previousArchiveName] + NaturalVoiceInstaller.archiveNames))
         XCTAssertEqual(
             ModelChecksums.huggingFaceOnly,
             ["Qwen3-4B-Thinking-2507-4bit", "kokoro-82m-coreml", "kokoro"])
@@ -127,7 +127,7 @@ final class ModelInstallerChecksumTests: XCTestCase {
         }
         for name in [TranscriberEngine.slidingWindow.cacheDirectoryName,
                      CleanupModel.archiveName,
-                     CleanupModel.General.previousArchiveName] {
+                     CleanupModel.General.archiveName] {
             XCTAssertTrue(ModelInstaller.usesMirror(name), "\(name) skips the mirror")
         }
     }

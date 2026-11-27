@@ -85,22 +85,33 @@ final class AssistantModelTests: XCTestCase {
 
     func testTheShippedModelFromTheMirrorWinsOverEverythingElse() {
         let everything: Set<URL> = [General.shippedDirectory, General.hubCacheDirectory,
-                                    General.previousDirectory]
+                                    General.previousDirectory, General.previousHubCacheDirectory]
         XCTAssertEqual(General.resolveInstalledDirectory { everything.contains($0) },
                        General.shippedDirectory)
     }
 
     func testTheHuggingFaceCopyOfTheShippedModelBeatsThePreviousModel() {
-        let onDisk: Set<URL> = [General.hubCacheDirectory, General.previousDirectory]
+        let onDisk: Set<URL> = [General.hubCacheDirectory, General.previousDirectory,
+                                General.previousHubCacheDirectory]
         XCTAssertEqual(General.resolveInstalledDirectory { onDisk.contains($0) },
                        General.hubCacheDirectory)
     }
 
-    /// The update regression: an install that only has the assistant it used before
-    /// the switch keeps answering with it rather than going to the keyword gate.
+    /// The update regression, in the direction of the 2026-11-25 switch: an install
+    /// that only has the Thinking model keeps answering with it rather than going to
+    /// the keyword gate, whichever of its two places it is in.
     func testAnInstallWithOnlyThePreviousModelKeepsUsingIt() {
         XCTAssertEqual(General.resolveInstalledDirectory { $0 == General.previousDirectory },
                        General.previousDirectory)
+        XCTAssertEqual(General.resolveInstalledDirectory { $0 == General.previousHubCacheDirectory },
+                       General.previousHubCacheDirectory)
+    }
+
+    /// An install that has only the Thinking model is still owed the shipped one, and
+    /// the shipped one is the non-reasoning model.
+    func testTheShippedAssistantIsInstructAndThePreviousOneIsThinking() {
+        XCTAssertEqual(General.archiveName, "Qwen3-4B-Instruct-2507-4bit")
+        XCTAssertEqual(General.previousArchiveName, "Qwen3-4B-Thinking-2507-4bit")
     }
 
     /// With nothing on disk the answer is where the mirror will unpack, so a fresh
@@ -109,11 +120,15 @@ final class AssistantModelTests: XCTestCase {
         XCTAssertEqual(General.resolveInstalledDirectory { _ in false }, General.shippedDirectory)
     }
 
-    func testOnlyTheShippedModelIsRunAsReasoning() {
-        XCTAssertTrue(General.thinks(loadedFrom: General.shippedDirectory))
-        XCTAssertTrue(General.thinks(loadedFrom: General.hubCacheDirectory))
-        XCTAssertFalse(General.thinks(loadedFrom: General.previousDirectory),
+    /// Reasoning follows the directory: only the Thinking model, in either place, is
+    /// run as reasoning. Getting this backwards feeds a `<think>` block to the parser,
+    /// or discards every Instruct answer for lacking one.
+    func testOnlyThePreviousModelIsRunAsReasoning() {
+        XCTAssertFalse(General.thinks(loadedFrom: General.shippedDirectory),
                        "Instruct-2507 never opens a <think> block")
+        XCTAssertFalse(General.thinks(loadedFrom: General.hubCacheDirectory))
+        XCTAssertTrue(General.thinks(loadedFrom: General.previousDirectory))
+        XCTAssertTrue(General.thinks(loadedFrom: General.previousHubCacheDirectory))
         XCTAssertFalse(General.thinks(loadedFrom: URL(fileURLWithPath: "/tmp/some-lab-model")))
     }
 
@@ -123,11 +138,13 @@ final class AssistantModelTests: XCTestCase {
     func testTheHuggingFaceFallbackIsLookedForWhereMLXWritesIt() {
         XCTAssertEqual(General.hubCacheDirectory,
                        LabPaths.huggingFaceCacheDirectory(for: General.huggingFaceId))
+        XCTAssertEqual(General.previousHubCacheDirectory,
+                       LabPaths.huggingFaceCacheDirectory(for: General.previousHuggingFaceId))
         XCTAssertFalse(General.hubCacheDirectory.path.contains("/Documents/"))
+        XCTAssertFalse(General.previousHubCacheDirectory.path.contains("/Documents/"))
     }
 
-    /// The previous model has to be one the mirror can still serve, so a reinstall of
-    /// it is not refused as unpinned.
+    /// The previous model stays pinned, so a zip put on the mirror later is checked.
     func testThePreviousAssistantArchiveIsStillPinned() {
         XCTAssertNotNil(ModelChecksums.sha256[General.previousArchiveName])
     }

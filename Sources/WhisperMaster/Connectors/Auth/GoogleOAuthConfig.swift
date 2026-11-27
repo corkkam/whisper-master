@@ -46,13 +46,14 @@ enum GoogleOAuthConfig {
     }
 
     /// Whether Gmail **send** is switched on: `send_mail` and `reply_mail`, and the
-    /// `gmail.send` scope in the Gmail sign-in. **Off by default, and it must stay off
-    /// in every release until Google brand verification and a CASA assessment pass for
-    /// `gmail.send`** (a restricted scope; owner decision 2026-11-17, plan section 12).
-    /// While it is off, `ToolRegistry` publishes neither tool and the sign-in asks for
-    /// no send scope. On, a connection whose grant lacks the scope still gets neither
-    /// tool (`ItemTools.canSend`). `GmailSendEnabled` in `Info.plist`, or
-    /// `GOOGLE_GMAIL_SEND` in a dev shell.
+    /// `gmail.send` scope in the Gmail sign-in. **On since 2026-11-25**
+    /// (`GmailSendEnabled` in `Info.plist`), which replaced the 2026-11-17 hold. Google
+    /// has to verify `gmail.send` for this client: until it does, the Gmail sign-in can
+    /// stop at Google's "app not verified" screen for an account that is not a test
+    /// user, and that stops the read grant too. A connection whose grant lacks the scope
+    /// gets neither tool (`ItemTools.canSend`) until the user signs in again. With the
+    /// gate off, `ToolRegistry` publishes neither tool and the sign-in asks for no send
+    /// scope: `GOOGLE_GMAIL_SEND=0` in a dev shell, or a build with no plist key.
     static var isGmailSendEnabled: Bool {
         flag(env: "GOOGLE_GMAIL_SEND", plist: "GmailSendEnabled")
     }

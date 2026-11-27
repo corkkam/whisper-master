@@ -49,6 +49,14 @@ if [[ "${DIAGNOSTICS:-0}" == "1" ]]; then
     BUILD_FLAGS+=(SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) DIAGNOSTICS')
 fi
 
+# Xcode 26 compilation caching: a content-addressed cache of compile outputs in
+# DerivedData/CompilationCache.noindex. It survives `clean`, so the release stays a
+# clean build and only reuses outputs whose inputs are byte-identical. CI sets it
+# and caches DerivedData (release.yml).
+if [[ "${COMPILATION_CACHE:-0}" == "1" ]]; then
+    BUILD_FLAGS+=(COMPILATION_CACHE_ENABLE_CACHING=YES)
+fi
+
 DERIVED="build/DerivedData"
 BUILD_LOG="build/xcodebuild-$CONFIG.log"
 mkdir -p build
@@ -70,6 +78,7 @@ xcodebuild \
     -configuration "$CONFIG" \
     -derivedDataPath "$DERIVED" \
     -destination 'platform=macOS,arch=arm64' \
+    -showBuildTimingSummary \
     CODE_SIGN_STYLE=Manual \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
@@ -78,7 +87,7 @@ xcodebuild \
     GA_API_SECRET="${GA_API_SECRET:-}" \
     ${SIGN_FLAGS[@]+"${SIGN_FLAGS[@]}"} \
     ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} \
-    clean build 2>&1 | sed -E 's/(GA_API_SECRET|POSTHOG_API_KEY)=[^ ]*/\1=***/g' | tee "$BUILD_LOG" | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)"
+    clean build 2>&1 | sed -E 's/(GA_API_SECRET|POSTHOG_API_KEY)=[^ ]*/\1=***/g' | tee "$BUILD_LOG" | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)|Build Timing Summary|\| [0-9.]+ seconds"
 # PIPESTATUS[0] is xcodebuild's real exit code. (Do NOT append `|| true` to the
 # pipeline — that runs a new command and resets PIPESTATUS, masking failures.)
 xc_status=${PIPESTATUS[0]}

@@ -66,7 +66,7 @@ credential, events only) or through the provider's own sign-in (`.googleAPI` /
 ## Rows, search, open and reply (`Tools/ItemTools.swift`, `Providers/ItemDepthProviders.swift`)
 
 Phase 3 of the agent plan (owner approval 2026-11-17, Gmail send included): `search_mail`,
-`read_item`, `reply_message` (Slack), and `send_mail` / `reply_mail` (Gmail, dormant).
+`read_item`, `reply_message` (Slack), and `send_mail` / `reply_mail` (Gmail).
 
 - **The model names an item by row number, never by id.** `list_mail`, `list_messages`
   and `search_mail` write each row as "3. …"; `ItemHandles` (one per `ToolRouter`, so one
@@ -92,12 +92,18 @@ Phase 3 of the agent plan (owner approval 2026-11-17, Gmail send included): `sea
   "Reply in #launch on Work chat", then "to Sam" and the whole text; the grant target is
   the channel name. A reply always follows a listing, so the run is always tainted: the
   card shows every time and offers no Always. Teams has no reply path, on purpose.
-- **Gmail send is dormant.** `GoogleOAuthConfig.isGmailSendEnabled` (`GmailSendEnabled` in
-  `Info.plist`, false) gates the tools and the `gmail.send` scope in the sign-in, and
-  stays off until Google verification and a CASA assessment pass. With it on, a
-  connection whose grant lacks the scope (a pasted token records none) still gets neither
-  tool (`ItemTools.canSend`), and the provider checks again. The card shows the
-  recipients, the subject and the whole body, and never Always (`ItemTools.grantable`).
+- **Gmail send is on since 2026-11-25.** `GoogleOAuthConfig.isGmailSendEnabled`
+  (`GmailSendEnabled` in `Info.plist`, true) gates the tools and the `gmail.send` scope in
+  the sign-in. It replaced the 2026-11-17 hold. Google has to verify `gmail.send` for this
+  client: until it does, the Gmail sign-in can stop at the "app not verified" screen for
+  an account that is not a test user, and that stops the read grant too. A connection
+  whose grant lacks the scope (one made before the gate, or a pasted token, which records
+  none) gets neither tool (`ItemTools.canSend`) until "Sign in again", and the provider
+  checks again. A `swift test` run has no app plist, so the gate reads off there. The card
+  never offers Always (`ItemTools.grantable`). Its headline names the account ("Send mail
+  from Gmail"). The recipients, the subject and the whole body are in the scroll area, the
+  recipients first as "To: …": the headline's one line cut a long address or list at its
+  tail.
 - **`send_mail`'s `to` must be an address the user said** ("sam at acme dot com" counts)
   **or one in a header this run read** (a row's From, or From, To, Cc and Reply-To of an
   opened mail). An address in a mail's body never counts. A name must match exactly one
@@ -132,7 +138,8 @@ Phase 3 of the agent plan (owner approval 2026-11-17, Gmail send included): `sea
   run that offers many of them drops the connector tools with the fewest shared words.
   **A listing ranks with the row tools that need it** (`ToolPackRouter.needs`), so
   "reply to Sam in Slack" keeps `list_messages` beside `reply_message`. The limit stays
-  16: the 24-tool sweep (2026-11-18) ran on Instruct-2507, not on the Thinking model.
+  16: the 24-tool sweep (2026-11-18) ran on Instruct-2507, which ships again since
+  2026-11-25 (it was not measured on the Thinking model that shipped in between).
 - **A follow-up window** (`FollowUpWindow`, owned by the view model). For 120 s after
   an answer, the next chord capture is given the last question and the storable
   answer (400 characters at most) as an earlier user and assistant turn
@@ -412,7 +419,9 @@ so they use the same card, the same `thisMacID` and the same taint rule.
   `NSMetadataQuery` and stops it at 3 seconds, and the result then says the list may be
   incomplete. At most 15 rows: number, name, kind, modified date and the parent
   folder's name. **The model never sees a path.** A name is one line, cut in the middle
-  past 60 characters so the extension stays.
+  past 60 characters so the extension stays, and shown without bidi embeddings,
+  overrides and isolates (`FileToolCatalog.displayName`): U+202E made `fdp.html` show
+  as `lmth.pdf` on the card.
 - **A result with rows taints the run** (`Taint`, outside the selection): file names are
   text the user did not write. A later write then shows the card with no Always, and
   the card says the run read text from accounts, which is not exact for file names.
@@ -597,7 +606,11 @@ each call (plan section 8, Phase 6).
   - Each call raises a card with Once and No only (`PendingApproval.grantable` false).
     No grant is stored, also for a tool that says `readOnlyHint`: the server says that
     about itself. The card names the tool and the server, and lists every argument as
-    "Sends …" (`MCPToolMapping.cardDetail`).
+    "Sends …" (`MCPToolMapping.cardDetail`) in the scroll area a note uses
+    (`ApprovalCopy.scrollsDetail`): on one line, a long first value hid the arguments
+    after it. A line break in a value shows as "↵" and takes no line: blank lines moved
+    the later arguments out of view. A tool name past 32 characters is cut in its middle, so "on <server>"
+    stays in the headline.
   - After the card, `tools/list` runs again. If the tool's definition hash
     (SHA-256 of the sorted JSON) is not the one the run offered, the call is refused.
   - The result is text content only ("[image]" and similar for the rest), cut by

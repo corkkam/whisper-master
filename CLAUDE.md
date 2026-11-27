@@ -107,18 +107,42 @@ WM_AGENT_TOOL_EVAL=1 "./build/Whisper Master.app/Contents/MacOS/WhisperMaster"
 **It must be the app bundle, not `.build/debug/WhisperMaster`.** The SwiftPM binary
 dies with `Failed to load the default metallib` — MLX's Metal shaders are a bundle
 resource only `xcodebuild` stages. The bench needs the **assistant** model
-(`CleanupModel.General.archiveName`, Qwen3-4B-Thinking-2507-4bit since 2026-10-17,
-~2.3 GB) installed under `~/Library/Application Support/FluidAudio/Models/`. **Without it
-the bench loads the previous assistant (Instruct-2507) if that is on disk**, because the
-app does (`CleanupModel.General.installedDirectory`), so read the `Model loaded from`
-line before trusting a run; with neither it prints `ABORT` and exits, so it is safe to
-run anywhere. To install it outside the app: `uvx --from huggingface_hub hf download
-mlx-community/Qwen3-4B-Thinking-2507-4bit --local-dir "<that dir>/Qwen3-4B-Thinking-2507-4bit"`.
+(`CleanupModel.General.archiveName`, Qwen3-4B-Instruct-2507-4bit since 2026-11-25,
+Qwen3-4B-Thinking-2507-4bit from 2026-10-17 to then; ~2.3 GB) installed under
+`~/Library/Application Support/FluidAudio/Models/`. **Without it the bench loads the
+previous assistant (the Thinking model) if that is on disk**, in that folder or in MLX's
+hub cache, because the app does (`CleanupModel.General.installedDirectory`), so read the
+`Model loaded from` line before trusting a run; with neither it prints `ABORT` and exits,
+so it is safe to run anywhere. **A Mac that has both models runs Instruct.** To bench the
+Thinking model, use a build from before 2026-11-25 (the Lab cannot point the shipped slot
+at a reasoning row; its tool suite can bench one). To install it
+outside the app: `uvx --from huggingface_hub hf download
+mlx-community/Qwen3-4B-Instruct-2507-4bit --local-dir "<that dir>/Qwen3-4B-Instruct-2507-4bit"`.
+**An ad hoc Release bundle may fail at launch with a dyld error on Sparkle's library
+validation.** Copy it to a private folder, `chmod -R u+w` it, and re-sign the copy ad hoc
+with the audio-input entitlement and no hardened runtime: `codesign --force --deep --sign -
+--entitlements <plist> "<copy>"`.
 
 The three arms are `via clean` (the retired routing, kept as the control),
 `hand-rolled` (what ships) and `native` (the chat template's own tools mechanism,
 built and tested but **not** wired into production — nothing sets
 `AgentLoop.generateNative`).
+
+**Measured 2026-11-25, on Instruct-2507 (Release build of this change, ad hoc, M4 24 GB,
+one run per case).** The assistant model went back to Instruct on this evidence (COR-74).
+First turn on the 23 cases, run at load 3: `hand-rolled` **19/23**, `native` **23/23**
+(unwired), `via clean` 18/23. Model seconds per case, p50: hand-rolled **4.0**, native 8.9.
+The four hand-rolled misses are all arguments, never a wrong tool family: "show me my
+recent messages" wrote the connector into the tool name, "move my dentist appointment" and
+"cancel the team lunch" left out the required `event` (the parser refuses a call that
+misses a required argument, and native supplied it), and "remember to call the plumber"
+picked `remember` again. All three arms answered the 460-word grounding turn from both
+calendars (01:00 to 09:00 and 11:00 to 16:00). **The Thinking model on the same 23 cases
+(Release, dev `ac539de`, 2026-11-25): hand-rolled 16/23 at 44.9 s p50, and its grounding
+turn returned no JSON.** A first Instruct run began at load 11.6 and the load climbed to
+112 from work outside this repo; it also scored 19/23, at 5.1 s p50, so the load moved
+the time and not the score. Not measured: native on the shipped path (still unwired) and
+anything on a Mac that is not this M4.
 
 **Measured 2026-11-24, on Qwen3-4B-Thinking-2507 (Debug build, M4 24 GB, load about 7).**
 The pool is now the app's 23 tools (local, memory, Mac, files, connectors), packed to 16
@@ -140,7 +164,8 @@ grounding turn answered correctly from both calendars. So on the reasoning model
 arms differ by one first-turn case; one case is within what a single reasoning timeout
 can move, and native stays unwired until a re-run shows the gap holds.
 
-**Measured 2026-08-22, on Instruct-2507 (the assistant before the switch).** All three
+**Measured 2026-08-22, on Instruct-2507 (the assistant before the 2026-10-17 switch, and
+again since 2026-11-25).** All three
 called the correct tool 16/16 on the first turn, so on that model first-turn tool choice
 is not what separates them — **don't re-run the bench on Instruct-2507 to decide that
 question again.** They separate on the turn that reads a result:
@@ -207,6 +232,35 @@ first generation after load took 60 s and a run's p50 was 64 s. So this measures
 the Thinking model reasons, not which tool it picks. The 23-tool sweep scored 14/23, and
 all 9 misses were no call. The process was then killed (exit 137, cause not found)
 during the 26-tool sweep, so no JSON was written and the 26- and 29-tool rows are missing.
+
+**Measured 2026-11-25, on Instruct-2507 (Release build of this change, ad hoc, M4 24 GB,
+one run per case, all 24 chains, the shipped 30 s budget).** **18/24 chains**: two reads
+**7/7**, a read then a write 5/8, three steps 3/5, two actions in one sentence 3/4. 3 of 24
+runs used up the budget (all three-step chains, which pass or fail at 30.0 s), and the run
+p50 was 15.6 s. **The Thinking model, Release, dev `ac539de`, the same chunks and the 90 s
+budget it ships with: 4/24.** Two reads 3/7, read-write 1/8, three-step 0/5, two-writes
+0/4; 19 of 24 runs used up the budget and the p50 was 66.3 s. Its first generation took 60 s
+and 11 of those 19 runs were cut at the 60 s generation limit before the first tool call.
+The 0/9 on the last two groups is from a rerun at load 11 that fell to 2.6; the first run
+(load 28 to 200 from work outside this repo) also scored 0/9. The Instruct chunks were run
+twice: the first pass began at load 113, 53 and 42 (not clean) and the rerun at load 11, 3
+and 3. Both passes scored 18/24; the load moved the exhausted count (5, then 3) and the p50
+(20.0 s, then 15.6 s).
+What Instruct still gets wrong, which is the failure list of 2026-11-17 and not a new one:
+- On a sentence with two actions it reports the second as done. "Remind me to call the
+  dentist and also note that the clinic moved" made one `create_reminder` and answered "a note
+  has been created" (`ww-reminder-and-note`).
+- It skips a step it was told to take: `three-reminder-block` never read the calendar and
+  `rw-priya-mail-note` opened the mail and made no note.
+- It writes content the case rejects ("wrong content"): `rw-prep-named-after-meeting`
+  (`create_calendar_event`), `rw-next-reminder-to-ops` (`send_message`) and
+  `three-waiting-on-me-reminder` (`create_reminder`).
+- A three-step chain needs 7 to 10 s a turn here, so 3 of 5 sit at the 30 s clock. A chain the
+  clock stops is not a wrong tool; the 90 s clock exists for the reasoning model and does not
+  apply to Instruct (`AgentLoop.budget(thinks:)`).
+Not measured on Instruct: the injection probes, the long-result cases and the tool-count
+sweep (the 2026-11-18 numbers above were on Instruct and have not been repeated), the
+native arm, and any Mac other than this M4.
 
 **⚠️ A keyword rule only sees what somebody thought to assert.** The 2026-08-21
 long-form truncation dropped three fifths of a 525-word input and passed every
