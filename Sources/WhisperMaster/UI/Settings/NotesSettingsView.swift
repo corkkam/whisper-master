@@ -250,7 +250,7 @@ struct NotesSettingsView: View {
             // rather than read as if the list had been wiped.
             if store.completedReminders.isEmpty {
                 emptyCard("No reminders yet",
-                          "Add one and Whisper Master will nudge you at the right time.")
+                          "Add one and Typing.sucks will nudge you at the right time.")
             } else {
                 emptyCard("All caught up",
                           "Nothing left to do. What you've ticked off is under Completed.")

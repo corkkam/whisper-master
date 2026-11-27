@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The Whisper Master squircle mark, loaded once from the package resource.
+/// The Typing.sucks squircle mark, loaded once from the package resource.
 enum BrandAsset {
     /// Name of the SwiftPM-generated resource bundle for this target.
     private static let resourceBundleName = "WhisperMaster_WhisperMaster.bundle"
@@ -85,7 +85,7 @@ enum BrandAsset {
     }()
 }
 
-/// The Whisper Master squircle mark, bundled as a package resource. Falls back
+/// The Typing.sucks squircle mark, bundled as a package resource. Falls back
 /// to the drawn "W" monogram if the asset can't be loaded.
 struct BrandLogo: View {
     var size: CGFloat

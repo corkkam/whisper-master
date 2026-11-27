@@ -28,7 +28,7 @@ struct PermissionsSettingsView: View {
                 RowDivider()
                 permissionRow(
                     title: "Accessibility",
-                    subtitle: "Lets Whisper paste text at your cursor.",
+                    subtitle: "Lets Typing.sucks paste text at your cursor.",
                     granted: accessibilityGranted,
                     denied: false
                 ) {

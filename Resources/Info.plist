@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Whisper Master</string>
+	<string>Typing.sucks</string>
 	<key>CFBundleExecutable</key>
 	<string>WhisperMaster</string>
 	<key>CFBundleIconFile</key>
@@ -17,11 +17,11 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Whisper Master</string>
+	<string>Typing.sucks</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.4.1</string>
+	<string>1.5.0-dev.1</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -46,7 +46,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1795781633</string>
+	<string>1795787898</string>
 	<key>ClerkPublishableKey</key>
 	<string>REPLACE_WITH_CLERK_PUBLISHABLE_KEY</string>
 	<key>GAAPISecret</key>
@@ -73,23 +73,23 @@
 	<key>LSUIElement</key>
 	<false/>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Whisper Master records the other people on a call only when you choose to take meeting notes. The recording stays on this Mac.</string>
+	<string>Typing.sucks records the other people on a call only when you choose to take meeting notes. The recording stays on this Mac.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Whisper Master uses Bluetooth to gauge how physically close nearby Macs are.</string>
+	<string>Typing.sucks uses Bluetooth to gauge how physically close nearby Macs are.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_whispermaster._tcp</string>
 	</array>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Whisper Master reads your calendar so it can tell you what's on your day when you ask.</string>
+	<string>Typing.sucks reads your calendar so it can tell you what's on your day when you ask.</string>
 	<key>NSCalendarsUsageDescription</key>
-	<string>Whisper Master reads your calendar so it can tell you what's on your day when you ask.</string>
+	<string>Typing.sucks reads your calendar so it can tell you what's on your day when you ask.</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright 2026 Whisper Master</string>
+	<string>Copyright 2026 Typing.sucks</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Whisper Master advertises a transcription service so your iPhone can stream audio here and use this Mac's models.</string>
+	<string>Typing.sucks advertises a transcription service so your iPhone can stream audio here and use this Mac's models.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Whisper Master uses the microphone while you hold the dictation hotkey.</string>
+	<string>Typing.sucks uses the microphone while you hold the dictation hotkey.</string>
 	<key>POSTHOGAPIKey</key>
 	<string>$(POSTHOG_API_KEY)</string>
 	<key>SUEnableAutomaticChecks</key>

@@ -62,7 +62,12 @@ enum BetaAccess {
     @MainActor
     static var isBetaUser: Bool {
         guard ClerkConfig.isConfigured, let user = Clerk.shared.user else { return false }
-        return user.publicMetadata?["betaAccess"]?.boolValue == true
+        return betaFlag(of: user)
+    }
+
+    @MainActor
+    private static func betaFlag(of user: User) -> Bool {
+        user.publicMetadata?["betaAccess"]?.boolValue == true
     }
 
     /// The Sparkle channels this user may receive, for `allowedChannelsForUpdater:`.
@@ -82,11 +87,19 @@ enum BetaAccess {
     /// has to downgrade, which is fortunate, because Sparkle cannot.
     @MainActor
     static var allowedChannels: Set<String> {
-        allowedChannels(isBetaUser: isBetaUser)
+        let user = ClerkConfig.isConfigured ? Clerk.shared.user : nil
+        return allowedChannels(signedIn: user != nil, betaFlag: user.map(betaFlag(of:)) ?? false)
     }
 
     /// Pure half of the above, so the contract is unit-testable without Clerk.
     static func allowedChannels(isBetaUser: Bool) -> Set<String> {
         isBetaUser ? ["beta"] : []
+    }
+
+    /// The beta track is behind an account (`AccountFeature.betaUpdates`, owner
+    /// decision D2, 2026-11-27). Signed out, the set is empty, which is "stable
+    /// only" (see above), whatever flag a profile carried.
+    static func allowedChannels(signedIn: Bool, betaFlag: Bool) -> Set<String> {
+        allowedChannels(isBetaUser: AccountFeature.betaUpdates.isAllowed(signedIn: signedIn) && betaFlag)
     }
 }

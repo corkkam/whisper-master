@@ -5,9 +5,16 @@
 # feed, appcast file name and DMG share name. Only `dev` ships SIDE-BY-SIDE;
 # beta is deliberately identical to stable so Sparkle can update between them.
 #
-#   CHANNEL=stable  (default)  → "Whisper Master",       app.whispermaster.mac
-#   CHANNEL=beta               → "Whisper Master",       app.whispermaster.mac  (same bundle!)
-#   CHANNEL=dev                → "Whisper Master Dev",   app.whispermaster.mac.dev
+#   CHANNEL=stable  (default)  → "Typing.sucks",       app.whispermaster.mac
+#   CHANNEL=beta               → "Typing.sucks",       app.whispermaster.mac  (same bundle!)
+#   CHANNEL=dev                → "Typing.sucks Dev",   app.whispermaster.mac.dev
+#
+# The product was renamed from "Whisper Master" to "Typing.sucks" on 2026-11-27.
+# Only the display name and the .app file name changed. The bundle ids above, the
+# executable (WhisperMaster) and every R2 object name did not. CH_LEGACY_APP_NAME
+# is the old .app file name, so install scripts can remove the copy it left in
+# /Applications. Sparkle needs no help: it matches the incoming bundle to the
+# installed one by bundle id when the file names differ (see releasing SKILL.md).
 #
 # Beta and stable are ONE installed app: one bundle id, one name, one appcast.
 # The channel lives in the version string (`-beta.N`) and in the item's
@@ -26,7 +33,8 @@ CHANNEL="${CHANNEL:-stable}"
 
 case "$CHANNEL" in
     stable)
-        CH_APP_NAME="Whisper Master"
+        CH_APP_NAME="Typing.sucks"
+        CH_LEGACY_APP_NAME="Whisper Master"
         CH_BUNDLE_ID="app.whispermaster.mac"
         CH_SU_FEED_URL="https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast.xml"
         CH_APPCAST_NAME="appcast.xml"
@@ -43,14 +51,16 @@ case "$CHANNEL" in
         # the host, so a `…mac.beta` archive can never land on a `…mac` install.
         # The DMG keeps its own name — it is the one-time manual download that
         # moves an old side-by-side tester onto this unified build.
-        CH_APP_NAME="Whisper Master"
+        CH_APP_NAME="Typing.sucks"
+        CH_LEGACY_APP_NAME="Whisper Master"
         CH_BUNDLE_ID="app.whispermaster.mac"
         CH_SU_FEED_URL="https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast.xml"
         CH_APPCAST_NAME="appcast.xml"
         CH_DMG_STABLE_NAME="WhisperMaster-beta.dmg"
         ;;
     dev)
-        CH_APP_NAME="Whisper Master Dev"
+        CH_APP_NAME="Typing.sucks Dev"
+        CH_LEGACY_APP_NAME="Whisper Master Dev"
         CH_BUNDLE_ID="app.whispermaster.mac.dev"
         CH_SU_FEED_URL="https://pub-98e94ebcf8904c07b38b85605ad49284.r2.dev/appcast-dev.xml"
         CH_APPCAST_NAME="appcast-dev.xml"

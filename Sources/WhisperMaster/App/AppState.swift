@@ -269,6 +269,14 @@ final class AppState {
     /// sets the window to match what it's asking the user to read.
     var commandConfirmationWindow: TimeInterval = AppState.commandConfirmationDuration
     var commandConfirmationAt: Date?
+    /// Whether a Clerk session is signed in right now (false for the length of a
+    /// sign-out). A mirror for the views, written only through
+    /// `DictationViewModel.setAccountSignedIn`: the pages made of an account (notes,
+    /// connectors, usage) and the account row read it to say "sign in" where a
+    /// session is missing. **It gates nothing.** Every gate asks `AccountFeature` with
+    /// the App layer's own answer, so a view can never be the thing that opens sync
+    /// or the assistant. Starts false, which is right for a launch with no session yet.
+    var accountSignedIn = false
     /// The answer to a "what's my day" query, dropped down in the notch. Set by the
     /// view model after aggregating the connectors; transient (never persisted),
     /// auto-expired by the refresh loop after `daySummaryDuration`.
@@ -623,7 +631,7 @@ final class AppState {
         didSet { Self.persistVocabulary(customVocabulary) }
     }
 
-    /// The device mesh: this Mac plus other Macs running Whisper Master on the
+    /// The device mesh: this Mac plus other Macs running Typing.sucks on the
     /// network. Written by `MeshCoordinator`; observed by the mesh settings panel.
     var meshPeers: [MeshPeer] = []
 

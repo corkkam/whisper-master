@@ -3,7 +3,7 @@ import Foundation
 // MARK: - MeshCoordinator
 //
 // Owns peer discovery and assembles the observable mesh: this Mac plus the other
-// Macs running Whisper Master on the network, each with a privacy-safe display
+// Macs running Typing.sucks on the network, each with a privacy-safe display
 // name and its current load (latency and proximity arrive in later steps).
 // Writes the result into `AppState` on the main actor.
 //

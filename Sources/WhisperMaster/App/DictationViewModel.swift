@@ -54,6 +54,11 @@ final class DictationViewModel {
     /// the chord merely re-labelled a session the push-to-talk key owns — there,
     /// letting go of control must not cut the recording short.
     private var commandChordOwnsSession = false
+    /// True when a signed-out press of the chord (or the agent key) landed on a
+    /// session the push-to-talk key already opened. The words are held, never typed:
+    /// the press said "assistant", and the assistant is behind sign-in
+    /// (`AccountFeature.assistant`). Consumed at stop; cleared with every other arm.
+    private(set) var holdWordsForSignIn = false
     /// The front app's selection, read off the main actor from the chord press, and
     /// whether that press must keep the capture off the endpoint. Taken at stop with
     /// the arm, so neither can reach the next session. Settable so a test can give it
@@ -336,6 +341,8 @@ final class DictationViewModel {
         // Consume the command arm now (synchronously, at the user's stop) so it
         // can't linger; the async finalize below reads this captured copy.
         let commandMode = commandArmed
+        let holdForSignIn = holdWordsForSignIn
+        holdWordsForSignIn = false
         // One hand-over, so a press after this stop cannot change any of it: the read,
         // the only app a draft may type into, and whether the capture stays local.
         let pressSession = selectionCapture.take()
@@ -473,6 +480,8 @@ final class DictationViewModel {
                     // somehow armed: it is the more specific instruction, and it
                     // names a destination rather than a kind of handling.
                     assistantHandled = await routeAgentCapture(cleaned, spoken: spoken)
+                } else if holdForSignIn, !cleaned.isEmpty {
+                    assistantHandled = holdWordsUntilSignedIn(cleaned, spoken: spoken)
                 } else if commandMode, !cleaned.isEmpty {
                     assistantHandled = await routeCommandCapture(
                         cleaned, spoken: spoken, selectionRead: selectionRead,
@@ -546,11 +555,17 @@ final class DictationViewModel {
                 // sent: PostHog can cohort on a person property directly. On the
                 // `.dictation` path only, so the profile reflects delivered work
                 // rather than every session that was opened.
-                Analytics.shared.updatePersonProperties([
-                    "lifetimeDictations": String(state.usageStore.totalDictations),
-                    "lifetimeWords": String(state.usageStore.totalWords),
-                    "engine": state.selectedEngine.rawValue,
-                ])
+                //
+                // Only for a session an account owned. Signed out there is no profile
+                // to roll them onto, and the store is empty, so the totals would
+                // be zeros written to the install's anonymous person.
+                if sessionOwner != nil {
+                    Analytics.shared.updatePersonProperties([
+                        "lifetimeDictations": String(state.usageStore.totalDictations),
+                        "lifetimeWords": String(state.usageStore.totalWords),
+                        "engine": state.selectedEngine.rawValue,
+                    ])
+                }
                 // What AX sees at the moment we choose the paste route — the
                 // evidence for building the "nowhere to type" classifier.
                 Diagnostics.shared.noteFocus(FocusedElementInspector.focusDiagnostic())
@@ -1145,6 +1160,71 @@ final class DictationViewModel {
         if state.canStop {
             stopRecording()
         }
+    }
+
+    /// A press of the chord or the agent key with no account.
+    ///
+    /// The assistant is behind sign-in (owner decision D2, 2026-11-27), so nothing
+    /// runs and nothing is armed. Two cases, and the difference is whether the
+    /// push-to-talk key already opened a session (fn is pressed a hair before
+    /// control, so it usually has):
+    /// - **nothing running** → there are no words. Say so on the notch.
+    /// - **a session running** → its words were meant for the assistant, so they
+    ///   are not typed, and not dropped either: `holdWordsUntilSignedIn` keeps them
+    ///   at the stop.
+    func refuseForSignIn(_ message: String) {
+        // Where Notes & Reminders is closed the chord means nothing at all: the
+        // words are plain dictation, as `handleCommandChordEngaged` has it.
+        guard FeatureFlags.connectorsAndNotesAvailable else { return }
+        showSignInPrompt(message)
+        if state.canStop || state.phase == .preparingModels {
+            holdWordsForSignIn = true
+        }
+    }
+
+    /// The notch's short sign-in prompt: the confirmation band, with a tap that
+    /// opens sign-in (`AppDelegate`'s `onOpenNotes` sends a signed-out tap there).
+    /// No chime: nothing succeeded.
+    func showSignInPrompt(
+        _ message: String,
+        detail: String = "Tap to sign in. Dictation works without an account."
+    ) {
+        showCommandConfirmation(
+            message, icon: "person.crop.circle.badge.exclamationmark", detail: detail,
+            window: AppState.commandConfirmationDuration, chime: false)
+    }
+
+    /// Keep the words of a capture the assistant would have taken, when there is no
+    /// account for it. They are **never typed** (the press meant "assistant", so
+    /// typing them into the user's editor is the one outcome it rules out) and
+    /// **never dropped**: they go on the clipboard and into the history, where
+    /// "Paste Last Transcript" in the tray finds them, and the band says so. Returns
+    /// `true`, so the caller suppresses the paste.
+    @discardableResult
+    func holdWordsUntilSignedIn(_ text: String, spoken: SpokenCapture) -> Bool {
+        let startedAt = Date()
+        var trace = spoken.trace(at: startedAt)
+        copyToClipboard(text)
+        _ = state.appendHistory(text: text, engine: state.selectedEngine)
+        showSignInPrompt(
+            "Sign in to use the assistant",
+            detail: "Your words are copied. Tap to sign in.")
+        state.statusMessage = "Sign in to use the assistant."
+        trace.decisions.append(TraceDecision(
+            title: "Sign-in needed",
+            detail: "You held the assistant chord, but the assistant needs an account. "
+                + "The words were copied and kept in history instead of being typed.",
+            taken: true))
+        trace.answer = "Sign in to use the assistant."
+        finish(trace, since: startedAt)
+        return true
+    }
+
+    /// Mirror of the Clerk session for the views (`AppState.accountSignedIn`).
+    /// Guarded: the 0.5 s reconcile calls it on every tick, and an unguarded write
+    /// would push an @Observable change through every observer twice a second.
+    func setAccountSignedIn(_ signedIn: Bool) {
+        if state.accountSignedIn != signedIn { state.accountSignedIn = signedIn }
     }
 
     /// The tray's pause item for the user's endpoint. Paused, every capture stays on
@@ -2191,6 +2271,7 @@ final class DictationViewModel {
         // A cancelled session files nothing, so its arms die with it.
         setCommandArmed(false)
         commandChordOwnsSession = false
+        holdWordsForSignIn = false
         _ = selectionCapture.take()
         Task {
             await transcriber.cancel()
@@ -2507,6 +2588,7 @@ final class DictationViewModel {
             // clear the arm so the notch doesn't keep claiming one is in flight.
             self.setCommandArmed(false)
             self.commandChordOwnsSession = false
+            self.holdWordsForSignIn = false
             _ = self.selectionCapture.take()
             self.state.failedAt = Date()
             self.state.statusMessage = "Transcription failed: \(error.localizedDescription)"

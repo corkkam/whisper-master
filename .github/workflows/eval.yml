@@ -144,7 +144,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .eval-scratch
-          "build/Whisper Master.app/Contents/MacOS/WhisperMaster" | tee .eval-scratch/assistant.log
+          "build/Typing.sucks.app/Contents/MacOS/WhisperMaster" | tee .eval-scratch/assistant.log
           test -s "$WM_EVAL_OUT"
 
       - name: Grade the cleanup pipeline
@@ -160,7 +160,7 @@ jobs:
         # job whose other half worked.
         continue-on-error: true
         env:
-          APP: ${{ github.workspace }}/build/Whisper Master.app
+          APP: ${{ github.workspace }}/build/Typing.sucks.app
           NO_PUSH: "1"
           OUT: ${{ github.workspace }}/.eval-scratch/results.json
           TIMEOUT: "1800"

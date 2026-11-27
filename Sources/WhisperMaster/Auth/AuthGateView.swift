@@ -2,11 +2,11 @@ import ClerkKit
 import ClerkKitUI
 import SwiftUI
 
-/// The sign-in gate shown at launch and whenever no user is authenticated.
+/// The sign-in window, shown when a signed-out person asks to sign in.
 ///
-/// The whole app is locked behind it — dictation won't start until a user signs
-/// in (see `AppDelegate`) — so this window is the first thing a new customer sees
-/// of the product, and it is treated as a designed surface rather than a form.
+/// Dictation does not wait on it (owner decision D2, 2026-11-27): sign-in adds sync,
+/// the assistant and the beta track. It is still the place a customer meets their
+/// account, so it is treated as a designed surface rather than a form.
 /// Three things carry that:
 ///
 /// - **The card is ours.** `AuthView` is Clerk's prebuilt flow (every step of it:
@@ -50,7 +50,7 @@ struct AuthGateView: View {
             switch self {
             case .configuration: "Setup needed"
             case .session: "Checking your session"
-            case .user: "Sign in required"
+            case .user: "Sign in"
             }
         }
 
@@ -155,8 +155,9 @@ struct AuthGateView: View {
         case .user:
             // Only shown while signed out (AppDelegate closes the window on
             // sign-in), so go straight to Clerk's prebuilt sign-in / sign-up UI.
-            // isDismissible: false — the app is gated, so there's no dismiss
-            // affordance; we close the window ourselves once a user signs in.
+            // isDismissible: false — the window's own close button is the way out
+            // (Clerk's dismiss would only draw a second one); we close the window
+            // ourselves once a user signs in.
             //
             // maxWidth MUST be finite: ClerkKitUI's `SocialButtonRowsLayout`
             // does `Int(containerWidth / itemWidth)`, so an infinite width
@@ -206,7 +207,7 @@ struct AuthGateView: View {
 
     // MARK: - Footer
 
-    /// The two things a locked window owes the person looking at it: what it does
+    /// The two things this window owes the person looking at it: what it does
     /// with their voice, and how to get out of it.
     private var footer: some View {
         VStack(alignment: .leading, spacing: Theme.Space.md) {
@@ -218,7 +219,7 @@ struct AuthGateView: View {
                 Text("Audio never leaves this Mac")
                     .monoLabel()
                 Spacer(minLength: Theme.Space.sm)
-                Text("⌘Q to quit")
+                Text("Close to keep dictating")
                     .monoLabel()
             }
             .foregroundStyle(Theme.textTertiary)

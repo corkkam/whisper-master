@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="Sources/WhisperMaster/Resources/WhisperMasterLogo.png" width="118" alt="Whisper Master" />
+<img src="Sources/WhisperMaster/Resources/WhisperMasterLogo.png" width="118" alt="Typing.sucks" />
 
-# Whisper Master
+# Typing.sucks
 
 **Local-first streaming dictation for macOS.**
 Hold a key, talk, and clean formatted text lands wherever your cursor is — transcribed and cleaned entirely on your own Mac.
@@ -10,14 +10,16 @@ Hold a key, talk, and clean formatted text lands wherever your cursor is — tra
 ![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-211c15)
 ![Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-c0381a)
 ![On-device](https://img.shields.io/badge/transcription-100%25%20on--device-3c7a4e)
-[![Eval](https://img.shields.io/badge/eval-published-c0381a)](https://whisper.corkkam.com/eval)
-[![Site](https://img.shields.io/badge/whisper.corkkam.com-211c15)](https://whisper.corkkam.com)
+[![Eval](https://img.shields.io/badge/eval-published-c0381a)](https://typing.sucks/eval)
+[![Site](https://img.shields.io/badge/typing.sucks-211c15)](https://typing.sucks)
 
 </div>
 
 ---
 
-Whisper Master is a menu-bar app that transcribes your speech with **NVIDIA Parakeet** (via [FluidAudio](https://github.com/FluidInference/FluidAudio)) and cleans it up the way you would actually have typed it — filler words gone, numbers and times formatted, spoken self-corrections resolved — then pastes it into whatever app you are in. An optional on-device language model (**S1-mini** by Superwhisper, a 0.6B text normalizer converted to 4-bit, run via **MLX**) adds a deeper polish, always behind a faithfulness guard, so it only ever *cleans* your words and never answers or acts on them.
+Typing.sucks is a menu-bar app that transcribes your speech with **NVIDIA Parakeet** (via [FluidAudio](https://github.com/FluidInference/FluidAudio)) and cleans it up the way you would actually have typed it — filler words gone, numbers and times formatted, spoken self-corrections resolved — then pastes it into whatever app you are in. An optional on-device language model (**S1-mini** by Superwhisper, a 0.6B text normalizer converted to 4-bit, run via **MLX**) adds a deeper polish, always behind a faithfulness guard, so it only ever *cleans* your words and never answers or acts on them.
+
+> **Typing.sucks was called Whisper Master until 2026-11-27.** The repository, the Swift module (`WhisperMaster`), the bundle id (`app.whispermaster.mac`) and the data folders keep the old name on purpose. Renaming them would stop installed copies from updating and would lose settings and notes.
 
 **Audio is captured to memory, transcribed, and discarded.** It is never written to a network socket and never written to disk on the normal dictation path. That is the product, not a feature of it.
 
@@ -70,7 +72,7 @@ Every change is graded against the **real shipped pipeline**, not a proxy, on re
 
 The one figure recorded in this repo is **3.4% mean word error rate on 20 LibriSpeech dev-clean clips** (median 0.0%, 15 of 20 under 5%), from the 2026-08-21 run in [`eval/text-cleanup/judgment.md`](eval/text-cleanup/judgment.md). That is clean human speech only. The same file reports ASR failures on noisy and Bluetooth-HFP audio but gives no word error rate for them, so do not quote 3.4% as a general accuracy claim.
 
-**Published runs: [whisper.corkkam.com/eval](https://whisper.corkkam.com/eval)**
+**Published runs: [typing.sucks/eval](https://typing.sucks/eval)**
 
 The harness is in [`eval/`](eval/); the page that publishes the runs lives in the landing-page repo (`app/eval/`, `lib/eval/`) and reads Supabase. Every stable and beta release grades itself and posts its score there.
 

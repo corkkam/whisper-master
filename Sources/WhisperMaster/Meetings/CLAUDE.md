@@ -6,7 +6,7 @@ transcript and the recording. Dev builds only (`FeatureFlags.meetingNotesAvailab
 
 ## Flow
 
-`MeetingController` (on `AppState.meetings`, started post-auth) polls every 2 s:
+`MeetingController` (on `AppState.meetings`, started once a user is signed in: meeting notes are the account's, `AccountFeature.assistant`) polls every 2 s:
 `AudioOutputActivity.runningInputBundleIDs()` -> `BrowserMeetingProbe` for browsers
 -> `CallDetector` (pure, debounced) -> `prompt` -> `NotchMeetingPromptBanner`.
 "Take notes" -> `MeetingSession`: own `MicrophoneCaptureService` ("You") +

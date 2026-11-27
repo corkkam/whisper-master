@@ -26,7 +26,7 @@ enum LatencyProbe {
         // The transcription port is PSK-authenticated now, so a probe must offer
         // the same key. Consequence, and it is the intended one: latency resolves
         // only for Macs that share this pairing key — i.e. the user's own devices.
-        // A stranger's Whisper Master on the same café Wi-Fi still appears in the
+        // A stranger's Typing.sucks on the same café Wi-Fi still appears in the
         // Bonjour roster (mDNS is public) but fails the handshake and reads as
         // unreachable, instead of answering probes from anyone who asks.
         guard let parameters = RemotePairing.tlsParameters() else { return nil }

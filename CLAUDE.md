@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
+**The product is named Typing.sucks** (owner decision D1, 2026-11-27). It was called Whisper Master. Only what a user reads changed: the display name, the `.app` file name, the DMG volume and the UI copy. These keep the old name, because renaming one breaks updates or loses user data: the bundle id `app.whispermaster.mac` (and `.dev`), every `WhisperMaster.*` defaults key, Keychain item and Application Support folder, the R2 object names (`WhisperMaster-<version>.zip` and `.dmg`), the feed URLs, the Swift module, target and `PRODUCT_NAME`, the log subsystems, the analytics event names and the repo name.
+
 A standalone macOS menu-bar app prototype for local-first streaming dictation, built on `FluidAudio` + NVIDIA Parakeet. This is the sandbox for evaluating on-device streaming ASR on Apple Silicon.
 
 ## Commands
@@ -26,7 +28,7 @@ swift test
 swift test --filter AudioReplayTests
 
 # Build + sign the distributable .app (xcodegen → xcodebuild → stage)
-bash Scripts/bundle.sh                       # → build/Whisper Master.app (Release, signed "whisper master")
+bash Scripts/bundle.sh                       # → build/Typing.sucks.app (Release, signed "whisper master")
 CONFIG=Debug bash Scripts/bundle.sh          # debug-config variant
 SIGN_IDENTITY=- bash Scripts/bundle.sh       # ad-hoc instead of the keychain cert
 
@@ -34,12 +36,12 @@ SIGN_IDENTITY=- bash Scripts/bundle.sh       # ad-hoc instead of the keychain ce
 bash Scripts/make-dmg.sh                # full rebuild + DMG
 REBUILD=0 bash Scripts/make-dmg.sh      # repackage existing .app only
 
-# One-shot install: build → quit running instance → replace /Applications/Whisper Master.app → relaunch
+# One-shot install: build → quit running instance → replace /Applications/Typing.sucks.app → relaunch
 bash Scripts/install.sh
 REBUILD=0 bash Scripts/install.sh       # skip rebuild
 RELAUNCH=0 bash Scripts/install.sh      # install without launching
 
-# Local test build beside the real app: "Whisper Master Dev" in /Applications.
+# Local test build beside the real app: "Typing.sucks Dev" in /Applications.
 # Use this, not `SIGN_IDENTITY=- bundle.sh`, for anything you run: it signs with a
 # stable Apple Development identity, so the keychain "Always Allow" survives a
 # rebuild. An ad-hoc signature changes every build and re-prompts for every item.
@@ -101,7 +103,7 @@ app's tool pool packed to 16 by `ToolPackRouter`, as the chord does
 
 ```bash
 CONFIG=Debug SIGN_IDENTITY=- bash Scripts/bundle.sh
-WM_AGENT_TOOL_EVAL=1 "./build/Whisper Master.app/Contents/MacOS/WhisperMaster"
+WM_AGENT_TOOL_EVAL=1 "./build/Typing.sucks.app/Contents/MacOS/WhisperMaster"
 ```
 
 **It must be the app bundle, not `.build/debug/WhisperMaster`.** The SwiftPM binary
@@ -190,7 +192,7 @@ on commands that need two or more tool calls, against scripted tools, and grades
 the model *called*. Same bundle and model requirements as above.
 
 ```bash
-WM_AGENT_CHAIN_EVAL=1 "./build/Whisper Master.app/Contents/MacOS/WhisperMaster"
+WM_AGENT_CHAIN_EVAL=1 "./build/Typing.sucks.app/Contents/MacOS/WhisperMaster"
 # WM_CHAIN_OUT=<file.json>   WM_CHAIN_ONLY=<id,id>   WM_CHAIN_NATIVE=1 (comparison arm)
 ```
 
@@ -289,7 +291,7 @@ Declared in **both** `project.yml` (source of truth for the app target) and `Pac
 - **Sparkle** ≥ 2.6 (resolves 2.9.x) — auto-update. Xcode embeds/signs the framework automatically; replicating that by hand is the main reason the project moved off the old SwiftPM-only bundle onto an Xcode app target.
 - **PostHog** (`posthog-ios`) ≥ 3.0 — opt-in, account-linked product analytics (see **Analytics** below). Replaced TelemetryDeck (free-tier too limited).
 - **mlx-swift-examples** (`MLXLLM`/`MLXLMCommon`) pinned exact 2.29.1 — on-device qwen cleanup (the `ChatSession`/`MLXLMCommon` API churns between minors).
-- **Clerk** (`clerk-ios`) ≥ 1.3.0 — auth for the launch sign-in gate (see Authentication below). Two products: `ClerkKit` (core + observable state) and `ClerkKitUI` (prebuilt `AuthView`). Pulls transitive deps (PhoneNumberKit, Nuke, swift-collections). Native macOS 14+ support, so no Catalyst shim.
+- **Clerk** (`clerk-ios`) ≥ 1.3.0 — auth for sync, the assistant and the beta track (see Authentication below). Two products: `ClerkKit` (core + observable state) and `ClerkKitUI` (prebuilt `AuthView`). Pulls transitive deps (PhoneNumberKit, Nuke, swift-collections). Native macOS 14+ support, so no Catalyst shim.
 
 ### Release safety rules (mechanics live in the `releasing` skill)
 
@@ -337,7 +339,7 @@ is not loaded:
 - `applicationShouldTerminateAfterLastWindowClosed → false`: closing the settings window must NOT quit the app — the tray is the persistent surface. The `NSStatusItem` uses `autosaveName` so users can drag its position and it sticks across launches.
 - A 0.5s `Timer` in `AppDelegate.startStatusRefreshLoop` polls `PrototypeAppState` and rebuilds the tray icon symbol, tooltip, header line, and history submenu. There's no `@Observable` bridge to AppKit — the timer is the bridge. **Every AppKit write on this path is change-guarded** (`appliedTrayIconKey` / `appliedTrayTooltip` / `appliedTrayHeader`, `renderedHistoryIDs`, and the `ignoresMouseEvents` check inside `DictationPillWindow.setInteractive`): the answer is identical on nearly every tick, and writing anyway meant allocating a fresh `NSImage` and pushing a status-item update through the menu-bar server twice a second for the life of the process. Keep new per-tick writes guarded the same way — an unguarded `button.image = …` here is a permanent background cost, not a one-off.
 
-### Authentication — Clerk sign-in gate (`Auth/`)
+### Authentication — Clerk sign-in, the account gate (`Auth/`)
 
 **Beta is not a separate app.** Stable and beta ship as one bundle
 (`app.whispermaster.mac`) and are told apart only by the `-beta.N` version marker
@@ -348,11 +350,15 @@ into its own bundle id "so it installs side by side" — that is what made the
 tracks un-updatable, and `Scripts/bundle.sh` now re-badges `dev` only. Details:
 **`.claude/skills/releasing/SKILL.md`**.
 
-The app is **gated behind Clerk sign-in at launch**: dictation won't start until a
-user is authenticated. Transcription itself still runs entirely on-device — only
-the *gate* talks to Clerk's cloud. Details (config, gate window, the OAuth
-redirect allowlist each build needs, the bridging timer, enforcement points):
-**`Sources/WhisperMaster/Auth/CLAUDE.md`**.
+**A user can dictate before sign-in** (owner decision D2, 2026-11-27). Sign-in is
+still required for **sync, the assistant and the beta track**, and `AccountFeature`
+(`Auth/AccountGate.swift`) is the one table that says so. Transcription runs
+entirely on-device; only sign-in itself and the account's sync talk to the cloud.
+Signed out, the fn + control chord shows a sign-in prompt on the notch instead of
+running the assistant, and the pages made of an account (Notes & Reminders,
+Connectors, Insights) show a sign-in panel. Details (config, the sign-in window,
+the OAuth redirect allowlist each build needs, the bridging timer, enforcement
+points): **`Sources/WhisperMaster/Auth/CLAUDE.md`**.
 
 ### State (`PrototypeAppState`)
 
