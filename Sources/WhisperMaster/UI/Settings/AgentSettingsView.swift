@@ -55,6 +55,40 @@ struct AgentSettingsView: View {
         }
         SectionLabel("Shed")
         shedCard
+        if FeatureFlags.crewAvailable {
+            SectionLabel("Crew")
+            crewCard
+        }
+    }
+
+    // MARK: Crew
+
+    private var crewCard: some View {
+        SettingsCard {
+            SettingsRow(
+                "Show Crew faces",
+                tag: "Dev",
+                subtitle: "Shows your Crew agents at the right edge of the screen. "
+                    + "Reads ~/.crew/events.jsonl and each project's .crew/crew.json."
+            ) {
+                ThemeToggle(isOn: $state.crewFacesEnabled, label: "Show Crew faces")
+            }
+            RowDivider()
+            SettingsRow(
+                "Keep the lead on screen",
+                subtitle: "Shows the lead face after a run ends."
+            ) {
+                ThemeToggle(isOn: $state.crewFacesAlwaysShow, label: "Keep the lead on screen")
+            }
+            RowDivider()
+            SettingsRow(
+                "Stop all Crew runs",
+                subtitle: "Creates ~/.crew/STOP. Run crew resume --global to undo."
+            ) {
+                Button("Stop") { state.agents.crew.stopAll() }
+                    .disabled(isSnapshot)
+            }
+        }
     }
 
     // MARK: Shed

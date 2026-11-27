@@ -72,12 +72,13 @@ targets:
     sources:
       - path: Sources/WhisperMaster
         # ⚠️ Every non-source file under here is copied into
-        # Contents/Resources/ with its basename, so the per-directory CLAUDE.md
-        # files all target the same destination and xcodebuild fails the build
-        # with "duplicate output file" (exit 65). They are agent documentation,
-        # not app resources — a shipped bundle should not carry them either.
+        # Contents/Resources/ with its basename, so the per-directory agent docs
+        # (CLAUDE.md, and the INTERFACE.md and DECISIONS.md of each component)
+        # all target the same destination and xcodebuild fails the build with
+        # "duplicate output file" (exit 65). They are agent documentation, not
+        # app resources — a shipped bundle should not carry them either.
         excludes:
-          - "**/CLAUDE.md"
+          - "**/*.md"
       - path: Resources/AppIcon.icns
         buildPhase: resources
       # The eval's mechanical scorer, compiled into the app so the Model Lab can

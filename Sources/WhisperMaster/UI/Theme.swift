@@ -258,6 +258,44 @@ enum Theme {
         }
     }
 
+    // MARK: Agent faces
+
+    /// The agent faces and their rail (`UI/AgentFaces/`). The rail sits on the
+    /// desktop, not on the bezel, so it follows the system appearance and every
+    /// colour here has a light and a dark cut. State colours are reserved:
+    /// identity hues (`AgentFaceHue.palette`) never use amber, green, red or grey.
+    enum AgentFace {
+        /// The identity hue as a stroke or a ring, at 3:1 or better on the rail.
+        static func identity(_ hue: AgentFaceHue, dark: Bool) -> Color {
+            Color(hue: hue.degrees / 360,
+                  saturation: dark ? hue.saturation * 0.75 : hue.saturation,
+                  brightness: dark ? 0.98 : 0.68)
+        }
+
+        /// The badge fill; its text is `badgeInk`.
+        static func badgeFill(_ hue: AgentFaceHue, dark: Bool) -> Color {
+            Color(hue: hue.degrees / 360,
+                  saturation: dark ? hue.saturation * 0.55 : hue.saturation,
+                  brightness: dark ? 0.92 : 0.58)
+        }
+
+        static func badgeInk(dark: Bool) -> Color { dark ? Color(hex: 0x0b0e16) : .white }
+
+        static func ink(dark: Bool) -> Color { dark ? Notch.text : textPrimary }
+        static func secondaryInk(dark: Bool) -> Color { dark ? Notch.textSecondary : textSecondary }
+
+        static func waiting(dark: Bool) -> Color { dark ? Notch.warning : Color(hex: 0xa86a00) }
+        /// A real green, not the signal teal: the teal sits next to an identity hue.
+        static func done(dark: Bool) -> Color { dark ? Notch.output : Color(hex: 0x1d7f45) }
+        static func error(dark: Bool) -> Color { dark ? Notch.danger : danger }
+        static func budget(dark: Bool) -> Color { dark ? Notch.textTertiary : Color(hex: 0x6b7384) }
+
+        static func railFill(dark: Bool) -> Color {
+            dark ? Color(hex: 0x10141c, alpha: 0.92) : Color(hex: 0xf4f6fa, alpha: 0.94)
+        }
+        static func railBorder(dark: Bool) -> Color { dark ? Notch.hairline : line }
+    }
+
     // MARK: Sticky notes
 
     /// The sticky-note tints for the notes canvas.

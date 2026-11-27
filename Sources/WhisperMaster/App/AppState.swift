@@ -837,6 +837,18 @@ final class AppState {
 
     static let shedEnabledDefaultsKey = "WhisperMaster.shedEnabled.v1"
     static let shedURLDefaultsKey = "WhisperMaster.shedURL.v1"
+    static let crewFacesDefaultsKey = "WhisperMaster.crewFaces.v1"
+    static let crewFacesAlwaysShowDefaultsKey = "WhisperMaster.crewFacesAlwaysShow.v1"
+
+    /// Show the Crew agent faces at the right edge of the screen. Dev builds only.
+    var crewFacesEnabled: Bool = false {
+        didSet { UserDefaults.standard.set(crewFacesEnabled, forKey: Self.crewFacesDefaultsKey) }
+    }
+
+    /// Keep the lead face on screen after a run ends.
+    var crewFacesAlwaysShow: Bool = false {
+        didSet { UserDefaults.standard.set(crewFacesAlwaysShow, forKey: Self.crewFacesAlwaysShowDefaultsKey) }
+    }
 
     /// From the moment a prompt is delivered until its reply lands, the revealed
     /// band always has something to show. Keying this on the session's *state*
@@ -938,6 +950,9 @@ final class AppState {
         deskHandOffAllowed = UserDefaults.standard.bool(forKey: Self.deskHandOffDefaultsKey)
         shedEnabled = UserDefaults.standard.object(forKey: Self.shedEnabledDefaultsKey) as? Bool ?? true
         shedURL = UserDefaults.standard.string(forKey: Self.shedURLDefaultsKey) ?? ""
+        crewFacesEnabled = UserDefaults.standard.object(forKey: Self.crewFacesDefaultsKey) as? Bool ?? false
+        crewFacesAlwaysShow =
+            UserDefaults.standard.object(forKey: Self.crewFacesAlwaysShowDefaultsKey) as? Bool ?? false
         // Opt-out: on unless the user has explicitly turned it off.
         holdToTalkEnabled = UserDefaults.standard.object(forKey: Self.holdToTalkDefaultsKey) as? Bool ?? true
         pauseMediaWhileListening =

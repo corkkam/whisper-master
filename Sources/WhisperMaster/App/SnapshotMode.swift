@@ -119,6 +119,7 @@ enum SnapshotMode {
         renderSignedOut(dir, viewModel: viewModel)
         renderAgentEndpoint(dir)
         renderConnectedTool(dir)
+        renderAgentFaces(dir)
 
         // Onboarding, in the notch — one render per beat, plus the two states
         // inside the microphone beat that the orb is doing the work in.
@@ -1411,6 +1412,93 @@ enum SnapshotMode {
             to: dir.appendingPathComponent("sheet-connected-tool-consent.png"))
     }
 
+    /// The agent faces and their rail (`UI/AgentFaces/`). The rail sits on the
+    /// desktop and follows the system appearance, so it is rendered light and dark.
+    private static func renderAgentFaces(_ dir: URL) {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        func since(_ state: AgentFaceState) -> Date {
+            switch state {
+            case .done: return now.addingTimeInterval(-0.5)  // the arcs and the full ring
+            case .waiting: return now.addingTimeInterval(-1)  // the pulse at its peak
+            default: return now.addingTimeInterval(-30)
+            }
+        }
+        func item(_ name: String, _ role: AgentFaceRole, _ state: AgentFaceState, hue: Int,
+                  detail: String? = nil, group: String? = nil, component: String? = nil) -> AgentRailItem {
+            AgentRailItem(
+                id: name, identity: AgentFaceIdentity(name: name, role: role, hueIndex: hue, componentName: component),
+                state: state, detail: detail, discussionGroup: group, since: since(state))
+        }
+        let lead = AgentFaceIdentity(name: "Atlas", role: .lead, hueIndex: 0)
+        let roles: [AgentFaceIdentity] = [
+            lead,
+            AgentFaceIdentity(name: "Maya", role: .pm, hueIndex: 3),
+            AgentFaceIdentity(name: "Quinn", role: .qa, hueIndex: 5),
+            AgentFaceIdentity(name: "Iris", role: .design, hueIndex: 4),
+            AgentFaceIdentity(name: "Milo", role: .marketing, hueIndex: 1),
+            AgentFaceIdentity(name: "Uma", role: .user, hueIndex: 2),
+            AgentFaceIdentity(name: "Arjun", role: .architect, hueIndex: 0),
+            AgentFaceIdentity(name: "Parser", role: .component, hueIndex: 5, componentName: "parser", harness: .codex),
+        ]
+        let team = [
+            item("Atlas", .lead, .working, hue: 0, detail: "tests"),
+            item("Maya", .pm, .discussing, hue: 3, group: "plan"),
+            item("Iris", .design, .discussing, hue: 4, group: "plan"),
+            item("Quinn", .qa, .waiting, hue: 5),
+        ]
+        let crowd = team + [
+            item("Arjun", .architect, .error, hue: 1),
+            item("Uma", .user, .idle, hue: 2),
+            item("Tokenizer", .component, .asleep, hue: 5, component: "tokenizer"),
+        ]
+
+        for dark in [false, true] {
+            let suffix = dark ? "dark" : "light"
+            let ground = dark ? Color(hex: 0x1c1f26) : Theme.canvas
+            let scheme: ColorScheme = dark ? .dark : .light
+            let appearance: NSAppearance.Name = dark ? .darkAqua : .aqua
+            let caption = Theme.AgentFace.secondaryInk(dark: dark)
+
+            let states = HStack(alignment: .top, spacing: 14) {
+                ForEach(AgentFaceState.allCases, id: \.self) { state in
+                    VStack(spacing: 8) {
+                        AgentFaceView(identity: lead, state: state, size: AgentRailView.leadFaceSize,
+                                      since: since(state), now: now)
+                        Text(state.rawValue).font(Typography.sans(11)).foregroundStyle(caption)
+                    }
+                    .frame(width: 66)
+                }
+            }
+            .padding(24).background(ground).environment(\.colorScheme, scheme)
+            render(states, to: dir.appendingPathComponent("agentface-lead-states-\(suffix).png"),
+                   scale: 3, appearance: appearance)
+
+            let roleSheet = HStack(alignment: .top, spacing: 14) {
+                ForEach(roles, id: \.self) { identity in
+                    VStack(spacing: 8) {
+                        AgentFaceView(identity: identity, state: .idle, size: AgentRailView.faceSize, now: now)
+                        Text(identity.role.rawValue).font(Typography.sans(11)).foregroundStyle(caption)
+                    }
+                    .frame(width: 66)
+                }
+            }
+            .padding(24).background(ground).environment(\.colorScheme, scheme)
+            render(roleSheet, to: dir.appendingPathComponent("agentface-roles-\(suffix).png"),
+                   scale: 3, appearance: appearance)
+
+            for (name, items, hovered) in [("agentrail-team", team, "Quinn"), ("agentrail-overflow", crowd, nil)] {
+                let rail = HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    AgentRailView(items: items, hoveredID: hovered, now: now)
+                }
+                .frame(width: AgentRailView.labelRoom + AgentRailView.width)
+                .padding(16).background(ground).environment(\.colorScheme, scheme)
+                render(rail, to: dir.appendingPathComponent("\(name)-\(suffix).png"),
+                       scale: 3, appearance: appearance)
+            }
+        }
+    }
+
     private static func renderPill(_ dir: URL, name: String, configure: (AppState) -> Void) {
         let state = AppState()
         state.hidePillWhenIdle = false
@@ -1976,13 +2064,15 @@ enum SnapshotMode {
     /// inherited: `performAsCurrentDrawingAppearance` is what any AppKit-backed
     /// colour resolves against, and the headless renderer has no window to take
     /// it from.
-    private static func render<V: View>(_ view: V, to url: URL) {
-        guard let appearance = NSAppearance(named: .aqua) else { return }
+    private static func render<V: View>(
+        _ view: V, to url: URL, scale: CGFloat = 2, appearance name: NSAppearance.Name = .aqua
+    ) {
+        guard let appearance = NSAppearance(named: name) else { return }
 
         var image: NSImage?
         appearance.performAsCurrentDrawingAppearance {
             let renderer = ImageRenderer(content: view.environment(\.isSnapshot, true))
-            renderer.scale = 2
+            renderer.scale = scale
             image = renderer.nsImage
         }
 

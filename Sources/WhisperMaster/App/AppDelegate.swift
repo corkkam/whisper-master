@@ -60,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The hover quick-actions band. Watches the notch on its own slow timer and is
     /// only on screen while open, so it never sits over the menu bar.
     private var quickActionsWindow: NotchQuickActionsWindow?
+    private var crewRail: AgentRailPanel?
+    private var appliedCrewRunning = false
+    private var appliedCrewItems: [AgentRailItem] = []
     private var bluetoothInputMonitor: BluetoothInputMonitor?
     private var onboardingWindow: NotchOnboardingWindow?
     /// The sign-in window. Nil until first asked for; reused thereafter. A person
@@ -567,6 +570,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         quickActionsWindow?.stop()
         quickActionsWindow?.resume()
         viewModel.state.meetings.hideLiveWindow()
+        crewRail?.update(items: [])
+        appliedCrewItems = []
+    }
+
+    /// Starts or stops the Crew feed and keeps the rail in step with it. Dev builds
+    /// only. Every AppKit write is change-guarded, because the tray tick calls this
+    /// twice a second.
+    private func reconcileCrewRail() {
+        let state = viewModel.state
+        let crew = state.agents.crew
+        let want = FeatureFlags.crewAvailable && state.crewFacesEnabled && !appSurfacesHidden && onboardingWindow == nil
+        if want != appliedCrewRunning {
+            if want { crew.start() } else { crew.stop() }
+            appliedCrewRunning = want
+        }
+        if crew.showLeadWhenIdle != state.crewFacesAlwaysShow { crew.showLeadWhenIdle = state.crewFacesAlwaysShow }
+        let items = want ? crew.items : []
+        guard items != appliedCrewItems else { return }
+        if crewRail == nil && !items.isEmpty { crewRail = AgentRailPanel() }
+        crewRail?.update(items: items)
+        appliedCrewItems = items
     }
 
     /// Bring the account's surfaces back after a sign-in: the hover band, and
@@ -918,6 +942,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // our bridge from Clerk's @Observable state to AppKit, same as for
         // AppState below.
         reconcileAuthGate()
+        reconcileCrewRail()
 
         // Hand the user's music back once the whole exchange is over (the pause itself
         // happens on the key press, in `startRecording`). **Above the tray guard on
