@@ -226,7 +226,7 @@ struct AccountPopoverCard: View {
 
             if confirmingSignOut {
                 VStack(alignment: .leading, spacing: 9) {
-                    Text("Sign out of Whisper Master?")
+                    Text("Sign out of Typing.sucks?")
                         .font(Typography.sans(12.5, .semibold))
                         .foregroundStyle(Theme.textPrimary)
                     Text("You’ll need to sign back in to dictate. Nothing on this Mac is deleted.")

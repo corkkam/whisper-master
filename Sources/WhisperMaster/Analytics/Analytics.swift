@@ -1,7 +1,7 @@
 import Foundation
 import PostHog
 
-/// The single seam between Whisper Master and every analytics vendor.
+/// The single seam between Typing.sucks and every analytics vendor.
 ///
 /// Nothing else in the app imports an analytics SDK or builds a request, so
 /// adding, swapping, or dropping a vendor is a change to this one file. Today it
@@ -184,8 +184,8 @@ final class Analytics {
         // the driver frame at the top. `PRODUCT_NAME` is `WhisperMaster`, and the
         // prefix also catches the debug build's `WhisperMaster.debug.dylib`.
         // The SDK infers this from the bundle id and executable name anyway; it's
-        // stated explicitly because the app is *renamed* per channel ("Whisper
-        // Master Beta.app"), and a wrong inference here is invisible until a
+        // stated explicitly because the app is *renamed* per channel ("Typing.sucks
+        // Beta.app"), and a wrong inference here is invisible until a
         // stack arrives unhelpfully grouped.
         config.errorTrackingConfig.inAppIncludes = ["WhisperMaster"]
 

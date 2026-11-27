@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Release channel (stable|beta) → CH_APP_NAME. Beta wraps "Whisper Master Beta.app".
+# Release channel (stable|beta) → CH_APP_NAME. Beta wraps the same "Typing.sucks.app" as stable.
 source "$(dirname "$0")/channel.sh"
 
 APP_NAME="$CH_APP_NAME"

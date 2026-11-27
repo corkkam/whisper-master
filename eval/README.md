@@ -1,6 +1,6 @@
 # Evaluation — how it works and how to check it
 
-This is the quality eval for Whisper Master’s dictation pipeline. It grades the
+This is the quality eval for the Typing.sucks dictation pipeline. It grades the
 **real shipped code** (Parakeet ASR + deterministic cleanup + on-device qwen),
 not a proxy model and not Ollama.
 
@@ -341,9 +341,9 @@ you want augmentation.
 ### 1. Build the app you will grade
 
 ```bash
-bash Scripts/bundle.sh          # → build/Whisper Master.app
+bash Scripts/bundle.sh          # → build/Typing.sucks.app
 # or install it:
-bash Scripts/install.sh         # → /Applications/Whisper Master.app  (run-eval.sh default)
+bash Scripts/install.sh         # → /Applications/Typing.sucks.app  (run-eval.sh default)
 ```
 
 The runner lives **inside the app**. Scoring the last Release you shipped is
@@ -361,7 +361,7 @@ bash eval/text-cleanup/run-eval.sh eval/text-cleanup/flow-cases.jsonl "flow dest
 
 What that script does:
 
-1. Quits any running Whisper Master.
+1. Quits any running Typing.sucks.
 2. Sets `WM_EVAL_CASES` / `WM_EVAL_OUT` via `launchctl setenv` (LaunchServices
    does not inherit your shell env).
 3. `open`s the app. **Do not exec the bundle’s Mach-O** — TCC can’t find the
@@ -373,7 +373,7 @@ Useful env:
 
 | var | default | meaning |
 |---|---|---|
-| `APP` | `/Applications/Whisper Master.app` | Which bundle to launch |
+| `APP` | `/Applications/Typing.sucks.app` | Which bundle to launch |
 | `OUT` | `eval/text-cleanup/.eval-scratch/results.json` | Where `results.json` lands |
 | `DASHBOARD_URL` | `https://whisper.corkkam.com` | Ingest target (`http://localhost:3000` for a local landing site) |
 | `EVAL_INGEST_TOKEN` | unset | Required by the ingest route, which fails closed |
@@ -384,7 +384,7 @@ Useful env:
 
 ```bash
 # grade the just-built bundle, keep results local
-APP="build/Whisper Master.app" NO_PUSH=1 \
+APP="build/Typing.sucks.app" NO_PUSH=1 \
   bash eval/text-cleanup/run-eval.sh eval/text-cleanup/cases.jsonl "local"
 ```
 

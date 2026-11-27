@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
+**The product is named Typing.sucks** (owner decision D1, 2026-11-27). It was called Whisper Master. Only what a user reads changed: the display name, the `.app` file name, the DMG volume and the UI copy. These keep the old name, because renaming one breaks updates or loses user data: the bundle id `app.whispermaster.mac` (and `.dev`), every `WhisperMaster.*` defaults key, Keychain item and Application Support folder, the R2 object names (`WhisperMaster-<version>.zip` and `.dmg`), the feed URLs, the Swift module, target and `PRODUCT_NAME`, the log subsystems, the analytics event names and the repo name.
+
 A standalone macOS menu-bar app prototype for local-first streaming dictation, built on `FluidAudio` + NVIDIA Parakeet. This is the sandbox for evaluating on-device streaming ASR on Apple Silicon.
 
 ## Commands
@@ -26,7 +28,7 @@ swift test
 swift test --filter AudioReplayTests
 
 # Build + sign the distributable .app (xcodegen → xcodebuild → stage)
-bash Scripts/bundle.sh                       # → build/Whisper Master.app (Release, signed "whisper master")
+bash Scripts/bundle.sh                       # → build/Typing.sucks.app (Release, signed "whisper master")
 CONFIG=Debug bash Scripts/bundle.sh          # debug-config variant
 SIGN_IDENTITY=- bash Scripts/bundle.sh       # ad-hoc instead of the keychain cert
 
@@ -34,12 +36,12 @@ SIGN_IDENTITY=- bash Scripts/bundle.sh       # ad-hoc instead of the keychain ce
 bash Scripts/make-dmg.sh                # full rebuild + DMG
 REBUILD=0 bash Scripts/make-dmg.sh      # repackage existing .app only
 
-# One-shot install: build → quit running instance → replace /Applications/Whisper Master.app → relaunch
+# One-shot install: build → quit running instance → replace /Applications/Typing.sucks.app → relaunch
 bash Scripts/install.sh
 REBUILD=0 bash Scripts/install.sh       # skip rebuild
 RELAUNCH=0 bash Scripts/install.sh      # install without launching
 
-# Local test build beside the real app: "Whisper Master Dev" in /Applications.
+# Local test build beside the real app: "Typing.sucks Dev" in /Applications.
 # Use this, not `SIGN_IDENTITY=- bundle.sh`, for anything you run: it signs with a
 # stable Apple Development identity, so the keychain "Always Allow" survives a
 # rebuild. An ad-hoc signature changes every build and re-prompts for every item.
@@ -101,7 +103,7 @@ app's tool pool packed to 16 by `ToolPackRouter`, as the chord does
 
 ```bash
 CONFIG=Debug SIGN_IDENTITY=- bash Scripts/bundle.sh
-WM_AGENT_TOOL_EVAL=1 "./build/Whisper Master.app/Contents/MacOS/WhisperMaster"
+WM_AGENT_TOOL_EVAL=1 "./build/Typing.sucks.app/Contents/MacOS/WhisperMaster"
 ```
 
 **It must be the app bundle, not `.build/debug/WhisperMaster`.** The SwiftPM binary
@@ -190,7 +192,7 @@ on commands that need two or more tool calls, against scripted tools, and grades
 the model *called*. Same bundle and model requirements as above.
 
 ```bash
-WM_AGENT_CHAIN_EVAL=1 "./build/Whisper Master.app/Contents/MacOS/WhisperMaster"
+WM_AGENT_CHAIN_EVAL=1 "./build/Typing.sucks.app/Contents/MacOS/WhisperMaster"
 # WM_CHAIN_OUT=<file.json>   WM_CHAIN_ONLY=<id,id>   WM_CHAIN_NATIVE=1 (comparison arm)
 ```
 

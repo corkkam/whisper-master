@@ -1,6 +1,6 @@
 #!/usr/bin/env swift
 //
-//  make-logo.swift — regenerates the Whisper Master brand mark.
+//  make-logo.swift — regenerates the Typing.sucks brand mark.
 //
 //  The mark IS the orb: the same dotted, honestly-3D sphere the notch draws
 //  while it is listening to you (`OrbView` → `ThinkingOrb`, the `wave` figure),

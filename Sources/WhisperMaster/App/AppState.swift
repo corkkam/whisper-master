@@ -631,7 +631,7 @@ final class AppState {
         didSet { Self.persistVocabulary(customVocabulary) }
     }
 
-    /// The device mesh: this Mac plus other Macs running Whisper Master on the
+    /// The device mesh: this Mac plus other Macs running Typing.sucks on the
     /// network. Written by `MeshCoordinator`; observed by the mesh settings panel.
     var meshPeers: [MeshPeer] = []
 

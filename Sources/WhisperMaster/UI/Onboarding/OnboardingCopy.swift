@@ -227,7 +227,7 @@ struct OnboardingCopy {
 
     // MARK: Fixed lines
 
-    static let wordmark = "Whisper Master"
+    static let wordmark = "Typing.sucks"
     static let tagline = "Talk, and I'll type it."
     /// Every loading Ready variant's headline, and the nudge after a capture key
     /// press that setup ignored while the speech files load.
@@ -237,7 +237,7 @@ struct OnboardingCopy {
 
     static let backLabel = "Back"
     static let backAccessibilityLabel = "Go back"
-    static let settingsLabel = "Open Whisper Master Settings"
+    static let settingsLabel = "Open Typing.sucks Settings"
     static let closeTooltip = "Close setup (⌘W)"
     static let closeAccessibilityLabel = "Close setup"
     static let closeHint = "Or press Command W."
@@ -259,8 +259,8 @@ struct OnboardingCopy {
     }
 
     /// The two VoiceOver announcements, and the only two.
-    static let firstAnnouncement = "Whisper Master setup. Talk, and I'll type it. Your voice stays on this Mac."
-    static let inactiveAnnouncement = "Whisper Master setup is waiting. Switch to Whisper Master to continue."
+    static let firstAnnouncement = "Typing.sucks setup. Talk, and I'll type it. Your voice stays on this Mac."
+    static let inactiveAnnouncement = "Typing.sucks setup is waiting. Switch to Typing.sucks to continue."
 
     // MARK: Key names
 
@@ -334,7 +334,7 @@ struct OnboardingCopy {
         case .micDenied:
             return OnboardingScreen(
                 headline: "I can't hear you yet.",
-                body: "The microphone is off for Whisper Master. Turn it on in System Settings.",
+                body: "The microphone is off for Typing.sucks. Turn it on in System Settings.",
                 row: .buttons([.openSystemSettings, .notNow]))
         case .micFailed:
             return OnboardingScreen(
@@ -350,7 +350,7 @@ struct OnboardingCopy {
         case .typingStillOff:
             return OnboardingScreen(
                 headline: "Typing is still off.",
-                body: "Turn on Whisper Master on the \"Accessibility\" page. Until then, I copy your words for you to paste.",
+                body: "Turn on Typing.sucks on the \"Accessibility\" page. Until then, I copy your words for you to paste.",
                 row: .buttons([.openSystemSettings, .notNow]))
         case .typingGranted(let row):
             return OnboardingScreen(
@@ -365,7 +365,7 @@ struct OnboardingCopy {
         case .loginNeedsApproval:
             return OnboardingScreen(
                 headline: "One more switch, in Settings.",
-                body: "Turn on Whisper Master under Login Items, then come back here.",
+                body: "Turn on Typing.sucks under Login Items, then come back here.",
                 row: .buttons([.openLoginItems, .notNow]))
         case .loginOn(let row):
             return OnboardingScreen(
@@ -519,7 +519,7 @@ struct OnboardingCopy {
         }
         // 2. A done step waits because the app is not active.
         if context.pausedWhileInactive {
-            return OnboardingLine("Switch back to Whisper Master to go on.")
+            return OnboardingLine("Switch back to Typing.sucks to go on.")
         }
         // 3. The band does not have the keyboard.
         if !context.panelIsKey {

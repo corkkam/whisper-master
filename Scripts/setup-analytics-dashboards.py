@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the Whisper Master product dashboards in PostHog and GA4.
+"""Create the Typing.sucks product dashboards in PostHog and GA4.
 
 The Mac app already ships a typed event catalog (`AnalyticsEvent`). This script
 is the other half: the saved views those events are meant to land in. It is

@@ -139,7 +139,7 @@ actor MCPClient {
         let result = try await request("initialize", params: [
             "protocolVersion": Self.protocolVersion,
             "capabilities": [String: Any](),
-            "clientInfo": ["name": "Whisper Master",
+            "clientInfo": ["name": "Typing.sucks",
                            "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1"],
         ])
         negotiatedVersion = result["protocolVersion"] as? String

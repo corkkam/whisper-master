@@ -22,7 +22,7 @@ final class SleepPreventer {
     private var holds = 0
     private var assertionID: IOPMAssertionID = 0
 
-    private static let reason = "Whisper Master remote dictation" as CFString
+    private static let reason = "Typing.sucks remote dictation" as CFString
 
     /// Take a hold. The first hold creates the assertion.
     func acquire() {

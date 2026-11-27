@@ -396,7 +396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // used to start for every install unconditionally. `reconcileRemoteServer`
         // on the refresh tick picks up later toggles.
         reconcileRemoteServer()
-        // Discover other Macs running Whisper Master on the network (the mesh).
+        // Discover other Macs running Typing.sucks on the network (the mesh).
         // Gated on the same answer as the Nearby Macs page: while that page reads
         // "Coming soon", nothing may browse Bonjour or use Bluetooth in its name —
         // it raised Local Network and Bluetooth prompts for a feature nobody can open.
@@ -668,7 +668,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// matter for the custom-words editor. The tray menu stays the primary surface.
     private func setupMainMenu() {
         ShedLink.showCodingTab = { [weak self] in self?.showCodingTab() }
-        let appName = "Whisper Master"
+        let appName = "Typing.sucks"
         let mainMenu = NSMenu()
 
         let appItem = NSMenuItem()
@@ -718,7 +718,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let button = item.button {
             button.image = BrandAsset.trayTemplateImage(points: 18) ?? Self.statusImage(symbol: "waveform")
             button.imagePosition = .imageOnly
-            button.toolTip = "Whisper Master"
+            button.toolTip = "Typing.sucks"
             button.target = self
             button.action = #selector(statusButtonClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -729,7 +729,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // header / history previews change length.
         menu.minimumWidth = 300
 
-        let header = NSMenuItem(title: "Whisper Master", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Typing.sucks", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         statusHeader = header
@@ -872,7 +872,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         signOutItem = signOutMenuItem
         menu.addItem(
             NSMenuItem(
-                title: "Quit Whisper Master",
+                title: "Quit Typing.sucks",
                 action: #selector(quitApp),
                 keyEquivalent: "q"
             )
@@ -893,7 +893,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
         guard let image = NSImage(
             systemSymbolName: symbol,
-            accessibilityDescription: "Whisper Master"
+            accessibilityDescription: "Typing.sucks"
         )?.withSymbolConfiguration(config) else {
             return nil
         }
@@ -1350,16 +1350,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         switch state.phase {
         case .recording:
-            return ("waveform.circle.fill", "Whisper Master — recording", "Recording…")
+            return ("waveform.circle.fill", "Typing.sucks — recording", "Recording…")
         case .stopping:
-            return ("waveform.circle", "Whisper Master — finalizing", "Finalizing…")
+            return ("waveform.circle", "Typing.sucks — finalizing", "Finalizing…")
         case .preparingModels:
-            return ("arrow.down.circle", "Whisper Master — preparing", "Preparing…")
+            return ("arrow.down.circle", "Typing.sucks — preparing", "Preparing…")
         case .failed:
-            return ("exclamationmark.triangle.fill", "Whisper Master — error", "Error")
+            return ("exclamationmark.triangle.fill", "Typing.sucks — error", "Error")
         case .idle:
             if !state.selectedEngine.isInstalled {
-                return ("arrow.down.circle", "Whisper Master — voice engine not installed", "Voice engine not installed")
+                return ("arrow.down.circle", "Typing.sucks — voice engine not installed", "Voice engine not installed")
             }
             // **The one agent state the menu bar reflects.** An agent blocked on a
             // permission you cannot see is the failure this whole feature exists to
@@ -1369,15 +1369,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // would be noise.
             if state.agents.otherSessionNeedsYou {
                 return (
-                    "hand.raised.fill", "Whisper Master — an agent needs you",
+                    "hand.raised.fill", "Typing.sucks — an agent needs you",
                     "An agent needs you")
             }
             if state.agents.runningSessionCount > 0 {
                 let count = state.agents.runningSessionCount
                 let label = count == 1 ? "1 agent working" : "\(count) agents working"
-                return (nil, "Whisper Master — \(label)", label)
+                return (nil, "Typing.sucks — \(label)", label)
             }
-            return (nil, "Whisper Master — ready", "Ready")
+            return (nil, "Typing.sucks — ready", "Ready")
         }
     }
 
@@ -1403,7 +1403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Whisper Master"
+        window.title = "Typing.sucks"
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
@@ -1955,7 +1955,7 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
     private func postUpdateAvailableNotification(for update: SUAppcastItem) {
         let content = UNMutableNotificationContent()
         content.title = "Update available"
-        content.body = "Whisper Master \(update.displayVersionString) is ready to install."
+        content.body = "Typing.sucks \(update.displayVersionString) is ready to install."
         let request = UNNotificationRequest(
             identifier: Self.updateNotificationIdentifier,
             content: content,
