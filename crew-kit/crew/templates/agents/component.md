@@ -1,7 +1,7 @@
 ---
 name: {{id}}
 description: Crew component agent for {{name}} ({{component_dir}}). Use for any change inside {{paths}}. Owns its INTERFACE.md and DECISIONS.md.
-tools: Read, Grep, Glob, Edit, Write, Bash
+tools: Read, Grep, Glob, Edit, Write, Bash, SubagentHandback
 model: {{model}}
 effort: {{effort}}
 memory: project

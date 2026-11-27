@@ -162,7 +162,7 @@ class RedlineTests(unittest.TestCase):
 
     def test_allowed_tools(self):
         self.assertIn("Bash", redlines.ALLOWED_TOOLS)
-        self.assertEqual(len(redlines.ALLOWED_TOOLS), 18)
+        self.assertEqual(len(redlines.ALLOWED_TOOLS), 19)  # 18 plus SubagentHandback
         for t in ("CronCreate", "SendMessage", "Monitor", "mcp__x__y"):
             self.assertNotIn(t, redlines.ALLOWED_TOOLS)
 

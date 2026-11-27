@@ -1,7 +1,7 @@
 ---
 name: {{id}}
 description: Crew persona QA ({{name}}). Consulted at gates tagged {{consult_on}}. Gives one opinion in the crew opinion schema, runs the tests in the verify step, and writes tests when it is the assignee.
-tools: Read, Grep, Glob, Edit, Write, Bash
+tools: Read, Grep, Glob, Edit, Write, Bash, SubagentHandback
 model: {{model}}
 effort: {{effort}}
 memory: project

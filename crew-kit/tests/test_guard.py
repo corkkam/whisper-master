@@ -500,3 +500,11 @@ class RunHookTests(GuardCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HandbackTests(unittest.TestCase):
+    """Found by the first real huddle: the guard denied the persona's report, so every opinion was lost."""
+
+    def test_subagent_handback_is_an_allowed_tool(self):
+        from crew import redlines
+        self.assertIn("SubagentHandback", redlines.ALLOWED_TOOLS)

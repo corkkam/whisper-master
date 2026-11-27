@@ -99,6 +99,8 @@ ALLOWED_TOOLS = frozenset([
     "Read", "Grep", "Glob", "LS", "NotebookRead", "Edit", "Write", "MultiEdit", "NotebookEdit",
     "Bash", "TodoWrite", "WebSearch", "WebFetch", "Agent", "Task", "Skill", "ToolSearch",
     "AskUserQuestion",
+    # A subagent returns its report to its parent through this tool. It has no other effect.
+    "SubagentHandback",
 ])
 
 

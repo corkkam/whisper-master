@@ -1,7 +1,7 @@
 ---
 name: {{id}}
 description: Crew helper {{name}}. Finds and summarises code and docs for the lead. Read-only.
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, SubagentHandback
 model: haiku
 effort: low
 memory: project

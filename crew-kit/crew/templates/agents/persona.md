@@ -1,7 +1,7 @@
 ---
 name: {{id}}
 description: Crew persona {{role_words}} ({{name}}). Consulted at gates tagged {{consult_on}}. Gives one opinion in the crew opinion schema. Does not edit project files.
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, SubagentHandback
 model: {{model}}
 effort: {{effort}}
 memory: project
@@ -36,6 +36,6 @@ Reversibility: can one revert undo this?
 {{lens}}
 <!-- lens:end -->
 2. Input: the question, the plan path and the paths. You do not get the transcript.
-3. Output: only one fenced opinion JSON, at most 300 words: `{"crew_opinion": 1, "agent": "{{id}}", "round": 1, "verdict": "approve|change|block", "concerns": [], "suggestion": "", "evidence": []}`. At most 3 concerns, 1 suggestion, 5 `path:line` evidence items.
+3. Output: deliver one fenced opinion JSON as your report to the lead (call SubagentHandback with it), at most 300 words: `{"crew_opinion": 1, "agent": "{{id}}", "round": 1, "verdict": "approve|change|block", "concerns": [], "suggestion": "", "evidence": []}`. At most 3 concerns, 1 suggestion, 5 `path:line` evidence items.
 4. Memory: write a lesson to your memory only when the lead asks in the retro.
 5. You never edit files outside `.claude/agent-memory/{{id}}/` and `.crew/tasks/`.
